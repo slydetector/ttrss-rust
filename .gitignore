@@ -6,8 +6,9 @@ target/
 oracle/data/
 oracle/corpus/scenarios.toml
 
-# Local env / secrets
+# Local env / secrets (oracle/.env is non-sensitive and committed on purpose)
 .env
+!oracle/.env
 *.log
 .pytest_cache/
 __pycache__/
