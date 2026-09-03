@@ -1,0 +1,473 @@
+# Golden corpus: the request set the oracle (and later the Rust server) must
+# answer identically.
+#
+# Run with:
+#   tt-rust-harness run --base-url http://127.0.0.1:8280/tt-rss \
+#       --scenarios oracle/corpus/scenarios.template.toml \
+#       --vars oracle/data/ids.json --out <run-dir>
+#
+# Variable sources:
+#   --vars ids.json (flattened: {{admin.login}}, {{categories.tech_news}}, ...)
+#   live saves:      {{csrf}}, {{csrf_ro}}, {{shell_etag}}, {{api_sid}}
+#
+# Rules:
+#   - reads only; the suite ends with login/logout flows (no data mutations,
+#     except the inevitable session rows)
+#   - backend.php traffic is form-urlencoded; /api/index.php is JSON
+#   - csrf_token is re-derived from the live shell on every run
+
+base_url = "http://127.0.0.1:8280/tt-rss"
+
+# ---------------------------------------------------------------- public ---
+
+[[step]]
+name = "healthcheck"
+path = "/healthz"
+expect_status = 200
+
+[[step]]
+name = "login_page"
+path = "/index.php"
+expect_status = 200
+
+[[step]]
+name = "static_svg"
+path = "/images/three-dots.svg"
+expect_status = 200
+
+# ------------------------------------------------------------------- login ---
+
+[[step]]
+name = "web_login"
+method = "POST"
+path = "/public.php"
+query = [ ["return", "{{base}}/index.php"] ]
+form = [ ["op", "login"],
+         ["login", "{{admin.login}}"],
+         ["password", "{{admin.password}}"] ]
+# Admin has TOTP enabled: first POST returns the OTP challenge page.
+expect_status = 200
+
+[[step]]
+name = "web_login_otp"
+method = "POST"
+path = "/public.php"
+query = [ ["return", "{{base}}/index.php"] ]
+form = [ ["op", "login"],
+         ["login", "{{admin.login}}"],
+         ["password", "{{admin.password}}"],
+         ["otp", "{{totp:{{totp_secret}}}}"] ]
+expect_status = 302
+
+[[step]]
+name = "shell"
+path = "/index.php"
+expect_status = 200
+save = { csrf = 'regex:const __csrf_token = "([0-9a-f]{32})"', shell_etag = "header:ETag" }
+
+[[step]]
+name = "shell_conditional"
+path = "/index.php"
+headers = [ ["If-None-Match", "{{shell_etag}}"] ]
+expect_status = 304
+
+[[step]]
+name = "prefs_page"
+path = "/prefs.php"
+expect_status = 200
+
+# ------------------------------------------------------------ backend.php ---
+
+[[step]]
+name = "rpc_runtime_info"
+method = "POST"
+path = "/backend.php"
+form = [ ["op", "RPC"], ["method", "getRuntimeInfo"], ["csrf_token", "{{csrf}}"] ]
+expect_status = 200
+
+[[step]]
+name = "rpc_counters"
+method = "POST"
+path = "/backend.php"
+form = [ ["op", "RPC"], ["method", "getAllCounters"], ["csrf_token", "{{csrf}}"] ]
+expect_status = 200
+
+[[step]]
+name = "rpc_sanity_check"
+method = "POST"
+path = "/backend.php"
+form = [ ["op", "RPC"], ["method", "sanityCheck"], ["csrf_token", "{{csrf}}"] ]
+expect_status = 200
+
+[[step]]
+name = "rpc_check_for_updates"
+method = "POST"
+path = "/backend.php"
+form = [ ["op", "RPC"], ["method", "checkforupdates"], ["csrf_token", "{{csrf}}"] ]
+expect_status = 200
+
+[[step]]
+name = "rpc_hotkey_help"
+method = "POST"
+path = "/backend.php"
+form = [ ["op", "RPC"], ["method", "hotkeyHelp"], ["csrf_token", "{{csrf}}"] ]
+expect_status = 200
+
+[[step]]
+name = "feed_tree"
+method = "POST"
+path = "/backend.php"
+form = [ ["op", "Pref_Feeds"], ["method", "getfeedtree"],
+         ["category_id", ""], ["sort_key", "position"], ["direction", "asc"],
+         ["csrf_token", "{{csrf}}"] ]
+expect_status = 200
+
+[[step]]
+name = "feed_tree_tech_news"
+method = "POST"
+path = "/backend.php"
+form = [ ["op", "Pref_Feeds"], ["method", "getfeedtree"],
+         ["category_id", "{{categories.tech_news}}"],
+         ["sort_key", "position"], ["direction", "asc"],
+         ["csrf_token", "{{csrf}}"] ]
+expect_status = 200
+
+[[step]]
+name = "feeds_with_errors"
+method = "POST"
+path = "/backend.php"
+form = [ ["op", "Pref_Feeds"], ["method", "feedsWithErrors"],
+         ["csrf_token", "{{csrf}}"] ]
+expect_status = 200
+
+[[step]]
+name = "inactive_feeds"
+method = "POST"
+path = "/backend.php"
+form = [ ["op", "Pref_Feeds"], ["method", "inactiveFeeds"],
+         ["csrf_token", "{{csrf}}"] ]
+expect_status = 200
+
+[[step]]
+name = "headlines_feed_unread"
+method = "POST"
+path = "/backend.php"
+# Feeds::view params: feed, m (unread|all), cat, skip, view_mode, order_by, fid
+form = [ ["op", "Feeds"], ["method", "view"],
+         ["feed", "{{feed_ars}}"], ["m", "unread"],
+         ["csrf_token", "{{csrf}}"] ]
+expect_status = 200
+
+[[step]]
+name = "headlines_feed_all"
+method = "POST"
+path = "/backend.php"
+form = [ ["op", "Feeds"], ["method", "view"],
+         ["feed", "{{feed_ars}}"], ["m", "all"],
+         ["csrf_token", "{{csrf}}"] ]
+expect_status = 200
+
+[[step]]
+name = "headlines_category"
+method = "POST"
+path = "/backend.php"
+form = [ ["op", "Feeds"], ["method", "view"],
+         ["feed", "{{categories.news}}"], ["m", "all"], ["cat", "1"],
+         ["csrf_token", "{{csrf}}"] ]
+expect_status = 200
+
+[[step]]
+name = "headlines_search"
+method = "POST"
+path = "/backend.php"
+form = [ ["op", "Feeds"], ["method", "search"],
+         ["query", "linux"], ["feed_id", ""],
+         ["start_pos", "0"], ["limit", "15"],
+         ["csrf_token", "{{csrf}}"] ]
+expect_status = 200
+
+[[step]]
+name = "update_debugger"
+method = "POST"
+path = "/backend.php"
+form = [ ["op", "Feeds"], ["method", "updatedebugger"],
+         ["feed_id", "{{feed_ars}}"], ["csrf_token", "{{csrf}}"] ]
+expect_status = 200
+
+[[step]]
+name = "article_metadata"
+method = "POST"
+path = "/backend.php"
+form = [ ["op", "Article"], ["method", "getmetadatabyid"],
+         ["int_id", "{{article_1}}"], ["csrf_token", "{{csrf}}"] ]
+expect_status = 200
+
+[[step]]
+name = "article_print_tags"
+method = "POST"
+path = "/backend.php"
+form = [ ["op", "Article"], ["method", "printArticleTags"],
+         ["int_id", "{{article_1}}"], ["csrf_token", "{{csrf}}"] ]
+expect_status = 200
+
+[[step]]
+name = "labels_tree"
+method = "POST"
+path = "/backend.php"
+form = [ ["op", "Pref_Labels"], ["method", "getlabeltree"],
+         ["csrf_token", "{{csrf}}"] ]
+expect_status = 200
+
+[[step]]
+name = "filters_tree"
+method = "POST"
+path = "/backend.php"
+form = [ ["op", "Pref_Filters"], ["method", "getfiltertree"],
+         ["csrf_token", "{{csrf}}"] ]
+expect_status = 200
+
+[[step]]
+name = "users_index"
+method = "POST"
+path = "/backend.php"
+form = [ ["op", "Pref_Users"], ["method", "index"],
+         ["csrf_token", "{{csrf}}"] ]
+expect_status = 200
+
+[[step]]
+name = "user_details"
+method = "POST"
+path = "/backend.php"
+form = [ ["op", "Pref_Users"], ["method", "userdetails"],
+         ["user", "{{testuser.uid}}"], ["csrf_token", "{{csrf}}"] ]
+expect_status = 200
+
+[[step]]
+name = "system_scheduled_tasks"
+method = "POST"
+path = "/backend.php"
+form = [ ["op", "Pref_System"], ["method", "getscheduledtasks"],
+         ["csrf_token", "{{csrf}}"] ]
+expect_status = 200
+
+[[step]]
+name = "plugins_list"
+method = "POST"
+path = "/backend.php"
+form = [ ["op", "Pref_Prefs"], ["method", "getPluginsList"],
+         ["csrf_token", "{{csrf}}"] ]
+expect_status = 200
+
+[[step]]
+name = "plugins_available"
+method = "POST"
+path = "/backend.php"
+form = [ ["op", "Pref_Prefs"], ["method", "getAvailablePlugins"],
+         ["csrf_token", "{{csrf}}"] ]
+expect_status = 200
+
+[[step]]
+name = "profiles_list"
+method = "POST"
+path = "/backend.php"
+form = [ ["op", "Pref_Prefs"], ["method", "getProfiles"],
+         ["csrf_token", "{{csrf}}"] ]
+expect_status = 200
+
+[[step]]
+name = "digest_preview"
+method = "POST"
+path = "/backend.php"
+form = [ ["op", "Pref_Prefs"], ["method", "previewDigest"],
+         ["csrf_token", "{{csrf}}"] ]
+expect_status = 200
+
+# -------------------------------------------------------------- external ---
+# API level 23 (JSON). api_sid is auto-injected into all subsequent calls.
+
+[[step]]
+name = "api_login"
+method = "POST"
+path = "/api/index.php"
+# With OTP enabled, service logins only accept app passwords.
+json = { op = "login", user = "{{admin.login}}", password = "{{app_password}}" }
+expect_status = 200
+save = { api_sid = "json:content.session_id" }
+
+[[step]]
+name = "api_is_logged_in"
+method = "POST"
+path = "/api/index.php"
+json = { op = "isloggedin" }
+expect_status = 200
+
+[[step]]
+name = "api_get_config"
+method = "POST"
+path = "/api/index.php"
+json = { op = "getconfig" }
+expect_status = 200
+
+[[step]]
+name = "api_get_unread"
+method = "POST"
+path = "/api/index.php"
+json = { op = "getunread" }
+expect_status = 200
+
+[[step]]
+name = "api_get_counters"
+method = "POST"
+path = "/api/index.php"
+json = { op = "getcounters" }
+expect_status = 200
+
+[[step]]
+name = "api_get_feeds"
+method = "POST"
+path = "/api/index.php"
+json = { op = "getfeeds", category_id = "{{categories.news}}", unread_only = false, limit = 0, offset = 0, include_nested = true }
+expect_status = 200
+
+[[step]]
+name = "api_get_categories"
+method = "POST"
+path = "/api/index.php"
+json = { op = "getcategories", include_empty = true }
+expect_status = 200
+
+[[step]]
+name = "api_get_feed_tree"
+method = "POST"
+path = "/api/index.php"
+json = { op = "getfeedtree", include_empty = true }
+expect_status = 200
+
+[[step]]
+name = "api_get_labels"
+method = "POST"
+path = "/api/index.php"
+json = { op = "getlabels" }
+expect_status = 200
+
+[[step]]
+name = "api_get_headlines_feed"
+method = "POST"
+path = "/api/index.php"
+json = { op = "getheadlines", feed_id = "{{feed_ars}}", limit = 10, skip = 0, view_mode = "all", show_excerpt = true }
+expect_status = 200
+
+[[step]]
+name = "api_get_headlines_cat"
+method = "POST"
+path = "/api/index.php"
+json = { op = "getheadlines", feed_id = "{{categories.tech_news}}", is_cat = true, limit = 10, skip = 0 }
+expect_status = 200
+
+[[step]]
+name = "api_get_article"
+method = "POST"
+path = "/api/index.php"
+json = { op = "getarticle", article_id = ["{{article_1}}"], sanitize = false }
+expect_status = 200
+
+[[step]]
+name = "api_get_pref"
+method = "POST"
+path = "/api/index.php"
+json = { op = "getpref", pref_name = "USER_CSS_THEME" }
+expect_status = 200
+
+# ------------------------------------------------- public.php (syndication) ---
+
+[[step]]
+name = "syndication_feed_atom"
+path = "/public.php"
+query = [ ["op", "rss"], ["id", "{{feed_ars}}"],
+          ["key", "{{access_key_feed_ars}}"], ["limit", "10"],
+          ["format", "atom"] ]
+expect_status = 200
+
+[[step]]
+name = "syndication_cat_rss"
+path = "/public.php"
+query = [ ["op", "rss"], ["id", "{{categories.tech_news}}"],
+          ["key", "{{access_key_cat_tech}}"], ["is_cat", "true"],
+          ["limit", "10"], ["format", "rss"] ]
+expect_status = 200
+
+[[step]]
+name = "syndication_bad_key"
+path = "/public.php"
+query = [ ["op", "rss"], ["id", "{{feed_ars}}"],
+          ["key", "deadbeef0000"], ["limit", "5"], ["format", "rss"] ]
+expect_status = 403
+
+[[step]]
+name = "cached_icon"
+path = "/public.php"
+query = [ ["op", "cached"], ["file", "feed-icons/1"] ]
+expect_status = 200
+
+[[step]]
+name = "feed_icon"
+path = "/public.php"
+query = [ ["op", "feed_icon"], ["id", "{{feed_ars}}"] ]
+expect_status = 200
+
+# ------------------------------------------------------------ readonly user ---
+
+[[step]]
+name = "logout_admin"
+method = "POST"
+path = "/public.php"
+form = [ ["op", "logout"], ["csrf_token", "{{csrf}}"] ]
+expect_status = 302
+
+[[step]]
+name = "shell_after_logout"
+path = "/index.php"
+expect_status = 200
+
+[[step]]
+name = "web_login_readonly"
+method = "POST"
+path = "/public.php"
+query = [ ["return", "{{base}}/index.php"] ]
+form = [ ["op", "login"],
+         ["login", "{{readonly.login}}"],
+         ["password", "{{readonly.password}}"] ]
+expect_status = 302
+
+[[step]]
+name = "shell_readonly"
+path = "/index.php"
+expect_status = 200
+save = { csrf_ro = 'regex:const __csrf_token = "([0-9a-f]{32})"' }
+
+[[step]]
+name = "readonly_feed_tree"
+method = "POST"
+path = "/backend.php"
+form = [ ["op", "Pref_Feeds"], ["method", "getfeedtree"],
+         ["category_id", ""], ["sort_key", "position"], ["direction", "asc"],
+         ["csrf_token", "{{csrf_ro}}"] ]
+expect_status = 200
+
+[[step]]
+name = "readonly_headlines"
+method = "POST"
+path = "/backend.php"
+form = [ ["op", "Feeds"], ["method", "view"],
+         ["feed", "{{feed_ars}}"], ["m", "all"],
+         ["csrf_token", "{{csrf_ro}}"] ]
+# Oracle behavior: readonly user does not own this feed, so Feeds::view
+# returns the "Feed not found." error-feed JSON (200).
+expect_status = 200
+
+[[step]]
+name = "logout_readonly"
+method = "POST"
+path = "/public.php"
+form = [ ["op", "logout"], ["csrf_token", "{{csrf_ro}}"] ]
+expect_status = 302

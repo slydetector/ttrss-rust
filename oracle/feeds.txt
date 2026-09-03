@@ -1,0 +1,51 @@
+# Golden-dataset feed list for the oracle.
+# Format: <category> | <feed url>
+# The category path uses '/' for nesting (matches the seeded category tree).
+# All live URLs were verified to return a parseable feed. Formats covered:
+# RSS 2.0, Atom, RDF 1.0 (nature.rss), feeds with enclosures (podcasts).
+
+News | https://arstechnica.com/information-technology/feed/
+News | https://www.theverge.com/rss/index.xml
+News | https://techcrunch.com/feed/
+News | https://www.wired.com/feed/rss
+News | https://www.engadget.com/rss.xml
+News | https://www.bleepingcomputer.com/feed/
+News | https://krebsonsecurity.com/feed/
+News | https://www.theregister.com/headlines.atom
+News | https://9to5google.com/feed/
+News | https://www.technologyreview.com/feed/
+News | https://www.phoronix.com/rss.php
+News/World News | https://feeds.bbci.co.uk/news/world/rss.xml
+News/World News | https://www.theguardian.com/world/rss
+News | https://hnrss.org/frontpage
+News | https://hnrss.org/newest
+
+Development | https://lobste.rs/rss
+Development | https://lwn.net/headlines/rss
+Development | https://blog.python.org/feeds/posts/default
+Development | https://blog.chromium.org/atom.xml
+Development | https://github.blog/feed/
+Development | https://blog.mozilla.org/feed/
+Development | https://archlinux.org/feeds/news/
+Development | https://fedoramagazine.org/feed/
+Development/Rust | https://blog.rust-lang.org/feed.xml
+Development/Rust | https://this-week-in-rust.org/rss.xml
+Development/Blogs | https://simonwillison.net/atom/everything/
+Development/Blogs | https://antirez.com/rss
+Development/Blogs | https://matklad.github.io/feed.xml
+Development/Blogs | https://blog.acolyer.org/feed/
+
+Science | https://www.nature.com/nature.rss
+Science | https://www.sciencenews.org/feed
+Science | https://rss.arxiv.org/rss/cs.OS
+Science | https://huggingface.co/blog/feed.xml
+Science | https://research.google/blog/rss/
+Science | https://feeds.feedburner.com/scitechdaily
+
+Media | https://changelog.com/podcast/feed
+Media | https://lexfridman.com/feed/podcast/
+Media | https://talkpython.fm/rss
+
+Broken | https://nonexistent-tt-rust-oracle-8280.example.com/feed.xml
+Broken | https://arstechnica.com/no-such-feed-path-404
+Broken | https://example.com/

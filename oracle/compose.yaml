@@ -1,0 +1,88 @@
+# tt-rust oracle: live PHP tt-rss instance used as the reference implementation.
+#
+# Services:
+#   db      - PostgreSQL 15 (data volume kept across up/down)
+#   app     - PHP-FPM application (schema init, admin setup, static file origin)
+#   updater - update_daemon2.php fork-based feed updater daemon
+#   web     - nginx in front of app (serves static files + proxies *.php)
+#
+# app/updater/web share one volume at /var/www/html (as in the upstream docker
+# setup): the app container rsyncs the baked-in source tree there on startup.
+#
+# Usage: from oracle/ run `docker compose up -d` (or scripts/up.sh).
+
+name: tt-rust-oracle
+
+x-app-env: &app-env
+  TTRSS_DB_HOST: db
+  TTRSS_DB_PORT: "5432"
+  TTRSS_DB_USER: ${TTRSS_DB_USER}
+  TTRSS_DB_NAME: ${TTRSS_DB_NAME}
+  TTRSS_DB_PASS: ${TTRSS_DB_PASS}
+  ADMIN_USER_PASS: ${ADMIN_USER_PASS}
+  AUTO_CREATE_USER: ${AUTO_CREATE_USER}
+  AUTO_CREATE_USER_PASS: ${AUTO_CREATE_USER_PASS}
+  AUTO_CREATE_USER_ACCESS_LEVEL: ${AUTO_CREATE_USER_ACCESS_LEVEL}
+  TTRSS_PLUGINS: ${TTRSS_PLUGINS}
+  TTRSS_ENCRYPTION_KEY: ${TTRSS_ENCRYPTION_KEY}
+  TTRSS_DAEMON_SLEEP_INTERVAL: ${TTRSS_DAEMON_SLEEP_INTERVAL}
+  # Don't git-pull bundled local plugins on startup (offline-friendly).
+  TTRSS_NO_STARTUP_PLUGIN_UPDATES: "1"
+  # Deterministic self URL (avoids host-name drift between runs).
+  # Standard deployment: app lives under /tt-rss/ (nginx APP_BASE default).
+  TTRSS_SELF_URL_PATH: http://127.0.0.1:8280/tt-rss/
+
+services:
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: ${TTRSS_DB_USER}
+      POSTGRES_PASSWORD: ${TTRSS_DB_PASS}
+      POSTGRES_DB: ${TTRSS_DB_NAME}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${TTRSS_DB_USER} -d ${TTRSS_DB_NAME}"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  app:
+    image: ghcr.io/tt-rss/tt-rss:sha-2f7d831
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      <<: *app-env
+    volumes:
+      - webroot:/var/www/html
+
+  updater:
+    image: ghcr.io/tt-rss/tt-rss:sha-2f7d831
+    command: ["/opt/tt-rss/updater.sh"]
+    depends_on:
+      - app
+    environment:
+      <<: *app-env
+    volumes:
+      - webroot:/var/www/html
+
+  web:
+    image: ghcr.io/tt-rss/tt-rss-web-nginx:sha-2f7d831
+    depends_on:
+      - app
+    environment:
+      # Standard deployment: app under /tt-rss/ (image defaults: APP_BASE=/tt-rss,
+      # APP_WEB_ROOT=/var/www/html). Kept explicit for clarity.
+      APP_WEB_ROOT: /var/www/html
+      APP_BASE: /tt-rss
+      APP_UPSTREAM: app
+      HTTP_PORT: "80"
+    ports:
+      - "${HTTP_PORT}:80"
+    volumes:
+      - webroot:/var/www/html
+
+volumes:
+  db-data:
+  webroot:

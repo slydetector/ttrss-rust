@@ -1,0 +1,18 @@
+# Build artifacts
+target/
+*.rs.bk
+
+# Oracle generated data (dumps, fixtures, logs)
+oracle/data/
+oracle/corpus/scenarios.toml
+
+# Local env / secrets
+.env
+*.log
+.pytest_cache/
+__pycache__/
+.venv/
+
+# The upstream PHP checkout is its own git repo; keep it out of this one.
+# (Consider adding it as a git submodule once the port stabilizes.)
+/tt-rss/
