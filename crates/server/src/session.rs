@@ -53,7 +53,9 @@ impl Sess {
         g.data = data;
         g.dirty = true;
     }
-    /// Mutate the session data in place, marking it dirty.
+    /// Mutate the session data in place, marking it dirty. (Used by the
+    /// backend/prefs handlers in M2+; kept now so the `Sess` API is stable.)
+    #[allow(dead_code)]
     pub fn with_mut(&self, f: impl FnOnce(&mut Session)) {
         let mut g = self.inner.lock().unwrap();
         f(&mut g.data);
@@ -114,6 +116,14 @@ fn now_unix() -> i64 {
         .unwrap_or(0)
 }
 
+/// Format a unix timestamp as an RFC 1123 date, e.g.
+/// `Sat, 05 Sep 2026 05:38:51 GMT` (for the re-stamped cookie `expires`).
+fn rfc1123(unix_secs: i64) -> String {
+    chrono::DateTime::from_timestamp(unix_secs, 0)
+        .map(|dt| dt.format("%a, %d %b %Y %H:%M:%S GMT").to_string())
+        .unwrap_or_default()
+}
+
 /// Router layer: load the session into the request extensions and persist it
 /// after the handler if it changed. Anonymous requests skip the DB entirely.
 /// Applied in `main` via `middleware::from_fn_with_state(state, session_middleware)`.
@@ -133,7 +143,29 @@ pub async fn session_middleware(
     };
     req.extensions_mut().insert(sess.clone());
 
-    let res = next.run(req).await;
+    let mut res = next.run(req).await;
+
+    // Rolling cookie re-stamp (PHP `extend_session`): authenticated sessions
+    // refresh the `ttrss_sid` cookie on every response with a fresh lifetime.
+    // Skipped when the handler already set the cookie (e.g. the login 302,
+    // which emits the simple `path=/` cookie from session creation).
+    if res.headers().get(header::SET_COOKIE).is_none() {
+        let g = sess.inner.lock().unwrap();
+        let authenticated = !g.id.is_empty() && g.data.is_logged_in();
+        let sid = g.id.clone();
+        drop(g);
+        if authenticated {
+            let expires = rfc1123(now_unix() + COOKIE_LIFETIME);
+            let cookie = format!(
+                "{}={sid}; expires={expires}; Max-Age={COOKIE_LIFETIME}; path=/",
+                SESSION_NAME
+            );
+            res.headers_mut().append(
+                header::SET_COOKIE,
+                cookie.parse().expect("valid set-cookie header"),
+            );
+        }
+    }
 
     if sess.inner.lock().unwrap().dirty {
         let (id, data) = {

@@ -13,6 +13,7 @@ anyhow.workspace = true
 axum.workspace = true
 tokio.workspace = true
 chrono.workspace = true
+md5.workspace = true
 mime_guess.workspace = true
 rand.workspace = true
 serde.workspace = true

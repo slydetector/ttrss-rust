@@ -188,7 +188,7 @@ Key PHP behaviors discovered (the Rust port must match these):
 - Updater daemon: fork-based; `docker compose stop` SIGKILLs it after the 10 s
   grace (exit 137) — expected, not a crash.
 
-### M1 status: IN PROGRESS (2026-09-04)
+### M1 status: COMPLETE (2026-09-04)
 
 Goal: `tt-rust serve` boots, serves static + login, and can log in against the
 golden DB with encrypted DB sessions; SPA shell renders. Progress is
@@ -239,14 +239,32 @@ Done:
   login verified end-to-end: the stored row decrypts to the right keys
   (`uid=1`, `name=admin`, `access_level=10`, `auth_module=auth_internal`,
   `ref_schema_version=151`, `csrf_token`, `pwd_hash`, `bw_limit`/`safe_mode`).
-- **Verified 3/3 static surfaces** (`healthz`, login page, `static_svg`) plus the
-  4-exchange login flow above. Whole workspace: **48 tests passing, clippy clean**
-  (two `dead_code` warnings are the shell's `with_mut`/`COOKIE_LIFETIME`, used next).
+- **Authenticated SPA shell renderer** (`templates/shell.html.tpl` +
+  `render_shell`): the full `index.php` shell — container DOM (feedTree,
+  headlinesInnerContainer, content-wrap, toolbar, cmdline, …), the
+  `const __csrf_token` (from the session), the per-plugin `Plugins.*` JS blocks,
+  theme/PWA metadata. Headers match the oracle: `text/html; charset=utf-8` (the
+  shell is lowercase `utf-8`, the login page is uppercase `UTF-8`),
+  `Cache-Control: private, no-cache`, `ETag: "<md5(body)>'>`, and `If-None-Match`
+  → 304. The rolling cookie re-stamp (PHP `extend_session`) is in the session
+  middleware: authenticated responses re-emit `Set-Cookie: ttrss_sid=…;
+  expires=<now+86400>; Max-Age=86400; path=/` (skipped when the handler already
+  set the cookie, e.g. the login 302).
+- **Harness normalizer:** `UNIX_TS` now normalizes bare 10-digit unix epochs
+  (the dojoConfig `cacheBust` and feed-publish epochs in API JSON) that the
+  URL-only `CACHE_BUST` didn't catch. The `<script>`/`<style>` code blocks are
+  whitespace-collapsed so indentation (tabs vs spaces) doesn't cause spurious
+  mismatches while a real token change still shows up.
+- **Verified 6/6 against the oracle through the comparator:** `healthcheck`,
+  `login_page`, `static_svg`, `web_login` (200 challenge), `web_login_otp` (302),
+  `shell` (200 SPA shell), `shell_conditional` (304). Whole workspace:
+  **49 tests passing, clippy clean**.
 
-Remaining for M1:
-- Authenticated SPA shell renderer (container DOM, `__csrf_token`, theme consts,
-  per-plugin `Plugins.*` blocks) + ETag/304 (`"<md5(body)>'>` / `If-None-Match`) +
-  rolling cookie re-stamp on authenticated responses. This is the M1→M2 hand-off.
+M1 is done: `tt-rust serve` boots, serves static byte-for-byte, renders the
+login page, logs in (SSHA-512 + TOTP) against the golden DB, maintains encrypted
+DB sessions, and renders the authenticated SPA shell. Next (M2) makes the SPA
+actually load data read-only: the `backend.php` RPC surface (`getfeedtree`,
+`Feeds.view`, …) so the feed tree and headlines render on real data.
 
 Design notes (this increment):
 - HTML compatibility = normalized/structural (parser-based DOM) + exact dynamic

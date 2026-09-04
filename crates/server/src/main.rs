@@ -5,9 +5,8 @@
 //!   * the login page (GET `/` and `/index.php` when not authenticated),
 //!   * the login `POST` (`public.php?op=login`), including the TOTP challenge,
 //!   * DB-backed encrypted sessions (read per request, persisted when changed),
+//!   * the authenticated SPA shell (GET `/` and `/index.php`),
 //!   * `/healthz`.
-//!
-//! The authenticated SPA shell lands in the next increment.
 
 mod auth;
 mod mime;
@@ -17,7 +16,7 @@ mod session;
 use axum::{
     body::Body,
     extract::{Extension, Form, Query, Request, State},
-    http::{header, StatusCode},
+    http::{header, HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::get,
     Router,
@@ -76,13 +75,9 @@ fn build_router(state: &AppState) -> Router<AppState> {
         .route("/", get(index))
         .route("/index.php", get(index))
         .route("/public.php", get(public_handler).post(public_handler))
-        .fallback(static_handler)
-        .layer(axum::middleware::from_fn_with_state(
-            state.clone(),
-            session::session_middleware,
-        ));
+        .fallback(static_handler);
 
-    if base.is_empty() {
+    let app = if base.is_empty() {
         inner
     } else {
         // `nest` maps `<base>` and `<base>/…` but not `<base>/` (trailing
@@ -91,7 +86,14 @@ fn build_router(state: &AppState) -> Router<AppState> {
         Router::new()
             .nest(&base, inner)
             .route(&base_slash, get(index))
-    }
+    };
+
+    // Session middleware at the outer level so every route (inner + the
+    // explicit trailing-slash index) gets the session handle + cookie re-stamp.
+    app.layer(axum::middleware::from_fn_with_state(
+        state.clone(),
+        session::session_middleware,
+    ))
 }
 
 async fn healthz() -> impl IntoResponse {
@@ -102,15 +104,59 @@ async fn healthz() -> impl IntoResponse {
         .expect("valid response")
 }
 
-/// GET `/` and `/index.php` — the login page (not-authenticated case).
-async fn index(State(state): State<AppState>) -> impl IntoResponse {
-    let html = render::render_login_page(&state.config);
+/// GET `/` and `/index.php` — the authenticated SPA shell, or the login page
+/// when the session has no logged-in user. The shell is revalidated via ETag.
+async fn index(
+    State(state): State<AppState>,
+    Extension(sess): Extension<session::Sess>,
+    headers: HeaderMap,
+) -> Response {
+    let data = sess.data();
+    if !data.is_logged_in() {
+        // Not authenticated → login page.
+        let html = render::render_login_page(&state.config);
+        return axum::http::Response::builder()
+            .status(StatusCode::OK)
+            .header(header::CONTENT_TYPE, "text/html; charset=UTF-8")
+            .header(header::CACHE_CONTROL, "private, no-cache")
+            .body(Body::from(html))
+            .expect("valid response");
+    }
+    // Authenticated → shell.
+    let csrf = data.csrf_token().unwrap_or("");
+    let ts = render::scripts_timestamp(state.config.docroot.as_path());
+    let html = render::render_shell(csrf, ts);
+    let etag = format!("\"{}\"", md5_hex(&html));
+    // `send_conditional_html`: 304 when the client's validator matches.
+    if headers
+        .get(header::IF_NONE_MATCH)
+        .and_then(|v| v.to_str().ok())
+        == Some(etag.as_str())
+    {
+        return axum::http::Response::builder()
+            .status(StatusCode::NOT_MODIFIED)
+            .header(header::CACHE_CONTROL, "private, no-cache")
+            .header(header::ETAG, &etag)
+            .body(Body::empty())
+            .expect("valid response");
+    }
     axum::http::Response::builder()
         .status(StatusCode::OK)
-        .header(header::CONTENT_TYPE, "text/html; charset=UTF-8")
+        .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
         .header(header::CACHE_CONTROL, "private, no-cache")
+        .header(header::ETAG, &etag)
         .body(Body::from(html))
         .expect("valid response")
+}
+
+/// `md5` of a byte slice, lowercase hex (for the shell ETag `"<md5>"`).
+fn md5_hex(data: &str) -> String {
+    let digest = md5::compute(data.as_bytes());
+    let mut s = String::with_capacity(32);
+    for b in digest.as_slice() {
+        s.push_str(&format!("{b:02x}"));
+    }
+    s
 }
 
 /// POST/GET `public.php` — dispatch on `op`. M1 handles `op=login`;

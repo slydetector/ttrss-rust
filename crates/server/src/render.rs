@@ -67,6 +67,7 @@ pub fn urlencode(s: &str) -> String {
 
 const LOGIN_TEMPLATE: &str = include_str!("../templates/login.html.tpl");
 const OTP_TEMPLATE: &str = include_str!("../templates/otp_challenge.html.tpl");
+const SHELL_TEMPLATE: &str = include_str!("../templates/shell.html.tpl");
 
 /// Minimal HTML-escape for attribute values (PHP escapes these in `hidden_tag`).
 fn html_escape(s: &str) -> String {
@@ -100,6 +101,16 @@ pub fn render_otp_challenge(config: &Config, return_url: &str, form: &OtpForm) -
         .replace("__SAFE_MODE__", &html_escape(&form.safe_mode))
         .replace("__REMEMBER_ME__", &html_escape(&form.remember_me))
         .replace("__PROFILE__", &html_escape(&form.profile))
+}
+
+/// Render the authenticated SPA shell (`index.php`). The skeleton (container
+/// divs, per-plugin `Plugins.*` blocks, theme/PWA metadata) is fixed for the
+/// golden dataset; the only per-session dynamic value is the CSRF token, plus
+/// the environment-derived scripts cache-bust timestamp.
+pub fn render_shell(csrf_token: &str, scripts_ts: i64) -> String {
+    SHELL_TEMPLATE
+        .replace("__CSRF_TOKEN__", csrf_token)
+        .replace("__SCRIPTS_TS__", &scripts_ts.to_string())
 }
 
 /// Render the not-authenticated login page.

@@ -49,6 +49,15 @@ static HEX32: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"\b[0
 static CACHE_BUST: LazyLock<regex::Regex> =
     LazyLock::new(|| regex::Regex::new(r"\?\d{6,}").unwrap());
 
+/// A bare 10-digit unix timestamp (e.g. the dojoConfig `cacheBust: "1788113929"`
+/// in the shell, or a feed-publish epoch in API JSON). Current epochs are ~10
+/// digits starting with `1`; the `\b` boundaries keep it from matching inside a
+/// longer digit run (digits are word chars), so an all-digit 32-hex value is
+/// left to the hex normalizers. File-mtime / "now" dependent, so it
+/// legitimately differs between the oracle and the port.
+static UNIX_TS: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r"\b1\d{9}\b").unwrap());
+
 /// Whitespace that exists only between two tags (i.e. `>  ...  <` with nothing
 /// but whitespace inside). Collapsing it compares HTML structure while leaving
 /// real text content (e.g. `>Use less traffic<`) untouched.
@@ -61,6 +70,7 @@ pub fn normalize_string(s: &str) -> String {
     out = ISO_TS.replace_all(&out, "<ts>").into_owned();
     out = SLASH_TS.replace_all(&out, "<ts>").into_owned();
     out = CACHE_BUST.replace_all(&out, "?").into_owned();
+    out = UNIX_TS.replace_all(&out, "<ts>").into_owned();
     out = HEX64.replace_all(&out, "<hex64>").into_owned();
     out = SHA1.replace_all(&out, "<sha1>").into_owned();
     out = HEX32.replace_all(&out, "<hex32>").into_owned();
@@ -141,5 +151,15 @@ mod tests {
         let a = "const __csrf_token = \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\";";
         let b = "const __csrf_token = \"ffffffffffffffffffffffffffffffff\";";
         assert_eq!(normalize_text(a), normalize_text(b));
+    }
+
+    #[test]
+    fn bare_unix_timestamp_normalized() {
+        assert_eq!(normalize_string("1788113929"), "<ts>");
+        assert_eq!(normalize_string("cacheBust: 1788113929"), "cacheBust: <ts>");
+        // a longer digit run has no boundary, so it's left alone
+        assert_eq!(normalize_string("12345678901234567890"), "12345678901234567890");
+        // small ids are untouched
+        assert_eq!(normalize_string("12345"), "12345");
     }
 }
