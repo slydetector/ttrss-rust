@@ -1,6 +1,8 @@
 # tt-rss PHP → Rust Backend: Migration Plan (project: **tt-rust**)
 
-Status: **v2 — decisions locked** (see §5). Delivery ladder restructured to milestone-first per `research-report.md` (best-practices research). §3 below is updated accordingly.
+Delivery is tracked as a milestone ladder (**M0–M9**, §3). §3a keeps the original
+per-subsystem phase notes (P0–P8) as the detailed work-item reference. Locked
+decisions: §6.
 
 ---
 
@@ -135,7 +137,7 @@ Binary: one **`tt-rust`** binary with subcommands `serve` (web server), `update`
 
 ## 3. Delivery Plan — milestone ladder (M0–M9)
 
-Restructured per `research-report.md` (strangler-fig / vertical-slice / golden-master methodology). **Rule: every milestone ends with a live, demoable end-to-end system and a green oracle-diff harness for everything it claims.** Port order = usage-census order (hot ops first), respecting the read → write → background ladder. Detailed work items per milestone are elaborated as each is started; the original phase notes (P0–P8, kept below as `### Phase notes`) remain the content reference.
+Restructured per `research-report.md` (strangler-fig / vertical-slice / golden-master methodology). **Rule: every milestone ends with a live, demoable end-to-end system and a green oracle-diff harness for everything it claims.** Port order = usage-census order (hot ops first), respecting the read → write → background ladder. §3 (this section) is the **delivery order** (which milestone to demo next); §3a is the **detailed work-item reference** (per-subsystem, consulted as each milestone is started).
 
 | M | Milestone | Demo / exit criteria |
 |---|---|---|
@@ -301,7 +303,12 @@ Design notes (this increment):
 
 ---
 
-## 3a. Original phase notes (content reference for the milestones)
+## 3a. Subsystem work notes (reference — by layer, not by milestone)
+
+Detailed per-file / per-method work items, organized by **subsystem (layer)** rather
+than milestone. Each phase notes the milestone(s) it feeds (`→ Mx`). This is the
+detailed content reference consulted as each milestone is started; the delivery
+*order* itself is §3.
 
 ### Phase 0 — Foundations & test harness (→ M0/M1)
 - Cargo workspace, CI (fmt/clippy/test), GPL-3.0 headers, `rust-version` pin.
