@@ -16,6 +16,7 @@ use serde_json::{json, Map, Value};
 use sqlx::Row;
 use ttrss_core::user;
 
+use crate::feeds;
 use crate::prefs;
 use crate::session::{self, Sess};
 use crate::AppState;
@@ -113,8 +114,22 @@ async fn dispatch(
         return errors("E_UNAUTHORIZED");
     }
 
+    // CSRF gate: `validate_csrf($csrf_token) || $handler->csrf_ignore($method)`.
+    if !validate_csrf(sess, csrf) && !csrf_ignored(op, method) {
+        return errors("E_UNAUTHORIZED");
+    }
+
+    // `Handler_Protected::before`: the handler needs a logged-in user.
+    if is_protected(op) && data.uid().is_none() {
+        return errors("E_UNAUTHORIZED");
+    }
+
     match op {
-        "RPC" => rpc_handler(state, sess, method, csrf, extra).await,
+        "RPC" => rpc_handler(state, sess, method, extra).await,
+        "Pref_Feeds" => match method {
+            "getfeedtree" => feeds::getfeedtree(state, sess, extra).await,
+            _ => unknown_method("Pref_Feeds", method),
+        },
         other => unknown_method(other, method),
     }
 }
@@ -129,26 +144,37 @@ fn unknown_method(handler: &str, method: &str) -> Value {
     json!({ "error": { "code": "E_UNKNOWN_METHOD", "params": [ { "info": format!("{handler}->{method}") } ] } })
 }
 
-/// The `RPC` handler (`Handler_Protected`): CSRF-gated, no per-method
-/// `csrf_ignore`.
+/// The `RPC` handler (`Handler_Protected`): CSRF-gated (in [`dispatch`]), no
+/// per-method `csrf_ignore`.
 async fn rpc_handler(
     state: &AppState,
     sess: &Sess,
     method: &str,
-    csrf: &str,
     extra: &Map<String, Value>,
 ) -> Value {
-    let data = sess.data();
-    let session_csrf = data.csrf_token().unwrap_or("");
-    let valid = !csrf.is_empty() && ct_eq(session_csrf, csrf);
-    if !valid {
-        return errors("E_UNAUTHORIZED");
-    }
     match method {
         "sanityCheck" => sanity_check(state, sess, extra).await,
         "getRuntimeInfo" => json!({ "runtime-info": make_runtime_info(state, sess).await }),
         other => unknown_method("RPC", other),
     }
+}
+
+/// `validate_csrf`: the request token matches the session token (non-empty).
+fn validate_csrf(sess: &Sess, csrf: &str) -> bool {
+    let data = sess.data();
+    let session_csrf = data.csrf_token().unwrap_or("");
+    !csrf.is_empty() && ct_eq(session_csrf, csrf)
+}
+
+/// `Handler::csrf_ignore` per handler. Only the read-only handlers the SPA
+/// drives via GET (no token) are exempt.
+fn csrf_ignored(op: &str, method: &str) -> bool {
+    matches!(op, "Pref_Feeds") && matches!(method, "index" | "getfeedtree")
+}
+
+/// `Handler_Protected` handlers (all the ones ported so far) require a user.
+fn is_protected(op: &str) -> bool {
+    matches!(op, "RPC" | "Pref_Feeds")
 }
 
 /// `RPC::sanityCheck`.

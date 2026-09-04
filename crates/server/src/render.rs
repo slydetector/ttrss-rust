@@ -149,6 +149,7 @@ mod tests {
             self_url: "http://127.0.0.1:8280/tt-rss/".into(),
             encryption_key: None,
             listen: "127.0.0.1:8281".parse().unwrap(),
+            feed_icon_dir: docroot.join("cache").join("feed-icons"),
             docroot,
         }
     }

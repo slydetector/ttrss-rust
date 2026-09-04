@@ -9,6 +9,7 @@
 //!   * `/healthz`.
 
 mod auth;
+mod feeds;
 mod mime;
 mod prefs;
 mod render;

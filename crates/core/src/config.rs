@@ -35,6 +35,11 @@ pub struct Config {
     pub listen: SocketAddr,
     /// Root of the static/web tree to serve byte-for-byte.
     pub docroot: PathBuf,
+    /// Directory holding fetched feed favicons (`<feed_id>` files) — the
+    /// `feed-icons` DiskCache. Determines which feeds have an `icon` in the
+    /// feed tree. (Upstream lives under the app cache dir; here it's a
+    /// deployment artifact, overridable via `TTRSS_RUST_FEED_ICONS_DIR`.)
+    pub feed_icon_dir: PathBuf,
 }
 
 impl Config {
@@ -70,6 +75,9 @@ impl Config {
             docroot: std::env::var("TTRSS_RUST_DOCROOT")
                 .map(PathBuf::from)
                 .unwrap_or_else(|_| PathBuf::from("tt-rss")),
+            feed_icon_dir: std::env::var("TTRSS_RUST_FEED_ICONS_DIR")
+                .map(PathBuf::from)
+                .unwrap_or_else(|_| PathBuf::from("tt-rss/cache/feed-icons")),
         })
     }
 
@@ -131,6 +139,7 @@ mod tests {
             encryption_key: None,
             listen: "127.0.0.1:8281".parse().unwrap(),
             docroot: PathBuf::from("tt-rss"),
+            feed_icon_dir: PathBuf::from("tt-rss/cache/feed-icons"),
         }
     }
 

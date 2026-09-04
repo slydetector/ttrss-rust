@@ -301,10 +301,10 @@ Design notes (this increment):
   values + meaningful headers — not raw-byte matching. Static = byte-for-byte.
 - `ttrss-core` keeps zero HTTP deps so the web framework (axum) stays swappable.
 
-### M2 status: IN PROGRESS — RPC dispatcher + `sanityCheck` (2026-09-04)
+### M2 status: IN PROGRESS — RPC dispatcher + `sanityCheck` + feed tree (2026-09-04)
 
 M2 = *read-only UI on real data*. Building the `backend.php` JSON-RPC surface
-method-by-method, diffing each against the oracle. First slice done:
+method-by-method, diffing each against the oracle. Done so far:
 
 - **`backend.php` dispatcher** (`crates/server/src/rpc.rs`): `op`/`method`
   (`subop` fallback) routing, public shim (`rss`/`getProfiles`/`share` → 302
@@ -336,15 +336,41 @@ method-by-method, diffing each against the oracle. First slice done:
   (`daemon_is_running`/`daemon_stamp`/`daemon_stamp_ok` — present when an updater
   runs, absent on the daemon-less Rust test server) and `php_platform`/`php_version`
   (runtime environment facts, unused by the frontend) alongside `recent_log_events`.
-- **Setup:** the Rust test server must run with `TTRSS_PLUGINS` matching the
-  oracle and the doc root containing `plugins.local/nginx_xaccel` (a deployment
-  artifact in the frozen `tt-rss/` checkout), so the `plugins` field matches.
-- **Verified:** `rpc_sanity_check` + `rpc_runtime_info` diff **clean**; all M1
-  steps still clean; **17/61 match**. Self-replay **61/61 clean**. Remaining
-  mismatches are the unimplemented M2+ surface (feed tree, counters, headlines,
-  article/labels/filters/users/prefs, external API, syndication, icons).
-- **Next:** `Pref_Feeds::getfeedtree` (mode 2) to populate the feed list, then
-  `Counters` + `Feeds::view` (headlines) so the app renders data read-only.
+- **`Pref_Feeds::getfeedtree`** (`crates/server/src/feeds.rs`) — the feed list
+  the SPA renders in the left panel (mode 2, a CSRF-ignored GET). Ports
+  `_makefeedtree`: the special (`CAT:-1`) + labels (`CAT:-2`) categories with
+  their real unread counts (`Feeds::_get_counters` — `FEED_FRESH` is the one
+  `NOW()`-dependent value, drifts after the 24h fresh window), the nested real
+  categories (empty ones hidden in mode 2), and `CAT:0` uncategorized. Node
+  shapes match the oracle exactly: top-level cats have no `parent_id`, subcats
+  do; special/label feeds carry `updated`/`auxcounter:0`/material `icon`,
+  regular feeds carry `param` (`"(N articles / <ts>)"`, time normalized),
+  `error`, `updates_disabled`. Feed favicons: `Feeds::_get_icon_url` checks the
+  `feed-icons` DiskCache (`<feed_icon_dir>/<id>` file exists →
+  `public.php?op=feed_icon&id=<id>`, else `""`); the 32 golden icons are a
+  deployment artifact copied to `oracle/data/feed-icons/` (gitignored),
+  pointed at via `TTRSS_RUST_FEED_ICONS_DIR`.
+- **Dispatcher:** now routes `op=Pref_Feeds` (CSRF-ignored for `getfeedtree`/`index`)
+  with the `Handler_Protected::before` (logged-in user) check generalized; the
+  CSRF gate (`validate_csrf || csrf_ignored`) is applied per handler in
+  `dispatch` rather than per handler.
+- **Corpus:** `feed_tree` + `readonly_feed_tree` now use the SPA's exact request
+  (CSRF-free GET, `mode=2`); the readonly user (uid 2, 0 feeds) yields just the
+  Special category — a nice empty-tree edge case. `feed_tree_tech_news` stays a
+  mode-0 GET (`category_id` is ignored by the PHP).
+- **Setup:** the Rust test server must run with `TTRSS_PLUGINS` + `TTRSS_RUST_FEED_ICONS_DIR`
+  matching the oracle and the doc root containing `plugins.local/nginx_xaccel`
+  (deployment artifacts), so `plugins` + feed icons match.
+- **Verified:** `rpc_sanity_check`, `rpc_runtime_info`, and all three feed-tree
+  steps (admin mode 2, admin mode 0, readonly mode 2) diff **clean**; the mode-2
+  tree is node-for-node identical to the oracle after port/time normalization.
+  All M1 steps still clean; **20/61 match**. Self-replay **61/61 clean**. The
+  browser now advances past the 30% overlay and populates the left feed panel.
+  Remaining mismatches are the unimplemented M2+ surface (other RPC methods,
+  headlines `Feeds::view`, article/labels/filters/users/prefs, external API,
+  syndication, icons).
+- **Next:** `Counters` + `Feeds::view` (headlines) so the main content area
+  renders read-only; then the remaining RPC/Pref_* methods.
 
 ---
 

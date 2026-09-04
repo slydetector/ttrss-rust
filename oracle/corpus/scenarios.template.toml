@@ -107,11 +107,10 @@ expect_status = 200
 
 [[step]]
 name = "feed_tree"
-method = "POST"
+method = "GET"
 path = "/backend.php"
-form = [ ["op", "Pref_Feeds"], ["method", "getfeedtree"],
-         ["category_id", ""], ["sort_key", "position"], ["direction", "asc"],
-         ["csrf_token", "{{csrf}}"] ]
+# The SPA (Feeds.js) requests the tree via a CSRF-free GET with `mode=2`.
+query = [ ["op", "Pref_Feeds"], ["method", "getfeedtree"], ["mode", "2"] ]
 expect_status = 200
 
 [[step]]
@@ -439,11 +438,9 @@ save = { csrf_ro = 'regex:const __csrf_token = "([0-9a-f]{32})"' }
 
 [[step]]
 name = "readonly_feed_tree"
-method = "POST"
+method = "GET"
 path = "/backend.php"
-form = [ ["op", "Pref_Feeds"], ["method", "getfeedtree"],
-         ["category_id", ""], ["sort_key", "position"], ["direction", "asc"],
-         ["csrf_token", "{{csrf_ro}}"] ]
+query = [ ["op", "Pref_Feeds"], ["method", "getfeedtree"], ["mode", "2"] ]
 expect_status = 200
 
 [[step]]
