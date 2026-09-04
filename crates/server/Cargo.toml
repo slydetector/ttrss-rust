@@ -24,3 +24,5 @@ url.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 ttrss-core = { path = "../core" }
+kuchikiki.workspace = true
+html5ever.workspace = true

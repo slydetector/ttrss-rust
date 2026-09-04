@@ -84,24 +84,31 @@ fn canonicalize_node(node: NodeRef<Node>, out: &mut String) {
     match node.value() {
         Node::Element(el) => {
             let name = el.name();
-            out.push('<');
-            out.push_str(name);
-            // Sort attributes by name and normalize their values so attribute
-            // order and volatile values (cache-bust, timestamps, hex) don't
-            // cause spurious differences.
-            let mut attrs: Vec<(String, String)> = el
-                .attrs()
-                .map(|(k, v)| (k.to_string(), normalize::normalize_string(v)))
-                .collect();
-            attrs.sort();
-            for (k, v) in &attrs {
-                out.push(' ');
-                out.push_str(k);
-                out.push_str("=\"");
-                out.push_str(v);
-                out.push('"');
+            // A <p> is a block text container the parser may insert on its own
+            // (libxml's HTML4 parser auto-wraps bare text; html5ever's HTML5
+            // parser does not), so it is not meaningful content: compare its
+            // children and ignore the wrapper itself. Other elements are kept.
+            let is_p = name == "p";
+            if !is_p {
+                out.push('<');
+                out.push_str(name);
+                // Sort attributes by name and normalize their values so
+                // attribute order and volatile values (cache-bust, timestamps,
+                // hex) don't cause spurious differences.
+                let mut attrs: Vec<(String, String)> = el
+                    .attrs()
+                    .map(|(k, v)| (k.to_string(), normalize::normalize_string(v)))
+                    .collect();
+                attrs.sort();
+                for (k, v) in &attrs {
+                    out.push(' ');
+                    out.push_str(k);
+                    out.push_str("=\"");
+                    out.push_str(v);
+                    out.push('"');
+                }
+                out.push('>');
             }
-            out.push('>');
             if name == "script" || name == "style" {
                 // Code blocks: compare the content faithfully but ignore
                 // indentation/line-break differences (tabs vs spaces), which
@@ -117,9 +124,11 @@ fn canonicalize_node(node: NodeRef<Node>, out: &mut String) {
                     canonicalize_node(child, out);
                 }
             }
-            out.push_str("</");
-            out.push_str(name);
-            out.push('>');
+            if !is_p {
+                out.push_str("</");
+                out.push_str(name);
+                out.push('>');
+            }
         }
         Node::Text(t) => {
             // Trim (drops leading/trailing inter-tag whitespace) and normalize
@@ -184,6 +193,26 @@ mod tests {
         let a = "<html><style>\n\tbody {\n\t\tbackground : #303030;\n\t}\n</style></html>";
         let b = "<html><style>body { background : #303030; }</style></html>";
         assert_eq!(canonical_html(a), canonical_html(b));
+    }
+
+    #[test]
+    fn p_wrappers_are_transparent() {
+        // libxml auto-wraps bare text in <p>; html5ever leaves it as a text
+        // node. Both render the same, so compare the contents, not the wrapper.
+        assert_eq!(
+            canonical_html("<body>The feminist icon died.</body>"),
+            canonical_html("<body><p>The feminist icon died.</p></body>")
+        );
+        // a bare text + <img> (html5ever) vs <p>text</p><p><img></p> (libxml)
+        assert_eq!(
+            canonical_html("text<img src=\"x.jpg\">"),
+            canonical_html("<p>text</p><p><img src=\"x.jpg\"></p>")
+        );
+        // real differences inside are still caught
+        assert_ne!(
+            canonical_html("<p>a</p><p>b</p>"),
+            canonical_html("<p>a</p><p>z</p>")
+        );
     }
 
     #[test]

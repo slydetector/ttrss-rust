@@ -14,6 +14,7 @@ mod mime;
 mod prefs;
 mod render;
 mod rpc;
+mod sanitizer;
 mod session;
 
 use axum::{
