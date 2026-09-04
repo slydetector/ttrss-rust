@@ -128,14 +128,11 @@ impl SaveSpec {
         headers: &[(String, String)],
     ) -> Option<String> {
         match self {
-            Self::Regex(re) => re
-                .captures(body)
-                .map(|caps| {
-                    caps.get(1)
-                        .or_else(|| caps.get(0))
-                        .map(|m| m.as_str().to_string())
-                })
-                .flatten(),
+            Self::Regex(re) => re.captures(body).and_then(|caps| {
+                caps.get(1)
+                    .or_else(|| caps.get(0))
+                    .map(|m| m.as_str().to_string())
+            }),
             Self::JsonPath(parts) => json.and_then(|v| {
                 let mut cur = v;
                 for p in parts {

@@ -203,12 +203,12 @@ async fn run_step(
                 step.name
             );
             // record anyway; treat as failure
-            write_exchange(out, seq, step, &url, &method, &step.form, &headers, status, &bytes)?;
+            write_exchange(out, seq, step, &url, &headers, status, &bytes)?;
             return Err(anyhow!("status mismatch"));
         }
     }
 
-    write_exchange(out, seq, step, &url, &method, &step.form, &headers, status, &bytes)?;
+    write_exchange(out, seq, step, &url, &headers, status, &bytes)?;
     println!("[run] {:03} {:<32} {status}", seq + 1, step.name);
     Ok(())
 }
@@ -234,12 +234,11 @@ fn write_exchange(
     seq: usize,
     step: &Step,
     url: &str,
-    method: &str,
-    form: &[(String, String)],
     headers: &[(String, String)],
     status: u16,
     resp_bytes: &[u8],
 ) -> Result<()> {
+    let method = step.method.to_ascii_uppercase();
     // Binary detection: invalid UTF-8 or image/* content type.
     let is_binary = std::str::from_utf8(resp_bytes).is_err()
         || headers
@@ -261,7 +260,7 @@ fn write_exchange(
         step: step.name.clone(),
         method: method.to_string(),
         url: url.to_string(),
-        form: if form.is_empty() { None } else { Some(form.to_vec()) },
+        form: if step.form.is_empty() { None } else { Some(step.form.clone()) },
         body_b64,
         body_encoding: if is_binary { "binary".into() } else { "text".into() },
         status,

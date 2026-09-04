@@ -19,7 +19,7 @@ pub fn totp(secret: &str) -> String {
 /// bytes of `secret`.
 pub fn totp_at(secret: &str, t_secs: u64) -> String {
     let key = secret.as_bytes();
-    let counter = (t_secs / 30) as u64;
+    let counter = t_secs / 30;
 
     let mut buf = [0u8; 8];
     buf.copy_from_slice(&counter.to_be_bytes());

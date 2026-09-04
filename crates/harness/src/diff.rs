@@ -5,6 +5,7 @@ use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::path::Path;
 
+use crate::html;
 use crate::normalize;
 
 #[derive(Clone, Deserialize)]
@@ -18,7 +19,11 @@ struct Exchange {
     body_b64: Option<String>,
 }
 
-/// Response headers that legitimately differ per run/environment.
+/// Response headers that legitimately differ per run/environment. Transport
+/// headers (nginx vs the Rust server), per-request values (date/etag), and
+/// server fingerprints (server / x-powered-by) are all ignored — we compare the
+/// semantically meaningful headers (content-type, cache-control, set-cookie,
+/// location, ...).
 const VOLATILE_HEADERS: &[&str] = &[
     "date",
     "etag",
@@ -28,6 +33,10 @@ const VOLATILE_HEADERS: &[&str] = &[
     "server",
     "x-powered-by",
     "x-request-id",
+    // transport / connection framing (nginx + PHP-FPM vs axum)
+    "connection",
+    "transfer-encoding",
+    "vary",
 ];
 
 fn filtered_headers(headers: &[(String, String)]) -> BTreeMap<String, String> {
@@ -120,18 +129,31 @@ pub fn diff(a: &Path, b: &Path, max_details: usize, allow_mismatches: usize) -> 
     Ok(())
 }
 
+/// Extract the path (+ query) from a URL, stripping the scheme and authority,
+/// so two runs on different host:port compare as the same request.
+fn req_path(url: &str) -> &str {
+    if let Some(scheme_end) = url.find("://") {
+        let rest = &url[scheme_end + 3..];
+        return rest.find('/').map(|i| &rest[i..]).unwrap_or("");
+    }
+    url
+}
+
 fn compare_exchanges(ea: &Exchange, eb: &Exchange) -> Vec<String> {
     let mut details = Vec::new();
     if ea.status != eb.status {
         details.push(format!("status: {} vs {}", ea.status, eb.status));
     }
-    if ea.method != eb.method || ea.url != eb.url {
+    // Compare the request method + path, not the full URL: the oracle and the
+    // Rust server run on different host:port, so the authority legitimately
+    // differs while the path/method/body must match.
+    if ea.method != eb.method || req_path(&ea.url) != req_path(&eb.url) {
         details.push(format!(
             "request: {} {} vs {} {}",
             ea.method,
-            ea.url,
+            req_path(&ea.url),
             eb.method,
-            eb.url
+            req_path(&eb.url)
         ));
     }
     let ha = filtered_headers(&ea.headers);
@@ -165,12 +187,23 @@ fn compare_exchanges(ea: &Exchange, eb: &Exchange) -> Vec<String> {
                     }
                 }
             } else {
-                let na = normalize::normalize_text(&a);
-                let nb = normalize::normalize_text(&b);
+                // HTML bodies are compared as canonical DOM trees (structure +
+                // meaningful values); other text falls back to value
+                // normalization.
+                let is_html = html::is_html(&a) && html::is_html(&b);
+                let (na, nb, label) = if is_html {
+                    (html::canonical_html(&a), html::canonical_html(&b), "html")
+                } else {
+                    (
+                        normalize::normalize_text(&a),
+                        normalize::normalize_text(&b),
+                        "text",
+                    )
+                };
                 if na != nb {
                     if let Some(off) = first_diff_offset(&na, &nb) {
                         details.push(format!(
-                            "text body differs @{}: {:?} vs {:?}",
+                            "{label} body differs @{}: {:?} vs {:?}",
                             off,
                             ctx(&na, off),
                             ctx(&nb, off)
@@ -271,7 +304,7 @@ fn ctx(s: &str, off: usize) -> String {
     let upto = off.max(20).min(s.len());
     let start = s[..upto].rfind(char::is_whitespace).map(|i| i + 1).unwrap_or(0);
     let end = (start + 60).min(s.len());
-    format!("…{}…", &s[start..end].replace('\n', "\\n"))
+    format!("…{}…", s[start..end].replace('\n', "\\n"))
 }
 
 #[cfg(test)]

@@ -15,6 +15,7 @@
 //!   structural differences.
 
 mod diff;
+mod html;
 mod normalize;
 mod run;
 mod scenario;

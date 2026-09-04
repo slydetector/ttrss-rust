@@ -43,12 +43,24 @@ static HEX64: LazyLock<regex::Regex> =
 static SHA1: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"\b[0-9a-f]{40}\b").unwrap());
 static HEX32: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"\b[0-9a-f]{32}\b").unwrap());
 
-/// Replace time/hex patterns in a string value.
+/// Query string that is a bare timestamp cache-buster: `?1788113929` (6+ digits
+/// immediately after `?`). The exact value is file-mtime / "now"-dependent and
+/// legitimately differs between the oracle and the port.
+static CACHE_BUST: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r"\?\d{6,}").unwrap());
+
+/// Whitespace that exists only between two tags (i.e. `>  ...  <` with nothing
+/// but whitespace inside). Collapsing it compares HTML structure while leaving
+/// real text content (e.g. `>Use less traffic<`) untouched.
+static INTER_TAG_WS: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r">\s+<").unwrap());
+
+/// Replace time/hex/cache-bust patterns in a string value.
 pub fn normalize_string(s: &str) -> String {
     let mut out = s.to_string();
     out = RFC822_TS.replace_all(&out, "<ts>").into_owned();
     out = ISO_TS.replace_all(&out, "<ts>").into_owned();
     out = SLASH_TS.replace_all(&out, "<ts>").into_owned();
+    out = CACHE_BUST.replace_all(&out, "?").into_owned();
     out = HEX64.replace_all(&out, "<hex64>").into_owned();
     out = SHA1.replace_all(&out, "<sha1>").into_owned();
     out = HEX32.replace_all(&out, "<hex32>").into_owned();
@@ -76,7 +88,58 @@ pub fn normalize_json(value: &Value) -> Value {
     }
 }
 
-/// Normalize free text (HTML/XML/shell pages): same value patterns.
+/// Normalize free text (HTML/XML/shell pages): value patterns, plus inter-tag
+/// whitespace collapsing and trimming so we compare HTML *structure* + dynamic
+/// values rather than raw bytes. Whitespace that PHP leaves behind from
+/// `<?php if (...) ?>` blocks is functionally irrelevant and is collapsed.
 pub fn normalize_text(s: &str) -> String {
-    normalize_string(s)
+    let s = normalize_string(s);
+    // Match the full `> ... <` span (both brackets included) and collapse it
+    // to `><`, dropping only the whitespace between the tags.
+    let s = INTER_TAG_WS.replace_all(&s, "><").into_owned();
+    s.trim().to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cache_bust_normalized() {
+        assert_eq!(normalize_string("js/common.js?1788113929"), "js/common.js?");
+        assert_eq!(normalize_string("themes/light.css?1788113929"), "themes/light.css?");
+        // short query params are NOT cache-busters and are left alone
+        assert_eq!(normalize_string("public.php?op=login"), "public.php?op=login");
+    }
+
+    #[test]
+    fn inter_tag_whitespace_collapsed() {
+        let a = "<div>\n\t\t<label>Use less traffic</label>\n</div>";
+        let b = "<div><label>Use less traffic</label></div>";
+        assert_eq!(normalize_text(a), normalize_text(b));
+        // text content is preserved (not whitespace)
+        assert!(normalize_text(a).contains("Use less traffic"));
+    }
+
+    #[test]
+    fn html_differs_only_in_cache_bust_and_ws() {
+        let oracle =
+            "<html>\n<head>\n<script src=\"js/common.js?1788113929\"></script>\n</head>\n</html>";
+        let mine = "<html><head><script src=\"js/common.js?1789000000\"></script></head></html>";
+        assert_eq!(normalize_text(oracle), normalize_text(mine));
+    }
+
+    #[test]
+    fn html_real_difference_still_detected() {
+        let a = "<div id=\"feedTree\"></div>";
+        let b = "<div id=\"feed-tree\"></div>";
+        assert_ne!(normalize_text(a), normalize_text(b));
+    }
+
+    #[test]
+    fn csrf_hex_still_normalized_in_text() {
+        let a = "const __csrf_token = \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\";";
+        let b = "const __csrf_token = \"ffffffffffffffffffffffffffffffff\";";
+        assert_eq!(normalize_text(a), normalize_text(b));
+    }
 }

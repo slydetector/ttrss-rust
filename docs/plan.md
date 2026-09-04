@@ -188,6 +188,58 @@ Key PHP behaviors discovered (the Rust port must match these):
 - Updater daemon: fork-based; `docker compose stop` SIGKILLs it after the 10 s
   grace (exit 137) — expected, not a crash.
 
+### M1 status: IN PROGRESS (2026-09-04)
+
+Goal: `tt-rust serve` boots, serves static + login, and can log in against the
+golden DB with encrypted DB sessions; SPA shell renders. Progress is
+demoable and oracle-diff-verified per surface.
+
+Done:
+- **`ttrss-core` (24 tests, no HTTP dep):**
+  - `phpser` — byte-oriented PHP `serialize`/`unserialize` subset (raw-byte
+    strings, ordered arrays, `s:`/`a:`/quoted-string handling).
+  - `crypt` — xchacha20poly1305-ietf (32-byte key, 24-byte nonce, empty AAD),
+    matches libsodium/RustCrypto byte-for-byte.
+  - `session` — `key|serialize(value)` plaintext + base64 + encrypted PHP-array
+    envelope (`{algo, nonce, payload}`); round-trips real oracle session rows.
+  - `user` — password verify for SHA1/SHA1X/MODE2/SSHA-256/SSHA-512; app
+    passwords (`ALGO:HASH:SALT`); TOTP (ASCII-byte key, 6/30/SHA-1, no ±1
+    window).
+  - `config` — `TTRSS_*` env with upstream defaults; `base_path()`; sqlx DSN.
+  - `db` — sqlx `PgPool` applying `Db.php` session setup via `before_acquire`
+    (`client_encoding`, `datestyle`, `TIME ZONE 0`, `cpu_tuple_cost`).
+- **Harness HTML comparator (the "proper" way):** `crates/harness/src/html.rs`
+  parses both documents with the canonical `html5ever`/`markup5ver` parser (via
+  `scraper` + `ego-tree`) and compares **canonical DOM forms** — drops
+  whitespace-only text nodes, normalizes text *and* attribute values (cache-bust
+  / hex / timestamps), sorts attributes, keeps `<script>`/`<style>` as raw text
+  (compared faithfully, not regex-mangled). Diff is now **port-agnostic** (compares
+  request path, not full URL) so oracle (8280) vs Rust (8281) diff cleanly.
+- **`ttrss-server` (axum, binary `tt-rust serve`):** base-path nesting, `/healthz`,
+  login-page renderer (`templates/login.html.tpl`: scripts/theme cache-bust from
+  real mtimes, PHP-style urlencode), and a **custom static handler** — full
+  header control, byte-for-byte bodies, path-traversal protection.
+- **Static header parity:** Content-Type from the **canonical nginx `mime.types`**
+  (107 ext; e.g. `application/javascript`, not `mime_guess`'s `text/javascript`),
+  `Cache-Control: no-cache`, no `Accept-Ranges` (nginx omits it on the gzip path
+  real clients hit). `crates/server/src/mime.rs` holds the nginx table.
+- **Verified 3/3 against the oracle through the comparator:** `healthz`, `login`
+  page (structurally-equivalent HTML, not byte-match), `static_svg` (body +
+  headers). Whole workspace: **47 tests passing, clippy clean**.
+
+Remaining for M1:
+- Login `POST /public.php?op=login` — SSHA-512 verify, TOTP challenge (200) vs
+  success (302 + `ttrss_sid`), failure/throttle behavior.
+- DB-backed encrypted session middleware (read/decrypt/rewrite per request;
+  rolling cookie re-stamp).
+- Authenticated SPA shell renderer (container DOM, `__csrf_token`, theme consts,
+  per-plugin `Plugins.*` blocks) + ETag/304 (`"<md5(body)>'>` / `If-None-Match`).
+
+Design notes (this increment):
+- HTML compatibility = normalized/structural (parser-based DOM) + exact dynamic
+  values + meaningful headers — not raw-byte matching. Static = byte-for-byte.
+- `ttrss-core` keeps zero HTTP deps so the web framework (axum) stays swappable.
+
 ---
 
 ## 3a. Original phase notes (content reference for the milestones)

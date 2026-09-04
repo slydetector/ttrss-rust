@@ -1,0 +1,18 @@
+[package]
+name = "ttrss-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "tt-rust"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+axum.workspace = true
+tokio.workspace = true
+mime_guess.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+ttrss-core = { path = "../core" }

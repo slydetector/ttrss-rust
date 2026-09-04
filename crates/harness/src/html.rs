@@ -1,0 +1,134 @@
+//! Structural HTML comparison.
+//!
+//! Rather than regex-munging HTML text (fragile around inline `<script>`/
+//! `<style>`, attribute values, and comments), we parse both documents with the
+//! canonical `html5ever`/`markup5ver` parser (via the `scraper` front-end) and
+//! compare **canonical DOM forms**:
+//!
+//!   * whitespace-only text nodes are dropped (the "insignificant spacing" we
+//!     don't want to chase),
+//!   * text nodes are trimmed and value-normalized (cache-bust, hex, timestamps),
+//!   * element attributes are sorted by name and value-normalized,
+//!   * `<script>`/`<style>` raw text is kept as a (normalized) text node, so JS
+//!     and CSS content is compared faithfully instead of being mangled.
+//!
+//! This compares *structure + meaningful values*, which is what "equivalent
+//! HTML" actually means.
+
+use ego_tree::NodeRef;
+use scraper::{node::Node, Html};
+
+use crate::normalize;
+
+/// Heuristic: does this body look like an HTML document (vs plain text / JSON)?
+pub fn is_html(s: &str) -> bool {
+    let t = s.trim_start().to_ascii_lowercase();
+    t.starts_with("<!doctype html") || t.starts_with("<html") || t.starts_with("<body")
+}
+
+/// Produce a canonical, normalized serialization of an HTML document for
+/// structural comparison. Two documents that differ only in inter-tag
+/// whitespace, attribute order, cache-bust timestamps, and other normalized
+/// values produce identical canonical forms.
+pub fn canonical_html(s: &str) -> String {
+    let html = Html::parse_document(s);
+    let mut out = String::new();
+    canonicalize_node(html.tree.root(), &mut out);
+    out
+}
+
+fn canonicalize_node(node: NodeRef<Node>, out: &mut String) {
+    match node.value() {
+        Node::Element(el) => {
+            let name = el.name();
+            out.push('<');
+            out.push_str(name);
+            // Sort attributes by name and normalize their values so attribute
+            // order and volatile values (cache-bust, timestamps, hex) don't
+            // cause spurious differences.
+            let mut attrs: Vec<(String, String)> = el
+                .attrs()
+                .map(|(k, v)| (k.to_string(), normalize::normalize_string(v)))
+                .collect();
+            attrs.sort();
+            for (k, v) in &attrs {
+                out.push(' ');
+                out.push_str(k);
+                out.push_str("=\"");
+                out.push_str(v);
+                out.push('"');
+            }
+            out.push('>');
+            for child in node.children() {
+                canonicalize_node(child, out);
+            }
+            out.push_str("</");
+            out.push_str(name);
+            out.push('>');
+        }
+        Node::Text(t) => {
+            // Trim (drops leading/trailing inter-tag whitespace) and normalize
+            // volatile values. Whitespace-only nodes become empty and are
+            // dropped; `<script>`/`<style>` content arrives here as raw text.
+            let norm = normalize::normalize_string(t.text.trim());
+            if !norm.is_empty() {
+                out.push_str(&norm);
+            }
+        }
+        // Document / doctype / comment / PI: no comparable content, but recurse
+        // so the subtree below (e.g. the Document's <html> child) is visited.
+        _ => {
+            for child in node.children() {
+                canonicalize_node(child, out);
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn detects_html() {
+        assert!(is_html("<!DOCTYPE html>\n<html>"));
+        assert!(is_html("<html><body>"));
+        assert!(!is_html("OK"));
+        assert!(!is_html("{\"a\":1}"));
+    }
+
+    #[test]
+    fn ignores_inter_tag_whitespace_and_cache_bust() {
+        let a = "<!DOCTYPE html>\n<html>\n<head>\n  <script src=\"js/x.js?1788113929\"></script>\n</head>\n</html>";
+        let b = "<html><head><script src=\"js/x.js?1789999999\"></script></head></html>";
+        assert_eq!(canonical_html(a), canonical_html(b));
+    }
+
+    #[test]
+    fn detects_structural_difference() {
+        let a = "<html><body><div id=\"feedTree\"></div></body></html>";
+        let b = "<html><body><div id=\"feed-tree\"></div></body></html>";
+        assert_ne!(canonical_html(a), canonical_html(b));
+    }
+
+    #[test]
+    fn compares_script_content_as_text_not_tags() {
+        // A `>`/`<` pair inside a <script> must not be mistaken for a tag
+        // boundary (the thing the old regex got wrong).
+        let a = "<html><script>if (x > 0) {\n  y < 10;\n}</script></html>";
+        let b = "<html><script>if (x > 0) { y < 10; }</script></html>";
+        // Same JS, different whitespace inside the script body → different
+        // canonical text (we compare script content faithfully).
+        assert_ne!(canonical_html(a), canonical_html(b));
+        // But identical script with different surrounding tag whitespace:
+        let c = "<html>\n  <script>if (x > 0) {\n  y < 10;\n}</script>\n</html>";
+        assert_eq!(canonical_html(a), canonical_html(c));
+    }
+
+    #[test]
+    fn normalizes_hex_in_text_and_attrs() {
+        let a = "<html><script>const t = \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\";</script></html>";
+        let b = "<html><script>const t = \"ffffffffffffffffffffffffffffffff\";</script></html>";
+        assert_eq!(canonical_html(a), canonical_html(b));
+    }
+}
