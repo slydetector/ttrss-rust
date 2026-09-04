@@ -38,6 +38,23 @@ static SLASH_TS: LazyLock<regex::Regex> =
 static TIME_ONLY: LazyLock<regex::Regex> =
     LazyLock::new(|| regex::Regex::new(r"\b\d{1,2}:\d{2}\b").unwrap());
 
+/// tt-rss "smart dates" (TimeHelper::smart_date_time / make_local_datetime):
+/// today renders as a bare time ("13:28"), other dates carry a day+month
+/// prefix ("1 Jan, 12:00", "Thu, 1 Jan 2026", "1 Jan 2025, 12:00") per the
+/// user's SHORT/LONG_DATE_FORMAT prefs. These are display renderings of
+/// stored datetimes that legitimately differ between runs (corpus logins and
+/// updates re-stamp them) and between servers, so collapse the whole smart
+/// date — date prefix and/or time — to a single token. Applied after the
+/// ISO/RFC822/slash timestamp rules (which already consume their formats) and
+/// before TIME_ONLY (bare time-of-day), so "1 Jan, 12:00" and "13:28" both
+/// normalize identically.
+static SMART_DATE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(
+        r"(?:[A-Z][a-z]{2}, )?\d{1,2} (?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)(?: \d{4})?,?(?: \d{1,2}:\d{2}(?: [ap]m)?)?",
+    )
+    .unwrap()
+});
+
 static HEX64: LazyLock<regex::Regex> =
     LazyLock::new(|| regex::Regex::new(r"[0-9a-f]{64}").unwrap());
 static SHA1: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"\b[0-9a-f]{40}\b").unwrap());
@@ -63,19 +80,40 @@ static UNIX_TS: LazyLock<regex::Regex> =
 /// real text content (e.g. `>Use less traffic<`) untouched.
 static INTER_TAG_WS: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r">\s+<").unwrap());
 
+/// URL authority with an explicit port, `://host:port` (e.g. in a `Location`
+/// header or a body URL). The oracle (8280) and the Rust server (8281) are the
+/// same application on different ports by design, so the port is environment,
+/// not data: strip it so the two runs compare. Portless URLs (feed links,
+/// `https://arstechnica.com/...`) are untouched, as are bare numbers. Both the
+/// literal form and the percent-encoded form (form `action`s carry
+/// `http%3A%2F%2F…%3A8280…`) are handled.
+static URL_PORT: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r"://([^:/\s]+):\d+").unwrap());
+static URL_PORT_ENC: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r"(?i)%3A[0-9]+").unwrap());
+
 /// Replace time/hex/cache-bust patterns in a string value.
 pub fn normalize_string(s: &str) -> String {
     let mut out = s.to_string();
     out = RFC822_TS.replace_all(&out, "<ts>").into_owned();
     out = ISO_TS.replace_all(&out, "<ts>").into_owned();
     out = SLASH_TS.replace_all(&out, "<ts>").into_owned();
+    // URL authority ports (response `Location`, form actions, body URLs):
+    // oracle vs Rust run on different ports by construction.
+    out = URL_PORT.replace_all(&out, "://$1").into_owned();
+    out = URL_PORT_ENC.replace_all(&out, "").into_owned();
     out = CACHE_BUST.replace_all(&out, "?").into_owned();
     out = UNIX_TS.replace_all(&out, "<ts>").into_owned();
     out = HEX64.replace_all(&out, "<hex64>").into_owned();
     out = SHA1.replace_all(&out, "<sha1>").into_owned();
     out = HEX32.replace_all(&out, "<hex32>").into_owned();
-    // time-of-day last: it would otherwise re-match inside timestamps
-    out = TIME_ONLY.replace_all(&out, "<time>").into_owned();
+    // time-of-day last: it would otherwise re-match inside timestamps.
+    // Smart dates and bare times normalize to the same token: both are
+    // "the displayed value of a stored datetime", which is not comparable
+    // across runs (a "today" time vs a "D Mon, time" render of an older one
+    // must not diff).
+    out = SMART_DATE.replace_all(&out, "<ts>").into_owned();
+    out = TIME_ONLY.replace_all(&out, "<ts>").into_owned();
     out
 }
 
@@ -115,6 +153,31 @@ mod tests {
     use super::*;
 
     #[test]
+    fn url_authority_port_stripped() {
+        // literal URLs (Location headers)
+        assert_eq!(
+            normalize_string("http://127.0.0.1:8280/tt-rss/index.php"),
+            "http://127.0.0.1/tt-rss/index.php"
+        );
+        assert_eq!(
+            normalize_string("http://127.0.0.1:8281/tt-rss/index.php"),
+            normalize_string("http://127.0.0.1:8280/tt-rss/index.php")
+        );
+        // percent-encoded URLs (form actions)
+        assert_eq!(
+            normalize_string("public.php?return=http%3A%2F%2F127.0.0.1%3A8280%2Ftt-rss%2F"),
+            normalize_string("public.php?return=http%3A%2F%2F127.0.0.1%3A8281%2Ftt-rss%2F")
+        );
+        // portless URLs are untouched
+        assert_eq!(
+            normalize_string("https://arstechnica.com/feed/"),
+            "https://arstechnica.com/feed/"
+        );
+        // a bare number is not a port
+        assert_eq!(normalize_string("port 8280"), "port 8280");
+    }
+
+    #[test]
     fn cache_bust_normalized() {
         assert_eq!(normalize_string("js/common.js?1788113929"), "js/common.js?");
         assert_eq!(normalize_string("themes/light.css?1788113929"), "themes/light.css?");
@@ -151,6 +214,29 @@ mod tests {
         let a = "const __csrf_token = \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\";";
         let b = "const __csrf_token = \"ffffffffffffffffffffffffffffffff\";";
         assert_eq!(normalize_text(a), normalize_text(b));
+    }
+
+    #[test]
+    fn smart_dates_normalized_like_bare_times() {
+        // tt-rss smart-date renders of the same underlying stored datetime
+        // must normalize to one token, whatever the date-format prefs.
+        assert_eq!(normalize_string("13:28"), "<ts>");
+        assert_eq!(normalize_string("1 Jan, 12:00"), "<ts>");
+        assert_eq!(normalize_string("1 Jan 2025, 12:00"), "<ts>");
+        assert_eq!(normalize_string("Thu, 1 Jan 2026"), "<ts>");
+        assert_eq!(normalize_string("1 Jan"), "<ts>");
+        // a bare time and a prefixed smart date of another date are equal
+        assert_eq!(
+            normalize_string("last login 13:28"),
+            normalize_string("last login 1 Jan, 12:00")
+        );
+        // data that merely contains the pattern is left alone
+        assert_eq!(normalize_string("42 items"), "42 items");
+        // RFC822 is handled by its own (earlier) rule, not half-matched here
+        assert_eq!(
+            normalize_string("Fri, 04 Sep 2026 21:59:39 GMT"),
+            "<ts>"
+        );
     }
 
     #[test]

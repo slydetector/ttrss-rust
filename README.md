@@ -29,15 +29,16 @@ curl http://127.0.0.1:8280/tt-rss/public.php?op=healthcheck   # -> OK
 oracle/scripts/down.sh        # tear down (keeps the db volume)
 ```
 
-Oracle login: `admin` / `admin` (TOTP secret `JBSWY3DPEHPK3PXP`; API app
-password `AppPass123`). See `oracle/README.md` for the full oracle guide.
+Oracle login: `admin` / `admin` (no TOTP — the frictionless demo path; API app
+password `AppPass123`); `otpuser` / `otppass` (TOTP enabled, secret
+`OTPSECRET1234567890`). See `oracle/README.md` for the full oracle guide.
 
 ## Harness (record / replay / diff)
 
 ```sh
 cargo build --bin tt-rust-harness
 
-# record the 58-step corpus against the oracle
+# record the 61-step corpus against the oracle
 target/debug/tt-rust-harness run \
     --scenarios oracle/corpus/scenarios.template.toml \
     --vars oracle/data/ids.json \
@@ -50,8 +51,14 @@ target/debug/tt-rust-harness diff \
 
 ## Status
 
-- **M0 complete**: oracle + golden dataset + 58-step corpus; harness proven
-  with a clean 58/58 self-replay diff; PHP-FPM baseline in
-  `oracle/data/baseline.json`. See `docs/plan.md` (M0 status section).
-- Next: **M1 walking skeleton** — `tt-rust serve` (static assets + login page
-  + real login + SPA shell + DB sessions).
+- **M0 complete**: oracle + golden dataset + corpus; harness proven with a
+  clean self-replay diff; PHP-FPM baseline in `oracle/data/baseline.json`.
+- **M1 complete**: `tt-rust serve` (static assets byte-for-byte + login page +
+  real login SSHA-512 + TOTP + logout + authenticated SPA shell with
+  ETag/304 + encrypted DB sessions with rolling cookie re-stamp). The full
+  login/logout/session surface diffs clean against the oracle; the corpus is
+  now 61 steps (admin is frictionless; a dedicated `otpuser` exercises the
+  OTP challenge + code path). See `docs/plan.md` (M1 status section).
+- Next: **M2 read-only UI on real data** — the `backend.php` RPC surface
+  (`getFeedTree`, `Feeds.view`, …) + external API read ops so the feed tree
+  and headlines render on the golden dataset.

@@ -35,6 +35,9 @@ struct Inner {
     id: String,
     data: Session,
     dirty: bool,
+    /// `session_destroy()` (PHP logout): the middleware deletes the stored
+    /// row instead of persisting it, and the session is dead for this request.
+    destroyed: bool,
 }
 
 impl Sess {
@@ -60,6 +63,20 @@ impl Sess {
         let mut g = self.inner.lock().unwrap();
         f(&mut g.data);
         g.dirty = true;
+    }
+    /// `UserHelper::logout` / `session_destroy()`: kill the session. The
+    /// stored row is deleted by the middleware (instead of being re-saved) and
+    /// the data is cleared so later handlers see an anonymous session.
+    pub fn destroy(&self) {
+        let mut g = self.inner.lock().unwrap();
+        g.data = Session::new();
+        g.dirty = false;
+        g.destroyed = true;
+    }
+    /// Whether this request carried a session cookie (PHP: the session was
+    /// auto-started, and `extend_session` re-stamped the cookie).
+    pub fn had_cookie(&self) -> bool {
+        !self.inner.lock().unwrap().id.is_empty()
     }
 }
 
@@ -118,7 +135,7 @@ fn now_unix() -> i64 {
 
 /// Format a unix timestamp as an RFC 1123 date, e.g.
 /// `Sat, 05 Sep 2026 05:38:51 GMT` (for the re-stamped cookie `expires`).
-fn rfc1123(unix_secs: i64) -> String {
+pub fn rfc1123(unix_secs: i64) -> String {
     chrono::DateTime::from_timestamp(unix_secs, 0)
         .map(|dt| dt.format("%a, %d %b %Y %H:%M:%S GMT").to_string())
         .unwrap_or_default()
@@ -139,7 +156,12 @@ pub async fn session_middleware(
         load(&state.db, state.config.encryption_key, &id).await
     };
     let sess = Sess {
-        inner: Arc::new(Mutex::new(Inner { id, data, dirty: false })),
+        inner: Arc::new(Mutex::new(Inner {
+            id,
+            data,
+            dirty: false,
+            destroyed: false,
+        })),
     };
     req.extensions_mut().insert(sess.clone());
 
@@ -167,11 +189,21 @@ pub async fn session_middleware(
         }
     }
 
-    if sess.inner.lock().unwrap().dirty {
-        let (id, data) = {
-            let g = sess.inner.lock().unwrap();
-            (g.id.clone(), g.data.clone())
-        };
+    let (destroyed, dirty, id) = {
+        let g = sess.inner.lock().unwrap();
+        (g.destroyed, g.dirty, g.id.clone())
+    };
+    if destroyed && !id.is_empty() {
+        if let Err(e) =
+            sqlx::query("DELETE FROM ttrss_sessions WHERE id = $1")
+                .bind(&id)
+                .execute(state.db.pool())
+                .await
+        {
+            tracing::error!(error = %e, "failed to destroy session");
+        }
+    } else if dirty && !id.is_empty() {
+        let data = sess.inner.lock().unwrap().data.clone();
         if let Err(e) = save(&state.db, state.config.encryption_key, &id, &data).await {
             tracing::error!(error = %e, "failed to persist session");
         }

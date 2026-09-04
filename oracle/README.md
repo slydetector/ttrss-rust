@@ -26,7 +26,7 @@ oracle/
 │   ├── bench.sh          # latency baseline -> oracle/data/baseline.json
 │   └── census.sh         # nginx request-distribution summary
 ├── corpus/
-│   └── scenarios.template.toml   # the 58-step record/replay scenario suite
+│   └── scenarios.template.toml   # the 61-step record/replay scenario suite
 └── data/                 # generated (gitignored)
     ├── golden-db.sql     # frozen full DB dump (the golden dataset)
     ├── cache/            # copied app cache (feed icons, cached feed XML)
@@ -67,11 +67,14 @@ Seeded contents (stable by construction, ids in `oracle/data/ids.json`):
 - 41 feeds (38 live + 3 intentionally broken), 9 categories (nested),
   ~3.9k entries, ~560 marked, ~540 notes, ~300 scores, ~3.7k tags,
   ~3k label assignments, ~2.7k enclosures, 8 labels, 2 filters.
-- 3 users:
-  - `admin/admin` — admin; **TOTP enabled** (secret `JBSWY3DPEHPK3PXP`,
-    6-digit/30s/SHA-1; the column stores the ASCII secret, the effective
-    HMAC key is its ASCII bytes); **app password** `AppPass123` for the API
-    (service `_api`); TOTP + app-password + API-access prefs set.
+- 4 users:
+  - `admin/admin` — admin; **no TOTP** (the frictionless demo login path);
+    **app password** `AppPass123` for the API (service `_api`);
+    app-password + API-access prefs set.
+  - `otpuser/otppass` — regular user with **TOTP enabled** (secret
+    `OTPSECRET1234567890`, 6-digit/30s/SHA-1; the column stores the ASCII
+    secret, the effective HMAC key is its ASCII bytes) — demonstrates the
+    OTP challenge + code flow without putting it on the admin demo path.
   - `readonly/readpass` — read-only (no feeds of its own; useful for
     not-found / permission edge cases).
   - `testuser/testpass` — created via `update.php --user-add` (CLI path).
@@ -85,10 +88,11 @@ snapshot is frozen (no background feed updates during corpus runs).
 
 ## Corpus
 
-`corpus/scenarios.template.toml` defines 58 ordered steps covering:
+`corpus/scenarios.template.toml` defines 61 ordered steps covering:
 
 - public.php: healthz, login page, static assets
-- web login (admin with OTP challenge + code), shell, prefs shell, ETag/304
+- web login (admin: frictionless username/password → 302), shell, prefs
+  shell, ETag/304
 - backend.php RPC: runtime info, counters, sanity check, updates, hotkeys
 - Pref_Feeds: feed trees, feeds with errors, inactive feeds
 - Feeds::view: unread / all / category headlines, search, update debugger
@@ -100,7 +104,8 @@ snapshot is frozen (no background feed updates during corpus runs).
   category), article, getPref
 - syndication: RSS/Atom with valid feed & category keys, bad key (403),
   cached file, feed icon
-- logout; readonly user login + feed tree + headlines ("Feed not found")
+- logout; readonly user login + feed tree + headlines ("Feed not found");
+  otpuser login (OTP challenge 200 → code 302), shell, logout
 
 Run it:
 
@@ -121,14 +126,18 @@ Two runs minutes apart must diff clean after normalization:
 tt-rust-harness run ... --out oracle/data/runs/oracle-a
 tt-rust-harness run ... --out oracle/data/runs/oracle-b
 tt-rust-harness diff --a oracle/data/runs/oracle-a --b oracle/data/runs/oracle-b
-# -> 58 exchange(s): 58 match, 0 mismatch
+# -> 61 exchange(s): 61 match, 0 mismatch
 ```
 
 Normalizations applied at diff time: CSRF tokens / session ids / sids dropped
 from JSON; `recent_log_events` dropped (grows with request history);
-ISO/RFC822/`Y/m/d H:i` timestamps -> `<ts>`; `H:i` times -> `<time>`;
-32/40/64-hex -> `<hex32>/<sha1>/<hex64>`; `set-cookie` header values
-normalized the same way.
+ISO/RFC822/`Y/m/d H:i` timestamps -> `<ts>`; tt-rss "smart dates" (`13:28`,
+`1 Jan, 12:00`, `Thu, 1 Jan 2026` — display renderings of stored datetimes
+that logins/updates re-stamp between runs) -> `<ts>`;
+32/40/64-hex -> `<hex32>/<sha1>/<hex64>`; URL authority ports stripped
+(`http://127.0.0.1:8280/...` == `http://127.0.0.1:8281/...`, literal and
+percent-encoded) so the oracle (8280) and Rust (8281) compare; all header
+values (notably `set-cookie` and `location`) normalized the same way.
 
 ## Reuse for the Rust server
 
@@ -136,3 +145,6 @@ normalized the same way.
 2. `oracle/scripts/restore.sh` (restores golden-db.sql; skip re-seed)
 3. Keep the updater stopped; run the same scenario against the Rust base URL
    and diff against `oracle/data/runs/oracle-a` (or a fresh oracle run).
+   Point the Rust server's `TTRSS_SELF_URL_PATH` at its own base URL (e.g.
+   `http://127.0.0.1:8281/tt-rss/`); the diff strips the authority port, so
+   the two servers compare as the same application on different ports.

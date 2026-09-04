@@ -266,6 +266,34 @@ DB sessions, and renders the authenticated SPA shell. Next (M2) makes the SPA
 actually load data read-only: the `backend.php` RPC surface (`getfeedtree`,
 `Feeds.view`, …) so the feed tree and headlines render on real data.
 
+### M1 refinement: frictionless admin + dedicated OTP user + full login/logout surface (2026-09-04)
+
+- **Corpus/seed:** admin no longer has TOTP (username/password → 302 directly,
+  the frictionless demo path); a new `otpuser/otppass` (secret
+  `OTPSECRET1234567890`) carries the TOTP-enabled user, so the OTP challenge
+  (200) → code (302) flow is still exercised, off the admin path. Corpus is now
+  **61 steps**; golden DB re-seeded + re-snapshotted.
+- **`op=logout` ported** (`Handler_Public::logout` + `UserHelper::logout`):
+  CSRF-gated, destroys the session row, emits the rolling re-stamp then the
+  deletion cookie (`ttrss_sid=deleted; expires=1970; Max-Age=0` — PHP 8.5
+  clamps a past `expires` to epoch 1) and 302s to `self/index.php` with the PHP
+  `nocache` limiter headers. Session middleware gained `destroy()` (deletes the
+  row instead of re-saving).
+- **Harness normalizer:** tt-rss "smart dates" (`13:28`, `1 Jan, 12:00`,
+  `Thu, 1 Jan 2026`) collapse to `<ts>` — they're display renderings of stored
+  datetimes that corpus logins re-stamp between runs (the users-admin
+  `last_login` column). URL authority ports are stripped (literal +
+  percent-encoded) so the oracle (8280) and Rust (8281) compare as the same app
+  on different ports; all header values (notably `location`) are now
+  value-normalized, not just `set-cookie`.
+- **Verified against the oracle through the comparator (15/15 of the M1
+  surface clean):** `healthcheck`, `login_page`, `static_svg`, `web_login`
+  (302), `shell` (200), `shell_conditional` (304), `logout_admin` (302),
+  `shell_after_logout` (200), `web_login_readonly` (302), `shell_readonly`
+  (200), `logout_readonly` (302), `otp_login_challenge` (200),
+  `otp_login_success` (302), `shell_otp` (200), `logout_otp` (302). Self-replay
+  **61/61 clean**. Whole workspace: 51 tests passing, clippy clean.
+
 Design notes (this increment):
 - HTML compatibility = normalized/structural (parser-based DOM) + exact dynamic
   values + meaningful headers — not raw-byte matching. Static = byte-for-byte.

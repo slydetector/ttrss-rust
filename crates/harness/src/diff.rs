@@ -46,13 +46,11 @@ fn filtered_headers(headers: &[(String, String)]) -> BTreeMap<String, String> {
         if VOLATILE_HEADERS.contains(&lk.as_str()) {
             continue;
         }
-        // set-cookie carries the session id + expires timestamp, both of
-        // which legitimately differ per run; normalize like body text.
-        let v = if lk == "set-cookie" {
-            normalize::normalize_string(v)
-        } else {
-            v.clone()
-        };
+        // All header values are value-normalized like body text: set-cookie
+        // carries the session id + expires timestamp, and `location` (and any
+        // URL-bearing header) carries the run's host:port, which differ per
+        // run/environment by construction.
+        let v = normalize::normalize_string(v);
         // keep first value per header
         map.entry(lk).or_insert_with(|| v);
     }

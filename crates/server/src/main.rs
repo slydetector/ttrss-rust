@@ -159,18 +159,19 @@ fn md5_hex(data: &str) -> String {
     s
 }
 
-/// POST/GET `public.php` — dispatch on `op`. M1 handles `op=login`;
-/// other ops (rss, feed_icon, forgotpass, ...) land in M2+.
+/// POST/GET `public.php` — dispatch on `op`. M1 handles `op=login` and
+/// `op=logout`; other ops (rss, feed_icon, forgotpass, ...) land in M2+.
 async fn public_handler(
     State(state): State<AppState>,
     sess: Extension<session::Sess>,
     query: Query<PublicQuery>,
     form: Form<PublicForm>,
 ) -> Response {
-    if form.op.as_deref() == Some("login") {
-        return login_flow(&state, sess.0, &query, &form).await;
+    match form.op.as_deref() {
+        Some("login") => login_flow(&state, sess.0, &query, &form).await,
+        Some("logout") => logout_flow(&state, sess.0, &form).await,
+        _ => StatusCode::NOT_FOUND.into_response(),
     }
-    StatusCode::NOT_FOUND.into_response()
 }
 
 #[derive(Deserialize)]
@@ -189,6 +190,93 @@ struct PublicForm {
     safe_mode: Option<String>,
     bw_limit: Option<String>,
     profile: Option<String>,
+    csrf_token: Option<String>,
+}
+
+/// `Handler_Public::logout` + `UserHelper::logout`.
+async fn logout_flow(state: &AppState, sess: session::Sess, form: &PublicForm) -> Response {
+    // `validate_csrf`: `isset($csrf) && hash_equals($_SESSION['csrf_token'] ?? "", $csrf)`.
+    let data = sess.data();
+    let session_csrf = data.csrf_token().unwrap_or("");
+    let valid = form
+        .csrf_token
+        .as_deref()
+        .map(|c| ct_eq(session_csrf, c))
+        .unwrap_or(false);
+    if !valid {
+        let mut res = axum::http::Response::builder()
+            .status(StatusCode::OK)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(r#"{"error":{"code":"E_UNAUTHORIZED","params":[]}}"#))
+            .expect("valid response");
+        if sess.had_cookie() {
+            nocache_headers(res.headers_mut());
+        }
+        return res;
+    }
+    let sid = sess.id();
+    sess.destroy();
+    let mut res = axum::http::Response::builder()
+        .status(StatusCode::FOUND)
+        .header(
+            header::LOCATION,
+            format!("{}/index.php", state.config.self_url_rtrim()),
+        )
+        .header(header::CONTENT_TYPE, "text/html; charset=UTF-8")
+        .body(Body::empty())
+        .expect("valid response");
+    // The session was active: the PHP nocache limiter stamped the response.
+    if sess.had_cookie() {
+        nocache_headers(res.headers_mut());
+    }
+    // `extend_session` (request start) re-stamped the cookie, then
+    // `UserHelper::logout` queued the deletion cookie — in that order.
+    if !sid.is_empty() {
+        let expires = session::rfc1123(now_unix() + session::COOKIE_LIFETIME);
+        res.headers_mut().append(
+            header::SET_COOKIE,
+            format!(
+                "{}={sid}; expires={expires}; Max-Age={}; path=/",
+                session::SESSION_NAME,
+                session::COOKIE_LIFETIME
+            )
+            .parse()
+            .expect("valid set-cookie"),
+        );
+        res.headers_mut().append(
+            header::SET_COOKIE,
+            format!(
+                "{}=deleted; expires=Thu, 01 Jan 1970 00:00:01 GMT; Max-Age=0; path=/",
+                session::SESSION_NAME
+            )
+            .parse()
+            .expect("valid set-cookie"),
+        );
+    }
+    res
+}
+
+/// PHP session `nocache` cache-limiter headers, emitted on responses whose
+/// session was started (the default limiter for backend/public/API entry
+/// points; the HTML shells opt out via `session_cache_limiter('')`).
+fn nocache_headers(headers: &mut axum::http::HeaderMap) {
+    use axum::http::HeaderValue;
+    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store, no-cache, must-revalidate"));
+    headers.insert(header::PRAGMA, HeaderValue::from_static("no-cache"));
+    headers.insert(header::EXPIRES, HeaderValue::from_static("Thu, 19 Nov 1981 08:52:00 GMT"));
+}
+
+/// `hash_equals`: constant-time string comparison (false on length mismatch).
+fn ct_eq(a: &str, b: &str) -> bool {
+    let (a, b) = (a.as_bytes(), b.as_bytes());
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for i in 0..a.len() {
+        diff |= a[i] ^ b[i];
+    }
+    diff == 0
 }
 
 /// `Handler_Public::login` + `UserHelper::authenticate` (web, auth_internal).

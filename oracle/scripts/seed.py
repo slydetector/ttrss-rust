@@ -49,6 +49,12 @@ ADMIN_LOGIN = "admin"
 ADMIN_PASS = env_get("ADMIN_USER_PASS", "admin")
 RO_LOGIN = env_get("AUTO_CREATE_USER", "readonly")
 RO_PASS = env_get("AUTO_CREATE_USER_PASS", "readonlypass")
+# Dedicated OTP user: TOTP is supported but deliberately NOT on the admin demo
+# path (the admin login stays frictionless username/password). A separate
+# regular user demonstrates the OTP challenge + code flow.
+OTP_LOGIN = "otpuser"
+OTP_PASS = "otppass"
+OTP_SECRET = "OTPSECRET1234567890"
 
 CATS = [
     ("News", None),
@@ -404,7 +410,9 @@ def main() -> int:
         f"       ({admin_uid}, 'USER_CSS_THEME', {profile_ids['Work']}, 'night_blue')")
     print("profiles:", profile_ids)
 
-    # 9. app password + TOTP for admin
+    # 9. app password for admin (API login). Admin has NO OTP — the demo login
+    # is frictionless username/password. (OTP is still supported; it's
+    # demonstrated by the dedicated otpuser below, not the admin.)
     # App password for the API login service. Note: service must be the auth
     # service name ('_api'), check_app_password() matches on it exactly.
     # App password hash format is ALGO:HASH:SALT (salt AFTER the hash), unlike
@@ -416,9 +424,9 @@ def main() -> int:
         "insert into ttrss_app_passwords (title, pwd_hash, service, created, owner_uid) "
         f"values ('RSS Reader App', {q(ap_hash)}, '_api', now(), {admin_uid})")
     sql_exec(
-        "update ttrss_users set otp_enabled = true, otp_secret = 'JBSWY3DPEHPK3PXP' "
+        "update ttrss_users set otp_enabled = false, otp_secret = null "
         f"where id = {admin_uid}")
-    print("app password + TOTP set for admin")
+    print("admin app password set; OTP disabled (frictionless demo login)")
 
     # 10. access keys (feed + category) for syndication (unchanged numbering)
     first_feed_id = feed_ids.get("https://arstechnica.com/information-technology/feed/", 0)
@@ -445,6 +453,18 @@ def main() -> int:
         f"({test_uid}, 'USER_LANGUAGE', 'en')")
     print("testuser created, uid:", test_uid)
 
+    # 11b. otpuser — a dedicated regular user WITH OTP enabled, so the TOTP
+    # challenge + code flow is demonstrated without putting it on the admin
+    # demo path (created via the CLI so the password hashing is authentic).
+    sh(["docker", "compose", "exec", "-T", "app", "sh", "-c",
+        'sudo -E -u app php /var/www/html/tt-rss/update.php --force-yes '
+        f'--user-add "{OTP_LOGIN}:{OTP_PASS}:0" 2>&1'])
+    otp_uid = int(sql(f"select id from ttrss_users where login = {q(OTP_LOGIN)}")[0][0])
+    sql_exec(
+        "update ttrss_users set otp_enabled = true, otp_secret = "
+        f"{q(OTP_SECRET)} where id = {otp_uid}")
+    print("otpuser created with OTP enabled, uid:", otp_uid)
+
     # Fixed last_login for all users: the users index page displays it, and
     # logins performed during the corpus would otherwise leak state between
     # runs ("Never" on the first run, a time on subsequent ones).
@@ -466,6 +486,8 @@ def main() -> int:
         "admin": {"uid": admin_uid, "login": ADMIN_LOGIN, "password": ADMIN_PASS},
         "readonly": {"uid": ro_uid, "login": RO_LOGIN, "password": RO_PASS},
         "testuser": {"uid": test_uid, "login": "testuser", "password": "testpass"},
+        "otpuser": {"uid": otp_uid, "login": OTP_LOGIN, "password": OTP_PASS,
+                    "totp_secret": OTP_SECRET},
         "categories": {
             "news": cat_ids.get("News", 0),
             "world_news": cat_ids.get("News/World News", 0),
@@ -487,7 +509,7 @@ def main() -> int:
         "access_key_feed_ars": ak_feed,
         "access_key_cat_tech": ak_cat,
         "app_password": ap_pass,
-        "totp_secret": "JBSWY3DPEHPK3PXP",
+        "totp_secret": OTP_SECRET,
         "counts": {"entries": n_articles, "feeds": len(feed_ids),
                    "feeds_updated": n_updated, "feeds_errors": n_errors},
     }
