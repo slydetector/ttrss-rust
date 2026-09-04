@@ -372,6 +372,49 @@ method-by-method, diffing each against the oracle. Done so far:
 - **Next:** `Counters` + `Feeds::view` (headlines) so the main content area
   renders read-only; then the remaining RPC/Pref_* methods.
 
+#### M2 — `Feeds::view` headlines / Sanitizer approach (decided, not yet implemented)
+The `view()` response's per-article `content` field is the **sanitized article
+body HTML** (`Sanitizer::sanitize` on the raw `ttrss_entries.content`, then
+`DiskCache::rewrite_urls` (no-op here), then content-transforming plugin hooks
+like nsfw's `<details>` wrap). `Sanitizer::sanitize` is *reused* across the SPA
+`view()`, the external API, the public/syndication path, and the share plugin.
+Lifecycle: raw → sanitize → plugins → JSON `content` → **SPA renders it
+wholesale via `innerHTML`** (`Article.js:265`) → client hooks (Dojo parse, nsfw
+blur). Plugins transform it deterministically and **entity-form-agnostically**
+(nsfw string-wraps; af_youtube_embed matches iframe/enclosure URLs) — nothing
+does a byte-sensitive match on the entity spelling/whitespace.
+
+**Decision (B):** the *harness* compares HTML-bearing fields **semantically**
+(parsed tag/attr/text structure, ignoring entity spelling + whitespace) — the
+RSS feed origin is the canonical source of the content, not us, so we don't
+chase libxml's byte form. BUT the **sanitizer itself must be high-fidelity** —
+it's the security-critical production logic, so port it *fully* (not just the
+golden-dataset subset): drop disallowed elements (whole subtree) + attributes
+(`on*`,`data-*`,`id/style/class/width/height/allow/srcdoc`,`javascript:` hrefs),
+rewrite `<a>` (`rel`/`target` + `UrlHelper::rewrite_relative`), decorate `<img>`
+(`referrerpolicy`/`loading` + `srcset` validation via `RSSUtils::decode/encode_srcset`),
+`data:`-URI allowlist, `has_disallowed_ip` (private/loopback) checks, iframe
+sandboxing, `STRIP_IMAGES`, `highlight_words`.
+
+- **Parser:** use a real HTML parser (`kuchikiki`/`html5ever` — the harness
+  already uses `scraper`/`html5ever` in `crates/harness/src/html.rs::canonical_html`,
+  which is exactly the semantic comparator to reuse for HTML fields). NOT the
+  libxml2 FFI route (`libxml`/KWARC) — that's byte-exact but a C/clang build
+  burden, and byte-parity isn't required given (B).
+- **Verified transform (all 49 articles in 017/018/019):** leading bare text →
+  `<p>`; disallowed attrs stripped; `<a href>` gains `rel`/`target`; `<img>` gains
+  `referrerpolicy="no-referrer"`+`loading="lazy"` (attr order = raw order, new
+  attrs appended); `srcset` = `trim(url)+' '+trim(size)` joined by `,`;
+  non-ASCII → HTML4 named entities (`&rsquo;` etc., 252-entry table) + `&`→`&amp;`
+  (raw content mixes literal chars + numeric `&#8217;` + named forms; the parser
+  collapses all to the char model). Since (B), the *named-entity spelling* no
+  longer needs to match — only the parsed structure.
+- **Corpus steps still to satisfy:** `009 rpc_counters` (`RPC::getAllCounters`),
+  `017/018/019/056` `Feeds::view` (headlines), `020` `Feeds::search` (returns a
+  search-UI response, *different* shape — `show_language`/`all_languages`, not a
+  headline list). Re-read `tt-rss/classes/Feeds.php::view`(430)/`_get_headlines`(1354)/
+  `search`(558), `Counters.php`, `Sanitizer.php`, `UrlHelper.php` when resuming.
+
 ---
 
 ## 3a. Subsystem work notes (reference — by layer, not by milestone)
