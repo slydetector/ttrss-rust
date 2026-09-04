@@ -17,6 +17,7 @@
 
 use ego_tree::NodeRef;
 use scraper::{node::Node, Html};
+use std::sync::LazyLock;
 
 use crate::normalize;
 
@@ -24,6 +25,18 @@ use crate::normalize;
 pub fn is_html(s: &str) -> bool {
     let t = s.trim_start().to_ascii_lowercase();
     t.starts_with("<!doctype html") || t.starts_with("<html") || t.starts_with("<body")
+}
+
+/// Matches an HTML/XML opening tag: `<` + a letter name + anything-but-`<>` + `>`.
+/// (A bare `<` followed by a non-letter, e.g. `a < 5`, does not match.)
+static FRAGMENT_TAG: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r"<[a-zA-Z][^<>]*>").unwrap());
+
+/// Heuristic: does this JSON *string field* hold an HTML fragment (article
+/// body, plugin buttons, ...) as opposed to plain text? HTML fields are
+/// compared structurally (see `canonical_html`); plain text is value-normalized.
+pub fn is_html_fragment(s: &str) -> bool {
+    FRAGMENT_TAG.is_match(s)
 }
 
 /// Produce a canonical, normalized serialization of an HTML document for
@@ -171,6 +184,35 @@ mod tests {
         let a = "<html><style>\n\tbody {\n\t\tbackground : #303030;\n\t}\n</style></html>";
         let b = "<html><style>body { background : #303030; }</style></html>";
         assert_eq!(canonical_html(a), canonical_html(b));
+    }
+
+    #[test]
+    fn html_fragment_detection() {
+        assert!(is_html_fragment("<p>text</p>"));
+        assert!(is_html_fragment(
+            "<i class=\"material-icons\">note</i>"
+        ));
+        // plain text / escaped text without tags is not an HTML fragment
+        assert!(!is_html_fragment("&mdash; some plain text &hellip;"));
+        assert!(!is_html_fragment("Grok exfiltrates user data"));
+        assert!(!is_html_fragment("a < 5 and b > 3"));
+        assert!(!is_html_fragment(""));
+    }
+
+    #[test]
+    fn canonical_html_is_entity_form_independent() {
+        // libxml's HTML4 named entities vs numeric vs literal char: all decode
+        // to the same tree, so the canonical forms match.
+        let a = "<p>It\u{2019}s a test &amp; more</p>";
+        let b = "<p>It&#8217;s a test &amp;amp; more</p>";
+        let c = "<p>It&rsquo;s a test &amp; more</p>";
+        // a and c are the same tree (literal ’ and &rsquo; both decode to ’);
+        // b is different text (the &amp; decodes to &amp; literally), so it
+        // must NOT equal a.
+        assert_eq!(canonical_html(a), canonical_html(c));
+        assert_ne!(canonical_html(a), canonical_html(b));
+        // whitespace between tags is dropped
+        assert_eq!(canonical_html("<p>a</p> <p>b</p>"), canonical_html("<p>a</p><p>b</p>"));
     }
 
     #[test]

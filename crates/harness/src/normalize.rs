@@ -9,6 +9,8 @@
 use serde_json::Value;
 use std::sync::LazyLock;
 
+use crate::html;
+
 /// JSON keys whose values are inherently per-run and not comparable.
 pub const VOLATILE_JSON_KEYS: &[&str] = &[
     "csrf_token",
@@ -140,7 +142,18 @@ pub fn normalize_json(value: &Value) -> Value {
             Value::Object(out)
         }
         Value::Array(items) => Value::Array(items.iter().map(normalize_json).collect()),
-        Value::String(s) => Value::String(normalize_string(s)),
+        Value::String(s) => {
+            // HTML-bearing string fields (article body, plugin buttons, ...) are
+            // compared *structurally* — parsed into a canonical DOM — so entity
+            // spelling and inter-tag whitespace don't matter. We own the render,
+            // not the source: the feed origin is canonical for the content, so
+            // byte-parity is not required. Non-HTML strings stay value-normalized.
+            Value::String(if html::is_html_fragment(s) {
+                html::canonical_html(s)
+            } else {
+                normalize_string(s)
+            })
+        }
         other => other.clone(),
     }
 }
@@ -246,6 +259,22 @@ mod tests {
             normalize_string("Fri, 04 Sep 2026 21:59:39 GMT"),
             "<ts>"
         );
+    }
+
+    #[test]
+    fn html_fields_in_json_compared_structurally() {
+        // Same article body, different entity spelling + inter-tag whitespace:
+        // must normalize to the same value (structural compare).
+        let a = serde_json::json!({"content": "<p>It&rsquo;s a <b>test</b> &amp; more</p>", "title": "Hi"});
+        let b = serde_json::json!({"content": "<p>It&#8217;s a\n  <b>test</b> &amp; more</p>", "title": "Hi"});
+        assert_eq!(normalize_json(&a), normalize_json(&b));
+        // A real structural difference is still detected.
+        let c = serde_json::json!({"content": "<p>It&rsquo;s a <i>test</i> &amp; more</p>"});
+        assert_ne!(normalize_json(&a), normalize_json(&c));
+        // A non-HTML string field is value-normalized, not structural.
+        let d = serde_json::json!({"content_preview": "&mdash; text &hellip;"});
+        let e = serde_json::json!({"content_preview": "&mdash; text&hellip;"});
+        assert_ne!(normalize_json(&d), normalize_json(&e));
     }
 
     #[test]
