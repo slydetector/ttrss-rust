@@ -146,6 +146,15 @@ use crate::crypt;
 
 /// Build the stored (base64) form of a session from its data, encrypting with
 /// `key`. `key == None` stores unencrypted (no `TTRSS_ENCRYPTION_KEY`).
+/// Generate a new PHP-style session id: 16 random bytes as 32 lowercase hex
+/// chars (PHP defaults `session.sid_length=32`, `sid_bits_per_character=4`).
+pub fn new_session_id() -> String {
+    use rand::RngCore;
+    let mut b = [0u8; 16];
+    rand::thread_rng().fill_bytes(&mut b);
+    hex::encode(b)
+}
+
 pub fn to_stored(items: &[(String, Value)], key: Option<&[u8; crypt::KEY_LEN]>) -> Result<String> {
     let data = encode_data(items)?;
     let inner: Vec<u8> = match key {

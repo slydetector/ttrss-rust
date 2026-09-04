@@ -12,7 +12,12 @@ path = "src/main.rs"
 anyhow.workspace = true
 axum.workspace = true
 tokio.workspace = true
+chrono.workspace = true
 mime_guess.workspace = true
+rand.workspace = true
+serde.workspace = true
+sqlx.workspace = true
+url.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 ttrss-core = { path = "../core" }

@@ -66,6 +66,41 @@ pub fn urlencode(s: &str) -> String {
 }
 
 const LOGIN_TEMPLATE: &str = include_str!("../templates/login.html.tpl");
+const OTP_TEMPLATE: &str = include_str!("../templates/otp_challenge.html.tpl");
+
+/// Minimal HTML-escape for attribute values (PHP escapes these in `hidden_tag`).
+fn html_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
+/// Form fields to carry into the OTP challenge hidden inputs.
+pub struct OtpForm {
+    pub login: String,
+    pub password: String,
+    pub bw_limit: String,
+    pub safe_mode: String,
+    pub remember_me: String,
+    pub profile: String,
+}
+
+/// Render the OTP challenge page (`auth_internal`: the user has OTP enabled and
+/// no code was supplied yet). `return_url` is the already-encoded
+/// `urlencode(with_trailing_slash($return))` used in the form action.
+pub fn render_otp_challenge(config: &Config, return_url: &str, form: &OtpForm) -> String {
+    let scripts_ts = scripts_timestamp(config.docroot.as_path());
+    OTP_TEMPLATE
+        .replace("__SCRIPTS_TS__", &scripts_ts.to_string())
+        .replace("__RETURN_URL__", return_url)
+        .replace("__LOGIN__", &html_escape(&form.login))
+        .replace("__PASSWORD__", &html_escape(&form.password))
+        .replace("__BW_LIMIT__", &html_escape(&form.bw_limit))
+        .replace("__SAFE_MODE__", &html_escape(&form.safe_mode))
+        .replace("__REMEMBER_ME__", &html_escape(&form.remember_me))
+        .replace("__PROFILE__", &html_escape(&form.profile))
+}
 
 /// Render the not-authenticated login page.
 pub fn render_login_page(config: &Config) -> String {

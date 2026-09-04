@@ -29,6 +29,7 @@ const SESSION_SETUP: &[&str] = &[
 ];
 
 /// A configured Postgres pool.
+#[derive(Clone)]
 pub struct Db {
     pool: PgPool,
 }

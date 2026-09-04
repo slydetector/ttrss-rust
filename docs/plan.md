@@ -223,17 +223,30 @@ Done:
   (107 ext; e.g. `application/javascript`, not `mime_guess`'s `text/javascript`),
   `Cache-Control: no-cache`, no `Accept-Ranges` (nginx omits it on the gzip path
   real clients hit). `crates/server/src/mime.rs` holds the nginx table.
-- **Verified 3/3 against the oracle through the comparator:** `healthz`, `login`
-  page (structurally-equivalent HTML, not byte-match), `static_svg` (body +
-  headers). Whole workspace: **47 tests passing, clippy clean**.
+- **Login flow (verified 4/4 against the oracle through the comparator):**
+  `POST /public.php?op=login` — `crates/server/src/auth.rs` ports the
+  `auth_internal` web path: SSHA-512 verify + TOTP (ASCII-byte key, no window);
+  no-otp → 200 OTP challenge page (`templates/otp_challenge.html.tpl`),
+  valid-otp → 302 + `Set-Cookie: ttrss_sid=<32hex>; path=/` + `Location` (validated
+  `return` else self URL) + PHP `nocache` headers (`no-store, no-cache,
+  must-revalidate`, `Pragma: no-cache`, fixed 1981 `Expires`). Non-OTP users get
+  `last_auth_attempt` throttling (`AUTH_MIN_INTERVAL`). Verified: `healthcheck`,
+  `login_page`, `web_login` (200 challenge), `web_login_otp` (302) all diff clean.
+- **DB-backed encrypted session middleware** (`crates/server/src/session.rs`):
+  reads `ttrss_sid` cookie, loads + decrypts the session (via core `from_stored`),
+  exposes a mutable `Sess` handle to handlers, persists back only if dirty
+  (core `to_stored`). Anonymous requests never touch the DB. Session creation on
+  login verified end-to-end: the stored row decrypts to the right keys
+  (`uid=1`, `name=admin`, `access_level=10`, `auth_module=auth_internal`,
+  `ref_schema_version=151`, `csrf_token`, `pwd_hash`, `bw_limit`/`safe_mode`).
+- **Verified 3/3 static surfaces** (`healthz`, login page, `static_svg`) plus the
+  4-exchange login flow above. Whole workspace: **48 tests passing, clippy clean**
+  (two `dead_code` warnings are the shell's `with_mut`/`COOKIE_LIFETIME`, used next).
 
 Remaining for M1:
-- Login `POST /public.php?op=login` — SSHA-512 verify, TOTP challenge (200) vs
-  success (302 + `ttrss_sid`), failure/throttle behavior.
-- DB-backed encrypted session middleware (read/decrypt/rewrite per request;
-  rolling cookie re-stamp).
 - Authenticated SPA shell renderer (container DOM, `__csrf_token`, theme consts,
-  per-plugin `Plugins.*` blocks) + ETag/304 (`"<md5(body)>'>` / `If-None-Match`).
+  per-plugin `Plugins.*` blocks) + ETag/304 (`"<md5(body)>'>` / `If-None-Match`) +
+  rolling cookie re-stamp on authenticated responses. This is the M1→M2 hand-off.
 
 Design notes (this increment):
 - HTML compatibility = normalized/structural (parser-based DOM) + exact dynamic

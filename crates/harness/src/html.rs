@@ -37,6 +37,36 @@ pub fn canonical_html(s: &str) -> String {
     out
 }
 
+/// Concatenate all text under a node (for `<script>`/`<style>` code blocks).
+fn collect_text(node: NodeRef<Node>, out: &mut String) {
+    match node.value() {
+        Node::Text(t) => out.push_str(t.text.as_ref()),
+        _ => {
+            for child in node.children() {
+                collect_text(child, out);
+            }
+        }
+    }
+}
+
+/// Collapse runs of whitespace (space/tab/newline) to a single space and trim.
+fn collapse_ws(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut prev_ws = false;
+    for c in s.chars() {
+        if c.is_whitespace() {
+            if !prev_ws {
+                out.push(' ');
+                prev_ws = true;
+            }
+        } else {
+            out.push(c);
+            prev_ws = false;
+        }
+    }
+    out.trim().to_string()
+}
+
 fn canonicalize_node(node: NodeRef<Node>, out: &mut String) {
     match node.value() {
         Node::Element(el) => {
@@ -59,8 +89,20 @@ fn canonicalize_node(node: NodeRef<Node>, out: &mut String) {
                 out.push('"');
             }
             out.push('>');
-            for child in node.children() {
-                canonicalize_node(child, out);
+            if name == "script" || name == "style" {
+                // Code blocks: compare the content faithfully but ignore
+                // indentation/line-break differences (tabs vs spaces), which
+                // are cosmetic. A real token change still shows up.
+                let mut text = String::new();
+                collect_text(node, &mut text);
+                let norm = normalize::normalize_string(&collapse_ws(&text));
+                if !norm.is_empty() {
+                    out.push_str(&norm);
+                }
+            } else {
+                for child in node.children() {
+                    canonicalize_node(child, out);
+                }
             }
             out.push_str("</");
             out.push_str(name);
@@ -114,15 +156,21 @@ mod tests {
     #[test]
     fn compares_script_content_as_text_not_tags() {
         // A `>`/`<` pair inside a <script> must not be mistaken for a tag
-        // boundary (the thing the old regex got wrong).
-        let a = "<html><script>if (x > 0) {\n  y < 10;\n}</script></html>";
+        // boundary (the thing the old regex got wrong), and indentation
+        // (tabs vs spaces, line breaks) is collapsed so it doesn't matter.
+        let a = "<html><script>if (x > 0) {\n\ty < 10;\n}</script></html>";
         let b = "<html><script>if (x > 0) { y < 10; }</script></html>";
-        // Same JS, different whitespace inside the script body → different
-        // canonical text (we compare script content faithfully).
-        assert_ne!(canonical_html(a), canonical_html(b));
-        // But identical script with different surrounding tag whitespace:
-        let c = "<html>\n  <script>if (x > 0) {\n  y < 10;\n}</script>\n</html>";
-        assert_eq!(canonical_html(a), canonical_html(c));
+        assert_eq!(canonical_html(a), canonical_html(b));
+        // A real token change is still detected.
+        let c = "<html><script>if (x > 0) { y < 99; }</script></html>";
+        assert_ne!(canonical_html(a), canonical_html(c));
+    }
+
+    #[test]
+    fn ignores_style_indentation() {
+        let a = "<html><style>\n\tbody {\n\t\tbackground : #303030;\n\t}\n</style></html>";
+        let b = "<html><style>body { background : #303030; }</style></html>";
+        assert_eq!(canonical_html(a), canonical_html(b));
     }
 
     #[test]
