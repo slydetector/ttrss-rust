@@ -301,6 +301,51 @@ Design notes (this increment):
   values + meaningful headers — not raw-byte matching. Static = byte-for-byte.
 - `ttrss-core` keeps zero HTTP deps so the web framework (axum) stays swappable.
 
+### M2 status: IN PROGRESS — RPC dispatcher + `sanityCheck` (2026-09-04)
+
+M2 = *read-only UI on real data*. Building the `backend.php` JSON-RPC surface
+method-by-method, diffing each against the oracle. First slice done:
+
+- **`backend.php` dispatcher** (`crates/server/src/rpc.rs`): `op`/`method`
+  (`subop` fallback) routing, public shim (`rss`/`getProfiles`/`share` → 302
+  `public.php`), light session validation (E_UNAUTHORIZED), CSRF gate
+  (`validate_csrf`), `Handler`/`Errors::to_json` envelope, `E_UNKNOWN_METHOD`
+  fallback. The session middleware's rolling cookie re-stamp + the PHP `nocache`
+  trio (`no-store, no-cache, must-revalidate` / `Pragma` / fixed-1981 `Expires`)
+  are emitted on responses whose session started.
+- **`RPC::sanityCheck` + `getRuntimeInfo`** — the SPA's first calls (un-blocks
+  the load sequence). Ports `_make_init_params` (36 keys: 17 prefs via the new
+  `Prefs` resolver, `is_default_pw`, `label_base_index`, `theme` (a `themes/<x>`
+  file/dir existence check — `night` is a `.css` file so it's *not* a theme →
+  `""`), `plugins`, `hotkeys` (61-entry static map + derived prefixes), 4
+  `icon_*` base64 blobs, labels) and `_make_runtime_info`. `_make_runtime_info`
+  + `init-params` `labels` share `Labels::get_all`.
+- **`Prefs` resolver** (`crates/server/src/prefs.rs`): the `ttrss_prefs` DB
+  registry is empty in this fork — defaults live in PHP `Prefs::_DEFAULTS`
+  (reproduced) with the profile blacklist + `cast_to` (bool/int/str) +
+  `ttrss_user_prefs2` overrides.
+- **`plugins` field** = the `TTRSS_PLUGINS` env list mapped to class names by
+  scanning each plugin's `init.php` (`plugins/` then `plugins.local/`), in
+  order (the init list dominates; per-user `_ENABLED_PLUGINS` only re-registers
+  a subset, so it's identical across users here).
+- **Corpus:** `rpc_sanity_check` now sends `clientLocation={{base}}/` (+
+  `hasSandbox`/`clientTzOffset`) so it exercises the success path (the oracle
+  previously returned `E_URL_SCHEME_MISMATCH` with no client location). Re-recorded
+  oracle-a/b.
+- **Harness normalizer:** drops the live-daemon runtime fields
+  (`daemon_is_running`/`daemon_stamp`/`daemon_stamp_ok` — present when an updater
+  runs, absent on the daemon-less Rust test server) and `php_platform`/`php_version`
+  (runtime environment facts, unused by the frontend) alongside `recent_log_events`.
+- **Setup:** the Rust test server must run with `TTRSS_PLUGINS` matching the
+  oracle and the doc root containing `plugins.local/nginx_xaccel` (a deployment
+  artifact in the frozen `tt-rss/` checkout), so the `plugins` field matches.
+- **Verified:** `rpc_sanity_check` + `rpc_runtime_info` diff **clean**; all M1
+  steps still clean; **17/61 match**. Self-replay **61/61 clean**. Remaining
+  mismatches are the unimplemented M2+ surface (feed tree, counters, headlines,
+  article/labels/filters/users/prefs, external API, syndication, icons).
+- **Next:** `Pref_Feeds::getfeedtree` (mode 2) to populate the feed list, then
+  `Counters` + `Feeds::view` (headlines) so the app renders data read-only.
+
 ---
 
 ## 3a. Subsystem work notes (reference — by layer, not by milestone)

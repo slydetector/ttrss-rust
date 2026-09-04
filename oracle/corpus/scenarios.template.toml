@@ -87,7 +87,8 @@ expect_status = 200
 name = "rpc_sanity_check"
 method = "POST"
 path = "/backend.php"
-form = [ ["op", "RPC"], ["method", "sanityCheck"], ["csrf_token", "{{csrf}}"] ]
+form = [ ["op", "RPC"], ["method", "sanityCheck"], ["csrf_token", "{{csrf}}"],
+         ["clientLocation", "{{base}}/"], ["hasSandbox", "true"], ["clientTzOffset", "0"] ]
 expect_status = 200
 
 [[step]]

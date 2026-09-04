@@ -10,7 +10,9 @@
 
 mod auth;
 mod mime;
+mod prefs;
 mod render;
+mod rpc;
 mod session;
 
 use axum::{
@@ -75,6 +77,7 @@ fn build_router(state: &AppState) -> Router<AppState> {
         .route("/", get(index))
         .route("/index.php", get(index))
         .route("/public.php", get(public_handler).post(public_handler))
+        .route("/backend.php", get(rpc::handler).post(rpc::handler))
         .fallback(static_handler);
 
     let app = if base.is_empty() {

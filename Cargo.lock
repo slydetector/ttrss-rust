@@ -3037,11 +3037,13 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
+ "base64 0.22.1",
  "chrono",
  "md5",
  "mime_guess",
  "rand 0.8.8",
  "serde",
+ "serde_json",
  "sqlx",
  "tokio",
  "tracing",
