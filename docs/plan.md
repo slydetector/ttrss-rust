@@ -372,7 +372,41 @@ method-by-method, diffing each against the oracle. Done so far:
 - **Next:** `Counters` + `Feeds::view` (headlines) so the main content area
   renders read-only; then the remaining RPC/Pref_* methods.
 
-#### M2 — `Feeds::view` headlines / Sanitizer approach (decided, not yet implemented)
+#### M2 — `Feeds::view` headlines / Sanitizer approach
+
+**DONE (committed):**
+- `8efb755` harness: HTML-bearing JSON fields compared **structurally** (canonical
+  DOM via existing `scraper`/`html5ever` in `crates/harness/src/html.rs`), not as raw
+  strings. `normalize_json` → `html::is_html_fragment(s)` → `canonical_html(s)`.
+- `e2a187b` **high-fidelity iterative sanitizer** (`crates/server/src/sanitizer.rs`,
+  `kuchikiki`+`html5ever` 0.26): ports `Sanitizer::sanitize` — rewrite `<a>`/`<img>`/
+  `source`/`video` (`UrlHelper::rewrite_relative`+`has_disallowed_ip`, `rel`/`target`,
+  `referrerpolicy`/`loading`, `srcset` via `RSSUtils`), sandbox iframes, strip
+  disallowed elements (whole subtree) + attrs (`on*`,`data-*`,id/style/class/width/
+  height/allow/srcdoc, `javascript:` hrefs), highlight words. **All traversals + the
+  serializer are iterative (heap stacks)** — no call-stack recursion, deep-nesting
+  safe. Deps: `kuchikiki=0.8`, `html5ever=0.26` (workspace + server).
+- Harness `canonical_html` now treats `<p>` as **transparent** (libxml HTML4 auto-wraps
+  bare text; html5ever HTML5 doesn't) — reconciles the two without chasing libxml.
+
+**NEXT (not started):** `Feeds::view` (017/018/019/056) + `Feeds::search` (020) +
+`RPC::getAllCounters` (009). Wire a `"Feeds"` branch in `crates/server/src/rpc.rs` (add
+`Feeds` to `is_protected`; it's CSRF-gated, corpus sends valid token). `Feeds::view`:
+feed-ownership check (label/feed/cat) → else `_generate_error_feed` "Feed not found.";
+`_get_headlines` SQL (regular feed `feed_id=N`; category `cat_id IN (subcats)` +
+`ttrss_feeds.title AS feed_title,favicon_avg_color,`); 32-field article object;
+time fields via `TimeHelper::make_local_datetime` (harness normalizes to `<ts>`);
+`content` = `sanitizer::sanitize(...)`; `feed_bg_color` via `_color_of` (colormap[15]);
+enclosures (`Article::_format_enclosures`); `buttons` = 3 plugins (af_psql_trgm, note,
+share `HOOK_ARTICLE_BUTTON`, each +`data-plugin-name`); `content_preview` =
+`"&mdash; "+truncate_string(strip_tags(raw),250)`. `view_mode` (req `view_mode`), NOT
+`m`, controls the view filter — corpus uses `view_mode=""` so no filter; 017 & 018
+return the same articles. `Feeds::search` (020) = `{show_language:true,
+show_syntax_help:true,default_language:"",all_languages:Pref_Feeds::get_ts_languages()}`
+(query `pg_ts_config`, ucfirst). Re-read `tt-rss/classes/Feeds.php` `view`(430)/
+`_get_headlines`(1354)/`search`(558), `TimeHelper.php`, `Article.php:308`.
+
+##### M2 — `Feeds::view` headlines / Sanitizer approach (decided)
 The `view()` response's per-article `content` field is the **sanitized article
 body HTML** (`Sanitizer::sanitize` on the raw `ttrss_entries.content`, then
 `DiskCache::rewrite_urls` (no-op here), then content-transforming plugin hooks
