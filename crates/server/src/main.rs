@@ -18,6 +18,8 @@ mod prefs;
 mod render;
 mod rpc;
 mod sanitizer;
+#[cfg(test)]
+mod sanitizer_parity;
 mod session;
 mod time;
 
@@ -380,7 +382,7 @@ fn login_redirect(location: &str, sid: &str) -> Response {
         .expect("valid response")
 }
 
-fn with_trailing_slash(s: &str) -> String {
+pub(crate) fn with_trailing_slash(s: &str) -> String {
     if s.ends_with('/') {
         s.to_string()
     } else {

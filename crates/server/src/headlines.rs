@@ -988,7 +988,7 @@ fn color_unpack(hex: &str) -> (i64, i64, i64) {
 }
 
 /// `strip_tags` (the M2 usage: drop HTML tags/comments, keep text + entities).
-fn strip_tags(s: &str) -> String {
+pub(crate) fn strip_tags(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut rest = s;
     while let Some(i) = rest.find('<') {

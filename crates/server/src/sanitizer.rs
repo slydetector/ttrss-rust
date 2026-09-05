@@ -15,7 +15,11 @@
 use html5ever::{LocalName, Namespace, QualName};
 use kuchikiki::traits::TendrilSink;
 use kuchikiki::{parse_html, ElementData, NodeData, NodeRef};
+use regex::Regex;
 use std::collections::BTreeSet;
+
+use crate::headlines::strip_tags;
+use crate::with_trailing_slash;
 
 const HTML_NS: &str = "http://www.w3.org/1999/xhtml";
 
@@ -59,6 +63,19 @@ const VOID_ELEMENTS: &[&str] = &[
 
 /// `UrlHelper::EXTRA_HREF_SCHEMES`.
 const EXTRA_HREF_SCHEMES: &[&str] = &["magnet", "mailto", "tel"];
+
+/// `UrlHelper::EXTRA_SCHEMES_BY_CONTENT_TYPE`.
+const EXTRA_SCHEMES_BY_CONTENT_TYPE: &[(&str, &[&str])] = &[
+    ("application/x-bittorrent", &["magnet"]),
+];
+
+/// Data-URI allowlist for `<img src>` (PHP regex on the URL *path*):
+/// `^image/(webp|gif|jpg|png|svg);base64,`.
+static DATA_URI_RE: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
+
+fn data_uri_re() -> &'static Regex {
+    DATA_URI_RE.get_or_init(|| Regex::new(r"^image/(webp|gif|jpg|png|svg);base64,").unwrap())
+}
 
 /// The allowed-elements set (lowercased), optionally including `iframe`.
 fn allowed_elements(has_sandbox: bool) -> BTreeSet<String> {
@@ -188,7 +205,7 @@ pub fn sanitize(
     has_sandbox: bool,
     bw_limit: bool,
     site_url: Option<&str>,
-    highlight_words: Option<&[String]>,
+    highlight_words_opt: Option<&[String]>,
 ) -> String {
     let res = input.trim();
     if res.is_empty() {
@@ -199,6 +216,32 @@ pub fn sanitize(
     let Some(body) = find_body(&doc) else {
         return String::new();
     };
+
+    // html5ever routes "head" elements (e.g. `<noscript>`) into `<head>` even
+    // in fragment parses, while libxml's `loadHTML` puts the whole fragment in
+    // `<body>`. Move any head children to the front of body to match. (Only
+    // `<noscript>` can matter — every other head element is disallowed and
+    // would be stripped anyway.)
+    for html in doc.children() {
+        let Some(html_el) = html.as_element() else {
+            continue;
+        };
+        if el_name(html_el) != "html" {
+            continue;
+        }
+        for c in html.children() {
+            let Some(h) = c.as_element() else {
+                continue;
+            };
+            if el_name(h) == "head" {
+                let kids: Vec<NodeRef> = c.children().collect();
+                for k in kids.into_iter().rev() {
+                    k.detach();
+                    body.prepend(k);
+                }
+            }
+        }
+    }
 
     // 0. Emulate libxml2 (PHP `DOMDocument::loadHTML`) implicit markup:
     // drop leading whitespace/comments, open an implicit `<p>` for leading
@@ -216,10 +259,14 @@ pub fn sanitize(
     // 3. Strip disallowed elements (whole subtree) + disallowed attributes.
     strip_harmful_tags(&body, &allowed_elements(has_sandbox));
 
-    // 4. Highlight words (if the feed has any).
-    if let Some(words) = highlight_words {
+    // 4. Wrap surviving iframes in <div class="embed-responsive">
+    // (Sanitizer.php: the second `//iframe` pass, after strip_harmful_tags).
+    wrap_iframes_in_div(&body);
+
+    // 5. Highlight words (if the feed has any).
+    if let Some(words) = highlight_words_opt {
         if !words.is_empty() {
-            highlight_words_in_tree(&body, words);
+            highlight_words(&body, words);
         }
     }
 
@@ -244,13 +291,17 @@ fn rewrite_url_elements(
     while let Some(node) = stack.pop() {
         // Compute the condition in a scoped block so the element/attribute
         // borrows drop before we mutate the tree in rewrite_single_element.
+        // The PHP xpath: (//a[@href]|//img[@src|@srcset]|//source[@src|@srcset]
+        // |//video[@poster]).
         let needs_rewrite = if let Some(el) = node.as_element() {
             let name = lower(&el_name(el));
-            let is_link_img = matches!(name.as_str(), "a" | "img" | "source" | "video");
-            is_link_img
-                && ["href", "src", "srcset", "poster"]
-                    .iter()
-                    .any(|k| el.attributes.borrow().get(*k).is_some())
+            let has = |k: &str| el.attributes.borrow().get(k).is_some();
+            match name.as_str() {
+                "a" => has("href"),
+                "img" | "source" => has("src") || has("srcset"),
+                "video" => has("poster"),
+                _ => false,
+            }
         } else {
             false
         };
@@ -288,8 +339,15 @@ fn rewrite_single_element(
 
     // href (a)
     if let Some(href) = href {
-        if let Some(u) = rewrite_relative(base, &href, &name, "href", "") {
-            el.attributes.borrow_mut().insert("href", u);
+        // PHP: `setAttribute('href', rewrite_relative(...))` — a failed
+        // rewrite coerces `false` to the empty string (href="").
+        match rewrite_relative(base, &href, &name, "href", "") {
+            Some(u) => {
+                el.attributes.borrow_mut().insert("href", u);
+            }
+            None => {
+                el.attributes.borrow_mut().insert("href", String::new());
+            }
         }
         el.attributes.borrow_mut().insert("rel", "noopener noreferrer".to_string());
         el.attributes.borrow_mut().insert("target", "_blank".to_string());
@@ -408,6 +466,40 @@ fn process_iframes(root: &NodeRef) {
     }
 }
 
+/// `Sanitizer::iframe_whitelisted` — true when a plugin hooks
+/// `HOOK_IFRAME_WHITELISTED` for the iframe's src host (the only known use is
+/// `af_youtube_embed`). No plugins are registered yet (M7), so this is
+/// always false.
+// TODO(port): HOOK_IFRAME_WHITELISTED (M7 plugin system).
+pub fn iframe_whitelisted(src: &str) -> bool {
+    let host = parse_url(src)
+        .and_then(|p| p.host)
+        .map(|h| h.trim_matches(|c| c == '[' || c == ']').to_string())
+        .unwrap_or_default();
+    let _ = host;
+    false
+}
+
+/// Wrap surviving iframes in `<div class="embed-responsive">` (Sanitizer.php:
+/// the second `//iframe` pass, runs after strip_harmful_tags).
+fn wrap_iframes_in_div(root: &NodeRef) {
+    let mut stack = vec![root.clone()];
+    let mut iframes: Vec<NodeRef> = Vec::new();
+    while let Some(n) = stack.pop() {
+        if n.as_element().map(|e| el_name(e) == "iframe").unwrap_or(false) {
+            iframes.push(n.clone());
+        }
+        for c in n.children() {
+            stack.push(c);
+        }
+    }
+    for iframe in iframes {
+        let div = build_element("div", &[("class".into(), "embed-responsive".into())]);
+        iframe.insert_before(div.clone());
+        div.append(iframe);
+    }
+}
+
 /// Pass 3: drop disallowed elements (whole subtree) and disallowed attributes.
 fn strip_harmful_tags(root: &NodeRef, allowed: &BTreeSet<String>) {
     let mut stack = vec![root.clone()];
@@ -441,11 +533,15 @@ fn drop_disallowed_attrs(el: &ElementData) {
         let is_js_href = lname == "href" && value_starts_with_js(&attr.value);
         let in_list = DISALLOWED_ATTRIBUTES.contains(&lname.as_str());
         if is_on || is_data || is_js_href || in_list {
-            to_remove.push(exp_name.local.to_string());
+            to_remove.push(exp_name.clone());
         }
     }
-    for name in to_remove {
-        el.attributes.borrow_mut().remove(name.as_str());
+    // IndexMap::remove is a swap-remove (it moves the last entry into the
+    // vacated slot); shift_remove keeps the surviving attribute order, which
+    // the PHP DOM output (and the tests) depends on.
+    let mut attrs = el.attributes.borrow_mut();
+    for name in &to_remove {
+        attrs.map.shift_remove(name);
     }
 }
 
@@ -454,188 +550,612 @@ fn value_starts_with_js(value: &str) -> bool {
     v.starts_with("javascript:")
 }
 
-/// Pass 4: wrap case-insensitive occurrences of each word in `<span
-/// class="highlight">` (Sanitizer::highlight_words). Iterative.
-fn highlight_words_in_tree(root: &NodeRef, words: &[String]) {
-    for word in words {
-        let w = word.to_lowercase();
-        if w.is_empty() {
-            continue;
+/// `Sanitizer::highlight_words_str` — highlight words in an HTML *string*
+/// (PHP wraps the input in `<span>…</span>`, highlights, and returns the
+/// body content; if no text node was replaced the input is returned
+/// unchanged).
+pub fn highlight_words_str(input: &str, words: &[String]) -> String {
+    let doc = parse_html().one(format!("<span>{input}</span>"));
+    let Some(body) = find_body(&doc) else {
+        return input.to_string();
+    };
+    if highlight_words(&body, words) {
+        let mut out = String::new();
+        for c in body.children() {
+            serialize_node(&c, &mut out);
         }
+        out
+    } else {
+        input.to_string()
+    }
+}
+
+/// Case-insensitive find (PHP `mb_stripos`): `(byte_pos, byte_len)` of the
+/// first occurrence of `needle` in `hay` under Unicode case folding.
+fn ci_find(hay: &str, needle: &str) -> Option<(usize, usize)> {
+    if needle.is_empty() {
+        return None;
+    }
+    let lower = hay.to_lowercase();
+    if lower.len() == hay.len() {
+        return lower.find(needle).map(|pos| (pos, needle.len()));
+    }
+    // Fallback for non-length-preserving folds: char-level, 1-to-1 folding.
+    let h: Vec<char> = hay.chars().collect();
+    let n: Vec<char> = needle.chars().collect();
+    let hl: Vec<char> = h
+        .iter()
+        .map(|c| c.to_lowercase().next().unwrap())
+        .collect();
+    for i in 0..=h.len().saturating_sub(n.len()) {
+        if hl[i..i + n.len()] == n[..] {
+            let byte_pos: usize = h[..i].iter().map(|c| c.len_utf8()).sum();
+            let byte_len: usize = h[i..i + n.len()].iter().map(|c| c.len_utf8()).sum();
+            return Some((byte_pos, byte_len));
+        }
+    }
+    None
+}
+
+/// Pass 4: `Sanitizer::highlight_words` — wrap *all* case-insensitive
+/// occurrences of each word in each text node in `<span class="highlight">`
+/// (original case of the matched text preserved). Returns `true` if any text
+/// node was replaced (the PHP `rv`). Iterative.
+pub fn highlight_words(root: &NodeRef, words: &[String]) -> bool {
+    let mut rv = false;
+    for word in words {
+        if word.is_empty() {
+            continue; // PHP would loop forever on an empty word
+        }
+        let w = word.to_lowercase();
+        // Snapshot the text nodes (PHP's `//*/text()`, re-evaluated per word
+        // so splits from earlier words are visible).
         let mut stack = vec![root.clone()];
-        while let Some(node) = stack.pop() {
-            if let Some(text) = node.as_text() {
-                let content = text.borrow().clone();
-                let lower_content = content.to_lowercase();
-                if let Some(pos) = lower_content.find(&w) {
-                    let byte_end = pos + w.len();
-                    let before = &content[..pos];
-                    let matched = &content[pos..byte_end];
-                    let after = &content[byte_end..];
-                    let highlight = build_element(
-                        "span",
-                        &[("class".into(), "highlight".into())],
-                    );
-                    highlight.append(NodeRef::new_text(matched.to_string()));
-                    if !before.is_empty() {
-                        node.insert_before(NodeRef::new_text(before.to_string()));
-                    }
-                    node.insert_before(highlight);
-                    if !after.is_empty() {
-                        node.insert_after(NodeRef::new_text(after.to_string()));
-                    }
-                    node.detach();
-                    continue; // re-walk to catch further matches
-                }
+        let mut nodes: Vec<NodeRef> = Vec::new();
+        while let Some(n) = stack.pop() {
+            if n.as_text().is_some() {
+                nodes.push(n.clone());
             }
-            for c in node.children() {
+            for c in n.children() {
                 stack.push(c);
             }
         }
+        for node in nodes {
+            let text: String = node.as_text().unwrap().borrow().to_string();
+            let mut frag: Vec<NodeRef> = Vec::new();
+            let mut rest = text;
+            while let Some((pos, len)) = ci_find(&rest, &w) {
+                frag.push(NodeRef::new_text(rest[..pos].to_string()));
+                let matched = &rest[pos..pos + len];
+                let highlight = build_element(
+                    "span",
+                    &[("class".into(), "highlight".into())],
+                );
+                highlight.append(NodeRef::new_text(matched.to_string()));
+                frag.push(highlight);
+                rest = rest[pos + len..].to_string();
+            }
+            if !rest.is_empty() {
+                frag.push(NodeRef::new_text(rest));
+            }
+            // replace the node with the fragment's children (in order)
+            for n in &frag {
+                node.insert_before(n.clone());
+            }
+            node.detach();
+            rv = true;
+        }
     }
+    rv
 }
 
 // ---------------------------------------------------------------------------
 // URL validation (UrlHelper)
 // ---------------------------------------------------------------------------
 
-/// Port of `UrlHelper::rewrite_relative`. Returns the absolute/validated URL or
-/// `None` on failure.
+/// URL components, mirroring PHP `parse_url()`. Absent fields are `None`; the
+/// `port` field is `Some("")` when the caller explicitly set an empty port
+/// (`rewrite_relative` does), which `build_url` renders as a bare `:`.
+#[derive(Debug, Clone, Default)]
+struct UrlParts {
+    scheme: Option<String>,
+    host: Option<String>,
+    port: Option<String>,
+    path: Option<String>,
+    query: Option<String>,
+    fragment: Option<String>,
+}
+
+/// Lenient port of PHP `parse_url()` for the URL shapes the sanitizer sees.
+/// Returns `None` where PHP returns `false`: empty authority after
+/// `scheme://`, a non-numeric port, or a control character in the
+/// scheme/authority. (PHP is otherwise lenient: spaces in hosts and relative
+/// paths parse fine; the strictness lives in `validate`'s `filter_var` gate.)
+fn parse_url(url: &str) -> Option<UrlParts> {
+    if url.is_empty() {
+        return Some(UrlParts {
+            path: Some(String::new()),
+            ..Default::default()
+        });
+    }
+    let bad = url
+        .chars()
+        .take_while(|&c| !matches!(c, '/' | '?' | '#'))
+        .any(|c| (c as u32) < 0x20 || c == '\u{7f}');
+    if bad {
+        return None;
+    }
+
+    // Fragment: first '#' (not inside an IPv6 bracket).
+    let mut rest = url;
+    let mut fragment: Option<String> = None;
+    let mut in_brackets = false;
+    let mut hash_pos = None;
+    for (i, c) in url.char_indices() {
+        match c {
+            '[' => in_brackets = true,
+            ']' => in_brackets = false,
+            '#' if !in_brackets => {
+                hash_pos = Some(i);
+                break;
+            }
+            _ => {}
+        }
+    }
+    if let Some(i) = hash_pos {
+        fragment = Some(url[i + 1..].to_string());
+        rest = &url[..i];
+    }
+
+    // Authority present: `scheme://...` or `//...`.
+    let scheme_end = rest
+        .find(':')
+        .filter(|&i| {
+            let pre = &rest[..i];
+            !pre.is_empty()
+                && pre.bytes().next().unwrap().is_ascii_alphabetic()
+                && pre[1..]
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'+' || b == b'-' || b == b'.')
+        });
+    let has_authority = match scheme_end {
+        Some(i) => rest[i + 1..].starts_with("//"),
+        None => rest.starts_with("//"),
+    };
+
+    // Query: first '?' after the authority start (or in the relative part).
+    let auth_start = if has_authority {
+        scheme_end.map(|i| i + 3).unwrap_or(2)
+    } else {
+        0
+    };
+    let mut query: Option<String> = None;
+    if let Some(i) = rest[auth_start..].find('?') {
+        let qi = auth_start + i;
+        query = Some(rest[qi + 1..].to_string());
+        rest = &rest[..qi];
+    }
+
+    let mut parts = UrlParts::default();
+    if let Some(i) = scheme_end {
+        parts.scheme = Some(rest[..i].to_string());
+    }
+
+    if has_authority {
+        let auth = &rest[auth_start..];
+        if auth.is_empty() {
+            return None; // PHP: parse_url("http://") === false
+        }
+        // host[:port][/path]
+        let (hostport, path) = match auth.find('/') {
+            Some(i) => (&auth[..i], Some(auth[i..].to_string())),
+            None => (auth, None),
+        };
+        let (host, port) = if hostport.starts_with('[') {
+            // IPv6 literal: host keeps the brackets, as PHP does.
+            match hostport.find(']') {
+                Some(j) => {
+                    let after = &hostport[j + 1..];
+                    let port = after.strip_prefix(':').map(|p| p.to_string());
+                    (hostport[..=j].to_string(), port)
+                }
+                // PHP parses "[::1/" leniently (host "[:", port "1"): treat
+                // the first ':' after '[' as the port separator.
+                None => match hostport.find(':') {
+                    Some(i) => (hostport[..i].to_string(), Some(hostport[i + 1..].to_string())),
+                    None => (hostport.to_string(), None),
+                },
+            }
+        } else {
+            match hostport.find(':') {
+                Some(i) => (hostport[..i].to_string(), Some(hostport[i + 1..].to_string())),
+                None => (hostport.to_string(), None),
+            }
+        };
+        if let Some(port) = &port {
+            if !port.is_empty() && !port.bytes().all(|b| b.is_ascii_digit()) {
+                return None; // PHP: parse_url("http://x:abc/") === false
+            }
+        }
+        parts.host = Some(host);
+        parts.port = port.filter(|p| !p.is_empty());
+        parts.path = path;
+    } else if let Some(i) = scheme_end {
+        // scheme without authority: rest after ':' is the (opaque) path.
+        parts.path = Some(rest[i + 1..].to_string());
+    } else if !rest.is_empty() {
+        parts.path = Some(rest.to_string());
+    }
+    parts.query = query;
+    parts.fragment = fragment;
+    Some(parts)
+}
+
+/// `UrlHelper::build_url` (scheme://host[:port][path][?query][#fragment]); the
+/// presence of the `port` key — even empty — emits a bare `:`.
+fn build_url(p: &UrlParts) -> String {
+    let mut out = format!(
+        "{}://{}",
+        p.scheme.as_deref().unwrap_or(""),
+        p.host.as_deref().unwrap_or("")
+    );
+    if let Some(port) = &p.port {
+        out.push(':');
+        out.push_str(port);
+    }
+    if let Some(path) = &p.path {
+        out.push_str(path);
+    }
+    if let Some(query) = &p.query {
+        out.push('?');
+        out.push_str(query);
+    }
+    if let Some(fragment) = &p.fragment {
+        out.push('#');
+        out.push_str(fragment);
+    }
+    out
+}
+
+/// `clean()` for strings: `trim(strip_tags($str))` (functions.php).
+fn clean(s: &str) -> String {
+    strip_tags(s).trim().to_string()
+}
+
+/// Port of `UrlHelper::validate` (non-extended). Returns the validated URL —
+/// rebuilt from `parse_url` tokens, so the original scheme/host case and raw
+/// (non-encoded) path characters are preserved — or `None`.
+fn validate(url: &str) -> Option<String> {
+    let url = clean(url);
+    let url = if url.starts_with("//") {
+        format!("https:{url}")
+    } else {
+        url
+    };
+    let mut parts = parse_url(&url)?;
+    let host = parts.host.as_deref().filter(|h| !h.is_empty())?;
+    let scheme = parts.scheme.as_deref().unwrap_or("").to_ascii_lowercase();
+    if scheme != "http" && scheme != "https" {
+        return None;
+    }
+    // IDN host -> punycode (PHP: idn_to_ascii, UTS46 non-transitional).
+    let host_out = if host.chars().any(|c| !c.is_ascii()) {
+        match url::Url::parse(&format!("http://{host}/")) {
+            Ok(u) => u.host_str()?.to_string(),
+            Err(_) => return None,
+        }
+    } else {
+        host.to_string()
+    };
+    // filter_var(FILTER_VALIDATE_URL) host charset (after punycode).
+    if !host_out
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '.')
+    {
+        return None;
+    }
+    // The filter_var gate runs on the path-encoded variant
+    // (rawurldecode+rawurlencode per segment); a failed parse rejects.
+    let mut filter_parts = parts.clone();
+    if let Some(path) = &parts.path {
+        filter_parts.path = Some(
+            path.split('/')
+                .map(|seg| rawurlencode(&rawurldecode(seg)))
+                .collect::<Vec<_>>()
+                .join("/"),
+        );
+    }
+    let filter_url = build_url(&filter_parts);
+    // (url::Url::parse also rejects out-of-range ports, like filter_var.)
+    if url::Url::parse(&filter_url).is_err() {
+        return None;
+    }
+    parts.host = Some(host_out);
+    Some(build_url(&parts))
+}
+
+/// `rawurldecode` (PHP): decode %XX byte sequences, keep the rest.
+fn rawurldecode(s: &str) -> String {
+    let b = s.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'%' && i + 2 < b.len() && b[i + 1].is_ascii_hexdigit() && b[i + 2].is_ascii_hexdigit() {
+            out.push(u8::from_str_radix(&s[i + 1..i + 3], 16).unwrap());
+            i += 3;
+        } else {
+            out.push(b[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+/// Port of `UrlHelper::rewrite_relative`: convert a (possibly) relative URL
+/// to an absolute one against `base_url`, with scheme/element exceptions, and
+/// validate it. Returns `None` on failure. Mirrors the PHP algorithm —
+/// including its deliberate *absence* of RFC 3986 dot-segment resolution.
 fn rewrite_relative(
     base_url: &str,
     rel_url: &str,
     owner_element: &str,
     owner_attribute: &str,
-    _content_type: &str,
+    content_type: &str,
 ) -> Option<String> {
     if rel_url.is_empty() {
         return Some(base_url.to_string());
     }
-    let parsed = match url::Url::parse(rel_url) {
-        Ok(u) => u,
-        Err(_) => return None,
-    };
-    let scheme = parsed.scheme().to_string();
-    let host = parsed.host_str().unwrap_or("").to_string();
+    let mut rel = parse_url(rel_url)?;
 
-    if !host.is_empty() && !scheme.is_empty() {
-        return validate(&rel_url);
+    if rel
+        .host
+        .as_deref()
+        .filter(|h| !h.is_empty())
+        .is_some()
+        && rel.scheme.as_deref().filter(|s| !s.is_empty()).is_some()
+    {
+        return validate(rel_url);
     }
     if rel_url.starts_with("//") {
         return validate(&format!("https:{rel_url}"));
     }
-    if EXTRA_HREF_SCHEMES.contains(&scheme.as_str())
+    let scheme = rel.scheme.as_deref().unwrap_or("");
+    // Extra schemes for <a href>.
+    if EXTRA_HREF_SCHEMES.contains(&scheme)
         && owner_element == "a"
         && owner_attribute == "href"
     {
         return Some(rel_url.to_string());
     }
+    // Extra schemes for links with a feed-specified content type (enclosures).
+    if !content_type.is_empty()
+        && EXTRA_SCHEMES_BY_CONTENT_TYPE
+            .iter()
+            .any(|(ct, ss)| *ct == content_type && ss.iter().any(|s| s == &scheme))
+    {
+        return Some(rel_url.to_string());
+    }
+    // Limited subset of inline base64-encoded images for <img src>.
     if scheme == "data"
-        && rel_url.starts_with("image/(webp|gif|jpg|png|svg);base64,")
+        && rel.path
+            .as_deref()
+            .is_some_and(|p| data_uri_re().is_match(p))
         && owner_element == "img"
         && owner_attribute == "src"
     {
         return Some(rel_url.to_string());
     }
 
-    // Relative: resolve against the base URL, then validate.
-    let base = url::Url::parse(base_url).ok()?;
-    let rel = url::Url::parse(rel_url).ok()?;
-    let resolved = base.join(rel.as_str()).ok()?;
-    let rebuilt = rebuild_url(&resolved);
-    validate(&rebuilt)
+    // Relative: borrow scheme/host/port from the base, resolve the path as
+    // PHP does (dirname() of the base path, "./" stripping, no dot-segments).
+    let base = parse_url(base_url).unwrap_or_default();
+    rel.scheme = Some(base.scheme.clone().unwrap_or_default());
+    rel.host = Some(base.host.clone().unwrap_or_default());
+    rel.port = Some(base.port.clone().unwrap_or_default());
+    if let Some(path) = rel.path.as_deref().filter(|p| !p.is_empty()) {
+        let mut base_path = base.path.clone().unwrap_or_default();
+        if !base_path.ends_with('/') {
+            base_path = with_trailing_slash(&php_dirname(&base_path));
+        }
+        if let Some(stripped) = path.strip_prefix("./") {
+            rel.path = Some(format!("{base_path}{stripped}"));
+        } else if !path.starts_with('/') {
+            rel.path = Some(format!("{base_path}{path}"));
+        }
+    }
+    validate(&build_url(&rel))
 }
 
-/// Rebuild a URL string from its parsed components, mirroring
-/// `UrlHelper::build_url` (scheme://host[:port][path][?query][#fragment]).
-fn rebuild_url(u: &url::Url) -> String {
-    let mut out = format!("{}://{}", u.scheme(), u.host_str().unwrap_or(""));
-    if let Some(p) = u.port() {
-        out.push_str(&format!(":{p}"));
+/// PHP `dirname()` for URL paths: "/feed" -> "/", "/feed/" -> "/",
+/// "feed" -> ".", "" -> "", "/" -> "/".
+fn php_dirname(path: &str) -> String {
+    let trimmed = path.trim_end_matches('/');
+    match trimmed.rfind('/') {
+        Some(0) => "/".to_string(),
+        Some(i) => trimmed[..i].to_string(),
+        None => {
+            if path.starts_with('/') {
+                "/".to_string()
+            } else if path.is_empty() {
+                String::new()
+            } else {
+                ".".to_string()
+            }
+        }
     }
-    out.push_str(u.path());
-    if u.query().is_some() {
-        out.push('?');
-        out.push_str(u.query().unwrap_or(""));
-    }
-    if let Some(f) = u.fragment() {
-        out.push('#');
-        out.push_str(f);
+}
+
+/// `rawurlencode` (PHP): encode everything except `A-Za-z0-9_.~-`.
+fn rawurlencode(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for b in s.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'_' | b'.' | b'-' | b'~' => {
+                out.push(b as char)
+            }
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
     }
     out
 }
 
-/// Port of `UrlHelper::validate` (non-extended). Returns the validated URL or
-/// `None`.
-fn validate(url: &str) -> Option<String> {
-    let url = url.trim();
-    let url = if url.starts_with("//") {
-        format!("https:{url}")
-    } else {
-        url.to_string()
-    };
-    let parsed = url::Url::parse(&url).ok()?;
-    if parsed.host_str().is_none() {
-        return None;
-    }
-    if !matches!(parsed.scheme(), "http" | "https") {
-        return None;
-    }
-    Some(rebuild_url(&parsed))
-}
-
-/// Port of `UrlHelper::has_disallowed_ip` (no DNS resolution). Returns true if
-/// the URL's host is a disallowed IP (localhost, loopback, link-local,
-/// reserved, or private on a non-standard port).
+/// Port of `UrlHelper::has_disallowed_ip` (no DNS resolution). Returns true
+/// if the URL's host is a disallowed IP: localhost; reserved ranges
+/// (0/8, 127/8, 169.254/16, 224/4, broadcast — any port); private ranges
+/// (10/8, 172.16/12, 192.168/16 — non-standard ports only); IPv6 loopback /
+/// unspecified / fe80::/10 (any port) and fc00::/7 ULA (non-standard ports).
+/// IP literals are canonicalized the way PHP does (`filter_var(
+/// FILTER_VALIDATE_IP)` first, then octal/hex/decimal `canonicalize_ipv4_
+/// literal`) so `0177.0.0.1` / `0x7f.0.0.1` / `2130706433` all mean 127.0.0.1.
 fn has_disallowed_ip(url: &str) -> bool {
-    let parsed = match url::Url::parse(url) {
-        Ok(u) => u,
-        Err(_) => return false,
+    let parts = match parse_url(url) {
+        Some(p) => p,
+        None => return false, // PHP: parse_url false -> empty host -> false
     };
-    let host = match parsed.host_str().map(|h| h.trim_matches(['[', ']']).to_lowercase()) {
+    let host = match parts.host {
         Some(h) if !h.is_empty() => h,
         _ => return false,
     };
-    let port = parsed.port_or_known_default();
-    let is_standard_port = matches!(port, None | Some(80) | Some(443));
+    let host = host
+        .to_ascii_lowercase()
+        .trim_matches(|c| c == '[' || c == ']' || c == '.')
+        .to_string();
+    let port = parts.port.as_deref();
+    let is_standard_port = port.map(|p| p == "80" || p == "443").unwrap_or(true);
 
-    if host == "localhost" {
+    if host.is_empty() || host == "localhost" {
         return true;
     }
 
-    // Only IP literals are evaluated here (no DNS resolution).
-    let ip: std::net::IpAddr = match host.parse() {
-        Ok(ip) => ip,
-        Err(_) => return false,
-    };
-    match ip {
-        std::net::IpAddr::V4(v4) => {
-            if v4.is_loopback()
-                || v4.is_link_local()
-                || v4.is_unspecified()
-                || v4.is_broadcast()
-            {
-                return true;
+    let mut ips: Vec<std::net::IpAddr> = Vec::new();
+    if let Some(ip) = strict_ip_literal(&host) {
+        ips.push(ip);
+    } else if let Some(ip) = canonicalize_ipv4_literal(&host) {
+        ips.push(std::net::IpAddr::V4(ip));
+    }
+    // No DNS resolution in the sanitizer context (validate_resolved_ip=false);
+    // with no IPs found PHP returns !$validate_resolved_ip == false.
+    if ips.is_empty() {
+        return false;
+    }
+
+    for ip in ips {
+        match ip {
+            std::net::IpAddr::V4(v4) => {
+                if v4_disallowed(&v4, is_standard_port) {
+                    return true;
+                }
             }
-            if !is_standard_port && v4.is_private() {
-                return true;
+            std::net::IpAddr::V6(v6) => {
+                let o = v6.octets();
+                // ::1 (loopback), :: (unspecified), fe80::/10 (link-local)
+                if v6.is_loopback()
+                    || v6.is_unspecified()
+                    || (o[0] == 0xfe && (o[1] & 0xc0) == 0x80)
+                {
+                    return true;
+                }
+                // Unwrap IPv4-mapped IPv6 (::ffff:a.b.c.d) and re-check as v4
+                // (PHP: inet_pton/inet_ntop + "::ffff:" prefix).
+                if o[0..10] == [0u8; 10] && o[10] == 0xff && o[11] == 0xff {
+                    let v4 = std::net::Ipv4Addr::new(o[12], o[13], o[14], o[15]);
+                    if v4_disallowed(&v4, is_standard_port) {
+                        return true;
+                    }
+                    continue;
+                }
+                // IPv6 Unique Local Addresses (fc00::/7), non-standard ports.
+                if !is_standard_port && (o[0] & 0xfe) == 0xfc {
+                    return true;
+                }
             }
-            false
-        }
-        std::net::IpAddr::V6(v6) => {
-            let octets = v6.octets();
-            // fe80::/10 (link-local), ::1 (loopback), :: (unspecified)
-            let is_link_local = octets[0] == 0xfe && (octets[1] & 0xc0) == 0x80;
-            if v6.is_loopback() || is_link_local || v6.is_unspecified() {
-                return true;
-            }
-            let is_ula = (octets[0] & 0xfe) == 0xfc; // fc00::/7
-            if !is_standard_port && is_ula {
-                return true;
-            }
-            false
         }
     }
+    false
+}
+
+/// PHP `filter_var($host, FILTER_VALIDATE_IP)`: strict dotted-quad (no
+/// leading zeros) or an IPv6 literal.
+fn strict_ip_literal(host: &str) -> Option<std::net::IpAddr> {
+    if host.contains('.') && !host.contains(':') {
+        let parts: Vec<&str> = host.split('.').collect();
+        if parts.len() == 4
+            && parts
+                .iter()
+                .all(|p| {
+                    !p.is_empty()
+                        && p.len() <= 3
+                        && p.bytes().all(|b| b.is_ascii_digit())
+                        && (p.len() == 1 || !p.starts_with('0'))
+                        && p.parse::<u8>().is_ok()
+                })
+        {
+            let v4: [u8; 4] = parts
+                .iter()
+                .map(|p| p.parse::<u8>().unwrap())
+                .collect::<Vec<_>>()
+                .try_into()
+                .ok()?;
+            return Some(std::net::IpAddr::V4(std::net::Ipv4Addr::from(v4)));
+        }
+        return None;
+    }
+    host.parse::<std::net::Ipv6Addr>()
+        .map(std::net::IpAddr::V6)
+        .ok()
+}
+
+/// `UrlHelper::canonicalize_ipv4_literal`: dotted IPv4 literals that may use
+/// octal/hex/decimal syntax ("0177.0.0.1", "0x7f.0.0.1", "2130706433").
+fn canonicalize_ipv4_literal(host: &str) -> Option<std::net::Ipv4Addr> {
+    static RE: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
+    let re = RE.get_or_init(|| {
+        Regex::new(r"^(0x[0-9a-fA-F]+|\d+)(\.(0x[0-9a-fA-F]+|\d+)){0,3}$").unwrap()
+    });
+    if !re.is_match(host) {
+        return None;
+    }
+    let parts: Vec<&str> = host.split('.').collect();
+    let n = parts.len();
+    let mut val: u64 = 0;
+    for (i, part) in parts.iter().enumerate() {
+        let octet: u64 = if let Some(hex) =
+            part.strip_prefix("0x").or_else(|| part.strip_prefix("0X"))
+        {
+            u64::from_str_radix(hex, 16).ok()?
+        } else {
+            part.parse::<u64>().ok()?
+        };
+        let max = if i == n - 1 { (1 << (8 * (5 - n))) - 1 } else { 255 };
+        if octet > max {
+            return None;
+        }
+        if i == n - 1 {
+            val = (val << (8 * (5 - n))) | octet;
+        } else {
+            val = (val << 8) | octet;
+        }
+    }
+    Some(std::net::Ipv4Addr::from(val as u32))
+}
+
+/// v4 reserved/private checks (PHP FILTER_FLAG_NO_RES_RANGE / NO_PRIV_RANGE).
+fn v4_disallowed(v4: &std::net::Ipv4Addr, is_standard_port: bool) -> bool {
+    let o = v4.octets();
+    // Reserved (any port): 0.0.0.0/8, 127/8, 169.254.0.0/16, 224.0.0.0/4,
+    // 255.255.255.255.
+    if o[0] == 0 || o[0] == 127 || (o[0] == 169 && o[1] == 254) || o[0] >= 224 {
+        return true;
+    }
+    // Private (non-standard ports only): 10/8, 172.16/12, 192.168/16.
+    if !is_standard_port
+        && (o[0] == 10
+            || (o[0] == 172 && (8..=15).contains(&o[1]))
+            || (o[0] == 192 && o[1] == 168))
+    {
+        return true;
+    }
+    false
 }
 
 // ---------------------------------------------------------------------------
@@ -679,6 +1199,12 @@ fn encode_srcset(items: &[(String, String)]) -> String {
 enum SerItem {
     Visit(NodeRef),
     Close(String),
+}
+
+/// Test-only accessor for the iterative serializer.
+#[cfg(test)]
+pub(crate) fn serialize_for_tests(node: &NodeRef, out: &mut String) {
+    serialize_node(node, out)
 }
 
 /// Serialize a node (and descendants) to HTML, iteratively (heap stack).
@@ -865,15 +1391,21 @@ mod tests {
     /// tt-rss/tests_functional/UrlHelperTest.php, ported 1:1.
     #[test]
     fn validate_cases() {
-        // test_validate_valid_http / _valid_https / _protocol_relative_normalized.
-        // NOTE: url::Url normalizes a host-only URL to a "/" path, so the
-        // rebuilt URL carries a trailing slash ("http://example.com/") where
-        // the PHP build_url() returns "http://example.com". The difference is
-        // cosmetic (both are valid, equivalent origins) — REVISIT if exact
-        // string parity matters.
-        assert_eq!(validate("http://example.com"), Some("http://example.com/".into()));
-        assert_eq!(validate("https://example.com"), Some("https://example.com/".into()));
-        assert_eq!(validate("//example.com"), Some("https://example.com/".into()));
+        // Ported from the PHP UrlHelper::validate expectations (no trailing
+        // slash is added; scheme/host case is preserved, as in PHP).
+        assert_eq!(validate("http://example.com"), Some("http://example.com".into()));
+        assert_eq!(validate("https://example.com"), Some("https://example.com".into()));
+        // protocol-relative is normalized to https:// (PHP `validate` fixes it).
+        assert_eq!(validate("//example.com"), Some("https://example.com".into()));
+        // Empty port is dropped on rebuild (PHP parse_url drops it).
+        assert_eq!(validate("http://domain.invalid:/img.png"), Some("http://domain.invalid/img.png".into()));
+        // Scheme/host case is preserved.
+        assert_eq!(validate("HTTP://EXAMPLE.COM"), Some("HTTP://EXAMPLE.COM".into()));
+        // Raw (non-encoded) path chars are preserved (filter gate uses the
+        // encoded variant only).
+        assert_eq!(validate("https://example.com/hello world"), Some("https://example.com/hello world".into()));
+        // IDN host -> punycode.
+        assert_eq!(validate("http://m\u{fc}nchen.example.com/"), Some("http://xn--mnchen-3ya.example.com/".into()));
         // test_validate_rejects_ftp / _mailto / _javascript / _empty / _no_host / _malformed
         assert_eq!(validate("ftp://ftp.example.com"), None);
         assert_eq!(validate("mailto:test@example.com"), None);
@@ -881,11 +1413,43 @@ mod tests {
         assert_eq!(validate(""), None);
         assert_eq!(validate("about:blank"), None);
         assert_eq!(validate("not a url"), None);
+        // Underscores in the host are rejected by the filter_var gate.
+        assert_eq!(validate("http://ex_ample.com/"), None);
+        // Non-numeric / out-of-range ports are rejected.
+        assert_eq!(validate("http://x:abc/"), None);
+        assert_eq!(validate("http://example.com:99999/"), None);
+        // Port 0 is accepted (PHP filter_var allows it).
+        assert_eq!(validate("http://example.com:0/"), Some("http://example.com:0/".into()));
     }
 
-    // NOTE: test_validate_lowercase_scheme expects the returned URL to preserve
-    // the original scheme case ("HTTP://EXAMPLE.COM"), but url::Url lowercases
-    // the scheme ("http://EXAMPLE.COM"). REVISIT (scheme-case preservation) —
-    // tracked in docs/plan.md.
+    #[test]
+    fn rewrite_relative_cases() {
+        // Ground-truth values from the PHP oracle (base http://domain.invalid/).
+        let base = "http://domain.invalid/";
+        assert_eq!(rewrite_relative(base, "img.png", "img", "src", ""), Some("http://domain.invalid/img.png".into()));
+        assert_eq!(rewrite_relative(base, "#section", "a", "href", ""), Some("http://domain.invalid#section".into()));
+        assert_eq!(rewrite_relative(base, "?q=1", "a", "href", ""), Some("http://domain.invalid?q=1".into()));
+        assert_eq!(rewrite_relative(base, "data:text/html,<script>alert(1)</script>", "img", "src", ""), Some("http://domain.invalid/text/html,alert(1)".into()));
+        assert_eq!(rewrite_relative(base, "javascript :alert(1)", "a", "href", ""), Some("http://domain.invalid/javascript :alert(1)".into()));
+        assert_eq!(rewrite_relative(base, "HTTP://EXAMPLE.COM", "a", "href", ""), Some("HTTP://EXAMPLE.COM".into()));
+        assert_eq!(rewrite_relative(base, "vbscript:msgbox(1)", "a", "href", ""), Some("http://domain.invalid/msgbox(1)".into()));
+        assert_eq!(rewrite_relative(base, "//example.com/page", "a", "href", ""), Some("https://example.com/page".into()));
+        assert_eq!(rewrite_relative(base, "", "a", "href", ""), Some(base.to_string()));
+        // mailto: on an img src is NOT an extra scheme (owner a/href only).
+        assert_eq!(rewrite_relative(base, "mailto:x@y.z", "img", "src", ""), Some("http://domain.invalid/x@y.z".into()));
+        // magnet: on an a href is preserved.
+        assert_eq!(rewrite_relative(base, "magnet:?xt=1", "a", "href", ""), Some("magnet:?xt=1".into()));
+        // data: image URI on an img src is preserved verbatim.
+        assert_eq!(rewrite_relative(base, "data:image/png;base64,AAA", "img", "src", ""), Some("data:image/png;base64,AAA".into()));
+
+        // Base with a port and a non-trailing-slash path: RFC 3986 dirname()
+        // of the base path is appended (no dot-segment resolution).
+        assert_eq!(rewrite_relative("http://domain.invalid:8080/feed/", "article.html", "a", "href", ""), Some("http://domain.invalid:8080/feed/article.html".into()));
+        assert_eq!(rewrite_relative("http://domain.invalid:8080/feed", "article.html", "a", "href", ""), Some("http://domain.invalid:8080/article.html".into()));
+        assert_eq!(rewrite_relative(base, "./x.html", "a", "href", ""), Some("http://domain.invalid/x.html".into()));
+        // ../ is NOT resolved (PHP leaves dot-segments as-is).
+        assert_eq!(rewrite_relative("http://domain.invalid/feed/", "../x.html", "a", "href", ""), Some("http://domain.invalid/feed/../x.html".into()));
+    }
 }
+
 
