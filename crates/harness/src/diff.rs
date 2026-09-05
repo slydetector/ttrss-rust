@@ -17,6 +17,8 @@ struct Exchange {
     headers: Vec<(String, String)>,
     body_text: Option<String>,
     body_b64: Option<String>,
+    #[serde(default)]
+    db_state: Option<serde_json::Value>,
 }
 
 /// Response headers that legitimately differ per run/environment. Transport
@@ -220,6 +222,17 @@ fn compare_exchanges(ea: &Exchange, eb: &Exchange) -> Vec<String> {
             }
         }
         (x, y) => details.push(format!("body encoding mismatch: {x} vs {y}")),
+    }
+    // Compare the resulting DB state (M3 mutations), if both runs captured it.
+    match (&ea.db_state, &eb.db_state) {
+        (Some(a), Some(b)) => {
+            let mut paths = Vec::new();
+            diff_json(a, b, "$.db_state", &mut paths);
+            details.extend(paths);
+        }
+        (Some(_), None) => details.push("db_state: present vs <absent>".into()),
+        (None, Some(_)) => details.push("db_state: <absent> vs present".into()),
+        (None, None) => {}
     }
     details
 }

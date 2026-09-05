@@ -162,6 +162,10 @@ async fn rpc_handler(
         "sanityCheck" => sanity_check(state, sess, extra).await,
         "getRuntimeInfo" => json!({ "runtime-info": make_runtime_info(state, sess).await }),
         "getAllCounters" => crate::counters::get_all_counters(state, sess, extra).await,
+        // M3 mutations (article state).
+        "catchupSelected" => crate::article::catchup_selected(state, sess, extra).await,
+        "markSelected" => crate::article::mark_selected(state, sess, extra).await,
+        "publishSelected" => crate::article::publish_selected(state, sess, extra).await,
         other => unknown_method("RPC", other),
     }
 }

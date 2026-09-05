@@ -16,6 +16,7 @@ hmac.workspace = true
 sha1.workspace = true
 regex.workspace = true
 reqwest.workspace = true
+sqlx.workspace = true
 ego-tree.workspace = true
 scraper.workspace = true
 serde.workspace = true

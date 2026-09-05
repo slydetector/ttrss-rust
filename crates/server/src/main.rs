@@ -8,6 +8,7 @@
 //!   * the authenticated SPA shell (GET `/` and `/index.php`),
 //!   * `/healthz`.
 
+mod article;
 mod auth;
 mod counters;
 mod feeds;

@@ -78,6 +78,10 @@ pub struct Step {
     /// Extra sleep before this step (ms)
     #[serde(default)]
     pub sleep_ms: u64,
+    /// Optional SQL `SELECT` run against the shared DB after this step; its rows
+    /// are captured into the exchange as `db_state` (M3: resulting DB state).
+    #[serde(default)]
+    pub db_state: Option<String>,
     /// Documentation only; not used by the harness.
     #[serde(default)]
     #[allow(dead_code)]

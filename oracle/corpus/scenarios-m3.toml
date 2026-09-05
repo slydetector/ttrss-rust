@@ -1,0 +1,120 @@
+# M3 corpus: article-state mutations (Mutations I).
+#
+# Each step performs an `RPC` mutation against the shared DB and captures the
+# resulting DB state (`db_state`) so the harness can compare the Rust server's
+# writes against the PHP oracle's writes. The steps are cumulative (each runs
+# on the state left by the previous), so the oracle and Rust runs must start
+# from the same baseline: restore `golden-db.sql` before EACH run.
+#
+# Run with:
+#   TTRSS_HARNESS_DB=postgres://postgres:password@127.0.0.1:5432/postgres \
+#     tt-rust-harness run --base-url http://127.0.0.1:8280/tt-rss \
+#       --scenarios oracle/corpus/scenarios-m3.toml \
+#       --vars oracle/data/ids.json --out <run-dir>
+#
+# The `db_state` snapshot is the read/star/publish boolean state of every entry
+# for the admin (uid 1), one row per entry, ordered by entry id.
+
+base_url = "http://127.0.0.1:8280/tt-rss"
+
+# ------------------------------------------------------------------- login ---
+
+[[step]]
+name = "m3_login"
+method = "POST"
+path = "/public.php"
+query = [ ["return", "{{base}}/index.php"] ]
+form = [ ["op", "login"],
+         ["login", "{{admin.login}}"],
+         ["password", "{{admin.password}}"] ]
+expect_status = 302
+
+[[step]]
+name = "m3_shell"
+path = "/index.php"
+expect_status = 200
+save = { csrf = 'regex:const __csrf_token = "([0-9a-f]{32})"' }
+
+# ------------------------------------------------------------- mutations ----
+# A small fixed set of entry ids (2, 3 are the first Ars Technica entries; the
+# corpus `article_1`/`article_2` give two more) so both runs mutate the same rows.
+
+[[step]]
+name = "m3_catchup_read"
+method = "POST"
+path = "/backend.php"
+form = [ ["op", "RPC"], ["method", "catchupSelected"],
+         ["ids", "2,3,{{article_1}}"], ["cmode", "0"],
+         ["csrf_token", "{{csrf}}"] ]
+expect_status = 200
+db_state = "SELECT ref_id, unread, marked, published FROM ttrss_user_entries WHERE owner_uid = 1 ORDER BY ref_id"
+
+[[step]]
+name = "m3_catchup_unread"
+method = "POST"
+path = "/backend.php"
+form = [ ["op", "RPC"], ["method", "catchupSelected"],
+         ["ids", "2,3,{{article_1}}"], ["cmode", "1"],
+         ["csrf_token", "{{csrf}}"] ]
+expect_status = 200
+db_state = "SELECT ref_id, unread, marked, published FROM ttrss_user_entries WHERE owner_uid = 1 ORDER BY ref_id"
+
+[[step]]
+name = "m3_catchup_toggle"
+method = "POST"
+path = "/backend.php"
+form = [ ["op", "RPC"], ["method", "catchupSelected"],
+         ["ids", "2,3,{{article_1}}"], ["cmode", "2"],
+         ["csrf_token", "{{csrf}}"] ]
+expect_status = 200
+db_state = "SELECT ref_id, unread, marked, published FROM ttrss_user_entries WHERE owner_uid = 1 ORDER BY ref_id"
+
+[[step]]
+name = "m3_mark_star"
+method = "POST"
+path = "/backend.php"
+form = [ ["op", "RPC"], ["method", "markSelected"],
+         ["ids", "2,{{article_2}}"], ["cmode", "1"],
+         ["csrf_token", "{{csrf}}"] ]
+expect_status = 200
+db_state = "SELECT ref_id, unread, marked, published FROM ttrss_user_entries WHERE owner_uid = 1 ORDER BY ref_id"
+
+[[step]]
+name = "m3_mark_unstar"
+method = "POST"
+path = "/backend.php"
+form = [ ["op", "RPC"], ["method", "markSelected"],
+         ["ids", "2,{{article_2}}"], ["cmode", "0"],
+         ["csrf_token", "{{csrf}}"] ]
+expect_status = 200
+db_state = "SELECT ref_id, unread, marked, published FROM ttrss_user_entries WHERE owner_uid = 1 ORDER BY ref_id"
+
+[[step]]
+name = "m3_mark_toggle"
+method = "POST"
+path = "/backend.php"
+form = [ ["op", "RPC"], ["method", "markSelected"],
+         ["ids", "2,{{article_2}}"], ["cmode", "2"],
+         ["csrf_token", "{{csrf}}"] ]
+expect_status = 200
+db_state = "SELECT ref_id, unread, marked, published FROM ttrss_user_entries WHERE owner_uid = 1 ORDER BY ref_id"
+
+[[step]]
+name = "m3_publish"
+method = "POST"
+path = "/backend.php"
+form = [ ["op", "RPC"], ["method", "publishSelected"],
+         ["ids", "3,{{article_1}}"], ["cmode", "1"],
+         ["csrf_token", "{{csrf}}"] ]
+expect_status = 200
+db_state = "SELECT ref_id, unread, marked, published FROM ttrss_user_entries WHERE owner_uid = 1 ORDER BY ref_id"
+
+[[step]]
+name = "m3_unpublish"
+method = "POST"
+path = "/backend.php"
+form = [ ["op", "RPC"], ["method", "publishSelected"],
+         ["ids", "3,{{article_1}}"], ["cmode", "0"],
+         ["csrf_token", "{{csrf}}"] ]
+expect_status = 200
+db_state = "SELECT ref_id, unread, marked, published FROM ttrss_user_entries WHERE owner_uid = 1 ORDER BY ref_id"

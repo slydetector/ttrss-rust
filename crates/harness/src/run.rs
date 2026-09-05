@@ -3,6 +3,7 @@
 use anyhow::{anyhow, Context, Result};
 use serde::Serialize;
 use serde_json::json;
+use sqlx::Row;
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::time::Duration;
@@ -44,12 +45,24 @@ pub async fn run(
         .timeout(Duration::from_secs(120))
         .build()?;
 
+    // Optional shared-DB handle for M3 `db_state` capture (set `TTRSS_HARNESS_DB`).
+    let db_pool: Option<sqlx::PgPool> = match std::env::var("TTRSS_HARNESS_DB") {
+        Ok(url) if !url.is_empty() => Some(
+            sqlx::postgres::PgPoolOptions::new()
+                .max_connections(4)
+                .connect(&url)
+                .await
+                .with_context(|| format!("connecting to harness DB {url}"))?,
+        ),
+        _ => None,
+    };
+
     let mut failures = 0usize;
     for (i, step) in file.steps.iter().enumerate() {
         if step.sleep_ms > 0 {
             tokio::time::sleep(Duration::from_millis(step.sleep_ms)).await;
         }
-        let result = run_step(&client, &base_url, step, &mut vars, i, out).await;
+        let result = run_step(&client, &base_url, step, &mut vars, i, out, db_pool.as_ref()).await;
         match result {
             Ok(()) => {}
             Err(e) => {
@@ -108,6 +121,48 @@ fn flatten_vars(v: &serde_json::Value, prefix: &str, out: &mut BTreeMap<String, 
     }
 }
 
+/// Run a step's `db_state` SELECT (if any) and return its rows as a JSON array
+/// of arrays (one per row, one value per column).
+async fn capture_db_state(
+    pool: Option<&sqlx::PgPool>,
+    query: Option<&str>,
+) -> Result<Option<serde_json::Value>> {
+    let (Some(pool), Some(q)) = (pool, query) else {
+        return Ok(None);
+    };
+    let rows = sqlx::query(q).fetch_all(pool).await?;
+    let mut out = Vec::with_capacity(rows.len());
+    for row in &rows {
+        let ncols = row.columns().len();
+        let mut cells = Vec::with_capacity(ncols);
+        for i in 0..ncols {
+            cells.push(decode_cell(row, i));
+        }
+        out.push(serde_json::Value::Array(cells));
+    }
+    Ok(Some(serde_json::Value::Array(out)))
+}
+
+/// Best-effort decode of one cell to a JSON value (int → i64, bool, float, text).
+fn decode_cell(row: &sqlx::postgres::PgRow, i: usize) -> serde_json::Value {
+    if let Ok(v) = row.try_get::<i32, _>(i) {
+        return serde_json::Value::from(v as i64);
+    }
+    if let Ok(v) = row.try_get::<i64, _>(i) {
+        return serde_json::Value::from(v);
+    }
+    if let Ok(v) = row.try_get::<bool, _>(i) {
+        return serde_json::Value::from(v);
+    }
+    if let Ok(v) = row.try_get::<f64, _>(i) {
+        return serde_json::json!(v);
+    }
+    if let Ok(v) = row.try_get::<Option<String>, _>(i) {
+        return v.map(serde_json::Value::from).unwrap_or(serde_json::Value::Null);
+    }
+    serde_json::Value::Null
+}
+
 async fn run_step(
     client: &reqwest::Client,
     base_url: &str,
@@ -115,6 +170,7 @@ async fn run_step(
     vars: &mut BTreeMap<String, String>,
     seq: usize,
     out: &Path,
+    db_pool: Option<&sqlx::PgPool>,
 ) -> Result<()> {
     let method = step.method.to_ascii_uppercase();
     let url = format!("{}{}", base_url, substitute(&step.path, vars)?);
@@ -162,6 +218,8 @@ async fn run_step(
 
     let resp = req.send().await.with_context(|| format!("sending {method} {url}"))?;
     let status = resp.status().as_u16();
+    // Capture the resulting DB state (M3 mutations) if this step declares it.
+    let db_state = capture_db_state(db_pool, step.db_state.as_deref()).await?;
     let headers: Vec<(String, String)> = resp
         .headers()
         .iter()
@@ -203,12 +261,12 @@ async fn run_step(
                 step.name
             );
             // record anyway; treat as failure
-            write_exchange(out, seq, step, &url, &headers, status, &bytes)?;
+            write_exchange(out, seq, step, &url, &headers, status, &bytes, db_state.as_ref())?;
             return Err(anyhow!("status mismatch"));
         }
     }
 
-    write_exchange(out, seq, step, &url, &headers, status, &bytes)?;
+    write_exchange(out, seq, step, &url, &headers, status, &bytes, db_state.as_ref())?;
     println!("[run] {:03} {:<32} {status}", seq + 1, step.name);
     Ok(())
 }
@@ -227,6 +285,8 @@ struct Exchange {
     status: u16,
     headers: Vec<(String, String)>,
     body_text: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    db_state: Option<serde_json::Value>,
 }
 
 fn write_exchange(
@@ -237,6 +297,7 @@ fn write_exchange(
     headers: &[(String, String)],
     status: u16,
     resp_bytes: &[u8],
+    db_state: Option<&serde_json::Value>,
 ) -> Result<()> {
     let method = step.method.to_ascii_uppercase();
     // Binary detection: invalid UTF-8 or image/* content type.
@@ -266,6 +327,7 @@ fn write_exchange(
         status,
         headers: headers.to_vec(),
         body_text,
+        db_state: db_state.cloned(),
     };
 
     let filename = format!("{:03}_{}.json", seq + 1, sanitize_name(&step.name));
