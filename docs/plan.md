@@ -452,7 +452,7 @@ the Rust port) and are parked as `REVISIT` blocks in the Rust test code:
 | 4 | `FunctionsTest` (73) | `server` / `core` helpers | — |
 | 5 | `UrlHelperTest` (69) | `server` / `core` url | — |
 | 6 | `CryptTest` (23) | `core::crypt` | ✅ 12 primitive cases; 7 N/A (config lookup, base64 codec, `algo` whitelist live in the caller — REVISIT block) |
-| 7 | `ConfigTest` (16) | `core::config` | — |
+| 7 | `ConfigTest` (16) | `server::main` + `core::config` | ✅ `matches_self_url` (18 provider cases, `main.rs`); `cast_to` covered in `prefs::tests`; N/A: `get_self_url` a–k + `get_self_dir` (self URL from env); REVISIT: IDN/Punycode host normalization |
 | 8 | `UserHelperTest` (8) | `core::user` | — |
 | 9 | `SessionsIntegrationTest` (29) | `server::session` | — |
 | 10 | `ArticleTest` (32) | `server::article` | — |

@@ -474,3 +474,62 @@ async fn static_handler(
         _ => StatusCode::NOT_FOUND.into_response(),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `Config::matches_self_url` — the `urlMatchDataProvider` from
+    /// tt-rss/tests_functional/ConfigTest.php, ported 1:1 (self_url, url_to_check,
+    /// expected).
+    #[test]
+    fn matches_self_url_provider() {
+        let cases: &[(&str, &str, bool)] = &[
+            // root origin matches
+            ("https://example.com", "https://example.com", true),
+            ("https://example.com", "https://example.com/", true),
+            ("https://example.com", "https://example.com/any/path", true),
+            ("https://example.com", "HTTPS://EXAMPLE.COM", true),
+            ("https://example.com", "https://example.com:443", true),
+            ("http://example.com", "http://example.com:80", true),
+            // root origin mismatches
+            ("https://example.com", "http://example.com", false),
+            ("https://example.com", "https://attacker.com", false),
+            ("https://example.com", "https://example.com:8443", false),
+            ("https://example.com", "https://sub.example.com", false),
+            ("https://example.com", "invalid-url", false),
+            // path prefix matches
+            ("https://example.com/tt-rss", "https://example.com/tt-rss", true),
+            ("https://example.com/tt-rss", "https://example.com/tt-rss/", true),
+            ("https://example.com/tt-rss", "https://example.com/tt-rss/api/feeds", true),
+            ("https://example.com/apps/rss", "https://example.com/apps/rss/index.php", true),
+            // path prefix mismatches
+            ("https://example.com/tt-rss", "https://example.com", false),
+            ("https://example.com/tt-rss", "https://example.com/tt-rss-malicious", false),
+            ("https://example.com/tt-rss", "https://example.com/other-path", false),
+        ];
+        for (self_url, url, expected) in cases {
+            assert_eq!(
+                matches_self_url(url, self_url),
+                *expected,
+                "self={self_url} url={url}"
+            );
+        }
+    }
+
+    // NOTE: the PHP `matches_self_url` also IDN-normalizes hosts (Punycode vs
+    // Unicode, `idn_to_ascii(..., UTS46)`) — `url::Url` keeps the host as
+    // written, so 'https://xn--mller-kva.com' vs 'https://müller.com' is not
+    // matched here. REVISIT (IDN normalization) — tracked in docs/plan.md.
+
+    // NOTE: the `test_cast_to_int/string/bool` cases from ConfigTest.php exercise
+    // `Config::cast_to`, whose logic this port keeps in `prefs::cast` — already
+    // covered there (`prefs::tests::cast_string_to_int` / `cast_string_to_bool` /
+    // `cast_bool_zero_string_is_false`).
+
+    // REVISIT (REVISIT): the `get_self_url` (a–k) and `get_self_dir` cases from
+    // ConfigTest.php exercise the PHP `Config::get_self_url()` (which detects the
+    // self URL from $_SERVER / is_server_https) and `Config::get_self_dir()`.
+    // The Rust port takes SELF_URL_PATH + docroot from the environment instead,
+    // so these are N/A here. Tracked in docs/plan.md (test-parity, config row).
+}
