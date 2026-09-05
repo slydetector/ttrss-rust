@@ -331,6 +331,7 @@ mod tests {
             headers: vec![("content-type".into(), "application/json".into())],
             body_text: Some(body.to_string()),
             body_b64: None,
+            db_state: None,
         }
     }
 
