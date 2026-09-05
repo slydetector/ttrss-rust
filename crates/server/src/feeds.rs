@@ -44,6 +44,33 @@ fn is_mode_2(extra: &Map<String, Value>) -> bool {
         == Some(2)
 }
 
+/// `Pref_Feeds::feedsWithErrors` — the feeds with a non-empty `last_error`.
+/// No `ORDER BY`: the natural plan order is what the oracle emits.
+pub async fn feeds_with_errors(state: &AppState, sess: &Sess) -> Value {
+    let uid = sess.data().uid().unwrap_or(0);
+    let pool = state.db.pool();
+    let rows = sqlx::query(
+        "SELECT id, title, feed_url, last_error, site_url FROM ttrss_feeds \n\n         WHERE last_error != '' AND owner_uid = $1 AND update_interval >= 0",
+    )
+    .bind(uid)
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default();
+    let items: Vec<Value> = rows
+        .iter()
+        .map(|r| {
+            json!({
+                "id": r.get::<i32, _>(0) as i64,
+                "title": r.get::<String, _>(1),
+                "feed_url": r.get::<String, _>(2),
+                "last_error": r.get::<String, _>(3),
+                "site_url": r.get::<Option<String>, _>(4).unwrap_or_default(),
+            })
+        })
+        .collect();
+    Value::Array(items)
+}
+
 /// `Handler::_param_to_bool`.
 fn param_to_bool(v: &Value) -> bool {
     match v {

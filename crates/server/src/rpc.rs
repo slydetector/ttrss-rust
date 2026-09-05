@@ -134,6 +134,7 @@ async fn dispatch(
         },
         "Pref_Feeds" => match method {
             "getfeedtree" => feeds::getfeedtree(state, sess, extra).await,
+            "feedsWithErrors" => feeds::feeds_with_errors(state, sess).await,
             _ => unknown_method("Pref_Feeds", method),
         },
         other => unknown_method(other, method),
