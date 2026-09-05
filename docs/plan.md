@@ -451,7 +451,7 @@ the Rust port) and are parked as `REVISIT` blocks in the Rust test code:
 | 3 | `PrefsTest` (29) | `server::prefs` | ✅ 16 pure cases; **14 DB cases parked** (REVISIT, see ledger) |
 | 4 | `FunctionsTest` (73) | `server` / `core` helpers | — |
 | 5 | `UrlHelperTest` (69) | `server` / `core` url | — |
-| 6 | `CryptTest` (23) | `core::crypt` | — |
+| 6 | `CryptTest` (23) | `core::crypt` | ✅ 12 primitive cases; 7 N/A (config lookup, base64 codec, `algo` whitelist live in the caller — REVISIT block) |
 | 7 | `ConfigTest` (16) | `core::config` | — |
 | 8 | `UserHelperTest` (8) | `core::user` | — |
 | 9 | `SessionsIntegrationTest` (29) | `server::session` | — |

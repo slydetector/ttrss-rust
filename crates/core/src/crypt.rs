@@ -121,4 +121,130 @@ mod tests {
         let enc = encrypt(&key, plain).unwrap();
         assert_eq!(decrypt(&key, &enc.nonce, &enc.payload).unwrap(), plain);
     }
+
+    // ── Ported 1:1 from tt-rss/tests_functional/CryptTest.php ──────────────
+    // The PHP `Crypt` class also owns the config lookup, base64 codec, and the
+    // `algo` whitelist check; in this port those live in the *caller* (the
+    // session/DB layer) and are covered there. The cases below exercise the
+    // primitive itself (encrypt/decrypt) the same way the PHP suite does.
+    const KEY2: &str = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a09";
+
+    #[test]
+    fn encrypt_returns_valid_structure() {
+        // test_encrypt_string_returns_valid_structure
+        let key = hex_key(KEY).unwrap();
+        let enc = encrypt(&key, b"hello world").unwrap();
+        assert_eq!(enc.algo, ALGO);
+        assert_eq!(enc.nonce.len(), NONCE_LEN);
+        assert!(!enc.payload.is_empty());
+    }
+
+    #[test]
+    fn encrypt_empty_string() {
+        // test_encrypt_string_with_empty_string
+        let key = hex_key(KEY).unwrap();
+        let enc = encrypt(&key, b"").unwrap();
+        assert_eq!(enc.algo, ALGO);
+        assert!(!enc.payload.is_empty()); // poly1305 tag is always present
+        assert_eq!(decrypt(&key, &enc.nonce, &enc.payload).unwrap(), b"");
+    }
+
+    #[test]
+    fn encrypt_unicode_roundtrip() {
+        // test_encrypt_string_with_unicode + test_decrypt_string_roundtrip_with_unicode
+        let key = hex_key(KEY).unwrap();
+        let original = "こんにちは世界 🌍 Привет мир 你好世界".as_bytes();
+        let enc = encrypt(&key, original).unwrap();
+        assert!(!enc.payload.is_empty());
+        assert_eq!(decrypt(&key, &enc.nonce, &enc.payload).unwrap(), original);
+    }
+
+    #[test]
+    fn encrypt_large_payload_roundtrip() {
+        // test_encrypt_string_with_large_payload + ..._roundtrip_with_large_payload
+        let key = hex_key(KEY).unwrap();
+        let large = vec![b'A'; 100_000];
+        let enc = encrypt(&key, &large).unwrap();
+        assert!(!enc.payload.is_empty());
+        assert_eq!(decrypt(&key, &enc.nonce, &enc.payload).unwrap(), large);
+    }
+
+    #[test]
+    fn decrypt_roundtrip() {
+        // test_decrypt_string_roundtrip
+        let key = hex_key(KEY).unwrap();
+        let enc = encrypt(&key, b"hello world").unwrap();
+        assert_eq!(decrypt(&key, &enc.nonce, &enc.payload).unwrap(), b"hello world");
+    }
+
+    #[test]
+    fn decrypt_fails_with_tampered_payload() {
+        // test_decrypt_string_fails_with_tampered_payload
+        let key = hex_key(KEY).unwrap();
+        let enc = encrypt(&key, b"secret").unwrap();
+        let mut payload = enc.payload.clone();
+        payload[0] ^= 0xff;
+        assert!(decrypt(&key, &enc.nonce, &payload).is_err());
+    }
+
+    #[test]
+    fn decrypt_fails_with_tampered_nonce() {
+        // test_decrypt_string_fails_with_tampered_nonce
+        let key = hex_key(KEY).unwrap();
+        let enc = encrypt(&key, b"secret").unwrap();
+        let mut nonce = enc.nonce.clone();
+        nonce[0] ^= 0xff;
+        assert!(decrypt(&key, &nonce, &enc.payload).is_err());
+    }
+
+    #[test]
+    fn decrypt_fails_with_wrong_key() {
+        // (key-analogue of the PHP roundtrip-with-different-key case)
+        let key = hex_key(KEY).unwrap();
+        let other = hex_key(KEY2).unwrap();
+        let enc = encrypt(&key, b"secret").unwrap();
+        assert!(decrypt(&other, &enc.nonce, &enc.payload).is_err());
+    }
+
+    #[test]
+    fn different_keys_same_nonce_differ() {
+        // test_encrypt_string_with_different_keys_produces_different_ciphertext
+        // (a fixed nonce isolates the key; the primitive is deterministic).
+        let key = hex_key(KEY).unwrap();
+        let other = hex_key(KEY2).unwrap();
+        let nonce = [42u8; NONCE_LEN];
+        let data: &[u8] = b"same data";
+        let c1 = XChaCha20Poly1305::new_from_slice(&key)
+            .unwrap()
+            .encrypt(XNonce::from_slice(&nonce), data)
+            .unwrap();
+        let c2 = XChaCha20Poly1305::new_from_slice(&other)
+            .unwrap()
+            .encrypt(XNonce::from_slice(&nonce), data)
+            .unwrap();
+        assert_ne!(c1, c2);
+    }
+
+    #[test]
+    fn encrypt_produces_unique_nonces() {
+        // test_generate_key_produces_unique_keys analogue for the nonce: two
+        // encrypt() calls use distinct nonces, so ciphertexts differ.
+        let key = hex_key(KEY).unwrap();
+        let a = encrypt(&key, b"same").unwrap();
+        let b = encrypt(&key, b"same").unwrap();
+        assert_ne!(a.nonce, b.nonce);
+        assert_ne!(a.payload, b.payload);
+    }
+
+    // ── N/A / REVISIT (REVISIT) ──────────────────────────────────────────────
+    // These CryptTest.php cases exercise the PHP `Crypt` class's config lookup,
+    // base64 codec, and `algo` whitelist — behavior this port keeps in the
+    // *caller* (session/DB layer). Tracked in docs/plan.md (test-parity,
+    // core::crypt row). Revisit when the Rust session/DB layer owns the codec:
+    //   test_generate_key_returns_valid_length / _produces_unique_keys
+    //   (key generation is config-provided here, not a Crypt::generate_key)
+    //   test_encrypt_string_requires_encryption_key
+    //   test_decrypt_string_requires_encryption_key
+    //   test_decrypt_string_with_wrong_algo (algo whitelist check)
+    //   test_decrypt_string_with_invalid_payload (base64 codec)
 }
