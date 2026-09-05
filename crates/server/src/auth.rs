@@ -15,14 +15,16 @@
 //!   * stamps `ttrss_users.last_login = NOW()`.
 
 use chrono::NaiveDateTime;
+use rand::Rng;
 use sqlx::Row;
+use ttrss_core::config::SCHEMA_VERSION;
 use ttrss_core::db::Db;
+use ttrss_core::phpser::Value;
+use ttrss_core::session::{self as core_session, Session};
 use ttrss_core::user;
 
 /// `AUTH_MIN_INTERVAL` (seconds) — minimum gap between failed login attempts.
 pub const AUTH_MIN_INTERVAL: i64 = 5;
-/// `UserHelper::ACCESS_LEVEL_DISABLED`.
-const ACCESS_LEVEL_DISABLED: i32 = -2;
 
 const ERR_BAD_CREDENTIALS: &str = "Incorrect username or password";
 const ERR_THROTTLED: &str = "Too many authentication attempts, throttled.";
@@ -132,7 +134,7 @@ pub async fn authenticate(
 /// to the current algorithm, stamp `last_login`, then return success (or
 /// failure if the account is disabled).
 async fn success(pool: &sqlx::PgPool, user: &UserRow, password: &str) -> AuthOutcome {
-    if user.access_level == ACCESS_LEVEL_DISABLED {
+    if user.access_level == user::ACCESS_LEVEL_DISABLED {
         return AuthOutcome::Failure {
             message: ERR_BAD_CREDENTIALS.into(),
         };
@@ -175,6 +177,42 @@ async fn stamp_last_attempt(pool: &sqlx::PgPool, id: i32) -> Result<(), sqlx::Er
         .execute(pool)
         .await
         .map(|_| ())
+}
+
+/// The session-setup half of `UserHelper::authenticate`'s success path: the
+/// post-login `$_SESSION` contents plus a **fresh** session id (PHP calls
+/// `session_regenerate_id(true)` here, so the pre-login id is never reused).
+/// `bw_limit` / `safe_mode` are the already-parsed checkbox values.
+pub fn build_login_session(
+    id: i32,
+    login: &str,
+    access_level: i32,
+    pwd_hash: &str,
+    bw_limit: bool,
+    safe_mode: bool,
+) -> (String, Session) {
+    let now = now_unix();
+    let mut data = core_session::Session::new();
+    data.set("uid", Value::Int(id as i64));
+    data.set("last_login_update", Value::Int(now));
+    data.set("ip_address", Value::Bytes(b"127.0.0.1".to_vec()));
+    data.set("csrf_token", Value::Bytes(random_hex(16).into_bytes()));
+    data.set("auth_module", Value::Bytes(b"auth_internal".to_vec()));
+    data.set("name", Value::Bytes(login.as_bytes().to_vec()));
+    data.set("access_level", Value::Int(access_level as i64));
+    data.set("pwd_hash", Value::Bytes(pwd_hash.as_bytes().to_vec()));
+    data.set("ref_schema_version", Value::Int(SCHEMA_VERSION));
+    data.set("bw_limit", Value::Bool(bw_limit));
+    data.set("safe_mode", Value::Bool(safe_mode));
+    (core_session::new_session_id(), data)
+}
+
+/// 16 random bytes as 32 lowercase hex chars (PHP-style csrf/session ids).
+fn random_hex(n_bytes: usize) -> String {
+    let mut rng = rand::thread_rng();
+    (0..n_bytes)
+        .map(|_| format!("{:02x}", rng.gen_range(0u8..=255)))
+        .collect()
 }
 
 fn now_unix() -> i64 {

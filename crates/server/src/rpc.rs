@@ -15,15 +15,13 @@ use chrono::{Datelike, Timelike};
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use sqlx::Row;
+use ttrss_core::phpser;
 use ttrss_core::user;
 
 use crate::feeds;
 use crate::prefs;
 use crate::session::{self, Sess};
 use crate::AppState;
-
-/// `ttrss_users` access level: disabled (mirrors `UserHelper::ACCESS_LEVEL_*`).
-const ACCESS_LEVEL_DISABLED: i32 = -2;
 
 /// Form/query params for `backend.php` (all arrive via `$_REQUEST`).
 #[derive(Deserialize)]
@@ -87,28 +85,22 @@ async fn dispatch(
     csrf: &str,
     extra: &Map<String, Value>,
 ) -> Value {
-    let data = sess.data();
+    let mut data = sess.data();
 
-    // `Sessions::validate_session` (light port): a logged-in session is valid
-    // while the user still exists, is not disabled, and the pwd hash matches.
-    if let Some(uid) = data.uid() {
-        let user = sqlx::query("SELECT access_level, pwd_hash FROM ttrss_users WHERE id = $1")
-            .bind(uid)
-            .fetch_optional(state.db.pool())
-            .await
-            .ok()
-            .flatten();
-        let ok = match user {
-            Some(r) => {
-                let access_level = r.get::<i32, _>(0);
-                let pwd_hash = r.get::<String, _>(1);
-                access_level != ACCESS_LEVEL_DISABLED && data.pwd_hash() == Some(pwd_hash.as_str())
-            }
-            None => false,
-        };
-        if !ok {
-            return errors("E_UNAUTHORIZED");
+    // `Sessions::validate_session` (parity row 9): guests pass; a logged-in
+    // session is re-checked against the DB (user exists, account not
+    // disabled, pwd hash unchanged).
+    if !session::validate_session(state.db.pool(), state.config.single_user_mode, &mut data)
+        .await
+    {
+        // Reflect the failure reason into the live session (PHP $_SESSION),
+        // where the UI surfaces it.
+        if let Some(msg) = data.get_str("login_error_msg") {
+            sess.with_mut(|s| {
+                s.set("login_error_msg", phpser::Value::Bytes(msg.as_bytes().to_vec()))
+            });
         }
+        return errors("E_UNAUTHORIZED");
     }
 
     if method.starts_with('_') {

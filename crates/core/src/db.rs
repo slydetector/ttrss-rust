@@ -96,6 +96,7 @@ mod tests {
             db_sslmode: "prefer".into(),
             self_url: "http://127.0.0.1:8280/tt-rss/".into(),
             encryption_key: None,
+            single_user_mode: false,
             listen: "127.0.0.1:8281".parse().unwrap(),
             docroot: PathBuf::from("tt-rss"),
             feed_icon_dir: PathBuf::from("tt-rss/cache/feed-icons"),

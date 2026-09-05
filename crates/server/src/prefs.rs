@@ -9,6 +9,7 @@
 //! default, and casts the string to the pref's type hint (`Config::cast_to`).
 
 use sqlx::Row;
+use ttrss_core::config::sql_bool_to_bool;
 use ttrss_core::db::Db;
 
 /// PHP `Config::T_*` type hints.
@@ -40,7 +41,7 @@ impl Pref {
         match self {
             Pref::Bool(b) => *b,
             Pref::Int(i) => *i != 0,
-            Pref::Str(s) => !s.is_empty() && s != "f" && s != "false" && s != "0",
+            Pref::Str(s) => sql_bool_to_bool(s),
         }
     }
     pub fn as_str(&self) -> &str {
@@ -127,9 +128,8 @@ pub fn default_for(name: &str) -> Option<(&'static str, Type)> {
 /// `Config::cast_to(value, type_hint)`.
 fn cast(value: &str, ty: Type) -> Pref {
     match ty {
-        // sql_bool_to_bool: `$s && ($s !== "f" && $s !== "false")`. PHP strings
-        // `""` and `"0"` are falsy, so both map to false.
-        Type::Bool => Pref::Bool(!value.is_empty() && value != "0" && value != "f" && value != "false"),
+        // T_BOOL cast: `Config::cast_to` → `sql_bool_to_bool` (core).
+        Type::Bool => Pref::Bool(sql_bool_to_bool(value)),
         Type::Int => Pref::Int(value.trim().parse().unwrap_or(0)),
         Type::Str => Pref::Str(value.to_string()),
     }

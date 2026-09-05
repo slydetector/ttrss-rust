@@ -1,4 +1,4 @@
-//! Per-request session handling.
+//! Per-request session handling + a port of the PHP `Sessions` class.
 //!
 //! Mirrors the tt-rss session lifecycle: read the `ttrss_sid` cookie, load the
 //! (optionally encrypted) session from `ttrss_sessions`, expose a mutable
@@ -9,10 +9,13 @@ use axum::extract::{Request, State};
 use axum::http::header;
 use axum::middleware::Next;
 use axum::response::Response;
+use base64::Engine as _;
 use std::sync::{Arc, Mutex};
-use sqlx::Row;
+use sqlx::{PgPool, Row};
 use ttrss_core::db::Db;
+use ttrss_core::phpser::Value;
 use ttrss_core::session::{self, Session};
+use ttrss_core::user;
 
 use crate::AppState;
 
@@ -56,9 +59,7 @@ impl Sess {
         g.data = data;
         g.dirty = true;
     }
-    /// Mutate the session data in place, marking it dirty. (Used by the
-    /// backend/prefs handlers in M2+; kept now so the `Sess` API is stable.)
-    #[allow(dead_code)]
+    /// Mutate the session data in place, marking it dirty.
     pub fn with_mut(&self, f: impl FnOnce(&mut Session)) {
         let mut g = self.inner.lock().unwrap();
         f(&mut g.data);
@@ -93,37 +94,186 @@ pub fn cookie_sid(req: &Request) -> Option<String> {
     None
 }
 
-/// Load a session from the DB by id (empty session if absent/unreadable).
-pub async fn load(db: &Db, key: Option<[u8; 32]>, id: &str) -> Session {
-    let row = sqlx::query("SELECT data FROM ttrss_sessions WHERE id = $1")
+// ── PHP `Sessions` class port (raw, string-level handler) ────────────────
+
+/// `Sessions::exists`.
+pub async fn exists(pool: &PgPool, id: &str) -> bool {
+    let found: Option<i64> = sqlx::query_scalar("SELECT COUNT(*) FROM ttrss_sessions WHERE id = $1")
         .bind(id)
-        .fetch_optional(db.pool())
+        .fetch_optional(pool)
         .await
         .ok()
         .flatten();
-    match row {
-        Some(r) => {
-            let stored = r.get::<String, _>(0);
-            session::from_stored(&stored, key.as_ref()).unwrap_or_default()
+    found.unwrap_or(0) > 0
+}
+
+/// The byte-level core of [`read`] (avoids a lossy UTF-8 round-trip for
+/// binary session payloads).
+///
+/// `None` only on DB failure (PHP returns `false` there). A missing session
+/// is auto-created with empty data (PHP `session_start` behavior) and `[]`
+/// is returned. When `key` is set but the stored value is not a usable
+/// encrypted envelope, PHP's documented fallback (return the raw base64-
+/// decoded data) is matched; a valid envelope that fails to decrypt is fatal
+/// in PHP (TypeError) but degrades gracefully to the same fallback here.
+async fn read_bytes(pool: &PgPool, key: Option<&[u8; 32]>, id: &str) -> Option<Vec<u8>> {
+    let stored: Option<String> =
+        sqlx::query_scalar("SELECT data FROM ttrss_sessions WHERE id = $1")
+            .bind(id)
+            .fetch_optional(pool)
+            .await
+            .ok()
+            .flatten();
+    match stored {
+        Some(stored) => {
+            let inner = base64::engine::general_purpose::STANDARD
+                .decode(stored.as_bytes())
+                .unwrap_or_default();
+            let data = match key {
+                Some(k) => session::decrypt_envelope(&inner, k).unwrap_or_else(|_| inner.clone()),
+                None => inner,
+            };
+            Some(data)
         }
-        None => Session::new(),
+        None => {
+            // PHP: INSERT INTO ttrss_sessions (id, data, expire) VALUES (?, '', ?)
+            let created = sqlx::query(
+                "INSERT INTO ttrss_sessions (id, data, expire) VALUES ($1, '', $2)",
+            )
+            .bind(id)
+            .bind(now_unix() + STORE_EXPIRE)
+            .execute(pool)
+            .await
+            .is_ok();
+            created.then(Vec::new)
+        }
     }
 }
 
-/// Persist a session to the DB (upsert), matching PHP `Sessions::write`.
-pub async fn save(db: &Db, key: Option<[u8; 32]>, id: &str, sess: &Session) -> anyhow::Result<()> {
-    let data = session::to_stored(sess.items(), key.as_ref())?;
-    let expire = now_unix() + STORE_EXPIRE;
+/// `Sessions::read` — the session data string for `id` (see [`read_bytes`]).
+pub async fn read(pool: &PgPool, key: Option<&[u8; 32]>, id: &str) -> Option<String> {
+    read_bytes(pool, key, id)
+        .await
+        .map(|b| String::from_utf8_lossy(&b).into_owned())
+}
+
+/// `Sessions::write` — store `data` (base64-encoded, encrypted into the
+/// `{algo,nonce,payload}` envelope when `key` is set), upserting with a fresh
+/// expiry. PHP does SELECT-then-UPDATE-or-INSERT; the upsert has the same net
+/// effect.
+pub async fn write(pool: &PgPool, key: Option<&[u8; 32]>, id: &str, data: &str) -> bool {
+    let stored = match key {
+        Some(k) => match session::encrypt_envelope(data.as_bytes(), k) {
+            Ok(inner) => base64::engine::general_purpose::STANDARD.encode(inner),
+            Err(e) => {
+                tracing::error!(error = %e, "failed to encrypt session data");
+                return false;
+            }
+        },
+        None => base64::engine::general_purpose::STANDARD.encode(data.as_bytes()),
+    };
+    upsert_stored(pool, id, &stored).await
+}
+
+/// The shared `INSERT … ON CONFLICT` upsert behind [`write`] and [`save`].
+async fn upsert_stored(pool: &PgPool, id: &str, stored: &str) -> bool {
     sqlx::query(
         "INSERT INTO ttrss_sessions (id, data, expire) VALUES ($1, $2, $3)
          ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, expire = EXCLUDED.expire",
     )
     .bind(id)
-    .bind(&data)
-    .bind(expire)
-    .execute(db.pool())
-    .await?;
-    Ok(())
+    .bind(stored)
+    .bind(now_unix() + STORE_EXPIRE)
+    .execute(pool)
+    .await
+    .is_ok()
+}
+
+/// `Sessions::destroy` — DELETE (true even if no rows matched).
+pub async fn destroy(pool: &PgPool, id: &str) -> bool {
+    sqlx::query("DELETE FROM ttrss_sessions WHERE id = $1")
+        .bind(id)
+        .execute(pool)
+        .await
+        .is_ok()
+}
+
+/// `Sessions::validate_session`.
+///
+/// Single-user mode and guests (no `uid`, or `uid == 0` — PHP `!empty`) always
+/// pass. A logged-in session is re-validated against `ttrss_users`: the user
+/// must exist, not be disabled, and its `pwd_hash` must match the session's.
+/// On failure `login_error_msg` is set on `sess` (PHP `$_SESSION`). PHP's
+/// `HOOK_VALIDATE_SESSION` plugin-hook chain defaults to `true` (the Rust
+/// server has no plugin host yet).
+pub async fn validate_session(
+    pool: &PgPool,
+    single_user: bool,
+    sess: &mut Session,
+) -> bool {
+    if single_user {
+        return true;
+    }
+    let Some(uid) = sess.get_int("uid").filter(|&u| u != 0) else {
+        return true; // guest
+    };
+    let row = sqlx::query("SELECT pwd_hash, access_level FROM ttrss_users WHERE id = $1")
+        .bind(uid)
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten();
+    match row {
+        Some(r) => {
+            let pwd_hash = r.get::<String, _>(0);
+            let access_level = r.get::<i32, _>(1);
+            if pwd_hash != sess.get_str("pwd_hash").unwrap_or("") {
+                sess.set(
+                    "login_error_msg",
+                    Value::Bytes(b"Session failed to validate (password changed)".to_vec()),
+                );
+                return false;
+            }
+            if access_level == user::ACCESS_LEVEL_DISABLED {
+                sess.set(
+                    "login_error_msg",
+                    Value::Bytes(b"Session failed to validate (account is disabled)".to_vec()),
+                );
+                return false;
+            }
+            true
+        }
+        None => {
+            sess.set(
+                "login_error_msg",
+                Value::Bytes(b"Session failed to validate (user not found)".to_vec()),
+            );
+            false
+        }
+    }
+}
+
+// ── Typed middleware layer ─────────────────────────────────────────────────
+
+/// Load a session from the DB by id (empty session if unreadable). Like PHP
+/// `session_start`, a missing session is auto-created (via [`read_bytes`]).
+pub async fn load(db: &Db, key: Option<[u8; 32]>, id: &str) -> Session {
+    let Some(raw) = read_bytes(db.pool(), key.as_ref(), id).await else {
+        return Session::new();
+    };
+    if raw.is_empty() {
+        return Session::new();
+    }
+    session::decode_data(&raw).map(Session::from_items).unwrap_or_default()
+}
+
+/// Persist a session to the DB (upsert), matching PHP `Sessions::write`.
+pub async fn save(db: &Db, key: Option<[u8; 32]>, id: &str, sess: &Session) -> anyhow::Result<()> {
+    let data = session::to_stored(sess.items(), key.as_ref())?;
+    upsert_stored(db.pool(), id, &data)
+        .await
+        .then_some(())
+        .ok_or_else(|| anyhow::anyhow!("failed to persist session"))
 }
 
 fn now_unix() -> i64 {

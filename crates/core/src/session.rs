@@ -29,6 +29,11 @@ impl Session {
         Self::default()
     }
 
+    /// Construct from decoded items (the inverse of [`Session::items`]).
+    pub fn from_items(items: Vec<(String, Value)>) -> Self {
+        Self { items }
+    }
+
     pub fn is_empty(&self) -> bool {
         self.items.is_empty()
     }
@@ -144,8 +149,44 @@ pub fn decode_data(bytes: &[u8]) -> Result<Vec<(String, Value)>> {
 
 use crate::crypt;
 
-/// Build the stored (base64) form of a session from its data, encrypting with
-/// `key`. `key == None` stores unencrypted (no `TTRSS_ENCRYPTION_KEY`).
+/// Encrypt `data` into the envelope form: a PHP-serialized
+/// `a:3:{s:4:"algo";\u2026s:5:"nonce";\u2026s:7:"payload";\u2026}` object (PHP
+/// `serialize(Crypt::encrypt_string($data))`).
+pub fn encrypt_envelope(data: &[u8], key: &[u8; crypt::KEY_LEN]) -> Result<Vec<u8>> {
+    let enc = crypt::encrypt(key, data)?;
+    let envelope = Value::Array(vec![
+        (Key::Bytes(b"algo".to_vec()), Value::Bytes(enc.algo.as_bytes().to_vec())),
+        (Key::Bytes(b"nonce".to_vec()), Value::Bytes(enc.nonce)),
+        (Key::Bytes(b"payload".to_vec()), Value::Bytes(enc.payload)),
+    ]);
+    Ok(phpser::serialize(&envelope))
+}
+
+/// Decrypt an envelope (the PHP-serialized `a:3:{algo,nonce,payload}` object
+/// from [`encrypt_envelope`]) back to the original data (PHP
+/// `Crypt::decrypt_string(unserialize($data))`).
+pub fn decrypt_envelope(inner: &[u8], key: &[u8; crypt::KEY_LEN]) -> Result<Vec<u8>> {
+    let envelope = phpser::deserialize(inner)?;
+    let algo = envelope
+        .get("algo")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow!("session envelope missing 'algo'"))?;
+    if algo != crypt::ALGO {
+        return Err(anyhow!("unsupported session algo: {algo}"));
+    }
+    let nonce = envelope
+        .get("nonce")
+        .and_then(|v| v.as_bytes())
+        .ok_or_else(|| anyhow!("session envelope missing 'nonce'"))?
+        .to_vec();
+    let payload = envelope
+        .get("payload")
+        .and_then(|v| v.as_bytes())
+        .ok_or_else(|| anyhow!("session envelope missing 'payload'"))?
+        .to_vec();
+    crypt::decrypt(key, &nonce, &payload)
+}
+
 /// Generate a new PHP-style session id: 16 random bytes as 32 lowercase hex
 /// chars (PHP defaults `session.sid_length=32`, `sid_bits_per_character=4`).
 pub fn new_session_id() -> String {
@@ -155,19 +196,13 @@ pub fn new_session_id() -> String {
     hex::encode(b)
 }
 
+/// Build the stored (base64) form of a session from its data, encrypting with
+/// `key`. `key == None` stores unencrypted (no `TTRSS_ENCRYPTION_KEY`).
 pub fn to_stored(items: &[(String, Value)], key: Option<&[u8; crypt::KEY_LEN]>) -> Result<String> {
     let data = encode_data(items)?;
     let inner: Vec<u8> = match key {
         None => data,
-        Some(k) => {
-            let enc = crypt::encrypt(k, &data)?;
-            let envelope = Value::Array(vec![
-                (Key::Bytes(b"algo".to_vec()), Value::Bytes(enc.algo.as_bytes().to_vec())),
-                (Key::Bytes(b"nonce".to_vec()), Value::Bytes(enc.nonce)),
-                (Key::Bytes(b"payload".to_vec()), Value::Bytes(enc.payload)),
-            ]);
-            phpser::serialize(&envelope)
-        }
+        Some(k) => encrypt_envelope(&data, k)?,
     };
     Ok(base64::engine::general_purpose::STANDARD.encode(inner))
 }
@@ -183,27 +218,7 @@ pub fn from_stored(stored: &str, key: Option<&[u8; crypt::KEY_LEN]>) -> Result<S
 
     let data: Vec<u8> = match key {
         None => inner,
-        Some(k) => {
-            let envelope = phpser::deserialize(&inner)?;
-            let algo = envelope
-                .get("algo")
-                .and_then(|v| v.as_str())
-                .ok_or_else(|| anyhow!("session envelope missing 'algo'"))?;
-            if algo != crypt::ALGO {
-                return Err(anyhow!("unsupported session algo: {algo}"));
-            }
-            let nonce = envelope
-                .get("nonce")
-                .and_then(|v| v.as_bytes())
-                .ok_or_else(|| anyhow!("session envelope missing 'nonce'"))?
-                .to_vec();
-            let payload = envelope
-                .get("payload")
-                .and_then(|v| v.as_bytes())
-                .ok_or_else(|| anyhow!("session envelope missing 'payload'"))?
-                .to_vec();
-            crypt::decrypt(k, &nonce, &payload)?
-        }
+        Some(k) => decrypt_envelope(&inner, k)?,
     };
 
     let items = decode_data(&data)?;

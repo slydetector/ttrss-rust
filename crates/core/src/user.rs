@@ -15,6 +15,13 @@ pub const ALGO_MODE2: &str = "MODE2";
 pub const ALGO_SHA1X: &str = "SHA1X";
 pub const ALGO_SHA1: &str = "SHA1";
 
+/// `UserHelper::ACCESS_LEVEL_*` (`ttrss_users.access_level`).
+pub const ACCESS_LEVEL_DISABLED: i32 = -2;
+pub const ACCESS_LEVEL_READONLY: i32 = -1;
+pub const ACCESS_LEVEL_USER: i32 = 0;
+pub const ACCESS_LEVEL_POWERUSER: i32 = 5;
+pub const ACCESS_LEVEL_ADMIN: i32 = 10;
+
 /// `UserHelper::hash_password` — returns the full `ALGO:hash` string.
 pub fn hash_password(pass: &str, salt: &str, algo: &str) -> Option<String> {
     let hex = match algo {

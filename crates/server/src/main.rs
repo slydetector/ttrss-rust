@@ -16,7 +16,6 @@ use axum::{
     routing::get,
     Router,
 };
-use rand::Rng;
 use serde::Deserialize;
 use ttrss_core::config::Config;
 use ttrss_core::db::Db;
@@ -26,9 +25,6 @@ use tokio::fs;
 use ttrss_server::{
     nocache_headers, with_trailing_slash, AppState, auth, mime, render, rpc, session,
 };
-
-/// Golden-DB schema version (used for `ref_schema_version` on login).
-const SCHEMA_VERSION: i64 = 151;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -277,20 +273,14 @@ async fn login_flow(
 
     match auth::authenticate(&state.db, &login, &password, otp).await {
         auth::AuthOutcome::Success { id, login, access_level, pwd_hash } => {
-            let now = now_unix();
-            let mut data = core_session::Session::new();
-            data.set("uid", Value::Int(id as i64));
-            data.set("last_login_update", Value::Int(now));
-            data.set("ip_address", Value::Bytes(b"127.0.0.1".to_vec()));
-            data.set("csrf_token", Value::Bytes(random_hex(16).into_bytes()));
-            data.set("auth_module", Value::Bytes(b"auth_internal".to_vec()));
-            data.set("name", Value::Bytes(login.into_bytes()));
-            data.set("access_level", Value::Int(access_level as i64));
-            data.set("pwd_hash", Value::Bytes(pwd_hash.into_bytes()));
-            data.set("ref_schema_version", Value::Int(SCHEMA_VERSION));
-            data.set("bw_limit", Value::Bool(truthy(form.bw_limit.as_deref())));
-            data.set("safe_mode", Value::Bool(checkbox(form.safe_mode.as_deref())));
-            let new_id = core_session::new_session_id();
+            let (new_id, data) = auth::build_login_session(
+                id,
+                &login,
+                access_level,
+                &pwd_hash,
+                truthy(form.bw_limit.as_deref()),
+                checkbox(form.safe_mode.as_deref()),
+            );
             sess.replace(new_id.clone(), data);
             login_redirect(&location(return_url, &self_url), &new_id)
         }
@@ -385,13 +375,6 @@ fn truthy(s: Option<&str>) -> bool {
 /// `checkbox_to_sql_bool`: checked checkboxes post "1"/"on".
 fn checkbox(s: Option<&str>) -> bool {
     matches!(s, Some("1") | Some("on"))
-}
-
-fn random_hex(n_bytes: usize) -> String {
-    let mut rng = rand::thread_rng();
-    (0..n_bytes)
-        .map(|_| format!("{:02x}", rng.gen_range(0u8..=255)))
-        .collect()
 }
 
 fn now_unix() -> i64 {

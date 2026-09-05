@@ -12,6 +12,9 @@ use std::path::PathBuf;
 use anyhow::{anyhow, Result};
 use url::Url;
 
+/// `Config::SCHEMA_VERSION` — the latest known DB schema version.
+pub const SCHEMA_VERSION: i64 = 151;
+
 /// tt-rss configuration (the fields the M1 server needs).
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -29,6 +32,10 @@ pub struct Config {
     /// Decoded 32-byte `TTRSS_ENCRYPTION_KEY`, or `None` if unset (no session
     /// encryption, matching `Config::get(Config::ENCRYPTION_KEY)` gating).
     pub encryption_key: Option<[u8; 32]>,
+
+    /// `Config::SINGLE_USER_MODE` (T_BOOL, default empty → false): skip
+    /// per-session user validation in `Sessions::validate_session`.
+    pub single_user_mode: bool,
 
     // -- M1 server-specific (not part of upstream Config.php) -------------
     /// Where the Rust HTTP server listens.
@@ -71,6 +78,7 @@ impl Config {
                 Ok(k) if !k.trim().is_empty() => Some(crate::crypt::hex_key(&k)?),
                 _ => None,
             },
+            single_user_mode: sql_bool_to_bool(&std::env::var("TTRSS_SINGLE_USER_MODE").unwrap_or_default()),
             listen: env("TTRSS_RUST_LISTEN", "127.0.0.1:8281")?,
             docroot: std::env::var("TTRSS_RUST_DOCROOT")
                 .map(PathBuf::from)
@@ -109,6 +117,20 @@ impl Config {
     }
 }
 
+/// PHP `sql_bool_to_bool()` (`include/functions.php`; the T_BOOL cast in
+/// `Config::cast_to`): `$s && ($s !== "f" && $s !== "false")`. PHP string
+/// truthiness applies ("" and "0" — and any numeric string equal to 0 — are
+/// falsy), plus the legacy "f"/"false" strings.
+pub fn sql_bool_to_bool(s: &str) -> bool {
+    if s.is_empty() || s == "f" || s == "false" {
+        return false;
+    }
+    if let Ok(f) = s.parse::<f64>() {
+        return f != 0.0;
+    }
+    true
+}
+
 /// Percent-encode a connection-string component (userinfo / dbname).
 fn urlenc(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
@@ -137,6 +159,7 @@ mod tests {
             db_sslmode: "prefer".into(),
             self_url: self_url.into(),
             encryption_key: None,
+            single_user_mode: false,
             listen: "127.0.0.1:8281".parse().unwrap(),
             docroot: PathBuf::from("tt-rss"),
             feed_icon_dir: PathBuf::from("tt-rss/cache/feed-icons"),
@@ -174,5 +197,19 @@ mod tests {
     fn urlenc_special_chars() {
         assert_eq!(urlenc("p@ss:word"), "p%40ss%3Aword");
         assert_eq!(urlenc("simple"), "simple");
+    }
+
+    #[test]
+    fn sql_bool_to_bool_matches_php() {
+        // PHP: $s && ($s !== "f" && $s !== "false") — "" and "0" are falsy.
+        assert!(!sql_bool_to_bool(""));
+        assert!(!sql_bool_to_bool("0"));
+        assert!(!sql_bool_to_bool("0.0")); // numeric string == 0 is falsy
+        assert!(!sql_bool_to_bool("f"));
+        assert!(!sql_bool_to_bool("false"));
+        assert!(sql_bool_to_bool("1"));
+        assert!(sql_bool_to_bool("true"));
+        assert!(sql_bool_to_bool("yes"));
+        assert!(sql_bool_to_bool("False")); // only exact "false" is special
     }
 }

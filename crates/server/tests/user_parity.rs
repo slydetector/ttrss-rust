@@ -119,23 +119,9 @@ async fn test_admin_credentials_work(
 }
 
 // PHP: test_authenticate_regenerates_session_id
-#[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
-))]
-#[ignore = "session-layer concern: session_id regeneration lives in the login flow / session module, asserted in parity row 9 (SessionsIntegrationTest)"]
-async fn test_authenticate_regenerates_session_id(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    // NOTE: PHP asserts `session_id()` changes after a successful
-    // `UserHelper::authenticate` (`session_regenerate_id(true)`). That is a
-    // session-layer effect, not an `authenticate` effect: the Rust login flow
-    // always creates a fresh session id on success (main.rs login_flow).
-    let (db, _) = setup(pool, options).await;
-    expect_success(auth::authenticate(&db, "testuser", "testpass123", None).await);
-}
+// Ported in `session_parity.rs` (parity row 9): the id change is a
+// session-layer effect (`session_regenerate_id(true)`), asserted there on
+// `auth::build_login_session`.
 
 // PHP: test_authenticate_updates_last_login
 #[sqlx::test(fixtures(

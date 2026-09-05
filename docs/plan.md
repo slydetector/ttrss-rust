@@ -453,8 +453,8 @@ the Rust port) and are parked as `REVISIT` blocks in the Rust test code:
 | 5 | `UrlHelperTest` (69) | `server` / `core` url | ✅ `validate` (9, `sanitizer.rs`) + `url_to_youtube_vid` (6, `headlines.rs`); ~~REVISIT: trailing-slash on host-only URLs + scheme-case preservation~~ **resolved** by the row-2 faithful `validate` (case preserved, no trailing slash, IDN→punycode); `rewrite_relative` + `build_url` + `canonicalize_ipv4_literal` now ported (see row 2; `rewrite_relative_cases` added); N/A: `resolve_redirects` (4), `fetch` (16), `has_disallowed_ip` DNS cases |
 | 6 | `CryptTest` (23) | `core::crypt` | ✅ 12 primitive cases; 7 N/A (config lookup, base64 codec, `algo` whitelist live in the caller — REVISIT block) |
 | 7 | `ConfigTest` (16) | `server::main` + `core::config` | ✅ `matches_self_url` (18 provider cases, `main.rs`); `cast_to` covered in `prefs::tests`; N/A: `get_self_url` a–k + `get_self_dir` (self URL from env); REVISIT: IDN/Punycode host normalization |
-| 8 | `UserHelperTest` (8) | `server::auth` | ✅ 7/8 ported (`tests/user_parity.rs` on `#[sqlx::test]` + fixtures + `common::make_db`); 1 case → row 9 (session-id regeneration) |
-| 9 | `SessionsIntegrationTest` (29) | `server::session` | — |
+| 8 | `UserHelperTest` (8) | `server::auth` | ✅ 8/8 ported: 7 in `tests/user_parity.rs` (`#[sqlx::test]` + fixtures + `common::make_db`); session-id regeneration in `session_parity.rs` (row 9) on `auth::build_login_session` |
+| 9 | `SessionsIntegrationTest` (29) | `server::session` | ✅ 29/29 ported (`tests/session_parity.rs`) + row-8 regeneration case = 30 tests. `Sessions` class methods ported to `server::session::{exists,read,write,destroy,validate_session}` (raw string-level, matching `SessionHandlerInterface`); envelope helpers (`encrypt_envelope`/`decrypt_envelope`) + `Session::from_items` in `core::session`; `validate_session` (+`single_user_mode` config, `ACCESS_LEVEL_*` consts in `core::user`) now used by `rpc::dispatch`; middleware `load` auto-creates like PHP `session_start`; `sql_bool_to_bool` canonicalized in `core::config` (used by prefs + config) |
 | 10 | `ArticleTest` (32) | `server::article` | — |
 | 11 | `FeedsCountersIntegrationTest` (40) | `server::counters` | — |
 | 12 | `FeedsHeadlinesIntegrationTest` (20) | `server::headlines` | — |
@@ -553,6 +553,11 @@ libraries, don't cleanroom the lifecycle):**
 "../../testing/fixtures/baseline.sql", "../../testing/fixtures/seed.sql"))]` with the
 `PoolOptions<Postgres> + PgConnectOptions` signature and `common::make_db`. Extra
 per-suite state = plain INSERTs after `make_db` (or `ttrss_testing::seed_user`).
+
+**Row 9 done** (`session_parity.rs`, 30 tests green): the `Sessions` class port
+itself went into `server::session` (raw `exists`/`read`/`write`/`destroy` +
+`validate_session`), so rows 10–14 can follow the same shape — port the PHP
+class surface to the module, then assert the PHP suite 1:1 in the test file.
 
 #### M2 — `Feeds::view` headlines / Sanitizer approach
 
