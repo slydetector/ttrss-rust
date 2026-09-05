@@ -431,13 +431,24 @@ Rules: (1) mirror each PHP test case 1:1 (same inputs, same expected values);
 `// TODO(port): …` and left commented, not silently dropped; (3) PHP-side
 helpers (`Prefs::set`, fixtures) are translated to the Rust equivalent
 (`TzCtx`, `PrefResolver::new(…)`, etc.); (4) commit **per module** so each
-replication is an atomic, independently reviewable unit.
+replication is an atomic, independently reviewable unit;
+(5) **DB-dependent PHP cases are NOT dropped** — they are listed as a
+`REVISIT` placeholder block in the Rust test module (naming each PHP test) and
+flagged in the table below, to be implemented once the corresponding Rust
+module has DB write access (a `set`/`reset`/… port or a testcontainer).
+
+**REVISIT (DB-backed) ledger:** cases that need a live DB (writes/reads via
+the Rust port) and are parked as `REVISIT` blocks in the Rust test code:
+
+| module | parked PHP cases (in `crates/*/src/*.rs` `REVISIT` block) |
+|---|---|
+| `server::prefs` | `PrefsTest::set_*` (insert/update/bool/string/tags/unchanged/invalid), `get_all_*`, `set_*_profile*`, `reset_*`, `multiple_users_isolated` (14 cases) |
 
 | # | PHP suite | Rust module | status |
 |---|---|---|---|
-| 1 | `TimeHelperTest` (41) | `server::time` | in progress |
+| 1 | `TimeHelperTest` (41) | `server::time` | ✅ 24 ported (applicable); N/A: `$long`/`no_smart_dt`, uid/profile, `convert_timestamp` |
 | 2 | `SanitizerTest` (162) | `server::sanitizer` | — |
-| 3 | `PrefsTest` (29) | `server::prefs` | — |
+| 3 | `PrefsTest` (29) | `server::prefs` | ✅ 16 pure cases; **14 DB cases parked** (REVISIT, see ledger) |
 | 4 | `FunctionsTest` (73) | `server` / `core` helpers | — |
 | 5 | `UrlHelperTest` (69) | `server` / `core` url | — |
 | 6 | `CryptTest` (23) | `core::crypt` | — |

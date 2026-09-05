@@ -20,7 +20,7 @@ pub enum Type {
 }
 
 /// A resolved pref value (already cast to its type hint).
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Pref {
     Bool(bool),
     Int(i64),
@@ -127,8 +127,9 @@ pub fn default_for(name: &str) -> Option<(&'static str, Type)> {
 /// `Config::cast_to(value, type_hint)`.
 fn cast(value: &str, ty: Type) -> Pref {
     match ty {
-        // sql_bool_to_bool: truthy unless empty or "f"/"false".
-        Type::Bool => Pref::Bool(!value.is_empty() && value != "f" && value != "false"),
+        // sql_bool_to_bool: `$s && ($s !== "f" && $s !== "false")`. PHP strings
+        // `""` and `"0"` are falsy, so both map to false.
+        Type::Bool => Pref::Bool(!value.is_empty() && value != "0" && value != "f" && value != "false"),
         Type::Int => Pref::Int(value.trim().parse().unwrap_or(0)),
         Type::Str => Pref::Str(value.to_string()),
     }
@@ -183,4 +184,187 @@ pub fn resolve(name: &str, rows: &[(String, Option<i32>, String)], profile: Opti
     } else {
         cast(def, ty)
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `Prefs::is_valid` — the pref is known iff `default_for` has a row.
+    fn is_valid(name: &str) -> bool {
+        default_for(name).is_some()
+    }
+
+    fn row(name: &str, profile: Option<i32>, value: &str) -> (String, Option<i32>, String) {
+        (name.to_string(), profile, value.to_string())
+    }
+
+    // ── is_valid ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn is_valid_known_prefs() {
+        // test_is_valid_returns_true_for_known_prefs
+        assert!(is_valid("PURGE_OLD_DAYS"));
+        assert!(is_valid("ENABLE_FEED_CATS"));
+        assert!(is_valid("USER_TIMEZONE"));
+        assert!(is_valid("USER_LANGUAGE"));
+    }
+
+    #[test]
+    fn is_valid_unknown_prefs() {
+        // test_is_valid_returns_false_for_unknown_prefs
+        assert!(!is_valid("NONEXISTENT_PREF"));
+        assert!(!is_valid(""));
+        assert!(!is_valid("some_random_key"));
+    }
+
+    // ── get_default ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn get_default_values() {
+        // test_get_default_returns_default_values
+        assert_eq!(
+            resolve("PURGE_OLD_DAYS", &[], None),
+            Pref::Int(60)
+        );
+        assert_eq!(resolve("DEFAULT_UPDATE_INTERVAL", &[], None), Pref::Int(30));
+        assert_eq!(resolve("ENABLE_FEED_CATS", &[], None), Pref::Bool(true));
+        assert_eq!(resolve("REVERSE_HEADLINES", &[], None), Pref::Bool(false));
+        assert_eq!(resolve("SHORT_DATE_FORMAT", &[], None), Pref::Str("M d, G:i".into()));
+        assert_eq!(resolve("_DEFAULT_VIEW_MODE", &[], None), Pref::Str("adaptive".into()));
+    }
+
+    #[test]
+    fn get_default_unknown_pref() {
+        // test_get_default_returns_null_for_unknown_pref
+        assert_eq!(resolve("NONEXISTENT_PREF", &[], None), Pref::Str(String::new()));
+    }
+
+    // ── get — defaults (no DB row) ──────────────────────────────────────────
+
+    #[test]
+    fn get_returns_default_when_no_db_row() {
+        // test_get_returns_default_when_no_db_row_exists
+        assert_eq!(resolve("PURGE_OLD_DAYS", &[], None), Pref::Int(60));
+    }
+
+    #[test]
+    fn get_correct_types_int_prefs() {
+        // test_get_returns_correct_types_for_int_prefs
+        assert_eq!(resolve("PURGE_OLD_DAYS", &[], None), Pref::Int(60));
+        assert_eq!(resolve("DEFAULT_UPDATE_INTERVAL", &[], None), Pref::Int(30));
+    }
+
+    #[test]
+    fn get_correct_types_bool_prefs() {
+        // test_get_returns_correct_types_for_bool_prefs
+        assert_eq!(resolve("ENABLE_FEED_CATS", &[], None), Pref::Bool(true));
+        assert_eq!(resolve("REVERSE_HEADLINES", &[], None), Pref::Bool(false));
+    }
+
+    #[test]
+    fn get_correct_types_string_prefs() {
+        // test_get_returns_correct_types_for_string_prefs
+        assert_eq!(resolve("SHORT_DATE_FORMAT", &[], None), Pref::Str("M d, G:i".into()));
+        assert_eq!(resolve("USER_TIMEZONE", &[], None), Pref::Str("Automatic".into()));
+    }
+
+    // ── get — from database (override rows) ─────────────────────────────────
+
+    #[test]
+    fn get_returns_overridden_value_from_db() {
+        // test_get_returns_overridden_value_from_db
+        let rows = vec![row("PURGE_OLD_DAYS", None, "90")];
+        assert_eq!(resolve("PURGE_OLD_DAYS", &rows, None), Pref::Int(90));
+    }
+
+    #[test]
+    fn get_with_empty_string_value_for_string_pref() {
+        // test_get_with_empty_string_value_for_string_pref
+        let rows = vec![row("SHORT_DATE_FORMAT", None, "")];
+        assert_eq!(resolve("SHORT_DATE_FORMAT", &rows, None), Pref::Str(String::new()));
+    }
+
+    // ── cast ────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn cast_string_to_int() {
+        // test_set_casts_string_to_int_for_int_prefs (the get side)
+        let rows = vec![row("PURGE_OLD_DAYS", None, "45")];
+        assert_eq!(resolve("PURGE_OLD_DAYS", &rows, None), Pref::Int(45));
+    }
+
+    #[test]
+    fn cast_string_to_bool() {
+        // test_set_casts_string_to_bool_for_bool_prefs (the get side)
+        let rows = vec![row("ENABLE_FEED_CATS", None, "f")];
+        assert_eq!(resolve("ENABLE_FEED_CATS", &rows, None), Pref::Bool(false));
+        let rows = vec![row("ENABLE_FEED_CATS", None, "1")];
+        assert_eq!(resolve("ENABLE_FEED_CATS", &rows, None), Pref::Bool(true));
+    }
+
+    // ── profile handling ────────────────────────────────────────────────────
+
+    #[test]
+    fn get_ignores_profile_for_blacklisted_pref() {
+        // test_get_ignores_profile_for_blacklisted_pref: a profile-specific row
+        // for a blacklisted pref is ignored (falls back to user-level value).
+        let rows = vec![
+            row("PURGE_OLD_DAYS", None, "500"),
+            row("PURGE_OLD_DAYS", Some(300), "777"),
+        ];
+        assert_eq!(resolve("PURGE_OLD_DAYS", &rows, Some(300)), Pref::Int(500));
+    }
+
+    #[test]
+    fn set_and_get_profile_specific_pref() {
+        // test_set_and_get_profile_specific_pref: a non-blacklisted pref with a
+        // profile resolves to the profile-specific row.
+        let rows = vec![row("REVERSE_HEADLINES", Some(5), "1")];
+        assert_eq!(resolve("REVERSE_HEADLINES", &rows, Some(5)), Pref::Bool(true));
+    }
+
+    #[test]
+    fn profile_pref_does_not_affect_user_level_pref() {
+        // test_profile_pref_does_not_affect_user_level_pref: user-level (no
+        // profile) vs profile-level overrides are independent. Prefs::set stores
+        // false as "" and true as "1".
+        let rows = vec![
+            row("REVERSE_HEADLINES", None, ""),
+            row("REVERSE_HEADLINES", Some(5), "1"),
+        ];
+        assert_eq!(resolve("REVERSE_HEADLINES", &rows, None), Pref::Bool(false));
+        assert_eq!(resolve("REVERSE_HEADLINES", &rows, Some(5)), Pref::Bool(true));
+    }
+
+    #[test]
+    fn cast_bool_zero_string_is_false() {
+        // sql_bool_to_bool("0") === false (PHP string "0" is falsy). Guards the
+        // regression where a "0"/"" override was misread as true.
+        let rows = vec![row("REVERSE_HEADLINES", None, "0")];
+        assert_eq!(resolve("REVERSE_HEADLINES", &rows, None), Pref::Bool(false));
+        let rows = vec![row("REVERSE_HEADLINES", None, "")];
+        assert_eq!(resolve("REVERSE_HEADLINES", &rows, None), Pref::Bool(false));
+    }
+
+    // ── DB-dependent PrefsTest.php cases (REVISIT) ────────────────────────────
+    // These exercise Prefs::set / reset / get_all (DB writes/reads), which the
+    // Rust `prefs` module does not (yet) implement — it only resolves against
+    // pre-loaded rows. Kept here (not dropped) so they are revisited when a
+    // DB-backed `set`/`reset`/`get_all` is ported. Tracked in docs/plan.md
+    // (test-parity, prefs.rs row):
+    //   test_set_inserts_new_row_into_db
+    //   test_set_updates_existing_row
+    //   test_set_stores_bool_as_string_in_db
+    //   test_set_stores_string_in_db
+    //   test_set_strips_tags_from_string_values
+    //   test_set_returns_true_without_db_change_when_value_unchanged
+    //   test_get_all_returns_all_pref_definitions
+    //   test_get_all_returns_default_values_for_new_user
+    //   test_set_profile_blacklisted_pref_returns_false
+    //   test_set_non_blacklisted_pref_works_with_profile
+    //   test_reset_clears_all_user_prefs
+    //   test_reset_does_not_delete_migrated_flag
+    //   test_set_returns_false_for_invalid_pref_name
+    //   test_multiple_users_have_isolated_prefs
 }
