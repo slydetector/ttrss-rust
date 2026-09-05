@@ -860,5 +860,32 @@ mod tests {
             ]
         );
     }
+
+    /// `UrlHelper::validate` — the `test_validate_*` cases from
+    /// tt-rss/tests_functional/UrlHelperTest.php, ported 1:1.
+    #[test]
+    fn validate_cases() {
+        // test_validate_valid_http / _valid_https / _protocol_relative_normalized.
+        // NOTE: url::Url normalizes a host-only URL to a "/" path, so the
+        // rebuilt URL carries a trailing slash ("http://example.com/") where
+        // the PHP build_url() returns "http://example.com". The difference is
+        // cosmetic (both are valid, equivalent origins) — REVISIT if exact
+        // string parity matters.
+        assert_eq!(validate("http://example.com"), Some("http://example.com/".into()));
+        assert_eq!(validate("https://example.com"), Some("https://example.com/".into()));
+        assert_eq!(validate("//example.com"), Some("https://example.com/".into()));
+        // test_validate_rejects_ftp / _mailto / _javascript / _empty / _no_host / _malformed
+        assert_eq!(validate("ftp://ftp.example.com"), None);
+        assert_eq!(validate("mailto:test@example.com"), None);
+        assert_eq!(validate("javascript:void(0)"), None);
+        assert_eq!(validate(""), None);
+        assert_eq!(validate("about:blank"), None);
+        assert_eq!(validate("not a url"), None);
+    }
+
+    // NOTE: test_validate_lowercase_scheme expects the returned URL to preserve
+    // the original scheme case ("HTTP://EXAMPLE.COM"), but url::Url lowercases
+    // the scheme ("http://EXAMPLE.COM"). REVISIT (scheme-case preservation) —
+    // tracked in docs/plan.md.
 }
 

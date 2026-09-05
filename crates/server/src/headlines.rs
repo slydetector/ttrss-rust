@@ -1542,6 +1542,27 @@ mod tests {
     }
 
     #[test]
+    fn url_to_youtube_vid_cases() {
+        // test_url_to_youtube_vid_watch / _short / _v / _invalid
+        // (UrlHelperTest.php), ported 1:1.
+        assert_eq!(
+            url_to_youtube_vid("https://www.youtube.com/watch?v=dQw4w9WgXcQ"),
+            Some("dQw4w9WgXcQ".into())
+        );
+        assert_eq!(
+            url_to_youtube_vid("https://youtu.be/dQw4w9WgXcQ"),
+            Some("dQw4w9WgXcQ".into())
+        );
+        assert_eq!(
+            url_to_youtube_vid("https://www.youtube.com/v/dQw4w9WgXcQ"),
+            Some("dQw4w9WgXcQ".into())
+        );
+        assert_eq!(url_to_youtube_vid("https://www.youtube.com/"), None);
+        assert_eq!(url_to_youtube_vid("https://vimeo.com/12345"), None);
+        assert_eq!(url_to_youtube_vid("not-a-url"), None);
+        assert_eq!(url_to_youtube_vid(""), None);
+    }
+
     fn truncate_string_chars() {
         // test_truncate_string_no_truncation
         assert_eq!(truncate_string("hello", 10), "hello");
