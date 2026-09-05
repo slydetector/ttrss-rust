@@ -384,7 +384,9 @@ struct HeadlinesResult {
     disable_cache: bool,
 }
 
-/// `Feeds::_format_headlines_list` (with `_get_headlines` inlined).
+/// `Feeds::_format_headlines_list` (with `_get_headlines` inlined; faithful
+/// port — the PHP method takes this many parameters).
+#[allow(clippy::too_many_arguments)]
 async fn format_headlines_list(
     state: &AppState,
     sess: &Sess,
@@ -424,8 +426,8 @@ async fn format_headlines_list(
         limit,
         view_mode,
         cat_view,
-        &search,
-        &search_language,
+        search,
+        search_language,
         override_order,
         offset,
         include_children,
@@ -550,9 +552,9 @@ async fn format_headlines_list(
         let num_labels: i64 = r.get(if is_vfeed_row { 30 } else { 28 });
         let num_enclosures: i64 = r.get(if is_vfeed_row { 31 } else { 29 });
 
-        let updated_str = updated.as_ref().map(|dt| time::naive_to_pg_text(dt));
-        let date_entered_str = date_entered.as_ref().map(|dt| time::naive_to_pg_text(dt));
-        let last_read_str = last_read.as_ref().map(|dt| time::naive_to_pg_text(dt));
+        let updated_str = updated.as_ref().map(time::naive_to_pg_text);
+        let date_entered_str = date_entered.as_ref().map(time::naive_to_pg_text);
+        let last_read_str = last_read.as_ref().map(time::naive_to_pg_text);
 
         // `content_preview` — first key added (pre-sanitize raw content).
         let content_preview = if show_content_preview {
@@ -636,16 +638,15 @@ async fn format_headlines_list(
 
         // feed headline background color (per-feed-id cache, like PHP's
         // `$rgba_cache`)
-        if !rgba_cache.contains_key(&feed_id) {
+        let rgb = rgba_cache.entry(feed_id).or_insert_with(|| {
             let fav_color = favicon_avg_color.as_deref().unwrap_or("");
-            let rgb = if !fav_color.is_empty() && fav_color != "fail" {
+            if !fav_color.is_empty() && fav_color != "fail" {
                 color_unpack(fav_color)
             } else {
                 color_of(feed_title_out.as_deref().unwrap_or(""))
-            };
-            rgba_cache.insert(feed_id, rgb);
-        }
-        let (rr, gg, bb) = &rgba_cache[&feed_id];
+            }
+        });
+        let (rr, gg, bb) = rgb;
 
         let is_shared = !uuid.is_empty();
         let lang: Option<String> = if is_shared {
@@ -922,7 +923,7 @@ fn url_to_youtube_vid(url: &str) -> Option<String> {
         r"//youtu\.be/([\w-]+)",
     ];
     for p in patterns {
-        if let Some(re) = regex::Regex::new(p).ok() {
+        if let Ok(re) = regex::Regex::new(p) {
             if let Some(caps) = re.captures(&url) {
                 return Some(caps[1].to_string());
             }
@@ -1045,7 +1046,9 @@ struct HeadlinesQuery {
 }
 
 /// `Feeds::_get_headlines` — the dynamic headline query, ported branch-for-
-/// branch from the PHP.
+/// branch from the PHP (faithful port — the PHP method takes this many
+/// parameters).
+#[allow(clippy::too_many_arguments)]
 async fn get_headlines(
     pool: &sqlx::PgPool,
     uid: i64,
@@ -1069,12 +1072,12 @@ async fn get_headlines(
     // recently-read get a default order unless the caller supplied one).
     let mut override_order = override_order.to_string();
 
-    let mut query_strategy_part = String::new();
+    // Assigned in every branch of the `feed_num` match below.
+    let query_strategy_part: String;
     let mut vfeed_query_part = String::new();
     let mut ext_tables_part = String::new();
     let mut allow_archived = false;
     let mut ignore_vfeed_group = false;
-    let mut first_id_query_strategy_part = String::new();
 
     let fresh_max_age = prefs::resolve("FRESH_ARTICLE_MAX_AGE", rows, profile).as_int();
     let recently_read_max_age = prefs::resolve("RECENTLY_READ_MAX_AGE", rows, profile).as_int();
@@ -1251,7 +1254,8 @@ async fn get_headlines(
 
     let mut first_id = 0i64;
     let first_id_changed = false;
-    let mut article_rows: Vec<sqlx::postgres::PgRow> = Vec::new();
+    // Assigned in both branches of the `feed_num` if/else below.
+    let article_rows: Vec<sqlx::postgres::PgRow>;
 
     if let Some(feed) = feed_num {
         // vfeed group ordering (VFEED_GROUP_BY_FEED is false in this
@@ -1293,7 +1297,7 @@ async fn get_headlines(
             vfeed_query_part.push_str("favicon_avg_color,");
         }
 
-        first_id_query_strategy_part = query_strategy_part.clone();
+        let mut first_id_query_strategy_part = query_strategy_part.clone();
         if feed == FEED_FRESH {
             first_id_query_strategy_part = "true".into();
         }
@@ -1331,22 +1335,20 @@ async fn get_headlines(
 \t\t\t\tdate_entered >= NOW() - INTERVAL '1 hour' AND
 \t\t\t\t{first_id_query_strategy_part} ORDER BY {order_by} LIMIT 1"
             );
-            if let Ok(row) = sqlx::query(&query).fetch_optional(pool).await {
-                if let Some(r) = row {
-                    first_id = r.get::<i32, _>(0) as i64;
-                    if offset > 0 && first_id != 0 && check_first_id != 0 && first_id != check_first_id {
-                        return HeadlinesQuery {
-                            article_rows: Vec::new(),
-                            feed_title,
-                            feed_site_url,
-                            last_error,
-                            last_updated,
-                            first_id,
-                            is_vfeed: !vfeed_query_part.is_empty(),
-                            query_error_override: String::new(),
-                            first_id_changed: true,
-                        };
-                    }
+            if let Ok(Some(r)) = sqlx::query(&query).fetch_optional(pool).await {
+                first_id = r.get::<i32, _>(0) as i64;
+                if offset > 0 && first_id != 0 && check_first_id != 0 && first_id != check_first_id {
+                    return HeadlinesQuery {
+                        article_rows: Vec::new(),
+                        feed_title,
+                        feed_site_url,
+                        last_error,
+                        last_updated,
+                        first_id,
+                        is_vfeed: !vfeed_query_part.is_empty(),
+                        query_error_override: String::new(),
+                        first_id_changed: true,
+                    };
                 }
             }
         }
@@ -1563,6 +1565,7 @@ mod tests {
         assert_eq!(url_to_youtube_vid(""), None);
     }
 
+    #[test]
     fn truncate_string_chars() {
         // test_truncate_string_no_truncation
         assert_eq!(truncate_string("hello", 10), "hello");

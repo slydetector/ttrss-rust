@@ -66,15 +66,11 @@ pub async fn get_all_counters(
 
     // `get_conditional` passes `Feeds::_cats_of($feed_ids, uid, true)` as the
     // category list when feeds were given.
-    let cat_ids = if feed_ids.is_some() && !disable_conditional {
-        let ids = feed_ids.as_ref().unwrap();
-        if ids.is_empty() {
-            Vec::new()
-        } else {
+    let cat_ids = match feed_ids.as_ref() {
+        Some(ids) if !disable_conditional && !ids.is_empty() => {
             cats_of(pool, uid, ids, true).await
         }
-    } else {
-        Vec::new()
+        _ => Vec::new(),
     };
 
     let counters: Vec<Value> = match &feed_ids {
@@ -138,7 +134,9 @@ fn parse_id_list(count: Option<&Value>, ids: Option<&Value>) -> Option<Vec<i64>>
     Some(parsed)
 }
 
-/// `Counters::get_all` / `get_conditional`.
+/// `Counters::get_all` / `get_conditional` (faithful port — the PHP method
+/// takes this many parameters).
+#[allow(clippy::too_many_arguments)]
 async fn get_all(
     pool: &sqlx::PgPool,
     uid: i64,
@@ -214,7 +212,7 @@ async fn get_labels(
     label_ids: Option<&[i64]>,
 ) -> Vec<Value> {
     let rows = match label_ids {
-        Some(ids) if ids.is_empty() => return Vec::new(),
+        Some([]) => return Vec::new(),
         Some(ids) => {
             let qmarks: Vec<String> = (3..=2 + ids.len())
                 .map(|i| format!("${i}"))
@@ -387,7 +385,7 @@ async fn get_cats(
     })];
 
     let rows = match cat_ids {
-        Some(ids) if ids.is_empty() => return Vec::new(),
+        Some([]) => return Vec::new(),
         Some(ids) => {
             let qmarks: Vec<String> = (2..=1 + ids.len()).map(|i| format!("${i}")).collect();
             let q = format!(

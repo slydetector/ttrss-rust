@@ -289,6 +289,7 @@ struct Exchange {
     db_state: Option<serde_json::Value>,
 }
 
+#[allow(clippy::too_many_arguments)] // the exchange has this many facets
 fn write_exchange(
     out: &Path,
     seq: usize,

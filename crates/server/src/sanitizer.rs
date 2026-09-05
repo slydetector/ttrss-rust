@@ -839,7 +839,7 @@ fn validate(url: &str) -> Option<String> {
         return None;
     }
     // IDN host -> punycode (PHP: idn_to_ascii, UTS46 non-transitional).
-    let host_out = if host.chars().any(|c| !c.is_ascii()) {
+    let host_out = if !host.is_ascii() {
         match url::Url::parse(&format!("http://{host}/")) {
             Ok(u) => u.host_str()?.to_string(),
             Err(_) => return None,
@@ -1265,7 +1265,7 @@ fn escape_text(s: &str, out: &mut String) {
             '&' => out.push_str("&amp;"),
             '<' => out.push_str("&lt;"),
             '>' => out.push_str("&gt;"),
-            '\0' => out.push_str("\u{fffd}"),
+            '\0' => out.push('\u{fffd}'),
             _ => out.push(c),
         }
     }
