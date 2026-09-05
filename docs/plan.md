@@ -449,7 +449,7 @@ the Rust port) and are parked as `REVISIT` blocks in the Rust test code:
 | 1 | `TimeHelperTest` (41) | `server::time` | ✅ 24 ported (applicable); N/A: `$long`/`no_smart_dt`, uid/profile, `convert_timestamp` |
 | 2 | `SanitizerTest` (162) | `server::sanitizer` | — |
 | 3 | `PrefsTest` (29) | `server::prefs` | ✅ 16 pure cases; **14 DB cases parked** (REVISIT, see ledger) |
-| 4 | `FunctionsTest` (73) | `server` / `core` helpers | — |
+| 4 | `FunctionsTest` (73) | `server` / `core` helpers | ✅ `truncate_string` (10, `headlines.rs`) + `with_trailing_slash` (5, `main.rs`) + `sql_bool_to_bool` (via `prefs`); **~50 parked** (REVISIT: `clean` 8, `truncate_middle` 7, `mb_substr_replace` 6, `arr_qmarks` 6, `bool_to_sql_bool` 2, `checkbox_to_sql_bool` 2, `implements_interface` 4, `get_theme_path` 2, `theme_exists` 1, `uniqid_short` 4, `get_random_bytes` 3, `t_sprintf` 2, `t_nsprintf` 1, `gzdecode` 1, `get_scripts_timestamp` 2) |
 | 5 | `UrlHelperTest` (69) | `server` / `core` url | — |
 | 6 | `CryptTest` (23) | `core::crypt` | ✅ 12 primitive cases; 7 N/A (config lookup, base64 codec, `algo` whitelist live in the caller — REVISIT block) |
 | 7 | `ConfigTest` (16) | `server::main` + `core::config` | ✅ `matches_self_url` (18 provider cases, `main.rs`); `cast_to` covered in `prefs::tests`; N/A: `get_self_url` a–k + `get_self_dir` (self URL from env); REVISIT: IDN/Punycode host normalization |

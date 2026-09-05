@@ -1543,8 +1543,29 @@ mod tests {
 
     #[test]
     fn truncate_string_chars() {
-        assert_eq!(truncate_string("abc", 10), "abc");
-        assert_eq!(truncate_string("abcdef", 3), "abc&hellip;");
+        // test_truncate_string_no_truncation
+        assert_eq!(truncate_string("hello", 10), "hello");
+        // test_truncate_string_exact_length
+        assert_eq!(truncate_string("hello", 5), "hello");
+        // test_truncate_string_shortens
+        assert_eq!(truncate_string("hello world", 5), "hello&hellip;");
+        // test_truncate_string_empty_string
+        assert_eq!(truncate_string("", 10), "");
+        // test_truncate_string_max_len_zero
+        assert_eq!(truncate_string("hello", 0), "&hellip;");
+        // test_truncate_string_multibyte_ascii
+        assert_eq!(truncate_string("hello", 4), "hell&hellip;");
+        // test_truncate_string_multibyte_unicode
+        assert_eq!(truncate_string("café", 4), "café");
+        // test_truncate_string_multibyte_unicode_boundary
+        assert_eq!(truncate_string("café", 2), "ca&hellip;");
+        // test_truncate_string_emoji
+        assert_eq!(truncate_string("👋🌍", 2), "👋🌍");
+        let r = truncate_string("👋🌍", 1);
+        assert!(r.contains("👋") && r.contains("&hellip;"), "got: {r}");
+        // test_truncate_string_cjk
+        let r = truncate_string("你好世界", 3);
+        assert!(r.contains("你") && r.contains("&hellip;"), "got: {r}");
     }
 
     #[test]

@@ -522,6 +522,22 @@ mod tests {
     // written, so 'https://xn--mller-kva.com' vs 'https://müller.com' is not
     // matched here. REVISIT (IDN normalization) — tracked in docs/plan.md.
 
+    /// `with_trailing_slash` — the `test_with_trailing_slash_*` cases from
+    /// tt-rss/tests_functional/FunctionsTest.php, ported 1:1.
+    #[test]
+    fn with_trailing_slash_cases() {
+        // test_with_trailing_slash_already_has_slash
+        assert_eq!(with_trailing_slash("/path/"), "/path/");
+        // test_with_trailing_slash_no_slash
+        assert_eq!(with_trailing_slash("/path"), "/path/");
+        // test_with_trailing_slash_root
+        assert_eq!(with_trailing_slash("/"), "/");
+        // test_with_trailing_slash_empty
+        assert_eq!(with_trailing_slash(""), "/");
+        // test_with_trailing_slash_double_slash
+        assert_eq!(with_trailing_slash("/path//"), "/path//");
+    }
+
     // NOTE: the `test_cast_to_int/string/bool` cases from ConfigTest.php exercise
     // `Config::cast_to`, whose logic this port keeps in `prefs::cast` — already
     // covered there (`prefs::tests::cast_string_to_int` / `cast_string_to_bool` /
@@ -532,4 +548,16 @@ mod tests {
     // self URL from $_SERVER / is_server_https) and `Config::get_self_dir()`.
     // The Rust port takes SELF_URL_PATH + docroot from the environment instead,
     // so these are N/A here. Tracked in docs/plan.md (test-parity, config row).
+
+    // REVISIT (REVISIT): the remaining FunctionsTest.php cases exercise
+    // functions.php helpers the Rust port has not (yet) ported, so they are
+    // parked (not dropped) and tracked in docs/plan.md (test-parity, functions
+    // row). Port them alongside the module that needs each helper:
+    //   clean_string (8), truncate_middle (7), mb_substr_replace (6),
+    //   bool_to_sql_bool (2), arr_qmarks (6), checkbox_to_sql_bool (2),
+    //   implements_interface (4), get_theme_path (2), theme_exists (1),
+    //   uniqid_short (4), get_random_bytes (3), t_sprintf (2), t_nsprintf (1),
+    //   gzdecode (1), get_scripts_timestamp (2).
+    //   (sql_bool_to_bool (3) is covered by prefs::tests; truncate_string (10)
+    //   and with_trailing_slash (5) are covered above / in headlines::tests.)
 }
