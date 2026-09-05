@@ -415,6 +415,44 @@ clean** on the golden dataset. Done so far:
   (feed/cat/all), notes, scores, labels, tags. The harness will check both the
   response **and** the resulting DB state vs PHP.
 
+### Test-parity program (PHP `#[test]` → Rust `#[test]`, 2026-09-05)
+
+The port is verified end-to-end by the **harness** (response/DB diff vs the PHP
+oracle), but the *unit-test* surface is thin: the PHP suite is large
+(`SanitizerTest` 162, `FunctionsTest` 73, `UrlHelperTest` 69, `TimeHelperTest` 41,
+`PrefsTest` 29, `ArticleTest` 32, `SessionsIntegrationTest` 29, `CryptTest` 23,
+`ConfigTest` 16, `LabelsTest` 15, `RPCTest` 10, …) while Rust has ~72 ad-hoc
+`#[test]`s. Goal: for every Rust module, **replicate the corresponding PHP
+test cases** so behavior is pinned by the same inputs/expectations the PHP
+authors wrote, not just by the current golden corpus.
+
+Rules: (1) mirror each PHP test case 1:1 (same inputs, same expected values);
+(2) a PHP case that exercises a feature the Rust port omits is marked with a
+`// TODO(port): …` and left commented, not silently dropped; (3) PHP-side
+helpers (`Prefs::set`, fixtures) are translated to the Rust equivalent
+(`TzCtx`, `PrefResolver::new(…)`, etc.); (4) commit **per module** so each
+replication is an atomic, independently reviewable unit.
+
+| # | PHP suite | Rust module | status |
+|---|---|---|---|
+| 1 | `TimeHelperTest` (41) | `server::time` | in progress |
+| 2 | `SanitizerTest` (162) | `server::sanitizer` | — |
+| 3 | `PrefsTest` (29) | `server::prefs` | — |
+| 4 | `FunctionsTest` (73) | `server` / `core` helpers | — |
+| 5 | `UrlHelperTest` (69) | `server` / `core` url | — |
+| 6 | `CryptTest` (23) | `core::crypt` | — |
+| 7 | `ConfigTest` (16) | `core::config` | — |
+| 8 | `UserHelperTest` (8) | `core::user` | — |
+| 9 | `SessionsIntegrationTest` (29) | `server::session` | — |
+| 10 | `ArticleTest` (32) | `server::article` | — |
+| 11 | `FeedsCountersIntegrationTest` (40) | `server::counters` | — |
+| 12 | `FeedsHeadlinesIntegrationTest` (20) | `server::headlines` | — |
+| 13 | `LabelsTest`/`LabelsIntegrationTest` (15/35) | labels | — |
+| 14 | `RPCTest` (10) | `server::rpc` | — |
+
+(Feed-parser/RSS-utils/DiskCache/Scheduler/PluginHost/Api suites map to modules
+not yet ported and will be added alongside those modules in M4+.)
+
 #### M2 — `Feeds::view` headlines / Sanitizer approach
 
 **DONE (committed):**
