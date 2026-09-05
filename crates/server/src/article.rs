@@ -1,32 +1,50 @@
-//! Port of `classes/Article.php` mutation helpers + `RPC::{catchupSelected,
-//! markSelected, publishSelected}` (M3: article-state mutations).
+//! Port of `classes/Article.php` (static helpers + mutation ops) and
+//! `RPC::{catchupSelected, markSelected, publishSelected}` (M3: article-state
+//! mutations).
 //!
-//! Each method performs the SQL `UPDATE ttrss_user_entries` and returns the
+//! The mutation ops perform the SQL `UPDATE ttrss_user_entries` and return the
 //! `UPDATE_COUNTERS` envelope:
 //! `{message, labels: Article::_labels_of(ids), feeds: Article::_feeds_of(ids)}`.
 //!
-//! None of the loaded plugins (`auto_assign_labels`, `note`, `share`, …) react
-//! to the `HOOK_ARTICLES_{MARK,PUBLISH}_TOGGLED` hooks, so the `PluginHost`
-//! `run_hooks` calls are no-ops here.
+//! PHP calls go through `PluginHost` chains (`HOOK_ARTICLE_IMAGE`,
+//! `HOOK_FORMAT_ENCLOSURES`, …) and `DiskCache` URL wrapping; the Rust server
+//! has no plugin host or disk cache, so those paths are no-ops / omitted and
+//! documented at the call site.
 
 use std::collections::HashSet;
+use std::sync::OnceLock;
 
+use kuchikiki::traits::TendrilSink;
+use kuchikiki::{parse_html, NodeRef};
 use serde_json::{json, Map, Value};
 use sqlx::Row;
+use ttrss_core::db::Db;
+use ttrss_core::phpser::Value as PValue;
+use ttrss_core::session::Session;
 
+use crate::prefs;
+use crate::sanitizer::rewrite_relative;
 use crate::session::Sess;
 use crate::AppState;
 
 // `Article::*` (Article.php).
-const CATCHUP_MODE_MARK_AS_READ: i32 = 0;
-const CATCHUP_MODE_MARK_AS_UNREAD: i32 = 1;
-const CATCHUP_MODE_TOGGLE: i32 = 2;
+pub const CATCHUP_MODE_MARK_AS_READ: i32 = 0;
+pub const CATCHUP_MODE_MARK_AS_UNREAD: i32 = 1;
+pub const CATCHUP_MODE_TOGGLE: i32 = 2;
+pub const ARTICLE_KIND_ALBUM: i32 = 1;
+pub const ARTICLE_KIND_VIDEO: i32 = 2;
+pub const ARTICLE_KIND_YOUTUBE: i32 = 3;
 
 // `Feeds::*` (functions.php).
 const LABEL_BASE_INDEX: i64 = -1024;
 
 fn feed_to_label_id(feed: i64) -> i64 {
     LABEL_BASE_INDEX - 1 + feed.abs()
+}
+
+/// `Labels::label_to_feed_id`.
+fn label_to_feed_id(label: i32) -> i64 {
+    LABEL_BASE_INDEX - 1 - label.abs() as i64
 }
 
 /// A scalar form value as its PHP string form.
@@ -107,11 +125,22 @@ fn bind_ids<'a>(
     q
 }
 
-/// `Article::_catchup_by_id`: read / unread / toggle the given articles.
-async fn catchup_by_id(pool: &sqlx::PgPool, ids: &[i32], cmode: i32, uid: i64) {
+/// `Article::_catchup_by_id`: read / unread / toggle the given articles for
+/// `owner_uid` (the session uid when `None` / 0).
+pub async fn catchup_by_id(
+    pool: &sqlx::PgPool,
+    ids: &[i32],
+    cmode: i32,
+    session_uid: i64,
+    owner_uid: Option<i64>,
+) {
     if ids.is_empty() {
         return;
     }
+    let uid = match owner_uid {
+        Some(u) if u != 0 => u,
+        _ => session_uid,
+    };
     let set = match cmode {
         CATCHUP_MODE_MARK_AS_UNREAD => "unread = true",
         CATCHUP_MODE_TOGGLE => "unread = NOT unread, last_read = NOW()",
@@ -165,8 +194,445 @@ async fn publish_articles_by_id(pool: &sqlx::PgPool, ids: &[i32], cmode: i32, ui
     let _ = bind_ids(sqlx::query(&sql), ids).bind(uid).execute(pool).await;
 }
 
+/// `Article::_get_tags`: the tags of article `id` for `owner_uid` (the
+/// session uid when `None`/0). With a non-empty `tag_cache` it is simply
+/// split on commas; otherwise the tags come from `ttrss_tags` (hard path)
+/// and the cache is updated.
+pub async fn get_tags(
+    pool: &sqlx::PgPool,
+    session_uid: i64,
+    id: i32,
+    owner_uid: Option<i64>,
+    tag_cache: Option<&str>,
+) -> Vec<String> {
+    let owner = match owner_uid {
+        Some(u) if u != 0 => u as i32,
+        _ => session_uid as i32,
+    };
+
+    let mut cache = tag_cache.map(str::to_string);
+    if cache.as_deref().is_none_or(str::is_empty) {
+        let c: Option<String> = sqlx::query_scalar(
+            "SELECT tag_cache FROM ttrss_user_entries WHERE ref_id = $1 AND owner_uid = $2",
+        )
+        .bind(id)
+        .bind(owner)
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten();
+        if c.as_deref().is_some_and(|c| !c.is_empty()) {
+            cache = c;
+        }
+    }
+
+    if let Some(cache) = cache.as_deref().filter(|c| !c.is_empty()) {
+        return cache.split(',').map(str::to_string).collect();
+    }
+
+    // The hard way: distinct tag names for this user entry's int_id.
+    let rows: Vec<String> = sqlx::query_scalar(
+        "SELECT DISTINCT tag_name FROM ttrss_tags
+         WHERE post_int_id = (SELECT int_id FROM ttrss_user_entries
+             WHERE ref_id = $1 AND owner_uid = $2 LIMIT 1)
+         ORDER BY tag_name",
+    )
+    .bind(id)
+    .bind(owner)
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default();
+
+    // Update the cache.
+    let _ = sqlx::query(
+        "UPDATE ttrss_user_entries SET tag_cache = $1 WHERE ref_id = $2 AND owner_uid = $3",
+    )
+    .bind(rows.join(","))
+    .bind(id)
+    .bind(owner)
+    .execute(pool)
+    .await;
+
+    rows
+}
+
+/// `Article::_get_labels`: the labels of article `id` for `owner_uid` (the
+/// session uid when `None`/0), as `[feed_id, caption, fg_color, bg_color]`
+/// entries (JSON values, preserving the cached types). An empty label set —
+/// including the `{"no-labels":1}` cache marker — is `[]`.
+///
+/// On the hard path (no usable cache) the result is written back via
+/// `Labels::update_cache`.
+pub async fn get_labels(
+    pool: &sqlx::PgPool,
+    session_uid: i64,
+    id: i32,
+    owner_uid: Option<i64>,
+) -> Vec<Value> {
+    let owner = match owner_uid {
+        Some(u) if u != 0 => u as i32,
+        _ => session_uid as i32,
+    };
+
+    let cache: Option<String> = sqlx::query_scalar(
+        "SELECT label_cache FROM ttrss_user_entries WHERE ref_id = $1 AND owner_uid = $2",
+    )
+    .bind(id)
+    .bind(owner)
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten();
+
+    if let Some(cache) = cache.as_deref().filter(|c| !c.is_empty()) {
+        match serde_json::from_str::<Value>(cache) {
+            Ok(v) => {
+                let no_labels = v.get("no-labels").and_then(Value::as_i64) == Some(1);
+                if v.is_null() || no_labels {
+                    return Vec::new();
+                }
+                if let Some(arr) = v.as_array() {
+                    if arr.is_empty() {
+                        return Vec::new();
+                    }
+                    return arr.clone();
+                }
+                // NOTE: PHP would return the decoded scalar as-is; degenerate
+                // cache contents are treated as "no labels" here.
+                return Vec::new();
+            }
+            Err(_) => {
+                // Malformed cache JSON: PHP `json_decode` -> null -> empty.
+                return Vec::new();
+            }
+        }
+    }
+
+    // The hard way: the user's labels assigned to this article.
+    let rows = sqlx::query(
+        "SELECT DISTINCT label_id, caption, fg_color, bg_color
+         FROM ttrss_labels2, ttrss_user_labels2
+         WHERE id = label_id AND article_id = $1 AND owner_uid = $2
+         ORDER BY caption",
+    )
+    .bind(id)
+    .bind(owner)
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default();
+
+    let mut rv: Vec<Value> = Vec::new();
+    for row in &rows {
+        let label_id: i32 = row.get(0);
+        let caption: String = row.get(1);
+        let fg_color: String = row.get(2);
+        let bg_color: String = row.get(3);
+        rv.push(json!([label_to_feed_id(label_id), caption, fg_color, bg_color]));
+    }
+
+    update_labels_cache(pool, owner as i64, id, &rv).await;
+    rv
+}
+
+/// `Labels::update_cache` (as called from `Article::_get_labels`): store the
+/// label set (or the `{"no-labels":1}` marker) in `label_cache`.
+async fn update_labels_cache(pool: &sqlx::PgPool, owner_uid: i64, id: i32, labels: &[Value]) {
+    let json: Value = if labels.is_empty() {
+        json!({ "no-labels": 1 })
+    } else {
+        Value::Array(labels.to_vec())
+    };
+    let _ = sqlx::query(
+        "UPDATE ttrss_user_entries SET label_cache = $1 WHERE ref_id = $2 AND owner_uid = $3",
+    )
+    .bind(json.to_string())
+    .bind(id)
+    .bind(owner_uid)
+    .execute(pool)
+    .await;
+}
+
+/// `Article::_purge_orphans`: delete entries no user references.
+pub async fn purge_orphans(pool: &sqlx::PgPool) {
+    let _ = sqlx::query(
+        "DELETE FROM ttrss_entries WHERE NOT EXISTS (
+            SELECT ref_id FROM ttrss_user_entries WHERE ref_id = id)",
+    )
+    .execute(pool)
+    .await;
+}
+
+/// `Article::_get_enclosures`: the article's enclosure rows as
+/// associative arrays (PHP `as_array()`). PHP wraps cached URLs via
+/// `DiskCache::get_url`; the Rust server has no disk cache, so URLs are
+/// returned as stored.
+pub async fn get_enclosures(pool: &sqlx::PgPool, id: i32) -> Vec<Map<String, Value>> {
+    type EnclosureRow = (i32, String, String, String, String, i32, i32, i32);
+    let rows: Vec<EnclosureRow> = sqlx::query_as(
+        "SELECT id, content_url, content_type, title, duration, width, height, post_id
+         FROM ttrss_enclosures WHERE post_id = $1",
+    )
+        .bind(id)
+        .fetch_all(pool)
+        .await
+        .unwrap_or_default();
+
+    rows.into_iter()
+        .map(|(enc_id, url, ctype, title, duration, width, height, post_id)| {
+            json!({
+                "id": enc_id,
+                "content_url": url,
+                "content_type": ctype,
+                "title": title,
+                "duration": duration,
+                "width": width,
+                "height": height,
+                "post_id": post_id,
+            })
+            .as_object()
+            .unwrap()
+            .clone()
+        })
+        .collect()
+}
+
+/// `Article::_get_image`: the article's representative image / video stream
+/// and kind. The first `img[@src]` / `video[@poster]` / YouTube-embed
+/// `iframe` in document order wins (matching the PHP XPath union);
+/// otherwise the first `image/*` enclosure is used. URLs are rewritten
+/// against `site_url`; a multi-image article is kind `ARTICLE_KIND_ALBUM`.
+///
+/// PHP additionally runs the `HOOK_ARTICLE_IMAGE` plugin chain (no-op with
+/// no plugins) and wraps cached URLs via `DiskCache` (no disk cache here).
+pub fn get_image(
+    enclosures: &[Map<String, Value>],
+    content: &str,
+    site_url: &str,
+) -> (String, String, i32) {
+    let mut article_image = String::new();
+    let mut article_stream = String::new();
+    let mut article_kind = 0;
+
+    if article_image.is_empty() && article_stream.is_empty() {
+        // PHP: `mb_substr($content, 0, 131070)` before `loadHTML`.
+        let content: String = content.chars().take(131_070).collect();
+        let doc = parse_html().one(content);
+        let elems = collect_image_candidates(&doc);
+
+        for e in &elems {
+            let Some(el) = e.as_element() else {
+                continue;
+            };
+            let tag: String = el.name.local.to_string().to_ascii_lowercase();
+            let attrs = el.attributes.borrow();
+            if tag == "iframe" {
+                let Some(src) = attrs.get("src") else {
+                    continue;
+                };
+                let Some(m) = youtube_embed_re().captures(src) else {
+                    continue;
+                };
+                let vid = &m[1];
+                article_image = format!("https://img.youtube.com/vi/{vid}/hqdefault.jpg");
+                article_stream = format!("https://youtu.be/{vid}");
+                article_kind = ARTICLE_KIND_YOUTUBE;
+                break;
+            } else if tag == "video" {
+                article_image = attrs.get("poster").unwrap_or_default().to_string();
+                if let Some(src) = first_source_src(e) {
+                    article_stream = src;
+                    article_kind = ARTICLE_KIND_VIDEO;
+                }
+                break;
+            } else if tag == "img" {
+                let src = attrs.get("src").unwrap_or_default();
+                if !src.starts_with("data:") {
+                    article_image = src.to_string();
+                }
+                break;
+            }
+        }
+
+        if article_image.is_empty() {
+            for enc in enclosures {
+                let is_image = enc
+                    .get("content_type")
+                    .and_then(Value::as_str)
+                    .is_some_and(|ct| ct.contains("image/"));
+                if is_image {
+                    if let Some(url) = enc.get("content_url").and_then(Value::as_str) {
+                        article_image = url.to_string();
+                        break;
+                    }
+                }
+            }
+        }
+
+        if !article_image.is_empty() {
+            match rewrite_relative(site_url, &article_image, "a", "href", "") {
+                Some(abs) => {
+                    article_image = abs;
+                    if article_kind == 0 && (enclosures.len() > 1 || elems.len() > 1) {
+                        article_kind = ARTICLE_KIND_ALBUM;
+                    }
+                }
+                // PHP: rewrite failure returns false -> article_image false.
+                None => article_image.clear(),
+            }
+        }
+
+        if !article_stream.is_empty() {
+            if let Some(abs) = rewrite_relative(site_url, &article_stream, "a", "href", "") {
+                article_stream = abs;
+            } else {
+                article_stream.clear();
+            }
+        }
+    }
+
+    // (PHP DiskCache::get_url wrapping: no disk cache in the Rust server.)
+    (article_image, article_stream, article_kind)
+}
+
+/// `preg_match("/\\/embed\\/([\\w-]+)/")` from `Article::_get_image`.
+fn youtube_embed_re() -> &'static regex::Regex {
+    static RE: OnceLock<regex::Regex> = OnceLock::new();
+    RE.get_or_init(|| regex::Regex::new(r"/embed/([\w-]+)").unwrap())
+}
+
+/// The XPath union `(//img[@src]|//video[@poster]|//iframe[contains(@src,
+/// "youtube.com/embed/")])`, in document order.
+fn collect_image_candidates(root: &NodeRef) -> Vec<NodeRef> {
+    let mut out = Vec::new();
+    // Iterative DFS (children pushed in reverse) = document order, deep-nesting
+    // safe.
+    let mut stack = vec![root.clone()];
+    while let Some(node) = stack.pop() {
+        if let Some(el) = node.as_element() {
+            let tag: String = el.name.local.to_string().to_ascii_lowercase();
+            let attrs = el.attributes.borrow();
+            let match_ = match tag.as_str() {
+                "img" => attrs.get("src").is_some(),
+                "video" => attrs.get("poster").is_some(),
+                "iframe" => attrs
+                    .get("src")
+                    .is_some_and(|s| s.contains("youtube.com/embed/")),
+                _ => false,
+            };
+            if match_ {
+                out.push(node.clone());
+            }
+        }
+        let children: Vec<NodeRef> = node.children().collect();
+        for child in children.into_iter().rev() {
+            stack.push(child);
+        }
+    }
+    out
+}
+
+/// `$tmpxpath->query("//source[@src]", $e)->item(0)` — the first `source`
+/// descendant (document order) carrying a `src` attribute. Iterative: the
+/// parsed tree can be arbitrarily deep.
+fn first_source_src(root: &NodeRef) -> Option<String> {
+    // Iterative DFS = document order.
+    let mut stack = vec![root.clone()];
+    while let Some(node) = stack.pop() {
+        if let Some(el) = node.as_element() {
+            if el.name.local.to_string().eq_ignore_ascii_case("source") {
+                if let Some(src) = el.attributes.borrow().get("src") {
+                    return Some(src.to_string());
+                }
+            }
+        }
+        let children: Vec<NodeRef> = node.children().collect();
+        for child in children.into_iter().rev() {
+            stack.push(child);
+        }
+    }
+    None
+}
+
+/// PHP `basename()` on a URL string (segment after the last `/`, trailing
+/// slashes stripped).
+fn basename(url: &str) -> String {
+    url.rsplit('/').find(|s| !s.is_empty()).unwrap_or("").to_string()
+}
+
+/// `Article::_format_enclosures` result: the `formatted` / `entries` pair
+/// plus the `can_inline` / `inline_text_only` flags.
+#[derive(Clone, Debug, PartialEq)]
+pub struct FormattedEnclosures {
+    pub formatted: String,
+    pub entries: Vec<Map<String, Value>>,
+    pub can_inline: bool,
+    pub inline_text_only: bool,
+}
+
+/// `Article::_format_enclosures`: fetch the article's enclosures and compute
+/// the inline-display flags. The PHP `HOOK_FORMAT_ENCLOSURES` /
+/// `HOOK_RENDER_ENCLOSURE` / `HOOK_ENCLOSURE_ENTRY` plugin chains are no-ops
+/// with no plugins, so `formatted` stays empty and every enclosure lands in
+/// `entries` (with `filename` = `basename(content_url)` added).
+pub async fn format_enclosures(
+    db: &Db,
+    sess: &Session,
+    id: i32,
+    always_display_enclosures: bool,
+    article_content: &str,
+    hide_images: bool,
+) -> FormattedEnclosures {
+    let pool = db.pool();
+    let enclosures = get_enclosures(pool, id).await;
+
+    // $rv['can_inline'] = isset($_SESSION["uid"]) && empty($_SESSION["bw_limit"])
+    //   && !Prefs::get(Prefs::STRIP_IMAGES, $_SESSION["uid"], $_SESSION["profile"] ?? null)
+    //   && ($always_display_enclosures || !preg_match("/<img/i", $article_content));
+    let uid = sess.get_int("uid");
+    let strip_images = if let Some(uid) = uid {
+        let profile = sess.get_int("profile").map(|p| p as i32);
+        let rows = prefs::load_rows(db, uid, profile).await;
+        prefs::resolve("STRIP_IMAGES", &rows, profile).as_bool()
+    } else {
+        false
+    };
+    let can_inline = uid.is_some()
+        && php_empty(sess.get("bw_limit"))
+        && !strip_images
+        && (always_display_enclosures || !article_content.to_ascii_lowercase().contains("<img"));
+    let inline_text_only = hide_images && can_inline;
+
+    let mut entries: Vec<Map<String, Value>> = Vec::new();
+    for enc in &enclosures {
+        let mut enc = enc.clone();
+        if let Some(url) = enc.get("content_url").and_then(Value::as_str) {
+            enc.insert("filename".into(), Value::String(basename(url)));
+        }
+        entries.push(enc);
+    }
+
+    FormattedEnclosures {
+        formatted: String::new(),
+        entries,
+        can_inline,
+        inline_text_only,
+    }
+}
+
+/// PHP `empty()` on a session value (absent counts as empty).
+fn php_empty(v: Option<&PValue>) -> bool {
+    match v {
+        None | Some(PValue::Null) => true,
+        Some(PValue::Bool(b)) => !b,
+        Some(PValue::Int(i)) => *i == 0,
+        Some(PValue::Float(f)) => *f == 0.0,
+        Some(PValue::Bytes(b)) => b.is_empty(),
+        Some(PValue::Array(a)) => a.is_empty(),
+    }
+}
+
 /// `Article::_labels_of`: unique label ids present in the articles' `label_cache`.
-async fn labels_of(pool: &sqlx::PgPool, ids: &[i32], uid: i64) -> Vec<i64> {
+pub async fn labels_of(pool: &sqlx::PgPool, ids: &[i32], uid: i64) -> Vec<i64> {
     if ids.is_empty() {
         return Vec::new();
     }
@@ -209,7 +675,7 @@ async fn labels_of(pool: &sqlx::PgPool, ids: &[i32], uid: i64) -> Vec<i64> {
 }
 
 /// `Article::_feeds_of`: unique feed ids of the given articles.
-async fn feeds_of(pool: &sqlx::PgPool, ids: &[i32], uid: i64) -> Vec<i64> {
+pub async fn feeds_of(pool: &sqlx::PgPool, ids: &[i32], uid: i64) -> Vec<i64> {
     if ids.is_empty() {
         return Vec::new();
     }
@@ -257,7 +723,7 @@ pub async fn catchup_selected(
     let ids = param_int_array(extra, "ids");
     let cmode = cmode_of(extra);
     if !ids.is_empty() {
-        catchup_by_id(pool, &ids, cmode, uid).await;
+        catchup_by_id(pool, &ids, cmode, uid, None).await;
     }
     let labels = labels_of(pool, &ids, uid).await;
     let feeds = feeds_of(pool, &ids, uid).await;

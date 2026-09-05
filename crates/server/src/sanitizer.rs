@@ -895,7 +895,7 @@ fn rawurldecode(s: &str) -> String {
 /// to an absolute one against `base_url`, with scheme/element exceptions, and
 /// validate it. Returns `None` on failure. Mirrors the PHP algorithm —
 /// including its deliberate *absence* of RFC 3986 dot-segment resolution.
-fn rewrite_relative(
+pub(crate) fn rewrite_relative(
     base_url: &str,
     rel_url: &str,
     owner_element: &str,
