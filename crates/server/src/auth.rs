@@ -8,6 +8,11 @@
 //!   * otherwise:
 //!       - throttle if the last failed attempt is within `AUTH_MIN_INTERVAL`
 //!       - verify the password → success/failure (stamping `last_auth_attempt`)
+//!
+//! On success `UserHelper::authenticate` additionally:
+//!   * upgrades the stored `pwd_hash` to the current algorithm (SSHA-512) if
+//!     it is stored in an older one (`Auth_Internal::check_password`), and
+//!   * stamps `ttrss_users.last_login = NOW()`.
 
 use chrono::NaiveDateTime;
 use sqlx::Row;
@@ -35,6 +40,7 @@ struct UserRow {
 }
 
 /// Outcome of a web login attempt.
+#[derive(Debug)]
 pub enum AuthOutcome {
     /// Succeeded — populate the session for this user.
     Success {
@@ -92,7 +98,7 @@ pub async fn authenticate(
                 let ok = user::verify_password(&user.pwd_hash, password, &user.salt)
                     && user::check_otp(secret.as_bytes(), &code.to_string(), now_unix() as u64);
                 if ok {
-                    success(&user)
+                    success(pool, &user, password).await
                 } else {
                     AuthOutcome::Failure {
                         message: ERR_BAD_CREDENTIALS.into(),
@@ -111,7 +117,7 @@ pub async fn authenticate(
             }
         }
         if user::verify_password(&user.pwd_hash, password, &user.salt) {
-            success(&user)
+            success(pool, &user, password).await
         } else {
             let _ = stamp_last_attempt(pool, user.id).await;
             AuthOutcome::Failure {
@@ -121,17 +127,45 @@ pub async fn authenticate(
     }
 }
 
-fn success(user: &UserRow) -> AuthOutcome {
+/// `Auth_Internal::check_password` success side-effects + the
+/// `UserHelper::authenticate` session setup: upgrade an out-of-date `pwd_hash`
+/// to the current algorithm, stamp `last_login`, then return success (or
+/// failure if the account is disabled).
+async fn success(pool: &sqlx::PgPool, user: &UserRow, password: &str) -> AuthOutcome {
     if user.access_level == ACCESS_LEVEL_DISABLED {
         return AuthOutcome::Failure {
             message: ERR_BAD_CREDENTIALS.into(),
         };
     }
+
+    let mut pwd_hash = user.pwd_hash.clone();
+    let stored_algo = user.pwd_hash.split_once(':').map(|(a, _)| a.to_string());
+    if stored_algo.as_deref() != Some(ttrss_core::user::ALGO_SSHA512) {
+        // `check_password`: "Upgrading password of user $login to SSHA-512"
+        if let Some(new_hash) = ttrss_core::user::hash_password(
+            password,
+            &user.salt,
+            ttrss_core::user::ALGO_SSHA512,
+        ) {
+            let _ = sqlx::query("UPDATE ttrss_users SET pwd_hash = $1 WHERE id = $2")
+                .bind(&new_hash)
+                .bind(user.id)
+                .execute(pool)
+                .await;
+            pwd_hash = new_hash;
+        }
+    }
+
+    let _ = sqlx::query("UPDATE ttrss_users SET last_login = NOW() WHERE id = $1")
+        .bind(user.id)
+        .execute(pool)
+        .await;
+
     AuthOutcome::Success {
         id: user.id,
         login: user.login.clone(),
         access_level: user.access_level,
-        pwd_hash: user.pwd_hash.clone(),
+        pwd_hash,
     }
 }
 

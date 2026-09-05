@@ -1,0 +1,23 @@
+[package]
+name = "ttrss-testing"
+description = "Dedicated-Postgres test server for tt-rust parity/integration tests"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "ttrss_testing"
+path = "src/lib.rs"
+
+[dependencies]
+anyhow.workspace = true
+hex.workspace = true
+sha2.workspace = true
+sqlx.workspace = true
+testcontainers.workspace = true
+testcontainers-modules.workspace = true
+tokio.workspace = true
+url.workspace = true
+
+[dev-dependencies]
+ctor.workspace = true

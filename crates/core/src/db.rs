@@ -21,7 +21,11 @@ use sqlx::postgres::{PgConnection, PgPool};
 use crate::config::Config;
 
 /// The exact per-connection session statements from `Db::pdo_connect()`.
-const SESSION_SETUP: &[&str] = &[
+///
+/// Exposed so the DB-backed test suites can apply the identical session
+/// settings to their pools (via `before_acquire`), matching the server and
+/// the PHP reference exactly.
+pub const SESSION_SETUP: &[&str] = &[
     "set client_encoding = 'UTF-8'",
     "set datestyle = 'ISO, european'",
     "set TIME ZONE 0",
@@ -38,6 +42,12 @@ impl Db {
     /// Open a connection pool, applying the PHP session setup to each
     /// connection on acquisition.
     pub async fn connect(cfg: &Config) -> Result<Self> {
+        Self::connect_url(&cfg.db_url()).await
+    }
+
+    /// Open a connection pool from an explicit URL, applying the same PHP
+    /// session setup as [`Db::connect`] (used by the DB-backed test suites).
+    pub async fn connect_url(url: &str) -> Result<Self> {
         let options = PoolOptions::<sqlx::Postgres>::new()
             .max_connections(10)
             .before_acquire(|conn: &mut PgConnection, _meta| {
@@ -49,12 +59,20 @@ impl Db {
                 })
             });
 
-        let pool = options.connect(&cfg.db_url()).await?;
+        let pool = options.connect(url).await?;
         Ok(Self { pool })
     }
 
     pub fn pool(&self) -> &PgPool {
         &self.pool
+    }
+
+    /// Wrap an already-connected pool (e.g. one created by a test harness)
+    /// in a [`Db`]. Note: the session setup is applied at connect time, so a
+    /// pool created elsewhere does not automatically carry it — apply
+    /// [`SESSION_SETUP`] on acquisition if it needs to match the server.
+    pub fn from_pool(pool: PgPool) -> Self {
+        Self { pool }
     }
 }
 

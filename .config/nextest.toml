@@ -1,0 +1,20 @@
+# cargo-nextest configuration (adopted as the default test runner).
+#
+# Feedback ladder:
+#   * Tier 0 — `cargo nextest run`           (this default profile)
+#       The fast suite. Time-consuming tests are marked `#[ignore]` so they are
+#       excluded here but still run under `cargo test` / `--include-ignored`.
+#   * Tier 1 — `cargo nextest run --include-ignored`
+#       Adds the `#[ignore]`d slow tests (larger DB workloads, etc.).
+#   * Tier 2 — `cargo nextest run -p <crate>` or `-E 'test(name)'`
+#       Resource-gated / targeted runs.
+#   * Tier 3 — end-to-end harness (crates/harness) via its script.
+#
+# DB-backed parity tests run against one dedicated Postgres (a reused
+# testcontainers box; `ttrss-testing::init_database_url` via `#[ctor]`), with
+# sqlx's `#[sqlx::test]` giving each test a fresh database. Cheap and safe to
+# parallelize. Each test binary runs in its own process (nextest default).
+
+[profile.default]
+# I/O-bound suite; parallelize generously.
+test-threads = 16

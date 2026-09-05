@@ -453,7 +453,7 @@ the Rust port) and are parked as `REVISIT` blocks in the Rust test code:
 | 5 | `UrlHelperTest` (69) | `server` / `core` url | ✅ `validate` (9, `sanitizer.rs`) + `url_to_youtube_vid` (6, `headlines.rs`); ~~REVISIT: trailing-slash on host-only URLs + scheme-case preservation~~ **resolved** by the row-2 faithful `validate` (case preserved, no trailing slash, IDN→punycode); `rewrite_relative` + `build_url` + `canonicalize_ipv4_literal` now ported (see row 2; `rewrite_relative_cases` added); N/A: `resolve_redirects` (4), `fetch` (16), `has_disallowed_ip` DNS cases |
 | 6 | `CryptTest` (23) | `core::crypt` | ✅ 12 primitive cases; 7 N/A (config lookup, base64 codec, `algo` whitelist live in the caller — REVISIT block) |
 | 7 | `ConfigTest` (16) | `server::main` + `core::config` | ✅ `matches_self_url` (18 provider cases, `main.rs`); `cast_to` covered in `prefs::tests`; N/A: `get_self_url` a–k + `get_self_dir` (self URL from env); REVISIT: IDN/Punycode host normalization |
-| 8 | `UserHelperTest` (8) | `core::user` | — |
+| 8 | `UserHelperTest` (8) | `server::auth` | ✅ 7/8 ported (`tests/user_parity.rs` on `#[sqlx::test]` + fixtures + `common::make_db`); 1 case → row 9 (session-id regeneration) |
 | 9 | `SessionsIntegrationTest` (29) | `server::session` | — |
 | 10 | `ArticleTest` (32) | `server::article` | — |
 | 11 | `FeedsCountersIntegrationTest` (40) | `server::counters` | — |
@@ -463,6 +463,96 @@ the Rust port) and are parked as `REVISIT` blocks in the Rust test code:
 
 (Feed-parser/RSS-utils/DiskCache/Scheduler/PluginHost/Api suites map to modules
 not yet ported and will be added alongside those modules in M4+.)
+
+#### Test infrastructure for DB-backed suites (status: COMPLETE, 2026-09-05)
+
+**Goal:** rows 8–14 (DB-backed parity suites) run against a **dedicated** Postgres
+(separate from the oracle stack), versioned schema + seed (NOT the golden dump),
+isolated per test, fast + repeatable.
+
+**Design (decided — replaces the earlier hand-rolled template-clone; build on
+libraries, don't cleanroom the lifecycle):**
+- **Server** = a *reused* testcontainers `postgres:15-alpine` container
+  (`crates/testing`, `CONTAINER_NAME = "ttrss_test_pg"`). Reused containers persist
+  across runs and are **not removed on handle drop** (verified in testcontainers
+  0.27.3 source: `ContainerAsync::drop` returns early for
+  `ReuseDirective::Always`/`CurrentSession`). A `#[ctor]` in each test binary
+  starts/attaches it and sets `DATABASE_URL` (`crates/testing::init_database_url`).
+  `TTRSS_TEST_PG_URL` overrides with any dedicated instance.
+- **Per-test DB** = sqlx `#[sqlx::test(fixtures(...))]`. Confirmed from sqlx 0.7.4
+  source (`sqlx-core/src/testing/`, `sqlx-postgres/src/testing/`): creates a fresh
+  `_sqlx_test_N` DB per test, applies fixtures (baked via `include_str!`, in order,
+  each as one command string), injects the pool, drops the DB on success (failed
+  tests keep it; stale DBs are reaped on the next run via the `_sqlx_test.databases`
+  bookkeeping table + a 2s margin). Reads `DATABASE_URL` (a superuser) at runtime.
+- **Fixtures** = `crates/testing/fixtures/{schema,baseline,seed}.sql` (versioned =
+  the frozen reference's base schema + admin user + PHP `seed.sql`), referenced by
+  **explicit path** from each test file (`include_str!` is source-file-relative).
+- **Session parity** = reuse `ttrss_core::db::SESSION_SETUP` via the `#[sqlx::test]`
+  `PoolOptions<Postgres> + PgConnectOptions` signature + a `before_acquire` hook
+  (wrap the result in `Db::from_pool`), so test connections match the server exactly
+  (`TIME ZONE 0`, `datestyle = 'ISO, european'`, `cpu_tuple_cost`, `client_encoding`).
+
+**Research notes (verified against vendored/cloned sources, not memory):**
+- Repo names here differ from training data: sqlx = `transact-rs/sqlx`
+  (`launchbadge/sqlx` 301s there); testcontainers = `testcontainers/testcontainers-rs`.
+  Read the `repository` field from the vendored `Cargo.toml`; verify HTTP 200 before
+  cloning. GitHub's git endpoint returns `401 "Repository not found"` for
+  nonexistent/private repos (public = 200, no auth). Set `GIT_TERMINAL_PROMPT=0`.
+- `std::env::set_var` is **`unsafe`** in this toolchain (rustc 1.98) — wrap in
+  `unsafe {}` (see `init_database_url`). rust-src is now installed → grep the sysroot.
+- testcontainers 0.27.3: `get_host_port_ipv4(5432) → Result<u16>`;
+  `get_host() → Result<url::Host>` (enum `Domain/Ipv4/Ipv6`, no `Display` — match it);
+  `with_mapped_port(u16, ContainerPort)`; `with_reuse(ReuseDirective)` (re-exported
+  at the crate root); `with_container_name(&str)`. testcontainers must stay 0.27
+  (testcontainers-modules 0.15 requires `^0.27`).
+- `ctor` crate v1.0.13 for pre-test init; sqlx `migrate` feature is already enabled
+  in the workspace (required for `#[sqlx::test]` DB management).
+- `#[sqlx::test]` also needs sqlx's **`macros`** feature (the attribute is exported
+  under `feature = "macros"`, DB management under `migrate`) — added to the workspace
+  sqlx features.
+- This `ctor` 1.0.13 follows the future-dated unsafe-attributes convention: the
+  attribute must be written `#[ctor(unsafe)]` (a bare `#[ctor]` is a hard error).
+- sqlx 0.7 decodes **strictly**: tt-rss id columns are `integer` (INT4) → decode as
+  `i32`, not `i64` (the old smoke test's `i64` decodes were never run and would have
+  failed at runtime).
+- nextest 0.9.143: the profile key is `test-threads` (not `threads`).
+
+**Shipped (committed):**
+- ✅ `core::db`: `SESSION_SETUP` now `pub`; added `Db::connect_url` +
+  `Db::from_pool(PgPool)`.
+- ✅ `server` split into lib + bin; `auth::authenticate` fixed to match PHP (SSHA-512
+  hash upgrade + `last_login` stamp); `AuthOutcome: Debug`.
+- ✅ `crates/testing` rewritten to the design above: `PgServer::acquire` (reuse
+  container or `TTRSS_TEST_PG_URL`), `ensure_test_pg()`, sync
+  `init_database_url()` (the `#[ctor]` entry point; no-op if `DATABASE_URL` is
+  already set), `ssha512_password`, `seed_user` (returns `i32`). Old template-clone
+  machinery (`TestDb`/`SeedLevel`/`ensure_template`/`reap_stale`) deleted; the
+  dedicated container's stale `ttrss_tmpl_*`/`ttrss_t_*` databases were dropped.
+- ✅ `server/tests/common/mod.rs`: `#[ctor(unsafe)]` init +
+  `make_db(PoolOptions<Postgres>, PgConnectOptions) -> Db` (applies `SESSION_SETUP`
+  via `before_acquire`).
+- ✅ `server/tests/user_parity.rs` = row 8 on the new infra: **7 pass, 1 ignored**
+  (session-id regeneration → row 9), ~1.1 s/test.
+- ✅ `testing/tests/smoke.rs`: fixture set reproduces the PHP integration starting
+  state (version 151, admin user, seed counts) + fresh/writable per-test DB.
+- ✅ `.config/nextest.toml` (cargo-nextest adopted; `test-threads = 16`; slow =
+  `#[ignore]`).
+- ✅ Clippy cleanup pass while at it: fixed the pre-existing warnings in
+  `headlines.rs`/`counters.rs`/`sanitizer.rs`/harness `run.rs` (unused assignments,
+  needless borrows, redundant closures, `map_entry`, redundant guards, …) —
+  including restoring a **missing `#[test]`** on `headlines::tests::
+  truncate_string_chars` (a live port of FunctionsTest truncate cases that had
+  silently never run). Workspace is now clippy-clean except one upstream
+  future-incompat note from the pinned `sqlx-postgres 0.7.4`.
+- Verified: `cargo nextest run` → **389 pass, 1 ignored**; per-test DBs are dropped
+  on success (empty `_sqlx_test.databases` bookkeeping after a green run).
+
+**Row 9–14 pattern** (each new suite = one file in `crates/server/tests/`):
+`mod common;` + per test `#[sqlx::test(fixtures("../../testing/fixtures/schema.sql",
+"../../testing/fixtures/baseline.sql", "../../testing/fixtures/seed.sql"))]` with the
+`PoolOptions<Postgres> + PgConnectOptions` signature and `common::make_db`. Extra
+per-suite state = plain INSERTs after `make_db` (or `ttrss_testing::seed_user`).
 
 #### M2 — `Feeds::view` headlines / Sanitizer approach
 

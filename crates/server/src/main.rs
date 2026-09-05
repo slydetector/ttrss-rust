@@ -8,21 +8,6 @@
 //!   * the authenticated SPA shell (GET `/` and `/index.php`),
 //!   * `/healthz`.
 
-mod article;
-mod auth;
-mod counters;
-mod feeds;
-mod headlines;
-mod mime;
-mod prefs;
-mod render;
-mod rpc;
-mod sanitizer;
-#[cfg(test)]
-mod sanitizer_parity;
-mod session;
-mod time;
-
 use axum::{
     body::Body,
     extract::{Extension, Form, Query, Request, State},
@@ -38,15 +23,12 @@ use ttrss_core::db::Db;
 use ttrss_core::phpser::Value;
 use ttrss_core::session as core_session;
 use tokio::fs;
+use ttrss_server::{
+    nocache_headers, with_trailing_slash, AppState, auth, mime, render, rpc, session,
+};
 
 /// Golden-DB schema version (used for `ref_schema_version` on login).
 const SCHEMA_VERSION: i64 = 151;
-
-#[derive(Clone)]
-struct AppState {
-    config: Config,
-    db: Db,
-}
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -267,16 +249,6 @@ async fn logout_flow(state: &AppState, sess: session::Sess, form: &PublicForm) -
     res
 }
 
-/// PHP session `nocache` cache-limiter headers, emitted on responses whose
-/// session was started (the default limiter for backend/public/API entry
-/// points; the HTML shells opt out via `session_cache_limiter('')`).
-fn nocache_headers(headers: &mut axum::http::HeaderMap) {
-    use axum::http::HeaderValue;
-    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store, no-cache, must-revalidate"));
-    headers.insert(header::PRAGMA, HeaderValue::from_static("no-cache"));
-    headers.insert(header::EXPIRES, HeaderValue::from_static("Thu, 19 Nov 1981 08:52:00 GMT"));
-}
-
 /// `hash_equals`: constant-time string comparison (false on length mismatch).
 fn ct_eq(a: &str, b: &str) -> bool {
     let (a, b) = (a.as_bytes(), b.as_bytes());
@@ -380,14 +352,6 @@ fn login_redirect(location: &str, sid: &str) -> Response {
         .header(header::CONTENT_TYPE, "text/html; charset=UTF-8")
         .body(Body::empty())
         .expect("valid response")
-}
-
-pub(crate) fn with_trailing_slash(s: &str) -> String {
-    if s.ends_with('/') {
-        s.to_string()
-    } else {
-        format!("{s}/")
-    }
 }
 
 /// `Config::matches_self_url`: same scheme/host/port and (for a non-root base
@@ -523,22 +487,6 @@ mod tests {
     // Unicode, `idn_to_ascii(..., UTS46)`) — `url::Url` keeps the host as
     // written, so 'https://xn--mller-kva.com' vs 'https://müller.com' is not
     // matched here. REVISIT (IDN normalization) — tracked in docs/plan.md.
-
-    /// `with_trailing_slash` — the `test_with_trailing_slash_*` cases from
-    /// tt-rss/tests_functional/FunctionsTest.php, ported 1:1.
-    #[test]
-    fn with_trailing_slash_cases() {
-        // test_with_trailing_slash_already_has_slash
-        assert_eq!(with_trailing_slash("/path/"), "/path/");
-        // test_with_trailing_slash_no_slash
-        assert_eq!(with_trailing_slash("/path"), "/path/");
-        // test_with_trailing_slash_root
-        assert_eq!(with_trailing_slash("/"), "/");
-        // test_with_trailing_slash_empty
-        assert_eq!(with_trailing_slash(""), "/");
-        // test_with_trailing_slash_double_slash
-        assert_eq!(with_trailing_slash("/path//"), "/path//");
-    }
 
     // NOTE: the `test_cast_to_int/string/bool` cases from ConfigTest.php exercise
     // `Config::cast_to`, whose logic this port keeps in `prefs::cast` — already

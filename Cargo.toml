@@ -12,6 +12,7 @@ anyhow = "1"
 axum = { version = "0.7", features = ["macros"] }
 base64 = "0.22"
 chrono = { version = "0.4", features = ["serde", "clock"] }
+ctor = "1"
 chrono-tz = "0.10"
 chacha20poly1305 = "0.10"
 clap = { version = "4", features = ["derive"] }
@@ -23,6 +24,8 @@ mime_guess = "2"
 rand = "0.8"
 regex = "1"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "cookies", "gzip", "json"] }
+testcontainers = { version = "0.27", features = ["reusable-containers"] }
+testcontainers-modules = { version = "0.15", features = ["postgres"] }
 scraper = "0.21"
 kuchikiki = "0.8"
 html5ever = "0.26"
@@ -31,7 +34,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha1 = "0.10"
 sha2 = "0.10"
-sqlx = { version = "0.7", default-features = false, features = ["runtime-tokio-rustls", "postgres", "chrono", "migrate"] }
+sqlx = { version = "0.7", default-features = false, features = ["runtime-tokio-rustls", "postgres", "chrono", "migrate", "macros"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time", "signal", "fs"] }
 toml = "0.8"
 url = "2"

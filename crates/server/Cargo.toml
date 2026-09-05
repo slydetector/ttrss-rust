@@ -8,6 +8,10 @@ license.workspace = true
 name = "tt-rust"
 path = "src/main.rs"
 
+[dev-dependencies]
+ctor.workspace = true
+ttrss-testing = { path = "../testing" }
+
 [dependencies]
 anyhow.workspace = true
 axum.workspace = true
