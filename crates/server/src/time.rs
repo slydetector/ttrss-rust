@@ -140,7 +140,7 @@ const DAYS_LONG: &[&str; 7] = &[
 ];
 
 /// A `date($format, $ts)` subset — the characters the tt-rss date-format prefs
-/// use (D d j l M n F Y g G h H i a A). Unknown characters pass through
+/// use (D d j l M m n F Y g G h H i s a A). Unknown characters pass through
 /// verbatim.
 pub fn date_fmt(format: &str, ts: i64) -> String {
     let dt = DateTime::from_timestamp(ts, 0).expect("valid ts");
@@ -153,7 +153,8 @@ pub fn date_fmt(format: &str, ts: i64) -> String {
             'j' => out.push_str(&dt.day().to_string()),
             'l' => out.push_str(DAYS_LONG[dt.weekday().num_days_from_sunday() as usize]),
             'M' => out.push_str(MONTHS_SHORT[(dt.month() - 1) as usize]),
-            'n' => out.push_str(&format!("{:02}", dt.month())),
+            'm' => out.push_str(&format!("{:02}", dt.month())),
+            'n' => out.push_str(&dt.month().to_string()),
             'F' => out.push_str(MONTHS_LONG[(dt.month() - 1) as usize]),
             'Y' => out.push_str(&dt.year().to_string()),
             'g' => out.push_str(&g12(&dt).to_string()),
@@ -161,6 +162,7 @@ pub fn date_fmt(format: &str, ts: i64) -> String {
             'h' => out.push_str(&format!("{:02}", g12(&dt))),
             'H' => out.push_str(&format!("{:02}", dt.hour())),
             'i' => out.push_str(&format!("{:02}", dt.minute())),
+            's' => out.push_str(&format!("{:02}", dt.second())),
             'a' => out.push_str(if dt.hour() < 12 { "am" } else { "pm" }),
             'A' => out.push_str(if dt.hour() < 12 { "AM" } else { "PM" }),
             '\\' => {
@@ -258,5 +260,201 @@ mod tests {
         let dt = NaiveDateTime::parse_from_str("2026-09-04 12:36:12.500000", "%Y-%m-%d %H:%M:%S%.f")
             .unwrap();
         assert_eq!(naive_to_pg_text(&dt), "2026-09-04 12:36:12.5");
+    }
+
+    // ── Ported 1:1 from tt-rss/tests_integration/TimeHelperTest.php ──────────
+    // The PHP suite's setUp pins USER_TIMEZONE='UTC', SHORT_DATE_FORMAT='M d,
+    // G:i', LONG_DATE_FORMAT='D, M d Y - G:i', and an unset clientTzOffset.
+    // We mirror that context so the expectations match the PHP suite exactly.
+    // (Cases that exercise features the Rust port omits — `$long`/`$no_smart_dt`,
+    // explicit `$owner_uid`/profile, and `convert_timestamp` — are listed in the
+    // plan's test-parity table and are N/A until those are ported.)
+    fn php_ctx() -> TzCtx {
+        TzCtx {
+            user_tz: "UTC".into(),
+            client_tz_offset: 0,
+            short_date_format: "M d, G:i".into(),
+            long_date_format: "D, M d Y - G:i".into(),
+        }
+    }
+
+    fn ts(y: i32, mo: u32, d: u32, h: u32, mi: u32) -> i64 {
+        chrono::NaiveDate::from_ymd_opt(y, mo, d)
+            .unwrap()
+            .and_hms_opt(h, mi, 0)
+            .unwrap()
+            .and_utc()
+            .timestamp()
+    }
+
+    #[test]
+    fn smart_never() {
+        // test_smart_date_time_never: epoch → "Never".
+        assert_eq!(smart_date_time(0, 0, false, &php_ctx()), "Never");
+    }
+
+    #[test]
+    fn smart_never_with_tz_offset() {
+        // test_smart_date_time_never_with_tz_offset: timestamp − tz_offset == 0.
+        assert_eq!(smart_date_time(3600, 3600, false, &php_ctx()), "Never");
+    }
+
+    #[test]
+    fn smart_same_day_24h() {
+        // test_smart_date_time_same_day_24h: same day, no 'a' → "G:i".
+        let now = Utc::now().timestamp();
+        let r = smart_date_time(now, 0, false, &php_ctx());
+        assert!(
+            regex::Regex::new(r"^\d{1,2}:\d{2}$").unwrap().is_match(&r),
+            "got: {r}"
+        );
+        assert_eq!(r, date_fmt("G:i", now));
+    }
+
+    #[test]
+    fn smart_same_day_12h() {
+        // test_smart_date_time_same_day_12h: same day, 'a' present → "g:i a".
+        let now = Utc::now().timestamp();
+        let mut ctx = php_ctx();
+        ctx.short_date_format = "M d, g:i a".into();
+        let r = smart_date_time(now, 0, false, &ctx);
+        assert!(
+            regex::Regex::new(r"^\d{1,2}:\d{2} [ap]m$").unwrap().is_match(&r),
+            "got: {r}"
+        );
+        assert_eq!(r, date_fmt("g:i a", now));
+    }
+
+    #[test]
+    fn smart_same_year() {
+        // test_smart_date_time_same_year: earlier this year → "Jan 15, 10:00".
+        let this_year = Utc::now().year();
+        assert_eq!(smart_date_time(ts(this_year, 1, 15, 10, 0), 0, false, &php_ctx()), "Jan 15, 10:00");
+    }
+
+    #[test]
+    fn smart_different_year() {
+        // test_smart_date_time_different_year: 2020 → LONG format.
+        assert_eq!(
+            smart_date_time(ts(2020, 6, 15, 14, 30), 0, false, &php_ctx()),
+            "Mon, Jun 15 2020 - 14:30"
+        );
+    }
+
+    #[test]
+    fn smart_eta_min_within_hour() {
+        // test_smart_date_time_eta_min_within_hour: 30 min ago → "30 min".
+        let past = Utc::now().timestamp() - 30 * 60;
+        assert_eq!(smart_date_time(past, 0, true, &php_ctx()), "30 min");
+    }
+
+    #[test]
+    fn smart_eta_min_less_than_5_min() {
+        // test_smart_date_time_eta_min_less_than_5_minutes: 4 min ago → "4 min".
+        let past = Utc::now().timestamp() - 4 * 60;
+        assert_eq!(smart_date_time(past, 0, true, &php_ctx()), "4 min");
+    }
+
+    #[test]
+    fn smart_eta_min_over_hour() {
+        // test_smart_date_time_eta_min_over_hour: 2h ago → falls through, no "min".
+        let past = Utc::now().timestamp() - 2 * 3600;
+        let r = smart_date_time(past, 0, true, &php_ctx());
+        assert!(!r.contains("min"), "got: {r}");
+    }
+
+    #[test]
+    fn smart_zero_tz_offset() {
+        // test_smart_date_time_zero_tz_offset: same day with zero offset.
+        let now = Utc::now().timestamp();
+        let r = smart_date_time(now, 0, false, &php_ctx());
+        assert!(regex::Regex::new(r"^\d{1,2}:\d{2}$").unwrap().is_match(&r), "got: {r}");
+    }
+
+    #[test]
+    fn smart_custom_short_format() {
+        // test_smart_date_time_custom_short_format: SHORT 'Y-m-d H:i' (no 'a')
+        // → same day still collapses to bare "G:i".
+        let now = Utc::now().timestamp();
+        let mut ctx = php_ctx();
+        ctx.short_date_format = "Y-m-d H:i".into();
+        assert_eq!(smart_date_time(now, 0, false, &ctx), date_fmt("G:i", now));
+    }
+
+    #[test]
+    fn smart_custom_long_format() {
+        // test_smart_date_time_custom_long_format: LONG 'Y-m-d H:i:s' → full.
+        let mut ctx = php_ctx();
+        ctx.long_date_format = "Y-m-d H:i:s".into();
+        assert_eq!(
+            smart_date_time(ts(2020, 6, 15, 14, 30), 0, false, &ctx),
+            "2020-06-15 14:30:00"
+        );
+    }
+
+    #[test]
+    fn make_local_null_timestamp() {
+        // test_make_local_datetime_null_timestamp: null → non-empty (epoch).
+        assert_eq!(make_local_datetime(None, false, &php_ctx()), "Never");
+    }
+
+    #[test]
+    fn make_local_empty_string() {
+        // test_make_local_datetime_empty_string_timestamp: empty → non-empty.
+        assert_eq!(make_local_datetime(Some(""), false, &php_ctx()), "Never");
+    }
+
+    #[test]
+    fn make_local_short_format_default() {
+        // test_make_local_datetime_short_format_default: a *now* timestamp with
+        // the default context collapses to a bare time.
+        let now = Utc::now().timestamp();
+        let s = date_fmt("Y-m-d H:i:s", now);
+        let r = make_local_datetime(Some(&s), false, &php_ctx());
+        assert!(regex::Regex::new(r"^\d{1,2}:\d{2}$").unwrap().is_match(&r), "got: {r}");
+    }
+
+    #[test]
+    fn make_local_truncates_to_19_chars() {
+        // test_make_local_datetime_truncates_to_19_chars: microsecond fraction is
+        // trimmed to the 19-char "Y-m-d H:i:s" before parsing (no crash).
+        let r = make_local_datetime(Some("2026-05-27 14:30:45.123456"), false, &php_ctx());
+        assert!(!r.is_empty());
+    }
+
+    #[test]
+    fn make_local_with_fixed_timezone() {
+        // test_make_local_datetime_with_fixed_timezone: a real IANA zone renders.
+        let mut ctx = php_ctx();
+        ctx.user_tz = "Europe/London".into();
+        let r = make_local_datetime(Some(&date_fmt("Y-m-d H:i:s", Utc::now().timestamp())), false, &ctx);
+        assert!(!r.is_empty());
+    }
+
+    #[test]
+    fn make_local_with_invalid_timezone_fallback() {
+        // test_make_local_datetime_with_invalid_timezone_fallback: unknown zone → UTC.
+        let mut ctx = php_ctx();
+        ctx.user_tz = "Invalid/Zone".into();
+        let r = make_local_datetime(Some(&date_fmt("Y-m-d H:i:s", Utc::now().timestamp())), false, &ctx);
+        assert!(!r.is_empty());
+    }
+
+    #[test]
+    fn make_local_with_automatic_timezone() {
+        // test_make_local_datetime_with_automatic_timezone: Automatic + offset 0.
+        let mut ctx = php_ctx();
+        ctx.user_tz = "Automatic".into();
+        ctx.client_tz_offset = 0;
+        let r = make_local_datetime(Some(&date_fmt("Y-m-d H:i:s", Utc::now().timestamp())), false, &ctx);
+        assert!(!r.is_empty());
+    }
+
+    #[test]
+    fn make_local_eta_min_with_tz() {
+        // test_make_local_datetime_eta_min_with_tz: 15 min ago → "15 min".
+        let past = Utc::now().timestamp() - 15 * 60;
+        let r = make_local_datetime(Some(&date_fmt("Y-m-d H:i:s", past)), true, &php_ctx());
+        assert_eq!(r, "15 min");
     }
 }
