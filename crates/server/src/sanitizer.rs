@@ -102,6 +102,84 @@ fn build_element(name: &str, attrs: &[(String, String)]) -> NodeRef {
     el
 }
 
+/// Elements that close libxml2's implicit `<p>` (block-level, i.e. not
+/// phrasing content in the HTML DTD).
+const IMPLICIT_P_BLOCK_ELEMENTS: &[&str] = &[
+    "address", "article", "aside", "blockquote", "center", "details", "div",
+    "dd", "dl", "dt", "fieldset", "figure", "figcaption", "footer", "form",
+    "h1", "h2", "h3", "h4", "h5", "h6", "header", "hr", "main", "nav", "ol",
+    "p", "pre", "section", "summary", "table", "ul",
+];
+
+/// Emulate libxml2 (PHP `DOMDocument::loadHTML`) implicit markup handling,
+/// which the spec-compliant html5ever parser does not reproduce:
+///
+/// 1. Leading whitespace-only text nodes and comments before the first
+///    significant child of `<body>` are dropped.
+/// 2. If the first significant child is text containing a non-whitespace
+///    character (an entity counts as text), libxml2 opens an implicit `<p>`
+///    (leading whitespace of that text node is trimmed) which absorbs all
+///    following children until a block-level element starts.
+pub fn apply_libxml_implicit_p(body: &NodeRef) {
+    // 1. Collect leading droppable nodes.
+    let mut lead: Vec<NodeRef> = Vec::new();
+    let mut cur = body.first_child();
+    while let Some(n) = cur.clone() {
+        let drop = n
+            .as_text()
+            .map(|t| t.borrow().trim().is_empty())
+            .unwrap_or(false)
+            || n.as_comment().is_some();
+        if !drop {
+            break;
+        }
+        let next = n.next_sibling();
+        lead.push(n);
+        cur = next;
+    }
+    for n in &lead {
+        n.detach();
+    }
+
+    // 2. Implicit `<p>` when the first significant node is non-blank text.
+    let first = match cur {
+        Some(n) => n,
+        None => return,
+    };
+    let text_node = match first.as_text() {
+        Some(t) => {
+            let original = t.borrow().to_string();
+            let trimmed_start = original.trim_start_matches(char::is_whitespace);
+            if trimmed_start.is_empty() {
+                first.detach();
+                return;
+            }
+            if trimmed_start != original {
+                // Drop leading whitespace only (trailing is kept).
+                *t.borrow_mut() = trimmed_start.to_string();
+            }
+            first.clone()
+        }
+        None => return,
+    };
+
+    let p = NodeRef::new_element(qualname("p"), vec![]);
+    body.prepend(p.clone());
+    let mut cur = Some(text_node);
+    while let Some(n) = cur {
+        let is_block = n
+            .as_element()
+            .map(|el| IMPLICIT_P_BLOCK_ELEMENTS.contains(&lower(&el_name(el)).as_str()))
+            .unwrap_or(false);
+        if is_block {
+            break;
+        }
+        cur = n.next_sibling();
+        n.detach();
+        p.append(n);
+    }
+}
+
 /// The sanitized fragment HTML.
 pub fn sanitize(
     input: &str,
@@ -121,6 +199,11 @@ pub fn sanitize(
     let Some(body) = find_body(&doc) else {
         return String::new();
     };
+
+    // 0. Emulate libxml2 (PHP `DOMDocument::loadHTML`) implicit markup:
+    // drop leading whitespace/comments, open an implicit `<p>` for leading
+    // bare text.
+    apply_libxml_implicit_p(&body);
 
     let rewrite_base = site_url.unwrap_or("http://domain.invalid/");
 
@@ -682,6 +765,37 @@ mod tests {
     }
 
     #[test]
+    fn libxml_implicit_p() {
+        // Bare text → wrapped in `<p>` (libxml2 behavior; input is
+        // trimmed first, like PHP's `trim($str)`).
+        assert_eq!(san("plain text article"), "<p>plain text article</p>");
+        assert_eq!(san("line one\nline two"), "<p>line one\nline two</p>");
+        assert_eq!(san("  text  "), "<p>text</p>");
+        // Leading comments dropped; text still opens `<p>`.
+        assert_eq!(san("<!-- c -->text"), "<p>text</p>");
+        assert_eq!(san("   <div>x</div>"), "<div>x</div>");
+        // Inline elements first → no implicit `<p>`.
+        assert_eq!(san("<b>a</b>text<b>c</b>"),
+                   "<b>a</b>text<b>c</b>");
+        // Text first → `<p>` absorbs inline nodes until a block starts.
+        assert_eq!(
+            san("text <b>x</b> <div>d</div> tail"),
+            "<p>text <b>x</b> </p><div>d</div> tail"
+        );
+        assert_eq!(
+            san("text <i>i</i> <p>p2</p>"),
+            "<p>text <i>i</i> </p><p>p2</p>"
+        );
+        // `<br>` does not close the implicit `<p>`.
+        assert_eq!(san("text<br>more"), "<p>text<br>more</p>");
+        // Already-blocked content is untouched.
+        assert_eq!(san("<p>already</p>"), "<p>already</p>");
+        assert_eq!(san("<div>a</div>  <div>b</div>"),
+                   "<div>a</div>  <div>b</div>");
+        assert_eq!(san("  <p>leading p</p>  "), "<p>leading p</p>");
+    }
+
+    #[test]
     fn rewrites_links_and_strips_attrs() {
         let out = san("<p><a href=\"https://a.com/x\" class=\"foo\">link</a></p>");
         assert!(out.contains("rel=\"noopener noreferrer\""), "got: {out}");
@@ -747,3 +861,4 @@ mod tests {
         );
     }
 }
+

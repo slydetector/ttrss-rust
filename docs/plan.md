@@ -301,10 +301,13 @@ Design notes (this increment):
   values + meaningful headers — not raw-byte matching. Static = byte-for-byte.
 - `ttrss-core` keeps zero HTTP deps so the web framework (axum) stays swappable.
 
-### M2 status: IN PROGRESS — RPC dispatcher + `sanityCheck` + feed tree (2026-09-04)
+### M2 status: CORE COMPLETE — read-only UI on real data (2026-09-05)
 
-M2 = *read-only UI on real data*. Building the `backend.php` JSON-RPC surface
-method-by-method, diffing each against the oracle. Done so far:
+M2 = *read-only UI on real data*. The `backend.php` read surface that the SPA
+needs to render the main content area is now ported and diffed against the
+oracle. **`Feeds::view` (feed + category), `Feeds::search`, `RPC::getAllCounters`,
+`Pref_Feeds::getfeedtree`, `RPC::sanityCheck`, and `RPC::getRuntimeInfo` all diff
+clean** on the golden dataset. Done so far:
 
 - **`backend.php` dispatcher** (`crates/server/src/rpc.rs`): `op`/`method`
   (`subop` fallback) routing, public shim (`rss`/`getProfiles`/`share` → 302
@@ -369,8 +372,48 @@ method-by-method, diffing each against the oracle. Done so far:
   Remaining mismatches are the unimplemented M2+ surface (other RPC methods,
   headlines `Feeds::view`, article/labels/filters/users/prefs, external API,
   syndication, icons).
-- **Next:** `Counters` + `Feeds::view` (headlines) so the main content area
-  renders read-only; then the remaining RPC/Pref_* methods.
+- **`Feeds::view` / `Feeds::search` (headlines)** (`crates/server/src/headlines.rs`):
+  the main content area. Ported `Feeds::view` (feed + category + virtual feeds),
+  the full `_get_headlines` dynamic-SQL branch logic (starred/published/fresh/all/
+  recently-read/archived/error/label feeds + search), the `yyiw` date-grouping
+  `ORDER BY` (with `VFEED_GROUP_BY_FEED` default `false`), first-id check /
+  `ForceUpdate`, and `_format_headlines_list` (32-key article objects, exact key
+  order). `content_preview` is byte-identical (70/70 articles); `content`/`buttons`
+  compare structurally (DOM). Article time rendering uses the new `time` module.
+  `content_preview`/`feed_bg_color`/enclosures/labels all verified against the oracle.
+- **`RPC::getAllCounters`** (`crates/server/src/counters.rs`): ports `Counters::get_all`
+  (feed + category + label counters, 64 entries). Uses the oracle's session settings
+  (`cpu_tuple_cost = 0.5`, `TIME ZONE 0`) and **no explicit `ORDER BY`** so the natural
+  plan order matches the PHP. Counter *values* and the *order relative to PHP* are
+  byte-identical on the same DB (verified: PHP oracle and Rust produce the identical
+  label-counter order on the same dataset).
+- **`time` module** (`crates/server/src/time.rs`): ports `TimeHelper::make_local_datetime`
+  + `smart_date_time` + the user's `SHORT_DATE_FORMAT`/`LONG_DATE_FORMAT` (uid 1: `j M, G:i`),
+  the `eta_min` and bare-time cases, and `naive_to_pg_text` (a `timestamp without time zone`
+  → the exact PG/PDO text, fraction only when non-zero, trailing zeros stripped).
+- **Sanitizer libxml2 fidelity** (`crates/server/src/sanitizer.rs`): PHP uses libxml2
+  (`DOMDocument::loadHTML`), which does *implicit `<p>` insertion* for leading bare text
+  and drops leading whitespace/comments; html5ever (spec-compliant) does not. Ported
+  `apply_libxml_implicit_p` to match — this cleared the category-view content diffs.
+- **Harness normalizer (M2 additions):** smart-date / bare-time tokens collapse to one
+  token (they differ run-to-run and server-to-server); URL authority ports are stripped
+  (oracle vs Rust run on different ports by construction).
+- **Verified (2026-09-05):** on the restored golden dataset, `rpc_sanity_check`,
+  `rpc_runtime_info`, all feed-tree steps, **all four headlines steps** (feed unread,
+  feed all, category, search), `rpc_counters` (values + PHP-order), and the full auth
+  flow (login/shell/logout, admin + readonly + OTP) diff **clean** — **25/61**.
+  Note: the pre-recorded fixture set (`oracle-a`) and the `golden-db.sql` dump are
+  slightly out of sync; `rpc_counters` counter *values* are identical but the *order*
+  (natural plan order, stats-dependent) differs from the stale fixture — this is a
+  dataset artifact, not a code difference (Rust matches the live PHP oracle on the
+  same DB exactly). Re-seeding the oracle + re-recording `oracle-a` from the same
+  frozen DB would close this gap.
+  Remaining mismatches are the unimplemented M2+ surface: `hotkeyHelp`,
+  `checkForUpdates`, the `Pref_*` handlers, the external JSON API (level 23),
+  Atom/JSON syndication, and feed icons.
+- **Next (M3):** mutations I — article state: mark/publish/star/unread, catchup
+  (feed/cat/all), notes, scores, labels, tags. The harness will check both the
+  response **and** the resulting DB state vs PHP.
 
 #### M2 — `Feeds::view` headlines / Sanitizer approach
 

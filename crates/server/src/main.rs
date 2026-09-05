@@ -9,13 +9,16 @@
 //!   * `/healthz`.
 
 mod auth;
+mod counters;
 mod feeds;
+mod headlines;
 mod mime;
 mod prefs;
 mod render;
 mod rpc;
 mod sanitizer;
 mod session;
+mod time;
 
 use axum::{
     body::Body,
@@ -348,12 +351,13 @@ async fn login_flow(
     }
 }
 
-/// The `Location` for a login redirect: the validated `return` URL, else self.
+/// The `Location` for a login redirect: the validated `return` URL, else the
+/// app's `index.php` (the reference oracle redirects to `…/tt-rss/index.php`).
 fn location(return_url: &str, self_url: &str) -> String {
     if !return_url.is_empty() && matches_self_url(return_url, self_url) {
         return_url.to_string()
     } else {
-        self_url.to_string()
+        format!("{self_url}/index.php")
     }
 }
 

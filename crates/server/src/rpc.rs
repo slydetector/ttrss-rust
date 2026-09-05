@@ -11,6 +11,7 @@ use axum::body::Body;
 use axum::extract::{Form, State};
 use axum::http::{header, StatusCode};
 use axum::response::{IntoResponse, Response};
+use chrono::{Datelike, Timelike};
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use sqlx::Row;
@@ -126,6 +127,11 @@ async fn dispatch(
 
     match op {
         "RPC" => rpc_handler(state, sess, method, extra).await,
+        "Feeds" => match method {
+            "view" => crate::headlines::view(state, sess, extra).await,
+            "search" => crate::headlines::search(state, sess, extra).await,
+            _ => unknown_method("Feeds", method),
+        },
         "Pref_Feeds" => match method {
             "getfeedtree" => feeds::getfeedtree(state, sess, extra).await,
             _ => unknown_method("Pref_Feeds", method),
@@ -155,6 +161,7 @@ async fn rpc_handler(
     match method {
         "sanityCheck" => sanity_check(state, sess, extra).await,
         "getRuntimeInfo" => json!({ "runtime-info": make_runtime_info(state, sess).await }),
+        "getAllCounters" => crate::counters::get_all_counters(state, sess, extra).await,
         other => unknown_method("RPC", other),
     }
 }
@@ -169,12 +176,15 @@ fn validate_csrf(sess: &Sess, csrf: &str) -> bool {
 /// `Handler::csrf_ignore` per handler. Only the read-only handlers the SPA
 /// drives via GET (no token) are exempt.
 fn csrf_ignored(op: &str, method: &str) -> bool {
+    // `Pref_Feeds::csrf_ignore` = ["index", "getfeedtree"].
     matches!(op, "Pref_Feeds") && matches!(method, "index" | "getfeedtree")
+        // `Feeds::csrf_ignore` = ["index"].
+        || (op == "Feeds" && method == "index")
 }
 
 /// `Handler_Protected` handlers (all the ones ported so far) require a user.
 fn is_protected(op: &str) -> bool {
-    matches!(op, "RPC" | "Pref_Feeds")
+    matches!(op, "RPC" | "Feeds" | "Pref_Feeds")
 }
 
 /// `RPC::sanityCheck`.
@@ -232,7 +242,7 @@ async fn sanity_check(state: &AppState, sess: &Sess, extra: &Map<String, Value>)
 }
 
 /// `RPC::_make_runtime_info`.
-async fn make_runtime_info(state: &AppState, sess: &Sess) -> Value {
+pub(crate) async fn make_runtime_info(state: &AppState, sess: &Sess) -> Value {
     let data = sess.data();
     let uid = data.uid().unwrap_or(0);
     let profile = data.profile().map(|p| p as i32);
@@ -264,7 +274,75 @@ async fn make_runtime_info(state: &AppState, sess: &Sess) -> Value {
         .unwrap_or(0);
         out.insert("recent_log_events".into(), Value::from(cid));
     }
+
+    // Update-daemon state (LOCK_DIRECTORY defaults to `lock` under the doc
+    // root). Absent on the daemon-less Rust test server; the harness drops
+    // these volatile keys anyway.
+    let lock_dir = state.config.docroot.join("lock");
+    if lock_dir.join("update_daemon.lock").exists() {
+        out.insert(
+            "daemon_is_running".into(),
+            Value::from(file_is_locked(&lock_dir.join("update_daemon.lock")) as i64),
+        );
+        let now = chrono::Utc::now().timestamp();
+        let stamp_check = data.get_int("daemon_stamp_check").unwrap_or(0);
+        if now - stamp_check > 30 {
+            let stamp = std::fs::read_to_string(lock_dir.join("update_daemon.stamp"))
+                .ok()
+                .and_then(|s| s.trim().parse::<i64>().ok())
+                .unwrap_or(0);
+            if stamp != 0 {
+                let delta = now - stamp;
+                let stamp_ok = if delta > 1800 { 0 } else { 1 };
+                if stamp_ok == 1 {
+                    sess.with_mut(|s| {
+                        s.set("daemon_stamp_check", ttrss_core::phpser::Value::Int(now));
+                    });
+                }
+                out.insert("daemon_stamp_ok".into(), Value::from(stamp_ok));
+                // `date("Y.m.d, G:i", $stamp)` (G = 24h clock, no leading zero)
+                out.insert(
+                    "daemon_stamp".into(),
+                    Value::from(
+                        chrono::DateTime::from_timestamp(stamp, 0)
+                            .map(|dt| {
+                                format!(
+                                    "{:04}.{:02}.{:02}, {}:{:02}",
+                                    dt.year(),
+                                    dt.month(),
+                                    dt.day(),
+                                    dt.hour(),
+                                    dt.minute()
+                                )
+                            })
+                            .unwrap_or_default(),
+                    ),
+                );
+            }
+        }
+    }
     Value::Object(out)
+}
+
+/// PHP `file_is_locked`: is another process holding an exclusive `flock` on
+/// the file? A non-blocking exclusive lock attempt succeeds iff it's free.
+#[cfg(unix)]
+fn file_is_locked(path: &std::path::Path) -> bool {
+    use std::os::fd::AsRawFd;
+    extern "C" {
+        fn flock(fd: i32, operation: i32) -> i32;
+    }
+    const LOCK_EX: i32 = 2;
+    const LOCK_NB: i32 = 4;
+    match std::fs::OpenOptions::new().read(true).write(true).open(path) {
+        Ok(f) => unsafe { flock(f.as_raw_fd(), LOCK_EX | LOCK_NB) == -1 },
+        Err(_) => false,
+    }
+}
+
+#[cfg(not(unix))]
+fn file_is_locked(_path: &std::path::Path) -> bool {
+    false
 }
 
 /// `RPC::_make_init_params`.
