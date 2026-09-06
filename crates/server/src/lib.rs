@@ -18,6 +18,7 @@ pub mod prefs;
 pub mod render;
 pub mod rpc;
 pub mod sanitizer;
+pub mod syndication;
 #[cfg(test)]
 mod sanitizer_parity;
 pub mod session;

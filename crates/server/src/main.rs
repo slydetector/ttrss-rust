@@ -24,6 +24,7 @@ use ttrss_core::session as core_session;
 use tokio::fs;
 use ttrss_server::{
     nocache_headers, with_trailing_slash, AppState, auth, diskcache, mime, render, rpc, session,
+    syndication,
 };
 
 #[tokio::main]
@@ -172,6 +173,10 @@ async fn public_handler(
             Some(path) if path.file_name().is_some() => diskcache::send_file(&path),
             _ => StatusCode::NOT_FOUND.into_response(),
         },
+        // `Handler_Public::rss` — syndicated Atom/JSON feed (access-key gated).
+        Some("rss") => {
+            syndication::handle_rss(&state, query.id.as_deref(), query.key.as_deref(), query.format.as_deref()).await
+        }
         _ => StatusCode::NOT_FOUND.into_response(),
     }
 }
@@ -191,6 +196,9 @@ struct PublicQuery {
     id: Option<String>,
     #[serde(rename = "return")]
     return_url: Option<String>,
+    // `op=rss` (syndication) params
+    key: Option<String>,
+    format: Option<String>,
 }
 
 #[derive(Deserialize)]
