@@ -137,6 +137,24 @@ pub fn normalize_json(value: &Value) -> Value {
                 if VOLATILE_JSON_KEYS.contains(&k.as_str()) {
                     continue;
                 }
+                // The counter/feed `ts` field is the icon-cache file mtime
+                // (Cache_Local::get_mtime of the feed-icon). It is a "when was
+                // this favicon last fetched" cache timestamp, not app data: the
+                // oracle stamps it to the restore time (docker cp) while the
+                // port reads the seed-time mtime of the committed icon files, so
+                // the absolute value legitimately differs. Normalize a positive
+                // epoch to a token; `ts: 0` (no icon cached) is meaningful and
+                // left as-is so a has-icon vs no-icon difference still diffs.
+                if k == "ts" {
+                    if let Value::Number(n) = v {
+                        if let Some(i) = n.as_u64() {
+                            if i >= 1_000_000_000 {
+                                out.insert(k.clone(), Value::String("<ts>".into()));
+                                continue;
+                            }
+                        }
+                    }
+                }
                 out.insert(k.clone(), normalize_json(v));
             }
             Value::Object(out)
@@ -275,6 +293,23 @@ mod tests {
         let d = serde_json::json!({"content_preview": "&mdash; text &hellip;"});
         let e = serde_json::json!({"content_preview": "&mdash; text&hellip;"});
         assert_ne!(normalize_json(&d), normalize_json(&e));
+    }
+
+    #[test]
+    fn icon_cache_ts_normalized() {
+        // Positive epoch icon mtimes (which differ: oracle=restore time, port
+        // =seed time) collapse to one token...
+        let a = serde_json::json!({"counters":[{"id":29,"ts":1788702740}]});
+        let b = serde_json::json!({"counters":[{"id":29,"ts":1788525223}]});
+        assert_eq!(normalize_json(&a), normalize_json(&b));
+        // ...but a no-icon feed (`ts:0`) is data, not a timestamp, and a real
+        // has-icon vs no-icon difference is still detected.
+        let c = serde_json::json!({"counters":[{"id":29,"ts":0}]});
+        assert_ne!(normalize_json(&a), normalize_json(&c));
+        assert_eq!(normalize_json(&c), normalize_json(&serde_json::json!({"counters":[{"id":29,"ts":0}]})));
+        // non-epoch `ts` values (e.g. small ints) are left alone
+        let d = serde_json::json!({"ts":0});
+        assert_eq!(normalize_json(&d), serde_json::json!({"ts":0}));
     }
 
     #[test]
