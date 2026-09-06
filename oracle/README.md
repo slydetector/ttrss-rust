@@ -141,10 +141,29 @@ values (notably `set-cookie` and `location`) normalized the same way.
 
 ## Reuse for the Rust server
 
-1. `docker compose down --volumes && docker compose up -d`
-2. `oracle/scripts/restore.sh` (restores golden-db.sql; skip re-seed)
-3. Keep the updater stopped; run the same scenario against the Rust base URL
-   and diff against `oracle/data/runs/oracle-a` (or a fresh oracle run).
-   Point the Rust server's `TTRSS_SELF_URL_PATH` at its own base URL (e.g.
-   `http://127.0.0.1:8281/tt-rss/`); the diff strips the authority port, so
-   the two servers compare as the same application on different ports.
+**The canonical interface is the top-level `Makefile`** — `make harness` resets
+the oracle DB to the golden baseline (reproducible), builds the server + harness,
+starts the Rust server on `127.0.0.1:8281` (self URL `http://127.0.0.1:8281/tt-rss/`),
+runs the corpus, and diffs against `oracle/data/runs/oracle-a` (it calls
+`oracle/scripts/harness.sh`):
+
+```sh
+make harness                         # full run + diff vs oracle-a
+make harness ARGS=--no-build         # reuse existing binaries
+make harness ARGS=--no-reset         # skip the DB reset
+make harness-keep                    # leave the Rust server running
+make run                             # just run the Rust server (foreground)
+```
+
+The diff strips the authority port, so the oracle (8280) and Rust (8281) compare
+as the same application on different ports.
+
+> **The harness is used for read-only ops for now.** The corpus is *stateful*
+> (logins create/destroy sessions, `Feeds::view` persists `_DEFAULT_VIEW_*`,
+> the readonly/OTP logins at the end mutate user state). That's why `harness.sh`
+> resets the oracle DB to the golden baseline before every run — without the
+> reset, mutations accumulate across runs and the diff drifts (steps stop being
+> written, counters/orderings shift). The write/mutating steps are diffed only
+> against a matching-baseline oracle run and will get dedicated write-op
+> verification (asserting the *resulting* DB state, not just the response) at a
+> later milestone. The DB reset keeps each run reproducible regardless.

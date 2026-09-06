@@ -21,32 +21,44 @@ See `docs/plan.md` (delivery plan), `docs/research-report.md` (methodology), and
 
 - Rust (stable), Docker + compose, Python 3 (seed script)
 
-## Quick start (oracle)
+## Quick start
+
+The top-level **`Makefile`** is the primary interface — `make` (or `make help`)
+lists every target. The most common targets:
 
 ```sh
-oracle/scripts/up.sh          # bring up the PHP oracle (db + app + updater + nginx)
-curl http://127.0.0.1:8280/tt-rss/public.php?op=healthcheck   # -> OK
-oracle/scripts/down.sh        # tear down (keeps the db volume)
+make oracle-up      # bring up the PHP oracle (db + app + updater + nginx)
+make oracle-down    # tear down (keeps the db volume)
+make build          # build the Rust server + harness
+make run            # run the Rust server in the foreground (port 8281)
+make harness        # reset DB + build + run the corpus + diff vs oracle-a
+make test           # run the full workspace test suite
 ```
 
-Oracle login: `admin` / `admin` (no TOTP — the frictionless demo path; API app
-password `AppPass123`); `otpuser` / `otppass` (TOTP enabled, secret
-`OTPSECRET1234567890`). See `oracle/README.md` for the full oracle guide.
+The oracle (PHP) web is on `http://127.0.0.1:8280/tt-rss/`; the Rust server on
+`http://127.0.0.1:8281/tt-rss/` (the diff strips the port, so they compare as
+the same app). Oracle login: `admin` / `admin` (no TOTP — the frictionless demo
+path; API app password `AppPass123`); `otpuser` / `otppass` (TOTP enabled,
+secret `OTPSECRET1234567890`). **`oracle/README.md` is the full oracle + harness
+guide — read it before driving the corpus.**
 
 ## Harness (record / replay / diff)
 
+`make harness` is the canonical run (resets the oracle DB to the golden
+baseline so runs are reproducible, builds, starts the Rust server on `:8281`, runs
+the 61-step corpus, and diffs against `oracle/data/runs/oracle-a`):
+
 ```sh
-cargo build --bin tt-rust-harness
+make harness                        # full run + diff vs oracle-a
+make harness ARGS=--no-build        # reuse existing binaries
+make harness-keep                   # leave the Rust server running
+```
 
-# record the 61-step corpus against the oracle
-target/debug/tt-rust-harness run \
-    --scenarios oracle/corpus/scenarios.template.toml \
-    --vars oracle/data/ids.json \
-    --out oracle/data/runs/<name>
+To *record* a fresh oracle baseline, or to diff two run dirs by hand:
 
-# diff two runs (self-replay must be clean; Rust runs diff vs an oracle run)
-target/debug/tt-rust-harness diff \
-    --a oracle/data/runs/oracle-a --b oracle/data/runs/oracle-b
+```sh
+make record                         # record -> oracle/data/runs/oracle-a
+make diff ARGS=--a <run-a> --b <run-b>
 ```
 
 ## Status

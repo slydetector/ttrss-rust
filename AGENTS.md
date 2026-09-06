@@ -67,6 +67,15 @@ session in this directory. The frozen PHP reference lives in `tt-rss/`
   Also: `make_db`/`Db::connect_url` keep `statement_cache_capacity(0)` for the
   same width-mixing reason — do not re-enable it.
 
+## Test harness / oracle
+
+- The oracle + record/replay/diff harness is documented in **`oracle/README.md`**
+  — read it before driving, recording, or diffing the corpus.
+- The canonical interface is the top-level **`Makefile`** (`make` lists targets;
+  `make harness` resets the oracle DB, builds, runs the corpus vs the Rust server,
+  and diffs). The harness verifies read-only ops for now; write/mutating ops
+  come later. Prefer `make <target>` over long inline commands.
+
 ## Test-parity rule
 
 - Port each PHP test case **1:1** (same inputs, same expected values). If a PHP
