@@ -403,14 +403,24 @@ clean** on the golden dataset. Done so far:
   feed all, category, search), `rpc_counters` (values + PHP-order), and the full auth
   flow (login/shell/logout, admin + readonly + OTP) diff **clean** — **25/61**.
   Note: the pre-recorded fixture set (`oracle-a`) and the `golden-db.sql` dump are
-  slightly out of sync; `rpc_counters` counter *values* are identical but the *order*
-  (natural plan order, stats-dependent) differs from the stale fixture — this is a
-  dataset artifact, not a code difference (Rust matches the live PHP oracle on the
-  same DB exactly). Re-seeding the oracle + re-recording `oracle-a` from the same
-  frozen DB would close this gap.
-  Remaining mismatches are the unimplemented M2+ surface: `hotkeyHelp`,
-  `checkForUpdates`, the `Pref_*` handlers, the external JSON API (level 23),
-  Atom/JSON syndication, and feed icons.
+  slightly out of sync — a **dataset artifact, not a code difference** (Rust matches
+  the live PHP oracle on the same DB exactly). The corpus run itself is stateful and
+  the dump was captured after it, so three steps show drift vs the stale fixture:
+  - `009 rpc_counters` — counter *values* are identical but the *order* (natural plan
+    order, stats-dependent) differs; fixed by `ANALYZE` on restore.
+  - `013 feed_tree` — the M3 mutation runs marked feed 1 read, so the dump has
+    `unread: 0` where the pre-mutation fixture has `unread: 3372`.
+  - **`010 rpc_sanity_check` — PARKED (REVISIT).** `Feeds::view` (the headlines
+    steps) persist `_DEFAULT_VIEW_MODE`/`_DEFAULT_VIEW_ORDER_BY` via `Prefs::set`, so
+    the dump carries those written values; the stale fixture recorded them before the
+    write (`""`). Rust returns the persisted value — faithful to PHP, not a bug.
+  Re-seeding the oracle + re-recording `oracle-a` from the same frozen DB would close
+  all three gaps; deferred until the M2 close-out bundle lands. The golden DB was
+  re-snapshotted (2026-09-06) so future increments diff against a consistent baseline.
+  Remaining mismatches are the unimplemented M2+ surface: the `Pref_*` handlers, the
+  external JSON API (level 23), Atom/JSON syndication, and feed icons. (`hotkeyHelp`
+  is ported; `checkForUpdates` is a stubbed no-op by design — see `hotkeys.rs` /
+  `rpc.rs::checkforupdates`.)
 - **Next (M3):** mutations I — article state: mark/publish/star/unread, catchup
   (feed/cat/all), notes, scores, labels, tags. The harness will check both the
   response **and** the resulting DB state vs PHP.
