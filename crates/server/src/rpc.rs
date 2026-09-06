@@ -62,12 +62,15 @@ pub async fn handler(
             .into_response();
     }
 
-    let body = dispatch(&state, &sess, &op, &method, &csrf, &extra).await;
+    let body = match dispatch(&state, &sess, &op, &method, &csrf, &extra).await {
+        DispatchOutput::Json(v) => v.to_string(),
+        DispatchOutput::Html(h) => h,
+    };
 
     let mut res = Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "application/json; charset=utf-8")
-        .body(Body::from(body.to_string()))
+        .body(Body::from(body))
         .expect("valid response");
     // The PHP session `nocache` limiter stamps responses whose session started
     // (i.e. the request carried a session cookie).
@@ -77,6 +80,14 @@ pub async fn handler(
     res
 }
 
+/// `backend.php` dispatch output: the JSON envelope, or raw HTML for the few
+/// methods that `echo` markup directly (they keep the JSON content-type —
+/// PHP sets it in `backend.php` before dispatch).
+enum DispatchOutput {
+    Json(Value),
+    Html(String),
+}
+
 async fn dispatch(
     state: &AppState,
     sess: &Sess,
@@ -84,7 +95,7 @@ async fn dispatch(
     method: &str,
     csrf: &str,
     extra: &Map<String, Value>,
-) -> Value {
+) -> DispatchOutput {
     let mut data = sess.data();
 
     // `Sessions::validate_session` (parity row 9): guests pass; a logged-in
@@ -100,36 +111,39 @@ async fn dispatch(
                 s.set("login_error_msg", phpser::Value::Bytes(msg.as_bytes().to_vec()))
             });
         }
-        return errors("E_UNAUTHORIZED");
+        return DispatchOutput::Json(errors("E_UNAUTHORIZED"));
     }
 
     if method.starts_with('_') {
-        return errors("E_UNAUTHORIZED");
+        return DispatchOutput::Json(errors("E_UNAUTHORIZED"));
     }
 
     // CSRF gate: `validate_csrf($csrf_token) || $handler->csrf_ignore($method)`.
     if !validate_csrf(sess, csrf) && !csrf_ignored(op, method) {
-        return errors("E_UNAUTHORIZED");
+        return DispatchOutput::Json(errors("E_UNAUTHORIZED"));
     }
 
     // `Handler_Protected::before`: the handler needs a logged-in user.
     if is_protected(op) && data.uid().is_none() {
-        return errors("E_UNAUTHORIZED");
+        return DispatchOutput::Json(errors("E_UNAUTHORIZED"));
     }
 
     match op {
-        "RPC" => rpc_handler(state, sess, method, extra).await,
+        "RPC" => match method {
+            "hotkeyHelp" => DispatchOutput::Html(crate::hotkeys::hotkey_help()),
+            _ => DispatchOutput::Json(rpc_handler(state, sess, method, extra).await),
+        },
         "Feeds" => match method {
-            "view" => crate::headlines::view(state, sess, extra).await,
-            "search" => crate::headlines::search(state, sess, extra).await,
-            _ => unknown_method("Feeds", method),
+            "view" => DispatchOutput::Json(crate::headlines::view(state, sess, extra).await),
+            "search" => DispatchOutput::Json(crate::headlines::search(state, sess, extra).await),
+            _ => DispatchOutput::Json(unknown_method("Feeds", method)),
         },
         "Pref_Feeds" => match method {
-            "getfeedtree" => feeds::getfeedtree(state, sess, extra).await,
-            "feedsWithErrors" => feeds::feeds_with_errors(state, sess).await,
-            _ => unknown_method("Pref_Feeds", method),
+            "getfeedtree" => DispatchOutput::Json(feeds::getfeedtree(state, sess, extra).await),
+            "feedsWithErrors" => DispatchOutput::Json(feeds::feeds_with_errors(state, sess).await),
+            _ => DispatchOutput::Json(unknown_method("Pref_Feeds", method)),
         },
-        other => unknown_method(other, method),
+        other => DispatchOutput::Json(unknown_method(other, method)),
     }
 }
 
@@ -376,7 +390,7 @@ async fn make_init_params(
         String::new()
     };
 
-    let (prefixes, hotkeys) = hotkeys_map();
+    let (prefixes, hotkeys) = crate::hotkeys::hotkeys_map();
 
     let mut out = Map::new();
     out.insert("on_catchup_show_next_feed".into(), Value::from(p("ON_CATCHUP_SHOW_NEXT_FEED").as_int()));
@@ -555,83 +569,9 @@ fn plugin_class_name(docroot: &std::path::Path, dir: &str) -> Option<String> {
     None
 }
 
-/// `RPC::get_hotkeys_map` — `[prefixes, {sequence: action}]`.
-fn hotkeys_map() -> (Vec<String>, Map<String, Value>) {
-    let mut map: Map<String, Value> = Map::new();
-    let entries: [(&str, &str); 61] = [
-        ("k", "next_feed"),
-        ("K", "next_unread_feed"),
-        ("j", "prev_feed"),
-        ("J", "prev_unread_feed"),
-        ("n", "next_article_noscroll"),
-        ("p", "prev_article_noscroll"),
-        ("N", "article_page_down"),
-        ("P", "article_page_up"),
-        ("*(33)|Shift+PgUp", "article_page_up"),
-        ("*(34)|Shift+PgDn", "article_page_down"),
-        ("{3}(38)|Up", "prev_article_or_scroll"),
-        ("{3}(40)|Down", "next_article_or_scroll"),
-        ("*(38)|Shift+Up", "article_scroll_up"),
-        ("*(40)|Shift+Down", "article_scroll_down"),
-        ("^(38)|Ctrl+Up", "prev_article_noscroll"),
-        ("^(40)|Ctrl+Down", "next_article_noscroll"),
-        ("/", "search_dialog"),
-        ("\\", "cancel_search"),
-        ("s", "toggle_mark"),
-        ("S", "toggle_publ"),
-        ("u", "toggle_unread"),
-        ("T", "edit_tags"),
-        ("o", "open_in_new_window"),
-        ("c p", "catchup_below"),
-        ("c n", "catchup_above"),
-        ("a W", "toggle_widescreen"),
-        ("a e", "toggle_full_text"),
-        ("e", "email_article"),
-        ("a q", "close_article"),
-        ("a s", "article_span_grid"),
-        ("a a", "select_all"),
-        ("a u", "select_unread"),
-        ("a U", "select_marked"),
-        ("a p", "select_published"),
-        ("a i", "select_invert"),
-        ("a n", "select_none"),
-        ("f r", "feed_refresh"),
-        ("f a", "feed_unhide_read"),
-        ("f s", "feed_subscribe"),
-        ("f e", "feed_edit"),
-        ("f q", "feed_catchup"),
-        ("f x", "feed_reverse"),
-        ("f g", "feed_toggle_vgroup"),
-        ("f G", "feed_toggle_grid"),
-        ("f D", "feed_debug_update"),
-        ("f %", "feed_debug_viewfeed"),
-        ("f C", "toggle_combined_mode"),
-        ("f c", "toggle_cdm_expanded"),
-        ("Q", "catchup_all"),
-        ("x", "cat_toggle_collapse"),
-        ("g a", "goto_all"),
-        ("g f", "goto_fresh"),
-        ("g s", "goto_marked"),
-        ("g p", "goto_published"),
-        ("g r", "goto_read"),
-        ("g P", "goto_prefs"),
-        ("r", "select_article_cursor"),
-        ("c l", "create_label"),
-        ("c f", "create_filter"),
-        ("c s", "collapse_sidebar"),
-        ("?", "help_dialog"),
-    ];
-    let mut prefixes: Vec<String> = Vec::new();
-    for (seq, action) in entries {
-        map.insert(seq.to_string(), Value::from(action.to_string()));
-        if let Some(first) = seq.split(' ').next() {
-            if seq.contains(' ') && !prefixes.iter().any(|p| p == first) {
-                prefixes.push(first.to_string());
-            }
-        }
-    }
-    (prefixes, map)
-}
+// The hotkey tables + `hotkeys_map` / `hotkey_help` live in `crate::hotkeys`
+// (they are `RPC` class statics in PHP; split out to keep the dispatcher lean).
+
 
 /// `hash_equals` (constant-time; false on length mismatch).
 fn ct_eq(a: &str, b: &str) -> bool {
