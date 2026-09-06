@@ -18,7 +18,7 @@ use kuchikiki::{parse_html, ElementData, NodeData, NodeRef};
 use regex::Regex;
 use std::collections::BTreeSet;
 
-use crate::headlines::strip_tags;
+use crate::util::strip_tags;
 use crate::with_trailing_slash;
 
 const HTML_NS: &str = "http://www.w3.org/1999/xhtml";

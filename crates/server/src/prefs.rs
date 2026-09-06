@@ -13,7 +13,7 @@ use ttrss_core::config::sql_bool_to_bool;
 use ttrss_core::db::Db;
 
 /// PHP `Config::T_*` type hints.
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Type {
     Bool, // Config::T_BOOL
     Str,  // Config::T_STRING
@@ -71,58 +71,104 @@ const PROFILE_BLACKLIST: &[&str] = &[
     "_PREFS_MIGRATED",
 ];
 
-/// The PHP `Prefs::_DEFAULTS` table: name -> (default, type hint).
+/// One row of the PHP `Prefs::_DEFAULTS` table: the pref name, its default
+/// value (as written in the PHP source) and its `Config::T_*` type hint.
+pub struct PrefDef {
+    pub name: &'static str,
+    pub default: &'static str,
+    pub ty: Type,
+}
+
+/// The PHP `Prefs::_DEFAULTS` table, in the PHP constant declaration order
+/// (the order `Prefs::_get_all` emits entries).
+pub fn all_defs() -> &'static [PrefDef] {
+    &[
+        PrefDef { name: "PURGE_OLD_DAYS", default: "60", ty: Type::Int },
+        PrefDef { name: "DEFAULT_UPDATE_INTERVAL", default: "30", ty: Type::Int },
+        PrefDef { name: "ENABLE_FEED_CATS", default: "true", ty: Type::Bool },
+        PrefDef { name: "SHOW_CONTENT_PREVIEW", default: "true", ty: Type::Bool },
+        PrefDef { name: "SHORT_DATE_FORMAT", default: "M d, G:i", ty: Type::Str },
+        PrefDef { name: "LONG_DATE_FORMAT", default: "D, M d Y - G:i", ty: Type::Str },
+        PrefDef { name: "COMBINED_DISPLAY_MODE", default: "true", ty: Type::Bool },
+        PrefDef { name: "HIDE_READ_FEEDS", default: "false", ty: Type::Bool },
+        PrefDef { name: "ON_CATCHUP_SHOW_NEXT_FEED", default: "false", ty: Type::Bool },
+        PrefDef { name: "FEEDS_SORT_BY_UNREAD", default: "false", ty: Type::Bool },
+        PrefDef { name: "REVERSE_HEADLINES", default: "false", ty: Type::Bool },
+        PrefDef { name: "DIGEST_ENABLE", default: "false", ty: Type::Bool },
+        PrefDef { name: "CONFIRM_FEED_CATCHUP", default: "true", ty: Type::Bool },
+        PrefDef { name: "CDM_AUTO_CATCHUP", default: "false", ty: Type::Bool },
+        PrefDef { name: "_DEFAULT_VIEW_MODE", default: "adaptive", ty: Type::Str },
+        PrefDef { name: "_DEFAULT_VIEW_LIMIT", default: "30", ty: Type::Int },
+        PrefDef {
+            name: "BLACKLISTED_TAGS",
+            default: "main, generic, misc, uncategorized, blog, blogroll, general, news",
+            ty: Type::Str,
+        },
+        PrefDef { name: "FRESH_ARTICLE_MAX_AGE", default: "24", ty: Type::Int },
+        PrefDef { name: "RECENTLY_READ_MAX_AGE", default: "24", ty: Type::Int },
+        PrefDef { name: "DIGEST_CATCHUP", default: "false", ty: Type::Bool },
+        PrefDef { name: "CDM_EXPANDED", default: "true", ty: Type::Bool },
+        PrefDef { name: "PURGE_UNREAD_ARTICLES", default: "true", ty: Type::Bool },
+        PrefDef { name: "HIDE_READ_SHOWS_SPECIAL", default: "true", ty: Type::Bool },
+        PrefDef { name: "VFEED_GROUP_BY_FEED", default: "false", ty: Type::Bool },
+        PrefDef { name: "STRIP_IMAGES", default: "false", ty: Type::Bool },
+        PrefDef { name: "_DEFAULT_VIEW_ORDER_BY", default: "default", ty: Type::Str },
+        PrefDef { name: "ENABLE_API_ACCESS", default: "false", ty: Type::Bool },
+        PrefDef { name: "ENABLE_API_ACCESS_BROWSER", default: "false", ty: Type::Bool },
+        PrefDef { name: "USER_TIMEZONE", default: "Automatic", ty: Type::Str },
+        PrefDef { name: "USER_STYLESHEET", default: "", ty: Type::Str },
+        PrefDef { name: "SSL_CERT_SERIAL", default: "", ty: Type::Str },
+        PrefDef { name: "DIGEST_PREFERRED_TIME", default: "00:00", ty: Type::Str },
+        PrefDef { name: "_DEFAULT_INCLUDE_CHILDREN", default: "false", ty: Type::Bool },
+        PrefDef { name: "_ENABLED_PLUGINS", default: "", ty: Type::Str },
+        PrefDef { name: "USER_CSS_THEME", default: "", ty: Type::Str },
+        PrefDef { name: "USER_LANGUAGE", default: "", ty: Type::Str },
+        PrefDef { name: "DEFAULT_SEARCH_LANGUAGE", default: "", ty: Type::Str },
+        PrefDef { name: "_PREFS_MIGRATED", default: "false", ty: Type::Bool },
+        PrefDef { name: "HEADLINES_NO_DISTINCT", default: "false", ty: Type::Bool },
+        PrefDef { name: "DEBUG_HEADLINE_IDS", default: "false", ty: Type::Bool },
+        PrefDef { name: "DISABLE_CONDITIONAL_COUNTERS", default: "false", ty: Type::Bool },
+        PrefDef { name: "WIDESCREEN_MODE", default: "false", ty: Type::Bool },
+        PrefDef { name: "CDM_ENABLE_GRID", default: "false", ty: Type::Bool },
+        PrefDef { name: "DIGEST_MIN_SCORE", default: "0", ty: Type::Int },
+    ]
+}
+
+/// The PHP `Prefs::_DEFAULTS` lookup: (default, type hint) for a known pref.
 pub fn default_for(name: &str) -> Option<(&'static str, Type)> {
-    Some(match name {
-        "PURGE_OLD_DAYS" => ("60", Type::Int),
-        "DEFAULT_UPDATE_INTERVAL" => ("30", Type::Int),
-        "ENABLE_FEED_CATS" => ("true", Type::Bool),
-        "SHOW_CONTENT_PREVIEW" => ("true", Type::Bool),
-        "SHORT_DATE_FORMAT" => ("M d, G:i", Type::Str),
-        "LONG_DATE_FORMAT" => ("D, M d Y - G:i", Type::Str),
-        "COMBINED_DISPLAY_MODE" => ("true", Type::Bool),
-        "HIDE_READ_FEEDS" => ("false", Type::Bool),
-        "ON_CATCHUP_SHOW_NEXT_FEED" => ("false", Type::Bool),
-        "FEEDS_SORT_BY_UNREAD" => ("false", Type::Bool),
-        "REVERSE_HEADLINES" => ("false", Type::Bool),
-        "DIGEST_ENABLE" => ("false", Type::Bool),
-        "CONFIRM_FEED_CATCHUP" => ("true", Type::Bool),
-        "CDM_AUTO_CATCHUP" => ("false", Type::Bool),
-        "_DEFAULT_VIEW_MODE" => ("adaptive", Type::Str),
-        "_DEFAULT_VIEW_LIMIT" => ("30", Type::Int),
-        "BLACKLISTED_TAGS" => (
-            "main, generic, misc, uncategorized, blog, blogroll, general, news",
-            Type::Str,
-        ),
-        "FRESH_ARTICLE_MAX_AGE" => ("24", Type::Int),
-        "RECENTLY_READ_MAX_AGE" => ("24", Type::Int),
-        "DIGEST_CATCHUP" => ("false", Type::Bool),
-        "CDM_EXPANDED" => ("true", Type::Bool),
-        "PURGE_UNREAD_ARTICLES" => ("true", Type::Bool),
-        "HIDE_READ_SHOWS_SPECIAL" => ("true", Type::Bool),
-        "VFEED_GROUP_BY_FEED" => ("false", Type::Bool),
-        "STRIP_IMAGES" => ("false", Type::Bool),
-        "_DEFAULT_VIEW_ORDER_BY" => ("default", Type::Str),
-        "ENABLE_API_ACCESS" => ("false", Type::Bool),
-        "ENABLE_API_ACCESS_BROWSER" => ("false", Type::Bool),
-        "USER_TIMEZONE" => ("Automatic", Type::Str),
-        "USER_STYLESHEET" => ("", Type::Str),
-        "SSL_CERT_SERIAL" => ("", Type::Str),
-        "DIGEST_PREFERRED_TIME" => ("00:00", Type::Str),
-        "_DEFAULT_INCLUDE_CHILDREN" => ("false", Type::Bool),
-        "_ENABLED_PLUGINS" => ("", Type::Str),
-        "USER_CSS_THEME" => ("", Type::Str),
-        "USER_LANGUAGE" => ("", Type::Str),
-        "DEFAULT_SEARCH_LANGUAGE" => ("", Type::Str),
-        "_PREFS_MIGRATED" => ("false", Type::Bool),
-        "HEADLINES_NO_DISTINCT" => ("false", Type::Bool),
-        "DEBUG_HEADLINE_IDS" => ("false", Type::Bool),
-        "DISABLE_CONDITIONAL_COUNTERS" => ("false", Type::Bool),
-        "WIDESCREEN_MODE" => ("false", Type::Bool),
-        "CDM_ENABLE_GRID" => ("false", Type::Bool),
-        "DIGEST_MIN_SCORE" => ("0", Type::Int),
-        _ => return None,
-    })
+    all_defs().iter().find(|d| d.name == name).map(|d| (d.default, d.ty))
+}
+
+/// PHP `(int)` cast: optional leading whitespace + sign, then decimal
+/// digits only (stops at the first non-digit; no fraction/exponent/hex).
+/// `(int) "  -12.5"` → -12, `(int) "0x10"` → 0, `(int) ""` → 0.
+fn php_int(s: &str) -> i64 {
+    let b = s.as_bytes();
+    let mut i = 0;
+    while i < b.len() && b[i].is_ascii_whitespace() {
+        i += 1;
+    }
+    let mut neg = false;
+    if i < b.len() && (b[i] == b'-' || b[i] == b'+') {
+        neg = b[i] == b'-';
+        i += 1;
+    }
+    let start = i;
+    while i < b.len() && b[i].is_ascii_digit() {
+        i += 1;
+    }
+    if start == i {
+        return 0;
+    }
+    let mut v = 0i64;
+    for d in &b[start..i] {
+        v = v.checked_mul(10).and_then(|v| v.checked_add((d - b'0') as i64)).unwrap_or(0);
+    }
+    if neg {
+        -v
+    } else {
+        v
+    }
 }
 
 /// `Config::cast_to(value, type_hint)`.
@@ -130,8 +176,21 @@ fn cast(value: &str, ty: Type) -> Pref {
     match ty {
         // T_BOOL cast: `Config::cast_to` → `sql_bool_to_bool` (core).
         Type::Bool => Pref::Bool(sql_bool_to_bool(value)),
-        Type::Int => Pref::Int(value.trim().parse().unwrap_or(0)),
+        Type::Int => Pref::Int(php_int(value)),
         Type::Str => Pref::Str(value.to_string()),
+    }
+}
+
+/// How a resolved value is written to `ttrss_user_prefs2.value` (text):
+/// PHP 8.1+ PDO binds `true` as `"1"` / `false` as `""` (the string form),
+/// ints as their decimal string, and strings as-is (see `PrefsTest::
+/// test_set_stores_bool_as_string_in_db`).
+fn stored_string(v: &Pref) -> String {
+    match v {
+        Pref::Bool(true) => "1".into(),
+        Pref::Bool(false) => String::new(),
+        Pref::Int(i) => i.to_string(),
+        Pref::Str(s) => s.clone(),
     }
 }
 
@@ -183,6 +242,147 @@ pub fn resolve(name: &str, rows: &[(String, Option<i32>, String)], profile: Opti
         cast(value, ty)
     } else {
         cast(def, ty)
+    }
+}
+
+/// `Prefs::set` (`_set`): strip_tags + trim, cast to the pref's type hint,
+/// no-op when the value already equals the effective value, else upsert the
+/// override row. Returns `false` (no write) for unknown pref names and for
+/// profile-blacklisted prefs with a profile, matching the PHP `user_error`
+/// / early-return paths.
+pub async fn set(db: &Db, name: &str, value: &str, owner_uid: i64, profile: Option<i32>) -> bool {
+    // PHP: `if (!$profile_id) $profile_id = null;`
+    let profile = if profile == Some(0) { None } else { profile };
+    if profile.is_some() && PROFILE_BLACKLIST.contains(&name) {
+        return false;
+    }
+    let Some(def) = all_defs().iter().find(|d| d.name == name) else {
+        // PHP: `user_error("Attempt to set invalid preference key …")`.
+        return false;
+    };
+    let value = cast(crate::util::strip_tags(value).trim(), def.ty);
+
+    // The `_get` the no-op check compares against: the (uid, profile)
+    // override if present, else the PHP default.
+    let cur_raw = sqlx::query_scalar::<_, String>(
+        "SELECT value FROM ttrss_user_prefs2
+         WHERE pref_name = $1 AND owner_uid = $2
+           AND (profile = $3 OR ($3 IS NULL AND profile IS NULL))",
+    )
+    .bind(name)
+    .bind(owner_uid)
+    .bind(profile)
+    .fetch_optional(db.pool())
+    .await
+    .ok()
+    .flatten();
+    let current = match cur_raw.as_ref() {
+        Some(raw) => cast(raw, def.ty),
+        None => cast(def.default, def.ty),
+    };
+    if value == current {
+        return true; // "no need to actually set this to the same value"
+    }
+
+    let stored = stored_string(&value);
+    if cur_raw.is_some() {
+        sqlx::query(
+            "UPDATE ttrss_user_prefs2 SET value = $1
+             WHERE pref_name = $2 AND owner_uid = $3
+               AND (profile = $4 OR ($4 IS NULL AND profile IS NULL))",
+        )
+        .bind(&stored)
+        .bind(name)
+        .bind(owner_uid)
+        .bind(profile)
+        .execute(db.pool())
+        .await
+        .is_ok()
+    } else {
+        sqlx::query(
+            "INSERT INTO ttrss_user_prefs2 (pref_name, value, owner_uid, profile)
+             VALUES ($1, $2, $3, $4)",
+        )
+        .bind(name)
+        .bind(&stored)
+        .bind(owner_uid)
+        .bind(profile)
+        .execute(db.pool())
+        .await
+        .is_ok()
+    }
+}
+
+/// `Prefs::reset`: delete all of the user's override rows for the profile
+/// except `_PREFS_MIGRATED`.
+pub async fn reset(db: &Db, owner_uid: i64, profile: Option<i32>) {
+    let profile = if profile == Some(0) { None } else { profile };
+    let _ = sqlx::query(
+        "DELETE FROM ttrss_user_prefs2
+         WHERE owner_uid = $1 AND pref_name != '_PREFS_MIGRATED'
+           AND (profile = $2 OR ($2 IS NULL AND profile IS NULL))",
+    )
+    .bind(owner_uid)
+    .bind(profile)
+    .execute(db.pool())
+    .await;
+}
+
+/// `Prefs::get_all`: every pref in `_DEFAULTS` (declaration order) with the
+/// resolved value for (uid, profile) and its `Config::T_*` type hint.
+/// `rows` is the output of [`load_rows`].
+pub fn get_all(rows: &[(String, Option<i32>, String)], profile: Option<i32>) -> Vec<(String, Pref, Type)> {
+    all_defs()
+        .iter()
+        .map(|d| (d.name.to_string(), resolve(d.name, rows, profile), d.ty))
+        .collect()
+}
+
+/// `Prefs::get_profile_id`: the id of the user's profile with that title,
+/// or -1 if none exists.
+pub async fn get_profile_id(db: &Db, owner_uid: i64, title: &str) -> i64 {
+    let id: Option<i32> = sqlx::query_scalar(
+        "SELECT id FROM ttrss_settings_profiles WHERE owner_uid = $1 AND title = $2",
+    )
+    .bind(owner_uid)
+    .bind(title)
+    .fetch_optional(db.pool())
+    .await
+    .ok()
+    .flatten();
+    id.map(|v| v as i64).unwrap_or(-1)
+}
+
+/// `Prefs::profile_exists`.
+pub async fn profile_exists(db: &Db, owner_uid: i64, profile_id: i64) -> bool {
+    sqlx::query_scalar::<_, i32>(
+        "SELECT id FROM ttrss_settings_profiles WHERE owner_uid = $1 AND id = $2",
+    )
+    .bind(owner_uid)
+    .bind(profile_id)
+    .fetch_optional(db.pool())
+    .await
+    .ok()
+    .flatten()
+    .is_some()
+}
+
+/// `Prefs::create_profile`: the id of the created profile; -1 if the title
+/// is already used by the user or the insert fails.
+pub async fn create_profile(db: &Db, owner_uid: i64, title: &str) -> i64 {
+    if get_profile_id(db, owner_uid, title).await != -1 {
+        return -1;
+    }
+    match sqlx::query_scalar::<_, i32>(
+        "INSERT INTO ttrss_settings_profiles (owner_uid, title) VALUES ($1, $2) RETURNING id",
+    )
+    .bind(owner_uid)
+    .bind(title)
+    .fetch_optional(db.pool())
+    .await
+    {
+        Ok(Some(id)) => id as i64,
+        _ => -1,
     }
 }
 
@@ -347,24 +547,8 @@ mod tests {
         assert_eq!(resolve("REVERSE_HEADLINES", &rows, None), Pref::Bool(false));
     }
 
-    // ── DB-dependent PrefsTest.php cases (REVISIT) ────────────────────────────
-    // These exercise Prefs::set / reset / get_all (DB writes/reads), which the
-    // Rust `prefs` module does not (yet) implement — it only resolves against
-    // pre-loaded rows. Kept here (not dropped) so they are revisited when a
-    // DB-backed `set`/`reset`/`get_all` is ported. Tracked in docs/plan.md
-    // (test-parity, prefs.rs row):
-    //   test_set_inserts_new_row_into_db
-    //   test_set_updates_existing_row
-    //   test_set_stores_bool_as_string_in_db
-    //   test_set_stores_string_in_db
-    //   test_set_strips_tags_from_string_values
-    //   test_set_returns_true_without_db_change_when_value_unchanged
-    //   test_get_all_returns_all_pref_definitions
-    //   test_get_all_returns_default_values_for_new_user
-    //   test_set_profile_blacklisted_pref_returns_false
-    //   test_set_non_blacklisted_pref_works_with_profile
-    //   test_reset_clears_all_user_prefs
-    //   test_reset_does_not_delete_migrated_flag
-    //   test_set_returns_false_for_invalid_pref_name
-    //   test_multiple_users_have_isolated_prefs
+    // ── DB-dependent PrefsTest.php cases ──────────────────────────────────────
+    // Ported 1:1 in `tests/prefs_parity.rs` (the 14 DB-backed cases this
+    // block used to park): `Prefs::set` / `reset` / `get_all` /
+    // `create_profile` are now implemented above.
 }

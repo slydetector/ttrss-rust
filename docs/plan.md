@@ -420,7 +420,8 @@ clean** on the golden dataset. Done so far:
 > **STATUS: ✅ COMPLETE (2026-09-06).** All **14/14 rows** ported and green —
 > every PHP `#[test]` suite that maps to an already-ported Rust module is now
 > replicated 1:1 (per-row counts in the table below). Ground truth at completion:
-> `cargo nextest run` = **572 pass / 0 fail** (full workspace), `cargo clippy
+> `cargo nextest run` = **572 pass / 0 fail** (full workspace; **587** after the
+> row-3 `server::prefs` REVISIT resolution below, 2026-09-06), `cargo clippy
 > --workspace --all-targets` clean (only the pinned `sqlx-postgres 0.7.4` upstream
 > note). PHP cases that don't port yet are either gated on modules not yet
 > ported (M2 `Feeds::view`/`search`, M4 config CRUD, M5 admin/API, M6 feed
@@ -452,15 +453,15 @@ module has DB write access (a `set`/`reset`/… port or a testcontainer).
 **REVISIT (DB-backed) ledger:** cases that need a live DB (writes/reads via
 the Rust port) and are parked as `REVISIT` blocks in the Rust test code:
 
-| module | parked PHP cases (in `crates/*/src/*.rs` `REVISIT` block) |
-|---|---|
-| `server::prefs` | `PrefsTest::set_*` (insert/update/bool/string/tags/unchanged/invalid), `get_all_*`, `set_*_profile*`, `reset_*`, `multiple_users_isolated` (14 cases) |
+*None outstanding (2026-09-06): the 14 `server::prefs` cases this ledger
+tracked were ported 1:1 in `tests/prefs_parity.rs` alongside the `Prefs::set` /
+`reset` / `get_all` / profile-surface port (see row 3).*
 
 | # | PHP suite | Rust module | status |
 |---|---|---|---|
 | 1 | `TimeHelperTest` (41) | `server::time` | ✅ 24 ported (applicable); N/A: `$long`/`no_smart_dt`, uid/profile, `convert_timestamp` |
 | 2 | `SanitizerTest` (162) | `server::sanitizer` | ✅ **256** cases across all four PHP sanitizer suites — `tests/mocked/SanitizerUnitTest` (81), `tests_functional/SanitizerTest` (11), `tests/integration/SanitizerTest` (2), `tests_integration/SanitizerTest` (162) — ported 1:1 into `sanitizer_parity.rs` (+`sanitizer_parity/{mocked,functional,unit,integration}.rs`). Ground truth: PHP 8.5.9 / libxml 2.13.09 oracle. 5 cases carry a NOTE — 2 where the PHP test is itself buggy (the oracle fails it as written: `<source>` without `src` is not stripped; `<font color="red">` survives so the exact-string assert fails) and 3 where libxml 2.13 entity-encodes non-ASCII in `saveHTML` (Rust serializes raw UTF-8); each is ported 1:1 in inputs with the corrected / semantically-equivalent expectation. Re-implemented `validate`/`rewrite_relative`/`build_url`/`parse_url`/`has_disallowed_ip`/`canonicalize_ipv4_literal` to match PHP exactly (case-preserving, no dot-segment resolution, `//`→https, data/mailto/magnet exceptions, IP-literal canonicalization); added `iframe_whitelisted`, `wrap_iframes_in_div`, `highlight_words[_str]`, head→body fixup for `<noscript>`. |
-| 3 | `PrefsTest` (29) | `server::prefs` | ✅ 16 pure cases; **14 DB cases parked** (REVISIT, see ledger) |
+| 3 | `PrefsTest` (29) | `server::prefs` | ✅ **29/29** (15 pure + 1 extra guard in `prefs.rs::tests`; 14 DB-backed in `tests/prefs_parity.rs`). `Prefs::set`/`reset`/`get_all`/`create_profile` (+`get_profile_id`/`profile_exists`) ported to `server::prefs`; `all_defs()` = the ordered `_DEFAULTS` table (drives `default_for` + `get_all`); faithful PHP `(int)` cast; PHP 8.1+ PDO storage forms (bool → `"1"`/`""`); `headlines::pref_set` (the `_DEFAULT_VIEW_*` upsert) now delegates to `prefs::set`; PHP built-in `strip_tags` moved to `server::util` |
 | 4 | `FunctionsTest` (73) | `server` / `core` helpers | ✅ `truncate_string` (10, `headlines.rs`) + `with_trailing_slash` (5, `main.rs`) + `sql_bool_to_bool` (via `prefs`); **~50 parked** (REVISIT: `clean` 8, `truncate_middle` 7, `mb_substr_replace` 6, `arr_qmarks` 6, `bool_to_sql_bool` 2, `checkbox_to_sql_bool` 2, `implements_interface` 4, `get_theme_path` 2, `theme_exists` 1, `uniqid_short` 4, `get_random_bytes` 3, `t_sprintf` 2, `t_nsprintf` 1, `gzdecode` 1, `get_scripts_timestamp` 2) |
 | 5 | `UrlHelperTest` (69) | `server` / `core` url | ✅ `validate` (9, `sanitizer.rs`) + `url_to_youtube_vid` (6, `headlines.rs`); ~~REVISIT: trailing-slash on host-only URLs + scheme-case preservation~~ **resolved** by the row-2 faithful `validate` (case preserved, no trailing slash, IDN→punycode); `rewrite_relative` + `build_url` + `canonicalize_ipv4_literal` now ported (see row 2; `rewrite_relative_cases` added); N/A: `resolve_redirects` (4), `fetch` (16), `has_disallowed_ip` DNS cases |
 | 6 | `CryptTest` (23) | `core::crypt` | ✅ 12 primitive cases; 7 N/A (config lookup, base64 codec, `algo` whitelist live in the caller — REVISIT block) |
@@ -488,10 +489,11 @@ before them:
 | External-API write ops + admin (`Pref_Users`, system, OTP/QR) | write/admin handlers | **M5** |
 | Config CRUD (feed CRUD + categories + icons + OPML, filters, access keys) | M4 mutation handlers | **M4** |
 
-Also still open *inside* already-ported modules: the `REVISIT` (DB-backed) blocks
-named in the table (e.g. the 14 `server::prefs` cases) and the ~50 `FunctionsTest`
-helper cases parked in row 4 — these lift as each module gains the matching write
-surface. The M4 config-coverage row is *new* suites never in the 14-row board
+Also still open *inside* already-ported modules: the ~50 `FunctionsTest`
+helper cases parked in row 4 — these lift as each module gains the matching
+surface. No DB-backed `REVISIT` cases remain (the 14 `server::prefs` cases were
+resolved 2026-09-06, see row 3). The M4 config-coverage row is *new* suites never
+in the 14-row board
 (feed subscribe/delete, categories, filters, OPML, access keys, icons/ordering),
 not a re-visit of rows 1–14 (the `Labels` class CRUD is already fully covered by
 row 13).

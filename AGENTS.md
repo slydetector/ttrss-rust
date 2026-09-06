@@ -49,11 +49,23 @@ session in this directory. The frozen PHP reference lives in `tt-rss/`
 - **Get to root cause; no whack-a-mole.** When a fix reveals another symptom,
   stop and find the underlying cause rather than patching symptoms one by one.
 - Keep the architecture clean, isolated, repeatable, and fast.
+- **Write code in small, verifiable blocks.** Don't emit hundreds of lines in a
+  single tool call — large single-shot writes/edits are brittle (exact-match
+  edits fail on any whitespace drift, and a big blob is hard to review or fix).
+  Build up files iteratively: write/patch a function or a test at a time, and
+  check in (`cargo check`/`cargo test`) between steps so a failure points at a
+  small, isolated change.
 - Keep the workspace green: `cargo test` must pass and the working tree must be
   clean before committing.
 - Docker is an acceptable requirement.
 - Stay on the approved dependency versions (e.g. sqlx 0.7) unless told to
   change them.
+- **sqlx 0.7 decodes strictly — match the column width:** tt-rss id/uid columns
+  are `integer` (INT4) → decode as `i32` (widen at the boundary); `COUNT(*)` is
+  `bigint` → `i64`. Never `query_scalar::<_, i64>` an INT4 column (runtime
+  `ColumnDecode` mismatch). See the test-infra findings in `docs/plan.md`.
+  Also: `make_db`/`Db::connect_url` keep `statement_cache_capacity(0)` for the
+  same width-mixing reason — do not re-enable it.
 
 ## Test-parity rule
 

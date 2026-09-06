@@ -16,6 +16,7 @@ use sqlx::Row;
 use crate::prefs;
 use crate::sanitizer;
 use crate::session::Sess;
+use crate::util::strip_tags;
 use crate::time::{self, TzCtx};
 use crate::AppState;
 
@@ -136,9 +137,9 @@ pub async fn view(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> 
         return generate_error_feed("Feed not found.");
     }
 
-    // `Prefs::set` for the two view prefs (mirrors the PHP side effect).
-    pref_set(pool, uid, profile, "_DEFAULT_VIEW_MODE", &view_mode).await;
-    pref_set(pool, uid, profile, "_DEFAULT_VIEW_ORDER_BY", &order_by).await;
+    // `Prefs::set` for the two view prefs (the PHP side effect, Feeds.php).
+    prefs::set(&state.db, "_DEFAULT_VIEW_MODE", &view_mode, uid, profile).await;
+    prefs::set(&state.db, "_DEFAULT_VIEW_ORDER_BY", &order_by, uid, profile).await;
 
     // Bump the login timestamp if it's over an hour old.
     if let Some(last_login_update) = data.get_int("last_login_update") {
@@ -307,67 +308,6 @@ fn order_to_override_query(order: &str) -> (String, bool) {
         _ => {}
     }
     (query, skip_first_id)
-}
-
-/// `Prefs::set` (the `_DEFAULT_VIEW_*` upsert) — resolves the current value
-/// and writes only on change, exactly like `Prefs::_set`.
-async fn pref_set(pool: &sqlx::PgPool, uid: i64, profile: Option<i32>, name: &str, value: &str) {
-    let (default, ty) = match prefs::default_for(name) {
-        Some(d) => d,
-        None => return,
-    };
-    let _ = ty;
-    let new_value = value.trim(); // strip_tags + trim (no tags in view params)
-
-    // current value: (uid, profile) override else default
-    let cur: Option<String> = sqlx::query_scalar::<_, String>(
-        "SELECT value FROM ttrss_user_prefs2
-         WHERE pref_name = $1 AND owner_uid = $2 AND (profile = $3 OR ($3 IS NULL AND profile IS NULL))",
-    )
-    .bind(name)
-    .bind(uid)
-    .bind(profile)
-    .fetch_optional(pool)
-    .await
-    .ok()
-    .flatten();
-    let cur = cur.unwrap_or_else(|| default.to_string());
-    if cur == new_value {
-        return;
-    }
-
-    let exists = sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(pref_name) FROM ttrss_user_prefs2
-         WHERE pref_name = $1 AND owner_uid = $2 AND (profile = $3 OR ($3 IS NULL AND profile IS NULL))",
-    )
-    .bind(name)
-    .bind(uid)
-    .bind(profile)
-    .fetch_one(pool)
-    .await
-    .unwrap_or(0);
-    if exists == 0 {
-        let _ = sqlx::query(
-            "INSERT INTO ttrss_user_prefs2 (pref_name, value, owner_uid, profile) VALUES ($1, $2, $3, $4)",
-        )
-        .bind(name)
-        .bind(new_value)
-        .bind(uid)
-        .bind(profile)
-        .execute(pool)
-        .await;
-    } else {
-        let _ = sqlx::query(
-            "UPDATE ttrss_user_prefs2 SET value = $2
-             WHERE pref_name = $1 AND owner_uid = $3 AND (profile = $4 OR ($4 IS NULL AND profile IS NULL))",
-        )
-        .bind(name)
-        .bind(new_value)
-        .bind(uid)
-        .bind(profile)
-        .execute(pool)
-        .await;
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -986,39 +926,6 @@ fn color_unpack(hex: &str) -> (i64, i64, i64) {
     (((c >> 16) & 0xFF) as i64, ((c >> 8) & 0xFF) as i64, (c & 0xFF) as i64)
 }
 
-/// `strip_tags` (the M2 usage: drop HTML tags/comments, keep text + entities).
-pub(crate) fn strip_tags(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    let mut rest = s;
-    while let Some(i) = rest.find('<') {
-        out.push_str(&rest[..i]);
-        let after = &rest[i + 1..];
-        if let Some(c) = after.chars().next() {
-            if c == '!' && after.starts_with("<!--") {
-                match after[4..].find("-->") {
-                    Some(j) => rest = &after[4 + j + 3..],
-                    None => return out,
-                }
-                continue;
-            }
-            if c.is_ascii_alphabetic() || c == '/' || c == '!' || c == '?' {
-                match after.find('>') {
-                    Some(j) => {
-                        rest = &after[j + 1..];
-                        continue;
-                    }
-                    // non-terminated tag: PHP strips to the end of the string
-                    None => return out,
-                }
-            }
-        }
-        out.push('<');
-        rest = after;
-    }
-    out.push_str(rest);
-    out
-}
-
 /// `truncate_string($str, $max_len)` — `&hellip;` suffix (char-based).
 fn truncate_string(s: &str, max_len: usize) -> String {
     if s.chars().count() > max_len {
@@ -1611,15 +1518,6 @@ async fn feed_title_of(feed: i64, pool: &sqlx::PgPool, uid: i64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn strip_tags_basics() {
-        assert_eq!(strip_tags("<p>hello</p>"), "hello");
-        assert_eq!(strip_tags("a <b>bold</b> &amp; c"), "a bold &amp; c");
-        assert_eq!(strip_tags("<!-- comment -->text"), "text");
-        assert_eq!(strip_tags("a < 5"), "a < 5");
-        assert_eq!(strip_tags("<div>multi\n  line</div>"), "multi\n  line");
-    }
 
     #[test]
     fn url_to_youtube_vid_cases() {

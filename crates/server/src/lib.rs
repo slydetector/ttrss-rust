@@ -20,6 +20,7 @@ pub mod sanitizer;
 mod sanitizer_parity;
 pub mod session;
 pub mod time;
+pub mod util;
 
 use ttrss_core::config::Config;
 use ttrss_core::db::Db;
