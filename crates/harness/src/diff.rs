@@ -39,6 +39,7 @@ const VOLATILE_HEADERS: &[&str] = &[
     "connection",
     "transfer-encoding",
     "vary",
+    "accept-ranges",
 ];
 
 fn filtered_headers(headers: &[(String, String)]) -> BTreeMap<String, String> {

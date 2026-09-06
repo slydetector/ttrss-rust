@@ -23,7 +23,7 @@ use ttrss_core::phpser::Value;
 use ttrss_core::session as core_session;
 use tokio::fs;
 use ttrss_server::{
-    nocache_headers, with_trailing_slash, AppState, auth, mime, render, rpc, session,
+    nocache_headers, with_trailing_slash, AppState, auth, diskcache, mime, render, rpc, session,
 };
 
 #[tokio::main]
@@ -156,15 +156,39 @@ async fn public_handler(
     query: Query<PublicQuery>,
     form: Form<PublicForm>,
 ) -> Response {
-    match form.op.as_deref() {
+    // `$_REQUEST['op']` merges GET + POST, so `op` may arrive in either.
+    let op = query.op.as_deref().or_else(|| form.op.as_deref());
+    match op {
         Some("login") => login_flow(&state, sess.0, &query, &form).await,
         Some("logout") => logout_flow(&state, sess.0, &form).await,
+        // `Handler_Public::cached` — serve `<CACHE_DIR>/<subdir>/<file>`.
+        Some("cached") => cached_file(&state, query.file.as_deref()),
+        // `Handler_Public::feed_icon` — serve `<CACHE_DIR>/feed-icons/<id>`.
+        Some("feed_icon") => match query
+            .id
+            .as_deref()
+            .map(|id| state.config.feed_icon_dir.join(id.trim()))
+        {
+            Some(path) if path.file_name().is_some() => diskcache::send_file(&path),
+            _ => StatusCode::NOT_FOUND.into_response(),
+        },
         _ => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+/// `Handler_Public::cached()`: `?file=<subdir>/<name>` from the app cache dir.
+fn cached_file(state: &AppState, file: Option<&str>) -> Response {
+    match file.and_then(|f| diskcache::resolve_cached(&state.config.feed_icon_dir, f)) {
+        Some(path) => diskcache::send_file(&path),
+        None => StatusCode::NOT_FOUND.into_response(),
     }
 }
 
 #[derive(Deserialize)]
 struct PublicQuery {
+    op: Option<String>,
+    file: Option<String>,
+    id: Option<String>,
     #[serde(rename = "return")]
     return_url: Option<String>,
 }

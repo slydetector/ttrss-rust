@@ -8,6 +8,7 @@
 pub mod article;
 pub mod auth;
 pub mod counters;
+pub mod diskcache;
 pub mod feeds;
 pub mod headlines;
 pub mod hotkeys;
