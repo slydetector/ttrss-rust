@@ -457,9 +457,9 @@ the Rust port) and are parked as `REVISIT` blocks in the Rust test code:
 | 9 | `SessionsIntegrationTest` (29) | `server::session` | ✅ 29/29 ported (`tests/session_parity.rs`) + row-8 regeneration case = 30 tests. `Sessions` class methods ported to `server::session::{exists,read,write,destroy,validate_session}` (raw string-level, matching `SessionHandlerInterface`); envelope helpers (`encrypt_envelope`/`decrypt_envelope`) + `Session::from_items` in `core::session`; `validate_session` (+`single_user_mode` config, `ACCESS_LEVEL_*` consts in `core::user`) now used by `rpc::dispatch`; middleware `load` auto-creates like PHP `session_start`; `sql_bool_to_bool` canonicalized in `core::config` (used by prefs + config) |
 | 10 | `ArticleTest` (32) | `server::article` | ✅ 32/32 ported (`tests/article_parity.rs`). `Article` static surface ported to `server::article`: `get_tags` / `get_labels` (+ `Labels::update_cache` marker) / `catchup_by_id` / `purge_orphans` / `get_enclosures` / `labels_of` / `feeds_of` / `get_image` (XPath subset via iterative kuchikiki walk, YouTube embed / video poster / img / enclosure fallback / ALBUM detection) / `format_enclosures` (+ `can_inline` via prefs `STRIP_IMAGES`); `rewrite_relative` now `pub(crate)`; PluginHost hooks + DiskCache wrapping omitted (no plugins / no disk cache) with NOTEs |
 | 11 | `FeedsCountersIntegrationTest` (40) | `server::counters` | ✅ 40/40 ported (`tests/counters_parity.rs`). `Feeds::_get_counters` ported to `counters::get_counters` (`FeedOrTag` = feed id **or** tag name, PHP `(int)`/`is_numeric` casts, tag branch, `FRESH_ARTICLE_MAX_AGE` pref lookup); `Counters::{get_all, get_conditional, get_labels}` exposed as `counters::{get_all, get_conditional, get_labels}` on the existing M3 counter machinery (private `get_all`/`get_labels` renamed `all_counters`/`labels_counters`); `feed_counters` gained the PHP `$n_feed === FEED_ARCHIVED` strict-int flag; PHP `setUp()`'s `Prefs::set(FRESH_ARTICLE_MAX_AGE, 999999, 1, null)` modeled as a `ttrss_user_prefs2` INSERT |
-| 12 | `FeedsHeadlinesIntegrationTest` (20) | `server::headlines` | — |
-| 13 | `LabelsTest`/`LabelsIntegrationTest` (15/35) | labels | — |
-| 14 | `RPCTest` (10) | `server::rpc` | — |
+| 12 | `FeedsHeadlinesIntegrationTest` (20) | `server::headlines` | ✅ 20/20 ported (`tests/headlines_parity.rs`). `Feeds::_get_headlines` exposed as `headlines::get_headlines_query(&Db, &HeadlinesParams)` (pub `HeadlinesQuery` = the typed form of PHP's 9-tuple return); `since_id` plumbed into the private query builder (numeric-feed main query + first-id query, not the tag-browsing query — faithful to PHP); `HeadlinesParams::new(feed, owner_uid)` carries the PHP defaults (limit 30, `view_mode` all); prefs loaded with profile `None` (no session profile at this layer) | 
+| 13 | `LabelsTest`/`LabelsIntegrationTest` (15/35) | `server::labels` | ✅ 50/50 ported (15 pure + 35 DB, `tests/labels_parity.rs`). New `server::labels` = the PHP `Labels` class: `label_to_feed_id`/`feed_to_label_id` (canonical i64 home; `article` re-exports), case-insensitive `find_id`/`find_caption`, `get_all`/`get_as_hash`, transactional `create`/`remove` (`remove` binds the varchar `ttrss_access_keys.feed_id` as a **string** — PHP PDO binds ints as strings), `add_article`/`remove_article`, `clear_cache`, `update_cache` + `get_labels_json` (string-level `Article::_get_labels` with the cache-hit-as-is semantics; `article::get_labels` delegates to it) |
+| 14 | `RPCTest` (10) | `server::rpc` | ✅ 10/10 ported (`tests/rpc_parity.rs`). PHP `RPC::mark`/`publ`/`delete` ported to `article::{mark, publ, delete}` (cleaned string params, Postgres-side `$1::boolean` cast like PDO string binding, `pub` request key for `publ`, `Null` output on empty `delete`), dispatched from `rpc.rs`; the `markSelected`/`publishSelected` arms were already present; tests seed a `Sess` with `uid = 1` (PHP `DbTestCase`'s `$_SESSION["uid"]`) |
 
 (Feed-parser/RSS-utils/DiskCache/Scheduler/PluginHost/Api suites map to modules
 not yet ported and will be added alongside those modules in M4+.)
@@ -560,6 +560,31 @@ itself went into `server::session` (raw `exists`/`read`/`write`/`destroy` +
 class surface to the module, then assert the PHP suite 1:1 in the test file.
 **Row 10 done** (`article_parity.rs`, 32 tests green) using that shape.
 **Row 11 done** (`counters_parity.rs`, 40 tests green).
+**Rows 12–14 done** (`headlines_parity.rs` 20, `labels_parity.rs` 50,
+`rpc_parity.rs` 10 — all green).
+
+Infra findings from rows 12–14 (affect all DB-backed tests):
+
+- **sqlx 0.7.4 statement-cache bug:** each `PgConnection` keeps a
+  `StatementCache` (default capacity 100) keyed by **SQL text only**. Re-using
+  the same text with different parameter type OIDs (e.g. an `i32` literal vs
+  `i64` for the second parameter) reuses the old prepared statement and the
+  server dies with `08P01 insufficient data left in message` (a 4-byte
+  INT4 value can't satisfy the 8-byte INT8 receiver). PHP PDO has no such
+  cross-call reuse, so `Db::connect_url` and the test `make_db` set
+  `statement_cache_capacity(0)`.
+- **`labels::create`/`remove` harden:** both now return `Result` (they
+  previously swallowed `INSERT`/`DELETE` errors via `.ok()`); the
+  `ttrss_access_keys.feed_id` cleanup binds the label feed-id as a string
+  (the column is `varchar(250)`; an `i64` bind is a `42883` operator error
+  that aborts the whole transaction).
+- **`#[sqlx::test]` cross-binary race:** each test binary's one-shot stale-DB
+  cleanup drops **connection-less** test databases older than 2 s — including
+  databases of sibling binaries running concurrently. A test that sleeps >1 s
+  (the harness pool has a 1 s idle timeout) must hold a pool connection across
+  the sleep, and `make_db` now sets `acquire_timeout` to 120 s so
+  connection-establishment under full-suite load doesn't `PoolTimedOut`
+  (nextest `test-threads` lowered 16 → 8 for the same reason).
 
 #### M2 — `Feeds::view` headlines / Sanitizer approach
 

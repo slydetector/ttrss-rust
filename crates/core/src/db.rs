@@ -15,8 +15,9 @@
 //! statements are idempotent, so re-applying them on each checkout is a no-op.
 
 use anyhow::Result;
+use std::str::FromStr;
 use sqlx::pool::PoolOptions;
-use sqlx::postgres::{PgConnection, PgPool};
+use sqlx::postgres::{PgConnectOptions, PgConnection, PgPool};
 
 use crate::config::Config;
 
@@ -48,7 +49,16 @@ impl Db {
     /// Open a connection pool from an explicit URL, applying the same PHP
     /// session setup as [`Db::connect`] (used by the DB-backed test suites).
     pub async fn connect_url(url: &str) -> Result<Self> {
-        let options = PoolOptions::<sqlx::Postgres>::new()
+        let options = PgConnectOptions::from_str(url)?
+            // sqlx 0.7 keeps a per-connection statement cache keyed by SQL
+            // text (default capacity 100): re-Parsing the same text with
+            // different parameter type OIDs silently reuses the old
+            // prepared statement and produces wire-protocol errors (08P01)
+            // instead of a clean type error. PHP's PDO prepares per call
+            // and has no such cross-call reuse, so disable the cache.
+            .statement_cache_capacity(0);
+
+        let pool = PoolOptions::<sqlx::Postgres>::new()
             .max_connections(10)
             .before_acquire(|conn: &mut PgConnection, _meta| {
                 Box::pin(async move {
@@ -57,9 +67,9 @@ impl Db {
                     }
                     Ok(true)
                 })
-            });
-
-        let pool = options.connect(url).await?;
+            })
+            .connect_with(options)
+            .await?;
         Ok(Self { pool })
     }
 

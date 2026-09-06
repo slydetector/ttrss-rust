@@ -16,5 +16,7 @@
 # parallelize. Each test binary runs in its own process (nextest default).
 
 [profile.default]
-# I/O-bound suite; parallelize generously.
-test-threads = 16
+# I/O-bound suite, but all DB-backed parity tests share one test Postgres:
+# each test creates and fixture-loads a fresh database, so very high
+# parallelism starves connection establishment (pool acquire timeouts).
+test-threads = 8

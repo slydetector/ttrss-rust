@@ -44,6 +44,20 @@ struct Inner {
 }
 
 impl Sess {
+    /// An empty session with the given id (no stored row, no data) — the
+    /// anonymous form the middleware builds before a `load`; tests use it to
+    /// seed session data via [`Sess::replace`].
+    pub fn new(id: String) -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(Inner {
+                id,
+                data: Session::new(),
+                dirty: false,
+                destroyed: false,
+            })),
+        }
+    }
+
     /// The current session id ("" if the request had no session cookie).
     pub fn id(&self) -> String {
         self.inner.lock().unwrap().id.clone()

@@ -512,7 +512,7 @@ async fn test_get_counters_label_id(
         .expect("assign label");
 
     // Get the negative label reference ID
-    let label_ref = ttrss_server::article::label_to_feed_id(label_id);
+    let label_ref = ttrss_server::labels::label_to_feed_id(label_id as i64);
 
     // Count unread articles with this label
     assert_eq!(

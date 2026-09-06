@@ -14,6 +14,7 @@
 //! `TIME ZONE 0`, `datestyle = 'ISO, european'`, …) so test connections
 //! behave exactly like the server's and the PHP reference's.
 
+use std::time::Duration;
 use sqlx::pool::PoolOptions;
 use sqlx::postgres::{PgConnectOptions, PgConnection, Postgres};
 use ttrss_core::db::{Db, SESSION_SETUP};
@@ -30,7 +31,20 @@ pub async fn make_db(
     pool: PoolOptions<Postgres>,
     options: PgConnectOptions,
 ) -> anyhow::Result<Db> {
+    // sqlx 0.7 keeps a per-connection statement cache keyed by SQL text
+    // (default capacity 100): re-Parsing the same text with different
+    // parameter type OIDs silently reuses the old prepared statement and
+    // produces wire-protocol errors (08P01), so disable it — parity tests
+    // (and the PHP port's `int`/`numeric-string` parameter mix) bind the
+    // same query shapes with different Rust integer widths.
+    let options = options.statement_cache_capacity(0);
+
     let pool = pool
+        // The harness default is 30s; under full-suite load (many test
+        // binaries creating/fixture-loading databases concurrently on one
+        // test Postgres) connection establishment + the SESSION_SETUP hook
+        // can exceed that, so allow a much longer acquire window.
+        .acquire_timeout(Duration::from_secs(120))
         .before_acquire(|conn: &mut PgConnection, _meta| {
             Box::pin(async move {
                 for stmt in SESSION_SETUP {

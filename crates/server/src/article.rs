@@ -27,6 +27,9 @@ use crate::sanitizer::rewrite_relative;
 use crate::session::Sess;
 use crate::AppState;
 
+// `Labels::{label_to_feed_id, feed_to_label_id}` (canonical home: labels.rs).
+pub use crate::labels::{feed_to_label_id, label_to_feed_id};
+
 // `Article::*` (Article.php).
 pub const CATCHUP_MODE_MARK_AS_READ: i32 = 0;
 pub const CATCHUP_MODE_MARK_AS_UNREAD: i32 = 1;
@@ -35,17 +38,6 @@ pub const ARTICLE_KIND_ALBUM: i32 = 1;
 pub const ARTICLE_KIND_VIDEO: i32 = 2;
 pub const ARTICLE_KIND_YOUTUBE: i32 = 3;
 
-// `Feeds::*` (functions.php).
-const LABEL_BASE_INDEX: i64 = -1024;
-
-fn feed_to_label_id(feed: i64) -> i64 {
-    LABEL_BASE_INDEX - 1 + feed.abs()
-}
-
-/// `Labels::label_to_feed_id`.
-pub fn label_to_feed_id(label: i32) -> i64 {
-    LABEL_BASE_INDEX - 1 - label.abs() as i64
-}
 
 /// A scalar form value as its PHP string form.
 fn scalar_str(v: &Value) -> Option<String> {
@@ -274,82 +266,14 @@ pub async fn get_labels(
         _ => session_uid as i32,
     };
 
-    let cache: Option<String> = sqlx::query_scalar(
-        "SELECT label_cache FROM ttrss_user_entries WHERE ref_id = $1 AND owner_uid = $2",
-    )
-    .bind(id)
-    .bind(owner)
-    .fetch_optional(pool)
-    .await
-    .ok()
-    .flatten();
-
-    if let Some(cache) = cache.as_deref().filter(|c| !c.is_empty()) {
-        match serde_json::from_str::<Value>(cache) {
-            Ok(v) => {
-                let no_labels = v.get("no-labels").and_then(Value::as_i64) == Some(1);
-                if v.is_null() || no_labels {
-                    return Vec::new();
-                }
-                if let Some(arr) = v.as_array() {
-                    if arr.is_empty() {
-                        return Vec::new();
-                    }
-                    return arr.clone();
-                }
-                // NOTE: PHP would return the decoded scalar as-is; degenerate
-                // cache contents are treated as "no labels" here.
-                return Vec::new();
-            }
-            Err(_) => {
-                // Malformed cache JSON: PHP `json_decode` -> null -> empty.
-                return Vec::new();
-            }
-        }
+    // The typed form of `labels::get_labels_json` (the same
+    // `Article::_get_labels` semantics); a decodable non-array cache value
+    // is treated as no labels (PHP would return the decoded scalar as-is).
+    let cached = crate::labels::get_labels_json(pool, owner as i64, id).await;
+    match serde_json::from_str::<Value>(&cached) {
+        Ok(Value::Array(arr)) => arr,
+        _ => Vec::new(),
     }
-
-    // The hard way: the user's labels assigned to this article.
-    let rows = sqlx::query(
-        "SELECT DISTINCT label_id, caption, fg_color, bg_color
-         FROM ttrss_labels2, ttrss_user_labels2
-         WHERE id = label_id AND article_id = $1 AND owner_uid = $2
-         ORDER BY caption",
-    )
-    .bind(id)
-    .bind(owner)
-    .fetch_all(pool)
-    .await
-    .unwrap_or_default();
-
-    let mut rv: Vec<Value> = Vec::new();
-    for row in &rows {
-        let label_id: i32 = row.get(0);
-        let caption: String = row.get(1);
-        let fg_color: String = row.get(2);
-        let bg_color: String = row.get(3);
-        rv.push(json!([label_to_feed_id(label_id), caption, fg_color, bg_color]));
-    }
-
-    update_labels_cache(pool, owner as i64, id, &rv).await;
-    rv
-}
-
-/// `Labels::update_cache` (as called from `Article::_get_labels`): store the
-/// label set (or the `{"no-labels":1}` marker) in `label_cache`.
-async fn update_labels_cache(pool: &sqlx::PgPool, owner_uid: i64, id: i32, labels: &[Value]) {
-    let json: Value = if labels.is_empty() {
-        json!({ "no-labels": 1 })
-    } else {
-        Value::Array(labels.to_vec())
-    };
-    let _ = sqlx::query(
-        "UPDATE ttrss_user_entries SET label_cache = $1 WHERE ref_id = $2 AND owner_uid = $3",
-    )
-    .bind(json.to_string())
-    .bind(id)
-    .bind(owner_uid)
-    .execute(pool)
-    .await;
 }
 
 /// `Article::_purge_orphans`: delete entries no user references.
@@ -764,4 +688,70 @@ pub async fn publish_selected(
     let labels = labels_of(pool, &ids, uid).await;
     let feeds = feeds_of(pool, &ids, uid).await;
     update_counters(labels, feeds)
+}
+
+/// `RPC::mark`: star / unstar one article (`mark` is the cleaned request
+/// string, cast to boolean by Postgres exactly as PHP's `marked = ?`).
+/// PHP `HOOK_ARTICLES_MARK_TOGGLED` is omitted (no plugin host).
+pub async fn mark(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Value {
+    let uid = sess.data().uid().unwrap_or(0);
+    let mark = cleaned_str(extra, "mark");
+    let id = cleaned_str(extra, "id");
+    let _ = sqlx::query(
+        "UPDATE ttrss_user_entries SET marked = $1::boolean, last_marked = NOW()
+         WHERE ref_id = $2::int AND owner_uid = $3",
+    )
+    .bind(&mark)
+    .bind(&id)
+    .bind(uid)
+    .execute(state.db.pool())
+    .await;
+    json!({ "message": "UPDATE_COUNTERS" })
+}
+
+/// `RPC::publ`: publish / unpublish one article (see [`mark`]). PHP
+/// `HOOK_ARTICLES_PUBLISH_TOGGLED` is omitted (no plugin host).
+pub async fn publ(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Value {
+    let uid = sess.data().uid().unwrap_or(0);
+    let pub_ = cleaned_str(extra, "pub");
+    let id = cleaned_str(extra, "id");
+    let _ = sqlx::query(
+        "UPDATE ttrss_user_entries SET published = $1::boolean, last_published = NOW()
+         WHERE ref_id = $2::int AND owner_uid = $3",
+    )
+    .bind(&pub_)
+    .bind(&id)
+    .bind(uid)
+    .execute(state.db.pool())
+    .await;
+    json!({ "message": "UPDATE_COUNTERS" })
+}
+
+/// `RPC::delete`: remove the given articles from the session user's
+/// subscriptions. An empty id list is a no-op with no output (PHP returns
+/// before printing); [`Value::Null`] models that.
+pub async fn delete(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Value {
+    let ids = param_int_array(extra, "ids");
+    if ids.is_empty() {
+        return Value::Null; // PHP: `if (!$ids) return;` (no output)
+    }
+    let uid = sess.data().uid().unwrap_or(0);
+    let sql = format!(
+        "DELETE FROM ttrss_user_entries WHERE ref_id IN ({}) AND owner_uid = ${}",
+        in_placeholders(&ids),
+        ids.len() + 1
+    );
+    let _ = bind_ids(sqlx::query(&sql), &ids)
+        .bind(uid)
+        .execute(state.db.pool())
+        .await;
+    json!({ "message": "UPDATE_COUNTERS" })
+}
+
+/// `clean($_REQUEST[name])` for the string form: `trim(strip_tags(v))`.
+fn cleaned_str(extra: &Map<String, Value>, name: &str) -> String {
+    let Some(s) = extra.get(name).and_then(scalar_str) else {
+        return String::new();
+    };
+    crate::headlines::strip_tags(&s).trim().to_string()
 }

@@ -10,6 +10,7 @@ pub mod auth;
 pub mod counters;
 pub mod feeds;
 pub mod headlines;
+pub mod labels;
 pub mod mime;
 pub mod prefs;
 pub mod render;

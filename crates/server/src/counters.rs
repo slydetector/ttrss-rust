@@ -12,12 +12,12 @@ use sqlx::Row;
 use ttrss_core::db::Db;
 
 use crate::prefs;
+use crate::labels::{feed_to_label_id, label_to_feed_id, LABEL_BASE_INDEX};
 use crate::session::Sess;
 use crate::time::TzCtx;
 use crate::AppState;
 
 // `Feeds::*` (functions.php).
-const LABEL_BASE_INDEX: i64 = -1024;
 const PLUGIN_FEED_BASE_INDEX: i64 = -128;
 const FEED_ARCHIVED: i64 = 0;
 const FEED_STARRED: i64 = -1;
@@ -26,16 +26,6 @@ const FEED_FRESH: i64 = -3;
 const FEED_ALL: i64 = -4;
 const FEED_RECENTLY_READ: i64 = -6;
 const CAT_LABELS: i64 = -2;
-
-/// `Labels::label_to_feed_id` = `LABEL_BASE_INDEX - 1 - abs(label)`.
-fn label_to_feed_id(label: i64) -> i64 {
-    LABEL_BASE_INDEX - 1 - label.abs()
-}
-
-/// `Labels::feed_to_label_id` = `LABEL_BASE_INDEX - 1 + abs(feed)`.
-fn feed_to_label_id(feed: i64) -> i64 {
-    LABEL_BASE_INDEX - 1 + feed.abs()
-}
 
 /// `RPC::getAllCounters`.
 pub async fn get_all_counters(

@@ -159,6 +159,9 @@ async fn rpc_handler(
         "catchupSelected" => crate::article::catchup_selected(state, sess, extra).await,
         "markSelected" => crate::article::mark_selected(state, sess, extra).await,
         "publishSelected" => crate::article::publish_selected(state, sess, extra).await,
+        "mark" => crate::article::mark(state, sess, extra).await,
+        "publ" => crate::article::publ(state, sess, extra).await,
+        "delete" => crate::article::delete(state, sess, extra).await,
         other => unknown_method("RPC", other),
     }
 }

@@ -19,8 +19,9 @@ use crate::session::Sess;
 use crate::time::{self, TzCtx};
 use crate::AppState;
 
-// `Feeds::*` / `LABEL_BASE_INDEX` (functions.php).
-const LABEL_BASE_INDEX: i64 = -1024;
+use crate::labels::{feed_to_label_id, label_to_feed_id, LABEL_BASE_INDEX};
+
+// `Feeds::*` (functions.php).
 const FEED_ARCHIVED: i64 = 0;
 const FEED_STARRED: i64 = -1;
 const FEED_PUBLISHED: i64 = -2;
@@ -33,11 +34,6 @@ const CAT_SPECIAL: i64 = -1;
 const CAT_LABELS: i64 = -2;
 const NEVER_GROUP_FEEDS: &[i64] = &[FEED_RECENTLY_READ, FEED_ARCHIVED];
 const NEVER_GROUP_BY_DATE: &[i64] = &[FEED_PUBLISHED, FEED_STARRED, FEED_FRESH];
-
-/// `Labels::feed_to_label_id` = `LABEL_BASE_INDEX - 1 + abs(feed)`.
-fn feed_to_label_id(feed: i64) -> i64 {
-    LABEL_BASE_INDEX - 1 + feed.abs()
-}
 
 /// `Handler::_param_to_bool`.
 fn param_to_bool(v: Option<&Value>) -> bool {
@@ -436,6 +432,7 @@ async fn format_headlines_list(
         order_by,
         rows,
         profile,
+        0, // since_id (the SPA `view` call does not paginate by id)
     )
     .await;
 
@@ -445,6 +442,7 @@ async fn format_headlines_list(
         feed_site_url,
         last_error,
         last_updated,
+        search_words: _,
         first_id,
         is_vfeed,
         query_error_override,
@@ -812,7 +810,7 @@ async fn get_labels_fallback(pool: &sqlx::PgPool, uid: i64, id: i32) -> Value {
     for r in &rows {
         let label_id = r.get::<i32, _>(0) as i64;
         out.push(json!([
-            LABEL_BASE_INDEX - 1 - label_id.abs(),
+            label_to_feed_id(label_id),
             r.get::<String, _>(1),
             r.get::<String, _>(2),
             r.get::<String, _>(3),
@@ -1033,16 +1031,87 @@ fn truncate_string(s: &str, max_len: usize) -> String {
 
 // ---- `_get_headlines` ------------------------------------------------------
 
-struct HeadlinesQuery {
-    article_rows: Vec<sqlx::postgres::PgRow>,
-    feed_title: String,
-    feed_site_url: String,
-    last_error: String,
-    last_updated: Option<String>,
-    first_id: i64,
-    is_vfeed: bool,
-    query_error_override: String,
-    first_id_changed: bool,
+/// Result of the headline query ([`get_headlines_query`] / `Feeds::_get_headlines`):
+/// the rows plus the feed metadata (PHP's 9-element return tuple minus the
+/// `search_words`, which is always empty without a plugin search).
+pub struct HeadlinesQuery {
+    pub article_rows: Vec<sqlx::postgres::PgRow>,
+    pub feed_title: String,
+    pub feed_site_url: String,
+    pub last_error: String,
+    pub last_updated: Option<String>,
+    /// `search_words` (no plugin search in this port: always empty).
+    pub search_words: Vec<String>,
+    pub first_id: i64,
+    pub is_vfeed: bool,
+    pub query_error_override: String,
+    pub first_id_changed: bool,
+}
+
+/// `Feeds::_get_headlines($params)` — the parameter shape (the subset the
+/// Rust server and the integration tests use; unset PHP defaults apply).
+#[derive(Debug, Clone, Default)]
+pub struct HeadlinesParams {
+    /// `feed` — a numeric feed id (a non-numeric string is a tag name).
+    pub feed: String,
+    /// `limit` (PHP default 30).
+    pub limit: i64,
+    /// `view_mode` (PHP default `"all"` here; PHP leaves it unset).
+    pub view_mode: String,
+    /// `cat_view` (PHP default false).
+    pub cat_view: bool,
+    /// `offset` (PHP default 0).
+    pub offset: i64,
+    /// `since_id` (PHP default 0): only articles with a larger id.
+    pub since_id: i64,
+    /// `owner_uid` (PHP: `$_SESSION["uid"]`).
+    pub owner_uid: i64,
+}
+
+impl HeadlinesParams {
+    /// The PHP defaults (`limit` 30, `view_mode` `"all"`).
+    pub fn new(feed: impl Into<String>, owner_uid: i64) -> Self {
+        Self {
+            feed: feed.into(),
+            limit: 30,
+            view_mode: "all".into(),
+            cat_view: false,
+            offset: 0,
+            since_id: 0,
+            owner_uid,
+        }
+    }
+}
+
+/// `Feeds::_get_headlines($params)` — the dynamic headline query (numeric
+/// feeds / categories / virtual feeds / labels / tags). The session profile
+/// is unavailable in this context, so prefs resolve against the default
+/// profile (matching the integration-test session, which carries none).
+pub async fn get_headlines_query(db: &ttrss_core::db::Db, params: &HeadlinesParams) -> HeadlinesQuery {
+    let pool = db.pool();
+    let feed_num: Option<i64> = params.feed.trim().parse::<i64>().ok();
+    let rows = prefs::load_rows(db, params.owner_uid, None).await;
+    get_headlines(
+        pool,
+        params.owner_uid,
+        &params.feed,
+        feed_num,
+        params.limit,
+        &params.view_mode,
+        params.cat_view,
+        "", // no active search
+        "",
+        "", // no override order
+        params.offset,
+        false, // include_children
+        0, // check_first_id
+        false, // skip_first_id_check
+        "", // order_by (PHP: commented out)
+        &rows,
+        None, // profile
+        params.since_id,
+    )
+    .await
 }
 
 /// `Feeds::_get_headlines` — the dynamic headline query, ported branch-for-
@@ -1067,6 +1136,7 @@ async fn get_headlines(
     _order_by: &str,
     rows: &[(String, Option<i32>, String)],
     profile: Option<i32>,
+    since_id: i64,
 ) -> HeadlinesQuery {
     // The branch logic below mutates `$override_order` (starred / published /
     // recently-read get a default order unless the caller supplied one).
@@ -1101,6 +1171,11 @@ async fn get_headlines(
         String::new()
     } else {
         format!("OFFSET {offset}")
+    };
+    let since_id_part = if since_id != 0 {
+        format!("ttrss_entries.id > {since_id} AND ")
+    } else {
+        String::new()
     };
 
     // query strategy per branch
@@ -1332,7 +1407,7 @@ async fn get_headlines(
 \t\t\t\tWHERE
 \t\t\t\t{feed_check_qpart}
 \t\t\t\tttrss_user_entries.owner_uid = '{uid}' AND
-\t\t\t\tdate_entered >= NOW() - INTERVAL '1 hour' AND
+\t\t\t\t{since_id_part}date_entered >= NOW() - INTERVAL '1 hour' AND
 \t\t\t\t{first_id_query_strategy_part} ORDER BY {order_by} LIMIT 1"
             );
             if let Ok(Some(r)) = sqlx::query(&query).fetch_optional(pool).await {
@@ -1344,6 +1419,7 @@ async fn get_headlines(
                         feed_site_url,
                         last_error,
                         last_updated,
+                        search_words: Vec::new(),
                         first_id,
                         is_vfeed: !vfeed_query_part.is_empty(),
                         query_error_override: String::new(),
@@ -1385,6 +1461,7 @@ async fn get_headlines(
 \t\t\t\t{feed_check_qpart}
 \t\t\t\tttrss_user_entries.owner_uid = '{uid}' AND
 \t\t\t\t{view_query_part}
+\t\t\t\t{since_id_part}
 \t\t\t\t{query_strategy_part} ORDER BY {order_by}
 \t\t\t\t{limit_query_part} {offset_query_part}"
         );
@@ -1451,6 +1528,7 @@ async fn get_headlines(
         feed_site_url,
         last_error,
         last_updated,
+        search_words: Vec::new(),
         first_id,
         is_vfeed: !vfeed_query_part.is_empty(),
         query_error_override: String::new(),
