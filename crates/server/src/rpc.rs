@@ -153,6 +153,14 @@ async fn rpc_handler(
 ) -> Value {
     match method {
         "sanityCheck" => sanity_check(state, sess, extra).await,
+        // TODO: stub (M2 close-out). PHP's `checkforupdates` polls
+        // `tt-rss.org/tt-rss/version.json` for new *PHP* releases (vs the
+        // local git checkout) and git-checks installed plugins for updates;
+        // a Rust deployment has no such upstream channel, so report the
+        // success shape with "no updates". The harness corpus step
+        // `rpc_check_for_updates` is a known intentional mismatch until the
+        // oracle side is adjusted.
+        "checkforupdates" => json!({ "changeset": [], "plugins": [] }),
         "getRuntimeInfo" => json!({ "runtime-info": make_runtime_info(state, sess).await }),
         "getAllCounters" => crate::counters::get_all_counters(state, sess, extra).await,
         // M3 mutations (article state).
