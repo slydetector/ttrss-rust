@@ -498,7 +498,7 @@ async fn format_headlines_list(
         let content_preview = if show_content_preview {
             format!(
                 "&mdash; {}",
-                truncate_string(&strip_tags(&content_raw), 250)
+                truncate_string(&strip_tags(&content_raw), 250, "&hellip;")
             )
         } else {
             String::new()
@@ -926,11 +926,11 @@ fn color_unpack(hex: &str) -> (i64, i64, i64) {
     (((c >> 16) & 0xFF) as i64, ((c >> 8) & 0xFF) as i64, (c & 0xFF) as i64)
 }
 
-/// `truncate_string($str, $max_len)` — `&hellip;` suffix (char-based).
-fn truncate_string(s: &str, max_len: usize) -> String {
+/// `truncate_string($str, $max_len, $suffix = '&hellip;')` (char-based).
+fn truncate_string(s: &str, max_len: usize, suffix: &str) -> String {
     if s.chars().count() > max_len {
         let cut: String = s.chars().take(max_len).collect();
-        format!("{cut}&hellip;")
+        format!("{cut}{suffix}")
     } else {
         s.to_string()
     }
@@ -1543,28 +1543,31 @@ mod tests {
 
     #[test]
     fn truncate_string_chars() {
+        let d = "&hellip;";
         // test_truncate_string_no_truncation
-        assert_eq!(truncate_string("hello", 10), "hello");
+        assert_eq!(truncate_string("hello", 10, d), "hello");
         // test_truncate_string_exact_length
-        assert_eq!(truncate_string("hello", 5), "hello");
+        assert_eq!(truncate_string("hello", 5, d), "hello");
         // test_truncate_string_shortens
-        assert_eq!(truncate_string("hello world", 5), "hello&hellip;");
+        assert_eq!(truncate_string("hello world", 5, d), "hello&hellip;");
+        // test_truncate_string_with_custom_suffix
+        assert_eq!(truncate_string("hello world", 5, "---"), "hello---");
         // test_truncate_string_empty_string
-        assert_eq!(truncate_string("", 10), "");
+        assert_eq!(truncate_string("", 10, d), "");
         // test_truncate_string_max_len_zero
-        assert_eq!(truncate_string("hello", 0), "&hellip;");
+        assert_eq!(truncate_string("hello", 0, d), "&hellip;");
         // test_truncate_string_multibyte_ascii
-        assert_eq!(truncate_string("hello", 4), "hell&hellip;");
+        assert_eq!(truncate_string("hello", 4, d), "hell&hellip;");
         // test_truncate_string_multibyte_unicode
-        assert_eq!(truncate_string("café", 4), "café");
+        assert_eq!(truncate_string("café", 4, d), "café");
         // test_truncate_string_multibyte_unicode_boundary
-        assert_eq!(truncate_string("café", 2), "ca&hellip;");
+        assert_eq!(truncate_string("café", 2, d), "ca&hellip;");
         // test_truncate_string_emoji
-        assert_eq!(truncate_string("👋🌍", 2), "👋🌍");
-        let r = truncate_string("👋🌍", 1);
+        assert_eq!(truncate_string("👋🌍", 2, d), "👋🌍");
+        let r = truncate_string("👋🌍", 1, d);
         assert!(r.contains("👋") && r.contains("&hellip;"), "got: {r}");
         // test_truncate_string_cjk
-        let r = truncate_string("你好世界", 3);
+        let r = truncate_string("你好世界", 3, d);
         assert!(r.contains("你") && r.contains("&hellip;"), "got: {r}");
     }
 

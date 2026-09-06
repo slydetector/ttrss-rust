@@ -131,6 +131,20 @@ pub fn sql_bool_to_bool(s: &str) -> bool {
     true
 }
 
+/// PHP `bool_to_sql_bool()` (`include/functions.php`): `bool` → `1`/`0` (INT4).
+pub fn bool_to_sql_bool(s: bool) -> i32 {
+    s as i32
+}
+
+/// PHP `checkbox_to_sql_bool()` (`include/functions.php`): `"on"` → `1`, else `0`.
+pub fn checkbox_to_sql_bool(val: &str) -> i32 {
+    if val == "on" {
+        1
+    } else {
+        0
+    }
+}
+
 /// Percent-encode a connection-string component (userinfo / dbname).
 fn urlenc(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
@@ -202,14 +216,32 @@ mod tests {
     #[test]
     fn sql_bool_to_bool_matches_php() {
         // PHP: $s && ($s !== "f" && $s !== "false") — "" and "0" are falsy.
-        assert!(!sql_bool_to_bool(""));
-        assert!(!sql_bool_to_bool("0"));
-        assert!(!sql_bool_to_bool("0.0")); // numeric string == 0 is falsy
+        // test_sql_bool_to_bool_true_values (FunctionsTest.php)
+        assert!(sql_bool_to_bool("t"));
+        assert!(sql_bool_to_bool("true"));
+        assert!(sql_bool_to_bool("1"));
+        assert!(sql_bool_to_bool("y"));
+        assert!(sql_bool_to_bool("anything"));
+        // test_sql_bool_to_bool_false_values — NOTE: PHP's `null` input is out
+        // of scope for a `&str` API; `""` is the empty/falsy stand-in.
         assert!(!sql_bool_to_bool("f"));
         assert!(!sql_bool_to_bool("false"));
-        assert!(sql_bool_to_bool("1"));
-        assert!(sql_bool_to_bool("true"));
-        assert!(sql_bool_to_bool("yes"));
-        assert!(sql_bool_to_bool("False")); // only exact "false" is special
+        assert!(!sql_bool_to_bool("0"));
+        assert!(!sql_bool_to_bool(""));
+        assert!(!sql_bool_to_bool("0.0")); // numeric string == 0 is falsy
+        // test_sql_bool_to_bool_uppercase_truthy — only exact lowercase
+        // "f"/"false" are special.
+        assert!(sql_bool_to_bool("F"));
+        assert!(sql_bool_to_bool("False"));
+    }
+
+    #[test]
+    fn sql_bool_conversions_match_php() {
+        // test_bool_to_sql_bool_true / _false
+        assert_eq!(bool_to_sql_bool(true), 1);
+        assert_eq!(bool_to_sql_bool(false), 0);
+        // test_checkbox_to_sql_bool_on / _other
+        assert_eq!(checkbox_to_sql_bool("on"), 1);
+        assert_eq!(checkbox_to_sql_bool("off"), 0);
     }
 }

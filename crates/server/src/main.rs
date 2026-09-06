@@ -482,15 +482,16 @@ mod tests {
     // The Rust port takes SELF_URL_PATH + docroot from the environment instead,
     // so these are N/A here. Tracked in docs/plan.md (test-parity, config row).
 
-    // REVISIT (REVISIT): the remaining FunctionsTest.php cases exercise
-    // functions.php helpers the Rust port has not (yet) ported, so they are
-    // parked (not dropped) and tracked in docs/plan.md (test-parity, functions
-    // row). Port them alongside the module that needs each helper:
-    //   clean_string (8), truncate_middle (7), mb_substr_replace (6),
-    //   bool_to_sql_bool (2), arr_qmarks (6), checkbox_to_sql_bool (2),
-    //   implements_interface (4), get_theme_path (2), theme_exists (1),
-    //   uniqid_short (4), get_random_bytes (3), t_sprintf (2), t_nsprintf (1),
-    //   gzdecode (1), get_scripts_timestamp (2).
-    //   (sql_bool_to_bool (3) is covered by prefs::tests; truncate_string (10)
-    //   and with_trailing_slash (5) are covered above / in headlines::tests.)
+    // FunctionsTest.php — ported 1:1 (tracked in docs/plan.md, test-parity,
+    // functions row): clean (10, server::util), truncate_string (11,
+    // headlines::tests), truncate_middle (7), mb_substr_replace (6),
+    // arr_qmarks (6), uniqid_short (4), get_random_bytes (3), t_sprintf (2),
+    // t_nsprintf (1), gzdecode (1) — all in server::util::tests; bool_to_sql_bool
+    // (2), checkbox_to_sql_bool (2), sql_bool_to_bool (3) — core::config::tests;
+    // get_theme_path (3) + get_scripts_timestamp (2) — render::tests;
+    // theme_exists (1) — rpc::tests; with_trailing_slash (5) — above.
+    //
+    // REVISIT (parked): implements_interface (4 cases) — PHP
+    // `class_implements()` reflection with no Rust consumer in the port yet.
+    // Revisit if a plugin/handler type-check surface is actually needed.
 }

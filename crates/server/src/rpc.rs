@@ -642,3 +642,15 @@ fn ct_eq(a: &str, b: &str) -> bool {
 fn url_scheme(url: &str) -> Option<String> {
     url::Url::parse(url).ok().map(|u| u.scheme().to_string())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn theme_exists_matches_php() {
+        // test_theme_exists_fake
+        let docroot = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tt-rss");
+        assert!(!theme_exists(&docroot, "nonexistent-theme-xyz"));
+    }
+}

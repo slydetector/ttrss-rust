@@ -18,7 +18,7 @@ use kuchikiki::{parse_html, ElementData, NodeData, NodeRef};
 use regex::Regex;
 use std::collections::BTreeSet;
 
-use crate::util::strip_tags;
+
 use crate::with_trailing_slash;
 
 const HTML_NS: &str = "http://www.w3.org/1999/xhtml";
@@ -817,16 +817,11 @@ fn build_url(p: &UrlParts) -> String {
     out
 }
 
-/// `clean()` for strings: `trim(strip_tags($str))` (functions.php).
-fn clean(s: &str) -> String {
-    strip_tags(s).trim().to_string()
-}
-
 /// Port of `UrlHelper::validate` (non-extended). Returns the validated URL —
 /// rebuilt from `parse_url` tokens, so the original scheme/host case and raw
 /// (non-encoded) path characters are preserved — or `None`.
 fn validate(url: &str) -> Option<String> {
-    let url = clean(url);
+    let url = crate::util::clean_str(url);
     let url = if url.starts_with("//") {
         format!("https:{url}")
     } else {

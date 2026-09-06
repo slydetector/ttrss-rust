@@ -176,4 +176,37 @@ mod tests {
         let cfg2 = test_config();
         assert!(scripts_timestamp(cfg2.docroot.as_path()) > 0);
     }
+
+    #[test]
+    fn get_theme_path_matches_php() {
+        let docroot = test_config().docroot;
+        // test_get_theme_path_nonexistent
+        assert_eq!(theme_path(&docroot, "nonexistent-theme-xyz", ""), "");
+        // test_get_theme_path_with_default
+        assert_eq!(
+            theme_path(&docroot, "nonexistent-theme-xyz", "themes/classic"),
+            "themes/classic"
+        );
+        // test_get_theme_path_empty_default
+        assert_eq!(theme_path(&docroot, "nonexistent-theme-xyz", ""), "");
+    }
+
+    #[test]
+    fn get_scripts_timestamp_matches_php() {
+        let docroot = test_config().docroot;
+        let ts = scripts_timestamp(&docroot);
+        // test_get_scripts_timestamp_returns_int
+        assert!(ts >= 0);
+        // test_get_scripts_timestamp_nonzero_when_js_exists
+        let has_js = std::fs::read_dir(docroot.join("js"))
+            .map(|rd| {
+                rd.flatten().any(|e| {
+                    e.path().extension().and_then(|s| s.to_str()) == Some("js")
+                })
+            })
+            .unwrap_or(false);
+        if has_js {
+            assert!(ts > 0);
+        }
+    }
 }

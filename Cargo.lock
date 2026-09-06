@@ -4285,6 +4285,7 @@ dependencies = [
  "chrono",
  "chrono-tz",
  "ctor",
+ "flate2",
  "html5ever 0.26.0",
  "kuchikiki",
  "md5",

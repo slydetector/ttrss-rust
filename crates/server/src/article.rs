@@ -753,5 +753,5 @@ fn cleaned_str(extra: &Map<String, Value>, name: &str) -> String {
     let Some(s) = extra.get(name).and_then(scalar_str) else {
         return String::new();
     };
-    crate::util::strip_tags(&s).trim().to_string()
+    crate::util::clean_str(&s)
 }
