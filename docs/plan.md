@@ -417,6 +417,18 @@ clean** on the golden dataset. Done so far:
 
 ### Test-parity program (PHP `#[test]` → Rust `#[test]`, 2026-09-05)
 
+> **STATUS: ✅ COMPLETE (2026-09-06).** All **14/14 rows** ported and green —
+> every PHP `#[test]` suite that maps to an already-ported Rust module is now
+> replicated 1:1 (per-row counts in the table below). Ground truth at completion:
+> `cargo nextest run` = **572 pass / 0 fail** (full workspace), `cargo clippy
+> --workspace --all-targets` clean (only the pinned `sqlx-postgres 0.7.4` upstream
+> note). PHP cases that don't port yet are either gated on modules not yet
+> ported (M2 `Feeds::view`/`search`, M4 config CRUD, M5 admin/API, M6 feed
+> engine, M7 plugins) or parked as `REVISIT`/N-A blocks in the Rust test code —
+> see **What's next** below. Three real bugs were root-caused and fixed along the
+> way (sqlx 0.7.4 statement-cache; `labels::remove` silent rollback; `#[sqlx::test]`
+> cross-binary DB-drop race) — see the infra-findings notes further down.
+
 The port is verified end-to-end by the **harness** (response/DB diff vs the PHP
 oracle), but the *unit-test* surface is thin: the PHP suite is large
 (`SanitizerTest` 162, `FunctionsTest` 73, `UrlHelperTest` 69, `TimeHelperTest` 41,
@@ -461,8 +473,28 @@ the Rust port) and are parked as `REVISIT` blocks in the Rust test code:
 | 13 | `LabelsTest`/`LabelsIntegrationTest` (15/35) | `server::labels` | ✅ 50/50 ported (15 pure + 35 DB, `tests/labels_parity.rs`). New `server::labels` = the PHP `Labels` class: `label_to_feed_id`/`feed_to_label_id` (canonical i64 home; `article` re-exports), case-insensitive `find_id`/`find_caption`, `get_all`/`get_as_hash`, transactional `create`/`remove` (`remove` binds the varchar `ttrss_access_keys.feed_id` as a **string** — PHP PDO binds ints as strings), `add_article`/`remove_article`, `clear_cache`, `update_cache` + `get_labels_json` (string-level `Article::_get_labels` with the cache-hit-as-is semantics; `article::get_labels` delegates to it) |
 | 14 | `RPCTest` (10) | `server::rpc` | ✅ 10/10 ported (`tests/rpc_parity.rs`). PHP `RPC::mark`/`publ`/`delete` ported to `article::{mark, publ, delete}` (cleaned string params, Postgres-side `$1::boolean` cast like PDO string binding, `pub` request key for `publ`, `Null` output on empty `delete`), dispatched from `rpc.rs`; the `markSelected`/`publishSelected` arms were already present; tests seed a `Sess` with `uid = 1` (PHP `DbTestCase`'s `$_SESSION["uid"]`) |
 
-(Feed-parser/RSS-utils/DiskCache/Scheduler/PluginHost/Api suites map to modules
-not yet ported and will be added alongside those modules in M4+.)
+#### What's next (after the parity program)
+
+The program itself is done; the remaining PHP `#[test]` suites are gated on
+modules that are **not yet ported**, so they land *alongside* those modules, not
+before them:
+
+| Remaining PHP coverage | Blocked on (Rust) | Milestone |
+|---|---|---|
+| `Feeds::view` / `Feeds::search` response handlers + `RPC::getAllCounters` (corpus 009/017/018/019/020/056) | `headlines::view`/`search` RPC wiring + `Feeds` branch in `rpc.rs` | **M2** (see the `M2 — Feeds::view` NEXT block below + §3a) |
+| Feed-parser / RSS-utils (fetch/parse/hash/dedup/filters/enclosures) | `FeedParser` + `RSSUtils` ports | **M6** |
+| DiskCache / Scheduler / counter-cache maintenance | DiskCache port + `daemon` tokio workers | **M6** |
+| PluginHost hooks (the `HOOK_*` no-ops left in rows 9–14) | Rust plugin API + first-party plugins | **M7** |
+| External-API write ops + admin (`Pref_Users`, system, OTP/QR) | write/admin handlers | **M5** |
+| Config CRUD (feed CRUD + categories + icons + OPML, filters, access keys) | M4 mutation handlers | **M4** |
+
+Also still open *inside* already-ported modules: the `REVISIT` (DB-backed) blocks
+named in the table (e.g. the 14 `server::prefs` cases) and the ~50 `FunctionsTest`
+helper cases parked in row 4 — these lift as each module gains the matching write
+surface. The M4 config-coverage row is *new* suites never in the 14-row board
+(feed subscribe/delete, categories, filters, OPML, access keys, icons/ordering),
+not a re-visit of rows 1–14 (the `Labels` class CRUD is already fully covered by
+row 13).
 
 #### Test infrastructure for DB-backed suites (status: COMPLETE, 2026-09-05)
 
