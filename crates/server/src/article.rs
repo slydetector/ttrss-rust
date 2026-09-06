@@ -43,7 +43,7 @@ fn feed_to_label_id(feed: i64) -> i64 {
 }
 
 /// `Labels::label_to_feed_id`.
-fn label_to_feed_id(label: i32) -> i64 {
+pub fn label_to_feed_id(label: i32) -> i64 {
     LABEL_BASE_INDEX - 1 - label.abs() as i64
 }
 

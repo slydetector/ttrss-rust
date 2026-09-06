@@ -9,6 +9,7 @@
 
 use serde_json::{json, Map, Value};
 use sqlx::Row;
+use ttrss_core::db::Db;
 
 use crate::prefs;
 use crate::session::Sess;
@@ -74,7 +75,7 @@ pub async fn get_all_counters(
     };
 
     let counters: Vec<Value> = match &feed_ids {
-        Some(ids) if !disable_conditional => get_all(
+        Some(ids) if !disable_conditional => all_counters(
             pool,
             uid,
             profile,
@@ -86,7 +87,7 @@ pub async fn get_all_counters(
             Some(&cat_ids),
         )
         .await,
-        _ => get_all(
+        _ => all_counters(
             pool,
             uid,
             profile,
@@ -134,10 +135,10 @@ fn parse_id_list(count: Option<&Value>, ids: Option<&Value>) -> Option<Vec<i64>>
     Some(parsed)
 }
 
-/// `Counters::get_all` / `get_conditional` (faithful port — the PHP method
-/// takes this many parameters).
+/// `Counters::get_all` / `get_conditional` body (faithful port — the PHP
+/// method takes this many parameters).
 #[allow(clippy::too_many_arguments)]
-async fn get_all(
+async fn all_counters(
     pool: &sqlx::PgPool,
     uid: i64,
     profile: Option<i32>,
@@ -153,7 +154,7 @@ async fn get_all(
     let mut out: Vec<Value> = Vec::new();
     out.extend(get_global(pool, uid).await);
     out.extend(get_virt(pool, uid, fresh_max_age).await);
-    out.extend(get_labels(pool, uid, label_ids).await);
+    out.extend(labels_counters(pool, uid, label_ids).await);
     out.extend(get_feeds(pool, uid, feed_ids, icon_dir, rows, profile, client_tz_offset).await);
     out.extend(get_cats(pool, uid, cat_ids, fresh_max_age).await);
     out
@@ -185,9 +186,9 @@ async fn get_global(pool: &sqlx::PgPool, uid: i64) -> Vec<Value> {
 async fn get_virt(pool: &sqlx::PgPool, uid: i64, fresh_max_age: i64) -> Vec<Value> {
     let mut out = Vec::new();
     for feed_id in [FEED_ARCHIVED, FEED_STARRED, FEED_PUBLISHED, FEED_FRESH, FEED_ALL] {
-        let count = feed_counters(pool, uid, feed_id, false, true, fresh_max_age).await;
+        let count = feed_counters(pool, uid, feed_id, false, true, true, fresh_max_age).await;
         let auxctr = if [FEED_ARCHIVED, FEED_STARRED, FEED_PUBLISHED].contains(&feed_id) {
-            feed_counters(pool, uid, feed_id, false, false, fresh_max_age).await
+            feed_counters(pool, uid, feed_id, false, false, true, fresh_max_age).await
         } else {
             0
         };
@@ -205,8 +206,8 @@ async fn get_virt(pool: &sqlx::PgPool, uid: i64, fresh_max_age: i64) -> Vec<Valu
     out
 }
 
-/// `Counters::get_labels`.
-async fn get_labels(
+/// `Counters::get_labels` (PHP body).
+async fn labels_counters(
     pool: &sqlx::PgPool,
     uid: i64,
     label_ids: Option<&[i64]>,
@@ -504,13 +505,16 @@ async fn cat_children(
 }
 
 /// `Feeds::_get_counters` (the general form; `is_cat` routes to the cat
-/// unread counters).
+/// unread counters). `feed_is_int` is PHP's `$n_feed === Feeds::FEED_ARCHIVED`
+/// strictness: string feeds (e.g. `"0"`) take `feed_id = 0`, not
+/// `feed_id IS NULL`.
 async fn feed_counters(
     pool: &sqlx::PgPool,
     uid: i64,
     feed: i64,
     is_cat: bool,
     unread_only: bool,
+    feed_is_int: bool,
     fresh_max_age: i64,
 ) -> i64 {
     if is_cat {
@@ -537,7 +541,7 @@ async fn feed_counters(
         ),
         FEED_ALL => ("true".to_string(), false),
         n if n >= 0 => {
-            if n == FEED_ARCHIVED {
+            if n == FEED_ARCHIVED && feed_is_int {
                 ("feed_id IS NULL".to_string(), false)
             } else {
                 (format!("feed_id = {n}"), false)
@@ -567,6 +571,162 @@ async fn feed_counters(
         .fetch_one(pool)
         .await
         .unwrap_or(0)
+}
+
+/// `Feeds::_get_counters(int|string $feed, …)` — a feed id **or** a tag name.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum FeedOrTag<'a> {
+    /// A numeric feed id (real, virtual, or label reference).
+    Feed(i64),
+    /// A tag name (`ttrss_tags.tag_name`).
+    Tag(&'a str),
+}
+
+impl FeedOrTag<'_> {
+    /// PHP `(int) $feed`.
+    pub fn as_int(self) -> i64 {
+        match self {
+            FeedOrTag::Feed(n) => n,
+            FeedOrTag::Tag(s) => php_int_cast(s),
+        }
+    }
+}
+
+/// PHP's `(int)` cast on a string: leading optional sign + digits
+/// (`"12abc"` → 12, `"rust"` → 0).
+fn php_int_cast(s: &str) -> i64 {
+    let t = s.trim();
+    let (sign, rest) = match t.as_bytes().first() {
+        Some(b'+') => (1i64, &t[1..]),
+        Some(b'-') => (-1i64, &t[1..]),
+        _ => (1i64, t),
+    };
+    let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+    sign * digits.parse().unwrap_or(0)
+}
+
+/// PHP `is_numeric()` (the form relevant here: optional sign, digits and a
+/// single dot; no exponents needed by the callers).
+fn php_is_numeric(s: &str) -> bool {
+    let t = s.trim();
+    let t = t.strip_prefix(['+', '-']).unwrap_or(t);
+    !t.is_empty()
+        && t.bytes().all(|b| b.is_ascii_digit() || b == b'.')
+        && t.bytes().any(|b| b.is_ascii_digit())
+}
+
+/// `Feeds::_get_counters` (the tag branch of the `$feed != "0" &&
+/// $n_feed == 0` case).
+async fn tag_counters(pool: &sqlx::PgPool, uid: i64, unread_only: bool, tag: &str) -> i64 {
+    let unread_qpart = if unread_only { "unread = true" } else { "true" };
+    let n: Option<i64> = sqlx::query_scalar(&format!(
+        "SELECT SUM((SELECT COUNT(int_id)
+            FROM ttrss_user_entries,ttrss_entries WHERE int_id = post_int_id
+                AND ref_id = id AND {unread_qpart})) AS count FROM ttrss_tags
+            WHERE owner_uid = $1 AND tag_name = $2"
+    ))
+    .bind(uid)
+    .bind(tag)
+    .fetch_one(pool)
+    .await
+    .unwrap_or(None);
+    // `SUM()` is NULL when the tag has no rows.
+    n.unwrap_or(0)
+}
+
+/// `Feeds::_get_counters` (public form of the PHP static; the session uid is
+/// explicit, the session profile is unavailable in this context so the
+/// `FRESH_ARTICLE_MAX_AGE` pref resolves against the default profile —
+/// matching the integration-test session, which carries no profile).
+pub async fn get_counters(
+    db: &Db,
+    uid: i64,
+    feed: FeedOrTag<'_>,
+    is_cat: bool,
+    unread_only: bool,
+    owner_uid: Option<i64>,
+) -> i64 {
+    let pool = db.pool();
+    let n_feed = feed.as_int();
+    // `if (!$owner_uid) $owner_uid = $_SESSION["uid"]`
+    let owner = match owner_uid {
+        Some(u) if u != 0 => u,
+        _ => uid,
+    };
+    if is_cat {
+        return cat_unread(pool, owner, n_feed, 0).await;
+    }
+    // `is_numeric($feed) && $feed < PLUGIN_FEED_BASE_INDEX && $feed >
+    // LABEL_BASE_INDEX` — plugin virtual feeds (none in this deployment).
+    let numeric = matches!(feed, FeedOrTag::Feed(_))
+        || matches!(feed, FeedOrTag::Tag(s) if php_is_numeric(s));
+    if numeric && n_feed < PLUGIN_FEED_BASE_INDEX && n_feed > LABEL_BASE_INDEX {
+        return 0;
+    }
+    if n_feed == FEED_RECENTLY_READ {
+        return 0;
+    }
+    // tags: `$feed != "0" && $n_feed == 0`
+    if let FeedOrTag::Tag(s) = feed {
+        if s != "0" && n_feed == 0 {
+            return tag_counters(pool, owner, unread_only, s).await;
+        }
+    }
+    let fresh_max_age = if n_feed == FEED_FRESH {
+        let rows = prefs::load_rows(db, owner, None).await;
+        prefs::resolve("FRESH_ARTICLE_MAX_AGE", &rows, None).as_int()
+    } else {
+        0
+    };
+    feed_counters(pool, owner, n_feed, false, unread_only, matches!(feed, FeedOrTag::Feed(_)), fresh_max_age).await
+}
+
+/// `Counters::get_all` (PHP) — the full counter list for the session user.
+pub async fn get_all(db: &Db, uid: i64, icon_dir: &std::path::Path) -> Vec<Value> {
+    let rows = prefs::load_rows(db, uid, None).await;
+    all_counters(db.pool(), uid, None, &rows, icon_dir, 0, None, None, None).await
+}
+
+/// `Counters::get_conditional` (PHP) — global + virtual + the given labels
+/// and feeds + the categories of the given feeds.
+pub async fn get_conditional(
+    db: &Db,
+    uid: i64,
+    feed_ids: Option<&[i64]>,
+    label_ids: Option<&[i64]>,
+    icon_dir: &std::path::Path,
+) -> Vec<Value> {
+    let rows = prefs::load_rows(db, uid, None).await;
+    // `is_array($feed_ids) ? Feeds::_cats_of($feed_ids, uid, true) : null`
+    // (an empty list yields an empty category list, not the full one).
+    let cat_ids: Option<Vec<i64>> = match feed_ids {
+        Some(ids) => {
+            Some(if ids.is_empty() {
+                Vec::new()
+            } else {
+                cats_of(db.pool(), uid, ids, true).await
+            })
+        }
+        None => None,
+    };
+    all_counters(
+        db.pool(),
+        uid,
+        None,
+        &rows,
+        icon_dir,
+        0,
+        feed_ids,
+        label_ids,
+        cat_ids.as_deref(),
+    )
+    .await
+}
+
+/// `Counters::get_labels` (PHP) — the label counter entries (all labels when
+/// `label_ids` is `None`, the given subset otherwise).
+pub async fn get_labels(db: &Db, uid: i64, label_ids: Option<&[i64]>) -> Vec<Value> {
+    labels_counters(db.pool(), uid, label_ids).await
 }
 
 /// `Feeds::_get_label_unread`.

@@ -456,7 +456,7 @@ the Rust port) and are parked as `REVISIT` blocks in the Rust test code:
 | 8 | `UserHelperTest` (8) | `server::auth` | ✅ 8/8 ported: 7 in `tests/user_parity.rs` (`#[sqlx::test]` + fixtures + `common::make_db`); session-id regeneration in `session_parity.rs` (row 9) on `auth::build_login_session` |
 | 9 | `SessionsIntegrationTest` (29) | `server::session` | ✅ 29/29 ported (`tests/session_parity.rs`) + row-8 regeneration case = 30 tests. `Sessions` class methods ported to `server::session::{exists,read,write,destroy,validate_session}` (raw string-level, matching `SessionHandlerInterface`); envelope helpers (`encrypt_envelope`/`decrypt_envelope`) + `Session::from_items` in `core::session`; `validate_session` (+`single_user_mode` config, `ACCESS_LEVEL_*` consts in `core::user`) now used by `rpc::dispatch`; middleware `load` auto-creates like PHP `session_start`; `sql_bool_to_bool` canonicalized in `core::config` (used by prefs + config) |
 | 10 | `ArticleTest` (32) | `server::article` | ✅ 32/32 ported (`tests/article_parity.rs`). `Article` static surface ported to `server::article`: `get_tags` / `get_labels` (+ `Labels::update_cache` marker) / `catchup_by_id` / `purge_orphans` / `get_enclosures` / `labels_of` / `feeds_of` / `get_image` (XPath subset via iterative kuchikiki walk, YouTube embed / video poster / img / enclosure fallback / ALBUM detection) / `format_enclosures` (+ `can_inline` via prefs `STRIP_IMAGES`); `rewrite_relative` now `pub(crate)`; PluginHost hooks + DiskCache wrapping omitted (no plugins / no disk cache) with NOTEs |
-| 11 | `FeedsCountersIntegrationTest` (40) | `server::counters` | — |
+| 11 | `FeedsCountersIntegrationTest` (40) | `server::counters` | ✅ 40/40 ported (`tests/counters_parity.rs`). `Feeds::_get_counters` ported to `counters::get_counters` (`FeedOrTag` = feed id **or** tag name, PHP `(int)`/`is_numeric` casts, tag branch, `FRESH_ARTICLE_MAX_AGE` pref lookup); `Counters::{get_all, get_conditional, get_labels}` exposed as `counters::{get_all, get_conditional, get_labels}` on the existing M3 counter machinery (private `get_all`/`get_labels` renamed `all_counters`/`labels_counters`); `feed_counters` gained the PHP `$n_feed === FEED_ARCHIVED` strict-int flag; PHP `setUp()`'s `Prefs::set(FRESH_ARTICLE_MAX_AGE, 999999, 1, null)` modeled as a `ttrss_user_prefs2` INSERT |
 | 12 | `FeedsHeadlinesIntegrationTest` (20) | `server::headlines` | — |
 | 13 | `LabelsTest`/`LabelsIntegrationTest` (15/35) | labels | — |
 | 14 | `RPCTest` (10) | `server::rpc` | — |
@@ -559,6 +559,7 @@ itself went into `server::session` (raw `exists`/`read`/`write`/`destroy` +
 `validate_session`), so rows 10–14 follow the same shape — port the PHP
 class surface to the module, then assert the PHP suite 1:1 in the test file.
 **Row 10 done** (`article_parity.rs`, 32 tests green) using that shape.
+**Row 11 done** (`counters_parity.rs`, 40 tests green).
 
 #### M2 — `Feeds::view` headlines / Sanitizer approach
 
