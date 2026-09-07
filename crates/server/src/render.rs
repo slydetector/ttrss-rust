@@ -68,6 +68,13 @@ pub fn urlencode(s: &str) -> String {
 const LOGIN_TEMPLATE: &str = include_str!("../templates/login.html.tpl");
 const OTP_TEMPLATE: &str = include_str!("../templates/otp_challenge.html.tpl");
 const SHELL_TEMPLATE: &str = include_str!("../templates/shell.html.tpl");
+const PREFS_TEMPLATE: &str = include_str!("../templates/prefs.html");
+
+/// The admin-only prefs tabs (Users + System) plus the tab-container close. For
+/// non-admins the `if` in prefs.php is false, so the tabs are skipped and the
+/// close is preceded by four 8-space PHP-tag lines (32 spaces total).
+const PREFS_ADMIN_TABS: &str = "\n                    <div id=\"usersTab\" dojoType=\"dijit.layout.ContentPane\"\n                style=\"padding : 0px\"\n                href=\"backend.php?op=Pref_Users\"\n                title=\"<i class='material-icons'>person</i> Users\"></div>\n            <div id=\"systemTab\" dojoType=\"dijit.layout.ContentPane\"\n                href=\"backend.php?op=Pref_System\"\n                title=\"<i class='material-icons'>info_outline</i> System\"></div>\n                        </div>\n";
+const PREFS_NONADMIN_CLOSE: &str = "\n                                    </div>\n";
 
 /// Minimal HTML-escape for attribute values (PHP escapes these in `hidden_tag`).
 fn html_escape(s: &str) -> String {
@@ -111,6 +118,20 @@ pub fn render_shell(csrf_token: &str, scripts_ts: i64) -> String {
     SHELL_TEMPLATE
         .replace("__CSRF_TOKEN__", csrf_token)
         .replace("__SCRIPTS_TS__", &scripts_ts.to_string())
+}
+
+/// Render the preferences SPA page (`prefs.php`). The skeleton is fixed for the
+/// golden dataset (no custom theme, empty plugin prefs CSS, the `share`
+/// plugin's prefs JS baked in); the per-session dynamic values are the CSRF
+/// token and the scripts cache-bust, and the Users/System tabs are admin-only.
+pub fn render_prefs_page(csrf_token: &str, scripts_ts: i64, access_level: i64) -> String {
+    let mut html = PREFS_TEMPLATE
+        .replace("@CSRF@", csrf_token)
+        .replace("@CACHEBUST@", &scripts_ts.to_string());
+    if access_level < ttrss_core::user::ACCESS_LEVEL_ADMIN as i64 {
+        html = html.replace(PREFS_ADMIN_TABS, PREFS_NONADMIN_CLOSE);
+    }
+    html
 }
 
 /// Render the not-authenticated login page.

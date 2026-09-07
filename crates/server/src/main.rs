@@ -63,6 +63,7 @@ fn build_router(state: &AppState) -> Router<AppState> {
         .route("/healthz", get(healthz))
         .route("/", get(index))
         .route("/index.php", get(index))
+        .route("/prefs.php", get(prefs_page))
         .route("/public.php", get(public_handler).post(public_handler))
         .route("/backend.php", get(rpc::handler).post(rpc::handler))
         .route("/api/index.php", post(api::handler))
@@ -140,6 +141,35 @@ async fn index(
         .expect("valid response")
 }
 
+/// GET `/prefs.php` — the preferences SPA page (or the login page when not
+/// authenticated, mirroring `UserHelper::login_sequence`).
+async fn prefs_page(
+    State(state): State<AppState>,
+    Extension(sess): Extension<session::Sess>,
+) -> Response {
+    let data = sess.data();
+    if !data.is_logged_in() {
+        let html = render::render_login_page(&state.config);
+        return axum::http::Response::builder()
+            .status(StatusCode::OK)
+            .header(header::CONTENT_TYPE, "text/html; charset=UTF-8")
+            .header(header::CACHE_CONTROL, "private, no-cache")
+            .body(Body::from(html))
+            .expect("valid response");
+    }
+    let csrf = data.csrf_token().unwrap_or("");
+    let ts = render::scripts_timestamp(state.config.docroot.as_path());
+    let access_level = data.access_level().unwrap_or(0);
+    let html = render::render_prefs_page(csrf, ts, access_level);
+    let etag = format!("W/\"{}\"", md5_hex(&html));
+    axum::http::Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
+        .header(header::CACHE_CONTROL, "private, no-cache")
+        .header(header::ETAG, etag)
+        .body(Body::from(html))
+        .expect("valid response")
+}
 /// `md5` of a byte slice, lowercase hex (for the shell ETag `"<md5>"`).
 fn md5_hex(data: &str) -> String {
     let digest = md5::compute(data.as_bytes());
