@@ -29,7 +29,7 @@ use crate::labels;
 use crate::prefs;
 use crate::sanitizer;
 use crate::session::{self, Sess};
-use crate::util::{clean_str, strip_tags, truncate_string};
+use crate::util::{clean_int, clean_str, php_int_cast, strip_tags, truncate_string};
 use crate::AppState;
 
 const API_LEVEL: i64 = 23;
@@ -150,16 +150,6 @@ fn content_type_is_json(ct: &str) -> bool {
     base == "application/json" || base == "text/json"
 }
 
-/// PHP `(int) clean($v)` on a JSON value: numbers pass through, strings are
-/// `clean`ed then int-cast (leading-integer-prefix semantics), else 0.
-fn clean_int(v: Option<&Value>) -> i64 {
-    match v {
-        Some(Value::Number(n)) => n.as_i64().unwrap_or(0),
-        Some(Value::String(s)) => php_int_cast(s),
-        _ => 0,
-    }
-}
-
 /// `Handler::_param_to_bool` on a JSON value: `clean($p)` then
 /// `$p && ($p !== "f" && $p !== "false")` (PHP string truthiness: `""`/`"0"`
 /// are falsy).
@@ -187,15 +177,6 @@ fn param_bool_default(body: &Map<String, Value>, key: &str, default: bool) -> bo
         None => default,
     }
 }
-/// PHP `(int)` cast: the leading integer prefix (sign included), else 0.
-fn php_int_cast(s: &str) -> i64 {
-    let t = clean_str(s);
-    let end = t
-        .find(|c: char| !c.is_ascii_digit() && c != '-' && c != '+')
-        .unwrap_or(t.len());
-    t.get(..end).and_then(|p| p.parse::<i64>().ok()).unwrap_or(0)
-}
-
 // ── Login / config ──────────────────────────────────────────────────────────
 
 /// `API::login` — app-password auth (`service = '_api'`), then a fresh session.

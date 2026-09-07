@@ -74,6 +74,28 @@ pub fn clean_str(s: &str) -> String {
     php_trim(&strip_tags(s)).to_string()
 }
 
+/// PHP `(int) $s`: the leading integer (optional `+`/`-` sign); non-numeric → 0.
+pub fn php_int_cast(s: &str) -> i64 {
+    let t = s.trim();
+    let (sign, rest) = match t.as_bytes().first() {
+        Some(b'+') => (1i64, &t[1..]),
+        Some(b'-') => (-1i64, &t[1..]),
+        _ => (1i64, t),
+    };
+    let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+    sign * digits.parse().unwrap_or(0)
+}
+
+/// PHP `(int) clean($v)` on a JSON value: numbers pass through, strings are
+/// `clean`ed then int-cast (leading-integer-prefix), else 0.
+pub fn clean_int(v: Option<&Value>) -> i64 {
+    match v {
+        Some(Value::Number(n)) => n.as_i64().unwrap_or(0),
+        Some(Value::String(s)) => php_int_cast(&clean_str(s)),
+        _ => 0,
+    }
+}
+
 /// PHP `mb_substr_replace()` (`include/functions.php`): character-wise
 /// (UTF-8) replacement of `[position, position+length)` with `replacement`.
 pub fn mb_substr_replace(original: &str, replacement: &str, position: usize, length: usize) -> String {

@@ -103,6 +103,36 @@ struct FeedRow {
     cat_id: Option<i64>,
 }
 
+/// `Pref_Feeds::inactiveFeeds` — the feeds whose latest article is older than
+/// 3 months. The PHP does `foreach ($feeds as $f) { $f['last_article'] = ... }`
+/// **by value**, so the `make_local_datetime` reassignment is discarded and the
+/// raw `MAX(e.updated)` timestamp string is what gets emitted. We reproduce that
+/// faithfully (a `to_char` of the stored UTC timestamp, `YYYY-MM-DD HH24:MI:SS`).
+pub async fn inactive_feeds(state: &AppState, sess: &Sess) -> Value {
+    let uid = sess.data().uid().unwrap_or(0);
+    let pool = state.db.pool();
+    let rows = sqlx::query(
+        "SELECT f.id, f.title, f.site_url, f.feed_url, \n         to_char(MAX(e.updated), 'YYYY-MM-DD HH24:MI:SS') AS last_article\n         FROM ttrss_feeds AS f\n         JOIN ttrss_user_entries AS ue ON ue.feed_id = f.id\n         JOIN ttrss_entries AS e ON e.id = ue.ref_id\n         WHERE f.owner_uid = $1\n           AND (SELECT MAX(ttrss_entries.updated) FROM ttrss_entries\n                JOIN ttrss_user_entries\n                    ON ttrss_entries.id = ttrss_user_entries.ref_id\n                WHERE ttrss_user_entries.feed_id = f.id)\n                < NOW() - INTERVAL '3 months'\n         GROUP BY f.title, f.id, f.site_url, f.feed_url\n         ORDER BY MAX(e.updated) ASC",
+    )
+    .bind(uid)
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default();
+    let items: Vec<Value> = rows
+        .iter()
+        .map(|r| {
+            json!({
+                "id": r.get::<i32, _>(0) as i64,
+                "title": r.get::<String, _>(1),
+                "site_url": r.get::<Option<String>, _>(2),
+                "feed_url": r.get::<String, _>(3),
+                "last_article": r.get::<Option<String>, _>(4),
+            })
+        })
+        .collect();
+    Value::Array(items)
+}
+
 /// `Pref_Feeds::getfeedtree` → `_makefeedtree()`.
 pub async fn getfeedtree(
     state: &AppState,

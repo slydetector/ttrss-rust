@@ -276,6 +276,32 @@ pub async fn get_labels(
     }
 }
 
+/// `Article::getmetadatabyid`: `{link, title}` of article `id` owned by `uid`,
+/// or `[]` if none.
+pub async fn metadata_by_id(pool: &sqlx::PgPool, uid: i64, id: i32) -> Value {
+    let row: Option<(String, String)> = sqlx::query_as(
+        "SELECT e.link, e.title FROM ttrss_entries e \\
+         JOIN ttrss_user_entries ue ON ue.ref_id = e.id \\
+         WHERE e.id = $1 AND ue.owner_uid = $2 LIMIT 1",
+    )
+    .bind(id)
+    .bind(uid)
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten();
+    match row {
+        Some((link, title)) => json!({ "link": link, "title": title }),
+        None => json!([]),
+    }
+}
+
+/// `Article::printArticleTags`: `{"id": <id>, "tags": [tag names]}`.
+pub async fn print_article_tags(pool: &sqlx::PgPool, session_uid: i64, id: i32) -> Value {
+    let tags = get_tags(pool, session_uid, id, None, None).await;
+    json!({ "id": id, "tags": tags })
+}
+
 /// `Article::_purge_orphans`: delete entries no user references.
 pub async fn purge_orphans(pool: &sqlx::PgPool) {
     let _ = sqlx::query(

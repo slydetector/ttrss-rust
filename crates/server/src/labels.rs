@@ -88,6 +88,37 @@ pub async fn get_all(pool: &sqlx::PgPool, owner_uid: i64) -> Vec<Map<String, Val
         .collect()
 }
 
+/// `Pref_Labels::getlabeltree` — a single `root` node ("Labels") whose children
+/// are the owner's labels, each wrapped as `{type, id:"LABEL:n", bare_id, name,
+/// fg_color, bg_color, checkbox:false}`, ordered by caption.
+pub async fn get_label_tree(pool: &sqlx::PgPool, owner_uid: i64) -> Value {
+    let labels = get_all(pool, owner_uid).await;
+    let items: Vec<Value> = labels
+        .iter()
+        .map(|l| {
+            let id = l.get("id").and_then(Value::as_i64).unwrap_or(0);
+            json!({
+                "type": "label",
+                "id": format!("LABEL:{}", id),
+                "bare_id": id,
+                "name": l.get("caption").cloned().unwrap_or_default(),
+                "fg_color": l.get("fg_color").cloned().unwrap_or_default(),
+                "bg_color": l.get("bg_color").cloned().unwrap_or_default(),
+                "checkbox": false,
+            })
+        })
+        .collect();
+    json!({
+        "identifier": "id",
+        "label": "name",
+        "items": [{
+            "id": "root",
+            "name": "Labels",
+            "items": items,
+        }],
+    })
+}
+
 /// `Labels::get_as_hash` — `get_all` keyed by label id.
 pub async fn get_as_hash(pool: &sqlx::PgPool, owner_uid: i64) -> HashMap<i32, Map<String, Value>> {
     get_all(pool, owner_uid)

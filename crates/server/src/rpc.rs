@@ -22,6 +22,10 @@ use crate::feeds;
 use crate::prefs;
 use crate::session::{self, Sess};
 use crate::AppState;
+use crate::article;
+use crate::util;
+use crate::settings;
+use crate::labels;
 
 /// Form/query params for `backend.php` (all arrive via `$_REQUEST`).
 #[derive(Deserialize)]
@@ -141,7 +145,37 @@ async fn dispatch(
         "Pref_Feeds" => match method {
             "getfeedtree" => DispatchOutput::Json(feeds::getfeedtree(state, sess, extra).await),
             "feedsWithErrors" => DispatchOutput::Json(feeds::feeds_with_errors(state, sess).await),
+            "inactiveFeeds" => DispatchOutput::Json(feeds::inactive_feeds(state, sess).await),
             _ => DispatchOutput::Json(unknown_method("Pref_Feeds", method)),
+        },
+        "Article" => match method {
+            "getmetadatabyid" => DispatchOutput::Json(
+                article::metadata_by_id(
+                    state.db.pool(),
+                    data.uid().unwrap_or(0),
+                    util::clean_int(extra.get("id")) as i32,
+                )
+                .await,
+            ),
+            "printArticleTags" => DispatchOutput::Json(
+                article::print_article_tags(
+                    state.db.pool(),
+                    data.uid().unwrap_or(0),
+                    util::clean_int(extra.get("id")) as i32,
+                )
+                .await,
+            ),
+            _ => DispatchOutput::Json(unknown_method("Article", method)),
+        },
+        "Pref_Labels" => match method {
+            "getlabeltree" => DispatchOutput::Json(
+                labels::get_label_tree(state.db.pool(), data.uid().unwrap_or(0)).await,
+            ),
+            _ => DispatchOutput::Json(unknown_method("Pref_Labels", method)),
+        },
+        "Pref_Prefs" => match method {
+            "getProfiles" => DispatchOutput::Json(settings::get_profiles(state, sess).await),
+            _ => DispatchOutput::Json(unknown_method("Pref_Prefs", method)),
         },
         other => DispatchOutput::Json(unknown_method(other, method)),
     }
@@ -206,7 +240,7 @@ fn csrf_ignored(op: &str, method: &str) -> bool {
 
 /// `Handler_Protected` handlers (all the ones ported so far) require a user.
 fn is_protected(op: &str) -> bool {
-    matches!(op, "RPC" | "Feeds" | "Pref_Feeds")
+    matches!(op, "RPC" | "Feeds" | "Pref_Feeds" | "Article" | "Pref_Labels" | "Pref_Filters" | "Pref_Users" | "Pref_System" | "Pref_Prefs")
 }
 
 /// `RPC::sanityCheck`.

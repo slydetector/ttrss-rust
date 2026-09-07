@@ -23,6 +23,7 @@ pub mod syndication;
 #[cfg(test)]
 mod sanitizer_parity;
 pub mod session;
+pub mod settings;
 pub mod time;
 pub mod util;
 

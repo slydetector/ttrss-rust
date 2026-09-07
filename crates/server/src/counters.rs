@@ -17,6 +17,7 @@ use crate::labels::{feed_to_label_id, label_to_feed_id, LABEL_BASE_INDEX};
 use crate::session::Sess;
 use crate::time::TzCtx;
 use crate::AppState;
+use crate::util::php_int_cast;
 
 // `Feeds::*` (functions.php).
 
@@ -581,19 +582,6 @@ impl FeedOrTag<'_> {
             FeedOrTag::Tag(s) => php_int_cast(s),
         }
     }
-}
-
-/// PHP's `(int)` cast on a string: leading optional sign + digits
-/// (`"12abc"` → 12, `"rust"` → 0).
-fn php_int_cast(s: &str) -> i64 {
-    let t = s.trim();
-    let (sign, rest) = match t.as_bytes().first() {
-        Some(b'+') => (1i64, &t[1..]),
-        Some(b'-') => (-1i64, &t[1..]),
-        _ => (1i64, t),
-    };
-    let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
-    sign * digits.parse().unwrap_or(0)
 }
 
 /// PHP `is_numeric()` (the form relevant here: optional sign, digits and a
