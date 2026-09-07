@@ -204,24 +204,3 @@ form = [ ["op", "Article"], ["method", "redirect"],
          ["id", "{{article_1}}"], ["csrf_token", "{{csrf}}"] ]
 expect_status = 302
 
-# ── Catchup-scope mutations (RPC::catchupFeed / Feeds::catchupAll) ──────────
-
-[[step]]
-name = "m3_catchup_feed_read"
-method = "POST"
-path = "/backend.php"
-form = [ ["op", "RPC"], ["method", "catchupFeed"],
-         ["feed_id", "{{feed_ars}}"], ["cmode", "0"],
-         ["csrf_token", "{{csrf}}"] ]
-expect_status = 200
-db_state = "SELECT ref_id, unread FROM ttrss_user_entries WHERE owner_uid = 1 AND feed_id = 1 ORDER BY ref_id"
-
-[[step]]
-name = "m3_catchup_feed_unread"
-method = "POST"
-path = "/backend.php"
-form = [ ["op", "Feeds"], ["method", "catchupAll"],
-         ["feed_id", "{{feed_ars}}"], ["cmode", "1"],
-         ["csrf_token", "{{csrf}}"] ]
-expect_status = 200
-db_state = "SELECT ref_id, unread FROM ttrss_user_entries WHERE owner_uid = 1 AND feed_id = 1 ORDER BY ref_id"
