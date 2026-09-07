@@ -37,6 +37,10 @@ pub struct Config {
     /// per-session user validation in `Sessions::validate_session`.
     pub single_user_mode: bool,
 
+    /// `Config::PLUGINS` (T_STRING): the comma-separated list of
+    /// system-enabled plugins (the `TTRSS_PLUGINS` env var).
+    pub plugins: String,
+
     // -- M1 server-specific (not part of upstream Config.php) -------------
     /// Where the Rust HTTP server listens.
     pub listen: SocketAddr,
@@ -79,6 +83,7 @@ impl Config {
                 _ => None,
             },
             single_user_mode: sql_bool_to_bool(&std::env::var("TTRSS_SINGLE_USER_MODE").unwrap_or_default()),
+            plugins: std::env::var("TTRSS_PLUGINS").unwrap_or_else(|_| "auth_internal".into()),
             listen: env("TTRSS_RUST_LISTEN", "127.0.0.1:8281")?,
             docroot: std::env::var("TTRSS_RUST_DOCROOT")
                 .map(PathBuf::from)
@@ -174,6 +179,7 @@ mod tests {
             self_url: self_url.into(),
             encryption_key: None,
             single_user_mode: false,
+            plugins: "auth_internal".into(),
             listen: "127.0.0.1:8281".parse().unwrap(),
             docroot: PathBuf::from("tt-rss"),
             feed_icon_dir: PathBuf::from("tt-rss/cache/feed-icons"),

@@ -28,6 +28,7 @@ use crate::settings;
 use crate::filters;
 use crate::system;
 use crate::users;
+use crate::plugins;
 use crate::labels;
 
 /// Form/query params for `backend.php` (all arrive via `$_REQUEST`).
@@ -186,6 +187,8 @@ async fn dispatch(
         "Pref_Prefs" => match method {
             "getProfiles" => DispatchOutput::Json(settings::get_profiles(state, sess).await),
             "previewDigest" => DispatchOutput::Json(settings::preview_digest(state, sess).await),
+            "getPluginsList" => DispatchOutput::Json(plugins::get_plugins_list(state, sess).await),
+            "getAvailablePlugins" => DispatchOutput::Json(plugins::get_available_plugins(sess)),
             _ => DispatchOutput::Json(unknown_method("Pref_Prefs", method)),
         },
         "Pref_System" => match method {

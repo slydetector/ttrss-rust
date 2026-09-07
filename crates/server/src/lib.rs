@@ -18,6 +18,7 @@ pub mod hotkeys;
 pub mod labels;
 pub mod mime;
 pub mod prefs;
+pub mod plugins;
 pub mod render;
 pub mod rpc;
 pub mod sanitizer;

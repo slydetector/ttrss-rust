@@ -16,6 +16,7 @@ use ttrss_core::db::Db;
 pub const ENABLE_FEED_CATS: &str = "ENABLE_FEED_CATS";
 pub const USER_TIMEZONE: &str = "USER_TIMEZONE";
 pub const DIGEST_MIN_SCORE: &str = "DIGEST_MIN_SCORE";
+pub const _ENABLED_PLUGINS: &str = "_ENABLED_PLUGINS";
 /// PHP `Config::T_*` type hints.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Type {
