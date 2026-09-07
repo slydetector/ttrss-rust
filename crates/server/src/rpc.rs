@@ -145,7 +145,7 @@ async fn dispatch(
         "Feeds" => match method {
             "view" => DispatchOutput::Json(crate::headlines::view(state, sess, extra).await),
             "search" => DispatchOutput::Json(crate::headlines::search(state, sess, extra).await),
-            "updatedebugger" => DispatchOutput::TextHtml(crate::feeds::updatedebugger(state, sess, extra, &csrf).await),
+            "updatedebugger" => DispatchOutput::TextHtml(crate::feeds::updatedebugger(state, sess, extra, csrf).await),
             _ => DispatchOutput::Json(unknown_method("Feeds", method)),
         },
         "Pref_Feeds" => match method {
@@ -185,6 +185,7 @@ async fn dispatch(
         },
         "Pref_Prefs" => match method {
             "getProfiles" => DispatchOutput::Json(settings::get_profiles(state, sess).await),
+            "previewDigest" => DispatchOutput::Json(settings::preview_digest(state, sess).await),
             _ => DispatchOutput::Json(unknown_method("Pref_Prefs", method)),
         },
         "Pref_System" => match method {

@@ -41,9 +41,12 @@ static RFC822_TS: LazyLock<regex::Regex> = LazyLock::new(|| {
     .unwrap()
 });
 
-/// PHP date("Y/m/d H:i") as used in digests ("2026-09-03 21:59").
+/// PHP slash dates as used in digests: `date("Y/m/d")` + `date("G:i")` (e.g.
+/// "2026/09/07 3:16") or a full `Y/m/d H:i:s`. The time part and the
+/// leading zero on the hour are optional.
 static SLASH_TS: LazyLock<regex::Regex> =
-    LazyLock::new(|| regex::Regex::new(r"\d{4}/\d{2}/\d{2} \d{2}:\d{2}").unwrap());
+    LazyLock::new(||
+        regex::Regex::new(r"\d{4}/\d{2}/\d{2}(?: \d{1,2}:\d{2}(?::\d{2})?)?").unwrap());
 
 /// Time-of-day only (PHP date("H:i")), e.g. "last login: 21:59".
 static TIME_ONLY: LazyLock<regex::Regex> =

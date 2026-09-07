@@ -12,6 +12,10 @@ use sqlx::Row;
 use ttrss_core::config::sql_bool_to_bool;
 use ttrss_core::db::Db;
 
+/// Pref-name constants (mirror `Prefs::*` in classes/Prefs.php).
+pub const ENABLE_FEED_CATS: &str = "ENABLE_FEED_CATS";
+pub const USER_TIMEZONE: &str = "USER_TIMEZONE";
+pub const DIGEST_MIN_SCORE: &str = "DIGEST_MIN_SCORE";
 /// PHP `Config::T_*` type hints.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Type {

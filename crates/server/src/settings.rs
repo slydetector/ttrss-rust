@@ -55,3 +55,10 @@ pub async fn get_profiles(state: &AppState, sess: &Sess) -> Value {
 
     Value::Array(rv)
 }
+
+/// `Pref_Prefs::previewDigest`: preview of the headline digest (days=1,
+/// limit=16), rendered via `digest::prepare_headlines_digest`.
+pub async fn preview_digest(state: &AppState, sess: &Sess) -> Value {
+    let uid = sess.data().uid().unwrap_or(0) as i32;
+    crate::digest::prepare_headlines_digest(state, uid, 1, 16).await
+}

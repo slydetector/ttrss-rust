@@ -10,6 +10,7 @@ pub mod article;
 pub mod auth;
 pub mod counters;
 pub mod diskcache;
+pub mod digest;
 pub mod feeds;
 pub mod filters;
 pub mod headlines;
