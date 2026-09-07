@@ -1527,42 +1527,11 @@ async fn cat_title(pool: &sqlx::PgPool, uid: i64, cat_id: i64) -> String {
     }
 }
 
-/// `Feeds::_get_title` (the non-cat branch).
+/// `Feeds::_get_title` (the non-cat branch) — delegates to the canonical
+/// `feeds::feed_title` (the PHP-faithful implementation, including the
+/// id-as-string fallback for the else branch, e.g. `FEED_ERROR` → `"-7"`).
 async fn feed_title_of(feed: i64, pool: &sqlx::PgPool, uid: i64) -> String {
-    match feed {
-        FEED_STARRED => "Starred articles".into(),
-        FEED_PUBLISHED => "Published articles".into(),
-        FEED_FRESH => "Fresh articles".into(),
-        FEED_ALL => "All articles".into(),
-        FEED_ARCHIVED => "Archived articles".into(),
-        FEED_RECENTLY_READ => "Recently read".into(),
-        f if f < LABEL_BASE_INDEX => {
-            let label_id = feed_to_label_id(f);
-            let caption: Option<String> = sqlx::query_scalar::<_, String>(
-                "SELECT caption FROM ttrss_labels2 WHERE id = $1 AND owner_uid = $2",
-            )
-            .bind(label_id)
-            .bind(uid)
-            .fetch_optional(pool)
-            .await
-            .ok()
-            .flatten();
-            caption.unwrap_or_else(|| format!("Unknown label ({label_id})"))
-        }
-        f if f > 0 => {
-            let title: Option<String> = sqlx::query_scalar::<_, String>(
-                "SELECT title FROM ttrss_feeds WHERE id = $1 AND owner_uid = $2",
-            )
-            .bind(f)
-            .bind(uid)
-            .fetch_optional(pool)
-            .await
-            .ok()
-            .flatten();
-            title.unwrap_or_else(|| format!("Unknown feed ({f})"))
-        }
-        _ => String::new(),
-    }
+    crate::feeds::feed_title(pool, feed, uid).await
 }
 
 #[cfg(test)]

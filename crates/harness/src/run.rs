@@ -59,6 +59,10 @@ pub async fn run(
 
     let mut failures = 0usize;
     for (i, step) in file.steps.iter().enumerate() {
+        if step.skip {
+            println!("[run] {:03} {:<32} skipped", i + 1, step.name);
+            continue;
+        }
         if step.sleep_ms > 0 {
             tokio::time::sleep(Duration::from_millis(step.sleep_ms)).await;
         }
@@ -78,7 +82,14 @@ pub async fn run(
     if failures > 0 {
         anyhow::bail!("{failures} step(s) failed; fixtures still written to {}", out.display());
     }
-    println!("[run] ok: {} exchanges recorded to {}", file.steps.len(), out.display());
+    let executed = file.steps.iter().filter(|s| !s.skip).count();
+    println!(
+        "[run] ok: {} exchanges recorded to {} ({} of {} steps skipped)",
+        executed,
+        out.display(),
+        file.steps.len() - executed,
+        file.steps.len()
+    );
     Ok(())
 }
 

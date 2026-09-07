@@ -86,6 +86,11 @@ pub struct Step {
     #[serde(default)]
     #[allow(dead_code)]
     pub description: Option<String>,
+    /// Skipped steps are not executed and write no fixture, but they keep
+    /// their position so the `NNN_` fixture numbering stays aligned across
+    /// runs and baselines.
+    #[serde(default)]
+    pub skip: bool,
 }
 
 fn default_method() -> String {

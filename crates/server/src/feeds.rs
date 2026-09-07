@@ -27,16 +27,6 @@ const FEED_RECENTLY_READ: i64 = -6;
 const CAT_SPECIAL: i64 = -1;
 const CAT_LABELS: i64 = -2;
 
-/// `Labels::label_to_feed_id` = `LABEL_BASE_INDEX - 1 - abs(label)`.
-fn label_to_feed_id(label: i64) -> i64 {
-    LABEL_BASE_INDEX - 1 - label.abs()
-}
-
-/// `Labels::feed_to_label_id` (inverse; positive for label feed ids).
-fn feed_to_label_id(feed: i64) -> i64 {
-    -1025 - feed
-}
-
 /// `clean($_REQUEST['mode'] ?? 0) == 2`.
 fn is_mode_2(extra: &Map<String, Value>) -> bool {
     extra
@@ -230,7 +220,7 @@ pub async fn getfeedtree(
             for r in &labels {
                 let label_id = r.get::<i32, _>(0) as i64;
                 let mut feed =
-                    special_feed(pool, uid, label_to_feed_id(label_id), fresh_max_age).await;
+                    special_feed(pool, uid, crate::labels::label_to_feed_id(label_id), fresh_max_age).await;
                 if let Value::Object(obj) = &mut feed {
                     obj.insert("name".into(), json!(r.get::<String, _>(3)));
                     obj.insert("fg_color".into(), json!(r.get::<String, _>(1)));
@@ -729,7 +719,7 @@ async fn counters(
     }
     // Labels (`feed < LABEL_BASE_INDEX`).
     if feed_id < LABEL_BASE_INDEX {
-        let label_id = feed_to_label_id(feed_id);
+        let label_id = crate::labels::feed_to_label_id(feed_id);
         return sqlx::query_scalar::<_, i64>(
             "SELECT COUNT(*) FROM ttrss_user_entries ue
              JOIN ttrss_user_labels2 ul2 ON ul2.article_id = ue.ref_id

@@ -26,7 +26,7 @@ oracle/
 │   ├── bench.sh          # latency baseline -> oracle/data/baseline.json
 │   └── census.sh         # nginx request-distribution summary
 ├── corpus/
-│   └── scenarios.template.toml   # the 61-step record/replay scenario suite
+│   └── scenarios.template.toml   # the 61-step record/replay suite (53 active; 8 skipped)
 └── data/                 # generated (gitignored)
     ├── golden-db.sql     # frozen full DB dump (the golden dataset)
     ├── cache/            # copied app cache (feed icons, cached feed XML)
@@ -88,7 +88,8 @@ snapshot is frozen (no background feed updates during corpus runs).
 
 ## Corpus
 
-`corpus/scenarios.template.toml` defines 61 ordered steps covering:
+`corpus/scenarios.template.toml` defines 61 ordered steps covering (steps
+marked `skip = true` are kept for re-enablement but not executed or diffed)
 
 - public.php: healthz, login page, static assets
 - web login (admin: frictionless username/password → 302), shell, prefs
@@ -105,7 +106,10 @@ snapshot is frozen (no background feed updates during corpus runs).
 - syndication: RSS/Atom with valid feed & category keys, bad key (403),
   cached file, feed icon
 - logout; readonly user login + feed tree + headlines ("Feed not found");
-  otpuser login (OTP challenge 200 → code 302), shell, logout
+  otpuser login (OTP challenge 200 → code 302), shell, logout.
+  Skipped: checkforupdates (011, live GitHub data), digest preview (032,
+  time-window drift), the admin logout flow (051–052), and the otpuser
+  flow (058–061) — see `docs/plan.md` (harness triage).
 
 Run it:
 

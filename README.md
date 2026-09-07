@@ -46,7 +46,7 @@ guide — read it before driving the corpus.**
 
 `make harness` is the canonical run (resets the oracle DB to the golden
 baseline so runs are reproducible, builds, starts the Rust server on `:8281`, runs
-the 61-step corpus, and diffs against `oracle/data/runs/oracle-a`):
+the 53-step corpus (61 defined; 8 `skip = true`), and diffs against `oracle/data/runs/oracle-a`):
 
 ```sh
 make harness                        # full run + diff vs oracle-a

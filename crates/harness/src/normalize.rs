@@ -42,11 +42,14 @@ static RFC822_TS: LazyLock<regex::Regex> = LazyLock::new(|| {
 });
 
 /// PHP slash dates as used in digests: `date("Y/m/d")` + `date("G:i")` (e.g.
-/// "2026/09/07 3:16") or a full `Y/m/d H:i:s`. The time part and the
-/// leading zero on the hour are optional.
+/// "2026-09-07 3:16") or a full `Y/m/d H:i:s`. The time part and the
+/// leading zero on the hour are optional. The slash also matches the
+/// JSON-escaped form (`\\/`), because the PHP `json_encode` response body
+/// escapes `/` while the Rust `serde_json` body does not — so the two sides
+/// reach the normalizer in different forms.
 static SLASH_TS: LazyLock<regex::Regex> =
     LazyLock::new(||
-        regex::Regex::new(r"\d{4}/\d{2}/\d{2}(?: \d{1,2}:\d{2}(?::\d{2})?)?").unwrap());
+        regex::Regex::new(r"\d{4}\\?/\d{2}\\?/\d{2}(?: \d{1,2}:\d{2}(?::\d{2})?)?").unwrap());
 
 /// Time-of-day only (PHP date("H:i")), e.g. "last login: 21:59".
 static TIME_ONLY: LazyLock<regex::Regex> =
@@ -257,6 +260,22 @@ mod tests {
         let a = "const __csrf_token = \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\";";
         let b = "const __csrf_token = \"ffffffffffffffffffffffffffffffff\";";
         assert_eq!(normalize_text(a), normalize_text(b));
+    }
+
+    #[test]
+    fn slash_dates_normalized_plain_and_json_escaped() {
+        // Plain form (Rust `serde_json` body).
+        assert_eq!(normalize_string("as of 2026/09/07"), "as of <ts>");
+        assert_eq!(normalize_string("as of 2026/09/07 3:16"), "as of <ts>");
+        assert_eq!(normalize_string("as of 2026/09/07 15:24:05"), "as of <ts>");
+        // JSON-escaped form (PHP `json_encode` body escapes `/` as `\/`).
+        assert_eq!(normalize_string(r"as of 2026\/09\/07"), "as of <ts>");
+        assert_eq!(normalize_string(r"as of 2026\/09\/07 3:16"), "as of <ts>");
+        // Both sides normalize to the same token.
+        assert_eq!(
+            normalize_string("as of 2026/09/07 3:16"),
+            normalize_string(r"as of 2026\/09\/07 15:24")
+        );
     }
 
     #[test]
