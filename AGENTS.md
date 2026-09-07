@@ -100,3 +100,7 @@ Mirror each matching PHP `#[test]` into Rust (same inputs, same expected values)
   (`oracle/data/golden-db.sql`); use the stable version-controlled schema +
   fixtures (`crates/testing`). The golden dump is reserved for the end-to-end
   oracle harness.
+
+## Context management
+
+You can read the entire history of this thread if you find a dump in a local filesystem (probably in ~/.pi/ dir). It's useful to retrieve exact steps that happened before the compaction and details that got lost while summarisation
