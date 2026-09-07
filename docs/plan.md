@@ -442,8 +442,18 @@ clean** on the golden dataset. Done so far:
   `rpc_runtime_info`, all feed-tree steps, all four headlines steps, `rpc_counters`
   (values + PHP order), `rpc_sanity_check`, the whole external JSON API (033–045),
   syndication (046–048), and feed icons (049–050).
-  Remaining mismatches are unimplemented surface, not defects:
-  - the `Pref_*` / admin `backend.php` read handlers (007, 016, 021–032);
+  Remaining mismatches after the M2 close-out (Bucket A, below) are unimplemented
+  surface, not defects: only the M3 logout flow (051–052) and the network-dependent
+  `checkforupdates` stub (011) remain.
+- **M2 close-out (Bucket A, `backend.php` reads, 2026-09-16):** the remaining
+  `backend.php` read handlers and the `/prefs.php` page are ported, taking the harness
+  to **58/61** (605 tests). Added: `Article::view`/`search` (022/023),
+  `Pref_Prefs::getProfiles` (031), `Pref_Feeds::inactiveFeeds` (016),
+  `Pref_Labels::getlabeltree` (024), `Pref_Filters::getfiltertree` (025),
+  `Pref_System::getscheduledtasks` (028), `Pref_Users::index`/`userdetails`
+  (026/027), `Feeds::updatedebugger` (021, `text/html`), `Pref_Prefs::previewDigest`
+  (032), the plugin handlers (029/030), and the `/prefs.php` SPA page (007).
+  The only remaining mismatches:
   - `checkforupdates` (011) — a network-dependent stub (see `rpc.rs`);
   - the M3 logout flow (051–052) — `public.php?op=logout` CSRF/session teardown is not
     yet ported (Rust returns the JSON `E_UNAUTHORIZED` gate instead of the 302 + shell).
