@@ -25,6 +25,7 @@ use crate::AppState;
 use crate::article;
 use crate::util;
 use crate::settings;
+use crate::filters;
 use crate::labels;
 
 /// Form/query params for `backend.php` (all arrive via `$_REQUEST`).
@@ -172,6 +173,10 @@ async fn dispatch(
                 labels::get_label_tree(state.db.pool(), data.uid().unwrap_or(0)).await,
             ),
             _ => DispatchOutput::Json(unknown_method("Pref_Labels", method)),
+        },
+        "Pref_Filters" => match method {
+            "getfiltertree" => DispatchOutput::Json(filters::get_filter_tree(state, sess).await),
+            _ => DispatchOutput::Json(unknown_method("Pref_Filters", method)),
         },
         "Pref_Prefs" => match method {
             "getProfiles" => DispatchOutput::Json(settings::get_profiles(state, sess).await),

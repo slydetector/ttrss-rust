@@ -11,6 +11,7 @@ pub mod auth;
 pub mod counters;
 pub mod diskcache;
 pub mod feeds;
+pub mod filters;
 pub mod headlines;
 pub mod hotkeys;
 pub mod labels;

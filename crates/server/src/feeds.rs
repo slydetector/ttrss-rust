@@ -364,6 +364,63 @@ fn special_title(feed_id: i64) -> &'static str {
     }
 }
 
+/// `Feeds::_get_title($id, $owner_uid)` (the non-cat branch): virtual feeds,
+/// labels (with the `Unknown label (n)` fallback) and real feeds.
+pub async fn feed_title(pool: &sqlx::PgPool, id: i64, owner_uid: i64) -> String {
+    match id {
+        FEED_STARRED => "Starred articles".to_string(),
+        FEED_PUBLISHED => "Published articles".to_string(),
+        FEED_FRESH => "Fresh articles".to_string(),
+        FEED_ALL => "All articles".to_string(),
+        FEED_ARCHIVED => "Archived articles".to_string(),
+        FEED_RECENTLY_READ => "Recently read".to_string(),
+        _ if id < LABEL_BASE_INDEX => {
+            let label_id = crate::labels::feed_to_label_id(id);
+            sqlx::query_scalar::<_, String>(
+                "SELECT caption FROM ttrss_labels2 WHERE id = $1 AND owner_uid = $2 LIMIT 1",
+            )
+            .bind(label_id as i32)
+            .bind(owner_uid)
+            .fetch_optional(pool)
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| format!("Unknown label ({})", label_id))
+        }
+        _ if id > 0 => {
+            sqlx::query_scalar::<_, String>(
+                "SELECT title FROM ttrss_feeds WHERE id = $1 AND owner_uid = $2 LIMIT 1",
+            )
+            .bind(id as i32)
+            .bind(owner_uid)
+            .fetch_optional(pool)
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| format!("Unknown feed ({})", id))
+        }
+        _ => id.to_string(),
+    }
+}
+
+/// `Feeds::_get_cat_title($cat_id, $owner_uid)`.
+pub async fn category_title(pool: &sqlx::PgPool, cat_id: i64, owner_uid: i64) -> String {
+    match cat_id {
+        0 => "Uncategorized".to_string(),
+        -1 => "Special".to_string(),
+        -2 => "Labels".to_string(),
+        _ => sqlx::query_scalar::<_, String>(
+            "SELECT title FROM ttrss_feed_categories \n             WHERE id = $1 AND owner_uid = $2 LIMIT 1",
+        )
+        .bind(cat_id as i32)
+        .bind(owner_uid)
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| "UNKNOWN".to_string()),
+    }
+}
 /// `Feeds::_get_icon` for the virtual feeds.
 fn special_icon(feed_id: i64) -> &'static str {
     match feed_id {
