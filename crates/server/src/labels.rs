@@ -137,7 +137,7 @@ pub async fn update_cache(
 
 /// PHP `empty()` on a decoded JSON value (the `empty($tmp)` in
 /// `Article::_get_labels`' cache check).
-fn php_empty_value(v: &Value) -> bool {
+pub(crate) fn php_empty_value(v: &Value) -> bool {
     match v {
         Value::Null => true,
         Value::Bool(b) => !b,
@@ -166,13 +166,14 @@ pub async fn get_labels_json(pool: &sqlx::PgPool, owner_uid: i64, id: i32) -> St
     .flatten();
 
     if let Some(cache) = cache.as_deref().filter(|c| !c.is_empty()) {
-        if let Ok(v) = serde_json::from_str::<Value>(cache) {
-            let no_labels = v.get("no-labels").and_then(Value::as_i64) == Some(1);
-            if !php_empty_value(&v) && !no_labels {
-                // PHP returns the decoded cache as-is (`json_decode` then
-                // `json_encode` back in the caller).
+        // Non-empty cache: PHP `Article::_get_labels` returns immediately —
+        // the decoded value if usable, else `[]` (invalid/empty/no-labels).
+        // Only an empty/NULL cache falls through to the hard way below.
+        match serde_json::from_str::<Value>(cache) {
+            Ok(v) if !php_empty_value(&v) && v.get("no-labels").and_then(Value::as_i64) != Some(1) => {
                 return v.to_string();
             }
+            _ => return Value::Array(Vec::new()).to_string(),
         }
     }
 

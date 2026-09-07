@@ -12,6 +12,7 @@ use serde_json::{json, Map, Value};
 use sqlx::Row;
 
 use crate::prefs;
+use crate::time::TzCtx;
 use crate::session::Sess;
 use crate::AppState;
 
@@ -97,7 +98,7 @@ struct FeedRow {
     title: String,
     last_error: String,
     update_interval: i64,
-    last_hm: String,
+    last_updated: Option<String>,
     num_articles: i64,
     cat_id: Option<i64>,
 }
@@ -115,6 +116,12 @@ pub async fn getfeedtree(
     let rows = prefs::load_rows(&state.db, uid, profile).await;
     let enable_cats = prefs::resolve("ENABLE_FEED_CATS", &rows, profile).as_bool();
     let fresh_max_age = prefs::resolve("FRESH_ARTICLE_MAX_AGE", &rows, profile).as_int();
+    let tz = TzCtx {
+        user_tz: prefs::resolve("USER_TIMEZONE", &rows, profile).as_str().to_string(),
+        client_tz_offset: data.get_int("clientTzOffset").unwrap_or(0),
+        short_date_format: prefs::resolve("SHORT_DATE_FORMAT", &rows, profile).as_str().to_string(),
+        long_date_format: prefs::resolve("LONG_DATE_FORMAT", &rows, profile).as_str().to_string(),
+    };
 
     let mode_is_2 = is_mode_2(extra);
     let search = if mode_is_2 {
@@ -217,7 +224,7 @@ pub async fn getfeedtree(
 
         // Top-level categories (`parent_cat IS NULL`), ordered (order_id, title).
         for c in cats.iter().filter(|c| c.parent_cat.is_none()) {
-            let items = build_cat_items(&cats, &feeds, state, c.id, show_empty_cats);
+            let items = build_cat_items(&cats, &feeds, state, c.id, show_empty_cats, &tz);
             let n = calculate_children_count(&items);
             let mut cat = Map::new();
             cat.insert("id".into(), json!(format!("CAT:{}", c.id)));
@@ -240,7 +247,7 @@ pub async fn getfeedtree(
         let items: Vec<Value> = feeds
             .iter()
             .filter(|f| f.cat_id.is_none())
-            .map(|f| feed_node(state, f))
+            .map(|f| feed_node(state, f, &tz))
             .collect();
         let n = items.len() as i64;
         if n > 0 || show_empty_cats {
@@ -260,7 +267,7 @@ pub async fn getfeedtree(
         }
     } else {
         // Cats disabled: every feed directly under the root.
-        root_items = feeds.iter().map(|f| feed_node(state, f)).collect();
+        root_items = feeds.iter().map(|f| feed_node(state, f, &tz)).collect();
         root_children = feeds.len() as i64;
     }
 
@@ -351,11 +358,12 @@ fn build_cat_items(
     state: &AppState,
     cat_id: i64,
     show_empty_cats: bool,
+    tz: &TzCtx,
 ) -> Vec<Value> {
     let mut items: Vec<Value> = Vec::new();
 
     for s in cats.iter().filter(|c| c.parent_cat == Some(cat_id)) {
-        let sub_items = build_cat_items(cats, feeds, state, s.id, show_empty_cats);
+        let sub_items = build_cat_items(cats, feeds, state, s.id, show_empty_cats, tz);
         let n = calculate_children_count(&sub_items);
         let mut cat = Map::new();
         cat.insert("id".into(), json!(format!("CAT:{}", s.id)));
@@ -375,14 +383,14 @@ fn build_cat_items(
     }
 
     for f in feeds.iter().filter(|f| f.cat_id == Some(cat_id)) {
-        items.push(feed_node(state, f));
+        items.push(feed_node(state, f, tz));
     }
 
     items
 }
 
 /// A regular feed node (category feed, uncategorized, or flat list).
-fn feed_node(state: &AppState, f: &FeedRow) -> Value {
+fn feed_node(state: &AppState, f: &FeedRow, tz: &TzCtx) -> Value {
     let mut out = Map::new();
     out.insert("id".into(), json!(format!("FEED:{}", f.id)));
     out.insert("bare_id".into(), json!(f.id));
@@ -394,7 +402,7 @@ fn feed_node(state: &AppState, f: &FeedRow) -> Value {
     out.insert("icon".into(), json!(feed_icon_url(state, f.id)));
     out.insert(
         "param".into(),
-        json!(articles_param(f.num_articles, &f.last_hm)),
+        json!(articles_param(f.num_articles, &crate::time::make_local_datetime(f.last_updated.as_deref(), false, tz))),
     );
     out.insert(
         "updates_disabled".into(),
@@ -471,7 +479,7 @@ async fn fetch_all_cats(pool: &sqlx::PgPool, uid: i64) -> Vec<CatRow> {
 async fn fetch_all_feeds(pool: &sqlx::PgPool, uid: i64) -> Vec<FeedRow> {
     let rows = sqlx::query(
         "SELECT f.id, f.title, COALESCE(f.last_error, ''), f.update_interval,
-                to_char(f.last_updated AT TIME ZONE 'UTC', 'HH24:MI') AS last_hm,
+                SUBSTRING_FOR_DATE(f.last_updated, 1, 19) AS last_updated,
                 COUNT(ue.int_id) AS num_articles, f.cat_id
          FROM ttrss_feeds f
          LEFT JOIN ttrss_user_entries ue ON ue.feed_id = f.id
@@ -489,7 +497,7 @@ async fn fetch_all_feeds(pool: &sqlx::PgPool, uid: i64) -> Vec<FeedRow> {
             title: r.get::<String, _>(1),
             last_error: r.get::<String, _>(2),
             update_interval: r.get::<i32, _>(3) as i64,
-            last_hm: r.get::<String, _>(4),
+            last_updated: r.get::<Option<String>, _>(4),
             num_articles: r.get::<i64, _>(5),
             cat_id: r
                 .try_get::<Option<i32>, _>(6)

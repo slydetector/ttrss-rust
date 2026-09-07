@@ -420,30 +420,33 @@ clean** on the golden dataset. Done so far:
 - **Harness normalizer (M2 additions):** smart-date / bare-time tokens collapse to one
   token (they differ run-to-run and server-to-server); URL authority ports are stripped
   (oracle vs Rust run on different ports by construction).
-- **Verified (2026-09-05):** on the restored golden dataset, `rpc_sanity_check`,
-  `rpc_runtime_info`, all feed-tree steps, **all four headlines steps** (feed unread,
-  feed all, category, search), `rpc_counters` (values + PHP-order), and the full auth
-  flow (login/shell/logout, admin + readonly + OTP) diff **clean** — **25/61**.
-  Note: the pre-recorded fixture set (`oracle-a`) and the `golden-db.sql` dump are
-  slightly out of sync — a **dataset artifact, not a code difference** (Rust matches
-  the live PHP oracle on the same DB exactly). The corpus run itself is stateful and
-  the dump was captured after it, so three steps show drift vs the stale fixture:
-  - `009 rpc_counters` — counter *values* are identical but the *order* (natural plan
-    order, stats-dependent) differs; fixed by `ANALYZE` on restore.
-  - `013 feed_tree` — the M3 mutation runs marked feed 1 read, so the dump has
-    `unread: 0` where the pre-mutation fixture has `unread: 3372`.
-  - **`010 rpc_sanity_check` — PARKED (REVISIT).** `Feeds::view` (the headlines
-    steps) persist `_DEFAULT_VIEW_MODE`/`_DEFAULT_VIEW_ORDER_BY` via `Prefs::set`, so
-    the dump carries those written values; the stale fixture recorded them before the
-    write (`""`). Rust returns the persisted value — faithful to PHP, not a bug.
-  Re-seeding the oracle + re-recording `oracle-a` from the same frozen DB would close
-  all three gaps; deferred until the M2 close-out bundle lands. The golden DB was
-  re-snapshotted (2026-09-06) so future increments diff against a consistent baseline.
-  Remaining mismatches are the unimplemented M2+ surface: the `Pref_*`
-  handlers (007, 021–032) and the external JSON API (033–045), plus the three
-  dataset artifacts above. Syndication (046–048) and feed icons (049–050) are
-  ported and diff clean. (`hotkeyHelp` is ported; `checkForUpdates` is a
-  stubbed no-op by design — see `hotkeys.rs` / `rpc.rs::checkforupdates`.)
+- **External JSON API + feed-tree date fix** (2026-09-07): `api/index.php`
+  (API level 23) ported to `crates/server/src/api.rs` — the `{seq, status, content}`
+  envelope, the `API::before()` gate (login / `ENABLE_API_ACCESS`), and the read methods
+  `login`, `isLoggedIn`, `getConfig`, `getUnread`, `getCounters`, `getFeeds`,
+  `getCategories`, `getFeedTree`, `getLabels`, `getHeadlines`, `getArticle`, `getPref`
+  (all reuse the M2 building blocks: `feeds::getfeedtree`, `counters::get_counters`,
+  `headlines::get_headlines_query`, `article::get_labels`/`get_enclosures`, `prefs`).
+  Two latent bugs surfaced and fixed against the oracle: the feed-tree `param` datetime
+  now uses `time::make_local_datetime` (was a time-only `to_char 'HH24:MI'`; PHP includes
+  the date for non-today feeds), and `labels::get_labels_json` / the API label resolution
+  now match PHP `Article::_get_labels` — a **non-empty** `label_cache` is decoded and
+  returned as-is (or `[]` if invalid/empty/`no-labels`) and never re-queries the label
+  tables; only an **empty** `label_cache` hits the hard path (`ttrss_user_labels2`).
+- **Verified (2026-09-07):** `oracle-a` was re-recorded from the freshly reset golden
+  DB, which closed the three stale-fixture drifts noted in the 2026-09-05 pass (`009
+  rpc_counters` natural-plan order, `013 feed_tree` unread, `010 rpc_sanity_check`
+  persisted view prefs — all were dataset artifacts; Rust matched the live PHP oracle on
+  the same DB). The external JSON API (033–045) was ported in the same pass. **44/61**
+  steps now diff clean: the full auth flow (login/shell/logout, admin + readonly + OTP),
+  `rpc_runtime_info`, all feed-tree steps, all four headlines steps, `rpc_counters`
+  (values + PHP order), `rpc_sanity_check`, the whole external JSON API (033–045),
+  syndication (046–048), and feed icons (049–050).
+  Remaining mismatches are unimplemented surface, not defects:
+  - the `Pref_*` / admin `backend.php` read handlers (007, 016, 021–032);
+  - `checkforupdates` (011) — a network-dependent stub (see `rpc.rs`);
+  - the M3 logout flow (051–052) — `public.php?op=logout` CSRF/session teardown is not
+    yet ported (Rust returns the JSON `E_UNAUTHORIZED` gate instead of the 302 + shell).
 - **Next (M3):** mutations I — article state: mark/publish/star/unread, catchup
   (feed/cat/all), notes, scores, labels, tags. The harness will check both the
   response **and** the resulting DB state vs PHP.

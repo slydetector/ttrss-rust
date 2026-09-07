@@ -13,7 +13,7 @@ use axum::{
     extract::{Extension, Form, Query, Request, State},
     http::{header, HeaderMap, StatusCode},
     response::{IntoResponse, Response},
-    routing::get,
+    routing::{get, post},
     Router,
 };
 use serde::Deserialize;
@@ -23,7 +23,7 @@ use ttrss_core::phpser::Value;
 use ttrss_core::session as core_session;
 use tokio::fs;
 use ttrss_server::{
-    nocache_headers, with_trailing_slash, AppState, auth, diskcache, mime, render, rpc, session,
+    nocache_headers, with_trailing_slash, AppState, api, auth, diskcache, mime, render, rpc, session,
     syndication,
 };
 
@@ -65,6 +65,7 @@ fn build_router(state: &AppState) -> Router<AppState> {
         .route("/index.php", get(index))
         .route("/public.php", get(public_handler).post(public_handler))
         .route("/backend.php", get(rpc::handler).post(rpc::handler))
+        .route("/api/index.php", post(api::handler))
         .fallback(static_handler);
 
     let app = if base.is_empty() {

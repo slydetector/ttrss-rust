@@ -5,6 +5,7 @@
 //! The binary (`src/main.rs`) owns the HTTP wiring: `AppState` construction,
 //! routing, the login/logout flows, and static file serving.
 
+pub mod api;
 pub mod article;
 pub mod auth;
 pub mod counters;
