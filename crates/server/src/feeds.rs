@@ -403,6 +403,128 @@ pub async fn feed_title(pool: &sqlx::PgPool, id: i64, owner_uid: i64) -> String 
     }
 }
 
+/// `Feeds::updatedebugger` — the standalone feed-update debug page
+/// (`Content-Type: text/html`). Reproduced verbatim from the PHP template;
+/// the cache-bust timestamp and the csrf token normalize away in the diff.
+const UPDATE_DEBUGGER_TEMPLATE: &str = r#"		<!DOCTYPE html>
+		<html>
+		<head>
+			<title>Feed Debugger</title>
+			<style type='text/css'>
+				@media (prefers-color-scheme: dark) {
+					body {
+						background : #222;
+					}
+				}
+				body.css_loading * {
+					display : none;
+				}
+
+				.feed-xml {
+					color : green;
+				}
+
+				.log-timestamp {
+					color : gray;
+				}
+
+				.log-timestamp::before {
+					content: "["
+				}
+
+				.log-timestamp::after {
+					content: "]"
+				}
+
+			</style>
+			<script>
+				dojoConfig = {
+					async: true,
+					cacheBust: "1788113929",
+					packages: [
+						{ name: "fox", location: "../../js" },
+					]
+				};
+			</script>
+			<script src="js/utility.js?1788113929" type="text/javascript" charset="utf-8"></script>
+			<script src="js/common.js?1788113929" type="text/javascript" charset="utf-8"></script>
+			<script src="lib/dojo/dojo.js?1788113929" type="text/javascript" charset="utf-8"></script>
+			<script src="lib/dojo/tt-rss-layer.js?1788113929" type="text/javascript" charset="utf-8"></script>
+					</head>
+		<body class="flat ttrss_utility feed_debugger css_loading">
+		<script type="text/javascript">
+			require(['dojo/parser', "dojo/ready", 'dijit/form/Button','dijit/form/CheckBox', 'fox/form/Select', 'dijit/form/Form',
+				'dijit/form/Select','dijit/form/TextBox','dijit/form/ValidationTextBox'],function(parser, ready){
+				ready(function() {
+					parser.parse();
+				});
+			});
+		</script>
+
+			<div class="container">
+				<h1>Feed Debugger: @FEEDID@: @TITLE@</h1>
+				<div class="content">
+					<form method="post" action="" dojoType="dijit.form.Form">
+						<input dojoType="dijit.form.TextBox" style="display : none"
+                name="op"
+               value="Feeds">						<input dojoType="dijit.form.TextBox" style="display : none"
+                name="method"
+               value="updatedebugger">						<input dojoType="dijit.form.TextBox" style="display : none"
+                name="csrf_token"
+               value="@CSRF@">						<input dojoType="dijit.form.TextBox" style="display : none"
+                name="action"
+               value="do_update">						<input dojoType="dijit.form.TextBox" style="display : none"
+                name="feed_id"
+               value="@FEEDID@">
+						<fieldset>
+							<label>
+							<select dojoType='fox.form.Select' name="xdebug"
+         id="" name="xdebug" ><option value="1" selected="selected">LOG_VERBOSE</option><option value="2" >LOG_EXTENDED</option></select></label>
+						</fieldset>
+
+						<fieldset>
+							<label class="checkbox"><input dojoType='dijit.form.CheckBox' name="force_refetch"
+                     id=""> Force refetch</label>
+						</fieldset>
+
+						<fieldset class="narrow">
+							<label class="checkbox"><input dojoType='dijit.form.CheckBox' name="force_rehash"
+                     id=""> Force rehash</label>
+						</fieldset>
+
+						<fieldset class="narrow">
+							<label class="checkbox"><input dojoType='dijit.form.CheckBox' name="dump_feed_xml"
+                     id=""> Dump feed XML</label>
+						</fieldset>
+
+						<button dojoType="dijit.form.Button" class="alt-primary" type="submit">Continue</button>					</form>
+
+					<hr>
+
+					<pre></pre>
+				</div>
+			</div>
+		</body>
+		</html>
+		"#;
+
+/// `Feeds::updatedebugger` — the standalone feed-update debug page.
+pub async fn updatedebugger(
+    state: &AppState,
+    sess: &Sess,
+    extra: &Map<String, Value>,
+    csrf: &str,
+) -> String {
+    let pool = state.db.pool();
+    let uid = sess.data().uid().unwrap_or(0);
+    let feed_id = crate::util::clean_int(extra.get("feed_id"));
+    let title = feed_title(pool, feed_id, uid).await;
+    UPDATE_DEBUGGER_TEMPLATE
+        .replace("@CSRF@", csrf)
+        .replace("@FEEDID@", &feed_id.to_string())
+        .replace("@TITLE@", &title)
+}
+
 /// `Feeds::_get_cat_title($cat_id, $owner_uid)`.
 pub async fn category_title(pool: &sqlx::PgPool, cat_id: i64, owner_uid: i64) -> String {
     match cat_id {

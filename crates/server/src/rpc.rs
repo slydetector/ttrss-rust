@@ -69,14 +69,15 @@ pub async fn handler(
             .into_response();
     }
 
-    let body = match dispatch(&state, &sess, &op, &method, &csrf, &extra).await {
-        DispatchOutput::Json(v) => v.to_string(),
-        DispatchOutput::Html(h) => h,
+    let (body, content_type) = match dispatch(&state, &sess, &op, &method, &csrf, &extra).await {
+        DispatchOutput::Json(v) => (v.to_string(), "application/json; charset=utf-8"),
+        DispatchOutput::Html(h) => (h, "application/json; charset=utf-8"),
+        DispatchOutput::TextHtml(h) => (h, "text/html;charset=UTF-8"),
     };
 
     let mut res = Response::builder()
         .status(StatusCode::OK)
-        .header(header::CONTENT_TYPE, "application/json; charset=utf-8")
+        .header(header::CONTENT_TYPE, content_type)
         .body(Body::from(body))
         .expect("valid response");
     // The PHP session `nocache` limiter stamps responses whose session started
@@ -93,6 +94,7 @@ pub async fn handler(
 enum DispatchOutput {
     Json(Value),
     Html(String),
+    TextHtml(String),
 }
 
 async fn dispatch(
@@ -143,6 +145,7 @@ async fn dispatch(
         "Feeds" => match method {
             "view" => DispatchOutput::Json(crate::headlines::view(state, sess, extra).await),
             "search" => DispatchOutput::Json(crate::headlines::search(state, sess, extra).await),
+            "updatedebugger" => DispatchOutput::TextHtml(crate::feeds::updatedebugger(state, sess, extra, &csrf).await),
             _ => DispatchOutput::Json(unknown_method("Feeds", method)),
         },
         "Pref_Feeds" => match method {
