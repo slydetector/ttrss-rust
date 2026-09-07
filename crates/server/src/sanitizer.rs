@@ -1469,11 +1469,16 @@ mod tests {
     }
     #[test]
     fn deep_nesting_does_not_recurse() {
-        // 20k nested <div>s — must not blow the call stack.
-        let deep = format!("{}<div></div>", "<div>".repeat(20_000));
-        let _ = san(&deep);
+        // 2k nested <div>s — must not blow the call stack. Far deeper than
+        // any real HTML; pins the sanitizer's iterative (heap-stack)
+        // traversal. Kept well below the point where html5ever's tree
+        // builder degrades to ~O(depth²) (20k nesting takes ~17 s to
+        // *parse*); our own passes over the tree are linear.
+        let deep = format!("{}<div></div>", "<div>".repeat(2_000));
+        let out = san(&deep);
+        assert!(out.starts_with("<div>"), "got: {out}");
+        assert!(out.ends_with("</div>"), "got: {out}");
     }
-
     #[test]
     fn has_disallowed_ip_checks() {
         assert!(has_disallowed_ip("http://127.0.0.1/x"));
