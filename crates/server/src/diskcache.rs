@@ -316,4 +316,111 @@ mod tests {
         );
         assert_eq!(resolve_cached(dir, "no-slash"), None);
     }
+
+    /// PHP `DiskCacheTest::test_rewrite_urls_*` — the *current* implementation
+    /// rewrites a URL only when a cached copy exists, using
+    /// `<self>/public.php?op=cached&file=images/<sha1(url)>`. (The frozen PHP
+    /// `rewrite_urls` tests predate the sha1 + cache-existence check and assert a
+    /// URL-encoded filename with no cache setup, so they are ported here with the
+    /// corrected expectation.)
+    fn sha1_hex(s: &str) -> String {
+        let mut h = Sha1::new();
+        h.update(s.as_bytes());
+        h.finalize()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect()
+    }
+
+    static TMP_COUNTER: std::sync::atomic::AtomicUsize =
+        std::sync::atomic::AtomicUsize::new(0);
+
+    /// A fresh temp dir with cached copies for each URL in `urls`.
+    fn temp_cache(urls: &[&str]) -> PathBuf {
+        let n = TMP_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let dir = std::env::temp_dir().join(format!("ttrss-rewrite-{}-{}", std::process::id(), n));
+        std::fs::create_dir_all(&dir).unwrap();
+        for url in urls {
+            std::fs::write(dir.join(sha1_hex(url)), b"cached").unwrap();
+        }
+        dir
+    }
+
+    #[test]
+    fn rewrite_urls_rewrites_cached_img_src() {
+        let dir = temp_cache(&["http://a.com/1.jpg", "http://b.com/2.jpg"]);
+        let html = r#"<img src="http://a.com/1.jpg"><img src="http://b.com/2.jpg">"#;
+        let res = rewrite_urls(html, &dir, "http://self");
+        assert!(res.contains("public.php"), "rewritten: {res}");
+        assert!(res.contains(&sha1_hex("http://a.com/1.jpg")), "first img: {res}");
+        assert!(res.contains(&sha1_hex("http://b.com/2.jpg")), "second img: {res}");
+    }
+
+    #[test]
+    fn rewrite_urls_rewrites_video_poster() {
+        let dir = temp_cache(&["http://example.com/poster.jpg"]);
+        let html = r#"<video poster="http://example.com/poster.jpg"></video>"#;
+        let res = rewrite_urls(html, &dir, "http://self");
+        assert!(res.contains(&sha1_hex("http://example.com/poster.jpg")), "poster: {res}");
+    }
+
+    #[test]
+    fn rewrite_urls_rewrites_video_src() {
+        let dir = temp_cache(&["http://example.com/video.mp4"]);
+        let html = r#"<video src="http://example.com/video.mp4"></video>"#;
+        let res = rewrite_urls(html, &dir, "http://self");
+        assert!(res.contains(&sha1_hex("http://example.com/video.mp4")), "video src: {res}");
+    }
+
+    #[test]
+    fn rewrite_urls_no_cache_no_rewrite() {
+        let dir = temp_cache(&[]);
+        let html = r#"<img src="http://a.com/1.jpg">"#;
+        let res = rewrite_urls(html, &dir, "http://self");
+        assert_eq!(res, html, "no cached copy → unchanged: {res}");
+    }
+
+    #[test]
+    fn rewrite_urls_preserves_non_cacheable_urls() {
+        let dir = temp_cache(&[]);
+        let html = "<p>Some text content with no images</p>";
+        let res = rewrite_urls(html, &dir, "http://self");
+        assert!(res.contains("Some text content with no images"), "text: {res}");
+    }
+
+    #[test]
+    fn rewrite_urls_empty_string() {
+        let dir = temp_cache(&[]);
+        assert_eq!(rewrite_urls("", &dir, "http://self"), "");
+    }
+
+    #[test]
+    fn rewrite_urls_whitespace_only() {
+        let dir = temp_cache(&[]);
+        assert_eq!(rewrite_urls("  \n\t  ", &dir, "http://self"), "");
+    }
+
+    #[test]
+    fn rewrite_urls_preserves_html_structure() {
+        let dir = temp_cache(&["http://example.com/img.png"]);
+        let html = r#"<div><p><img src="http://example.com/img.png"></p></div>"#;
+        let res = rewrite_urls(html, &dir, "http://self");
+        assert!(res.contains("<div>"), "div: {res}");
+        assert!(res.contains("<p>"), "p: {res}");
+        assert!(res.contains("</div>"), "closing div: {res}");
+        assert!(res.contains(&sha1_hex("http://example.com/img.png")), "img: {res}");
+    }
+
+    #[test]
+    fn rewrite_urls_removes_srcset_when_rewriting() {
+        // A cached `src` also drops the element's `srcset`.
+        let url = "http://example.com/pic.jpg";
+        let dir = temp_cache(&[url]);
+        let html = format!(
+            r#"<img src="{url}" srcset="http://a.com/1x.jpg 1x">"#
+        );
+        let res = rewrite_urls(&html, &dir, "http://self");
+        assert!(!res.contains("srcset"), "srcset dropped: {res}");
+        assert!(res.contains(&sha1_hex(url)), "src rewritten: {res}");
+    }
 }

@@ -534,7 +534,24 @@ before them:
 | PluginHost hooks (the `HOOK_*` no-ops left in rows 9–14) | Rust plugin API + first-party plugins | **M7** |
 | External-API write ops + admin (`Pref_Users`, system, OTP/QR) | write/admin handlers | **M5** |
 | Config CRUD (feed CRUD + categories + icons + OPML, filters, access keys) | M4 mutation handlers | **M4** |
-
+**M2 close-out test parity (2026-09-16):** porting the `backend.php` read handlers
+surfaced two more PHP suites for already-ported modules, now replicated:
+- `FeedsTest.php` (3) + `FeedsIntegrationTest.php` (13) → the `Feeds::_get_title` /
+  `_get_cat_title` feed-title resolution, ported 1:1 to `tests/feeds_parity.rs` (12
+cases; the one `test_get_title_non_numeric_id` case is N/A — the Rust `feed_title`
+  takes an `i64`, so the non-numeric case is handled by the id parser at the handler
+  layer). Note: `headlines::feed_title_of` is a near-duplicate of
+  `feeds::feed_title` (the else branch returns `""` vs the PHP-faithful `id` string);
+carrying a NOTE to centralize on `feeds::feed_title` when next touching `headlines`.
+- `DiskCacheTest.php` `rewrite_urls` subset → the *current* implementation rewrites a
+  URL only when a cached copy exists (`<self>/public.php?op=cached&file=images/<sha1>`);
+  the frozen PHP `rewrite_urls` tests predate that (URL-encoded name, no cache setup),
+  so 8 corrected-expectation cases were ported into `diskcache.rs::tests`. The full
+  DiskCache class lifecycle tests (instance/put/get/…) remain M6 (the class itself is
+  not ported — only `send`/`rewrite_urls`/`get_full_path`/`get_mime_type`/
+  `get_fake_extension` are). The `fake_extension` Rust table is an intentional
+  subset (feed-icon image types only), so the PHP video/audio/pdf `mimeMap` cases
+  do not apply. |
 No DB-backed `REVISIT` cases remain (the 14 `server::prefs` cases were
 resolved 2026-09-06, see row 3), and row 4 is now complete except the 4
 `implements_interface` reflection cases (parked 2026-09-06 — no Rust consumer
