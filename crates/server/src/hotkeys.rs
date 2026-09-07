@@ -3,6 +3,7 @@
 //! `hotkeys_map()` feeds the init-params `hotkeys` value, `hotkey_help()`
 //! renders the help panel.
 
+use crate::util::htmlspecialchars as html_escape;
 use serde_json::{Map, Value};
 
 /// `RPC::get_hotkeys_map()` entries — `sequence => action` in PHP declaration
@@ -189,14 +190,6 @@ fn hotkey_display(seq: &str) -> String {
         .join(" ")
 }
 
-/// PHP `htmlspecialchars` (ENT_QUOTES) — `__()`'s output escaping via `<?= ?>`.
-fn html_escape(s: &str) -> String {
-    s.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&#039;")
-}
 
 /// PHP `RPC::hotkeyHelp()` — the keyboard-shortcuts help dialog (raw HTML).
 /// `__()` is the identity (no catalog loaded); PluginHost hooks are no-ops

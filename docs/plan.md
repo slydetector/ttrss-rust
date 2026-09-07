@@ -395,6 +395,28 @@ clean** on the golden dataset. Done so far:
   (`DOMDocument::loadHTML`), which does *implicit `<p>` insertion* for leading bare text
   and drops leading whitespace/comments; html5ever (spec-compliant) does not. Ported
   `apply_libxml_implicit_p` to match — this cleared the category-view content diffs.
+  The serializer now also matches libxml's `saveHTML()` **entity encoding**: non-ASCII
+  text/attribute chars emit the named HTML entity (the 243-entry libxml table, ported
+  as `sanitizer::HTML_NAMED_ENTITIES`) or a decimal numeric reference, and attribute
+  quoting follows libxml (a value containing `"` but not `'` is single-quoted). Three
+  previously deviating `sanitizer_parity` tests now assert the PHP oracle's real
+  output (e.g. `<p>中文</p>` → `<p>&#20013;&#25991;</p>`; the `highlight_words_str`
+  multibyte case is `t&euml;st` on libxml 2.13.9 despite the PHP test's `>= 21200`
+  branch). Needed for the syndication feed's byte-fidelity.
+- **Atom/JSON syndication** (`crates/server/src/syndication.rs`): `public.php?op=rss`.
+  Access-key auth (`ttrss_access_keys` lookup → 403; get-or-create of the feed self
+  URL's key via `uniqid_short`), `Feeds::_get_headlines` with the syndication params
+  (`include_children`, `ignore_vfeed_group`, `limit` default 60, virtual-feed default
+  ordering, `ts` start filter, `_order_to_override_query`), `tag:<host>,<Y-m-d>:/<id>`
+  tag URIs, and the Atom body rendered with minijinja from `templates/feed_atom.jinja`
+  (a faithful transcription of `templates/generated_feed.txt`; the `feed_hub` block is
+  never emitted on this path). The JSON variant is built with serde_json. Article
+  content goes through `sanitizer::sanitize` + `DiskCache::rewrite_urls`, with a
+  non-empty note prepended as a styled div; `noxml` switches the content type to
+  `text/plain`. `046 syndication_feed_atom` / `047 syndication_cat_rss` /
+  `048 syndication_bad_key` diff clean. NOTE(port): the `q` search filter is not ported
+  (affects title/first-id but not row filtering); the plugin-feed branch is not ported
+  (no plugin feeds in the deployment); `Config::get_version()` is a placeholder const.
 - **Harness normalizer (M2 additions):** smart-date / bare-time tokens collapse to one
   token (they differ run-to-run and server-to-server); URL authority ports are stripped
   (oracle vs Rust run on different ports by construction).
@@ -417,10 +439,11 @@ clean** on the golden dataset. Done so far:
   Re-seeding the oracle + re-recording `oracle-a` from the same frozen DB would close
   all three gaps; deferred until the M2 close-out bundle lands. The golden DB was
   re-snapshotted (2026-09-06) so future increments diff against a consistent baseline.
-  Remaining mismatches are the unimplemented M2+ surface: the `Pref_*` handlers, the
-  external JSON API (level 23), Atom/JSON syndication, and feed icons. (`hotkeyHelp`
-  is ported; `checkForUpdates` is a stubbed no-op by design — see `hotkeys.rs` /
-  `rpc.rs::checkforupdates`.)
+  Remaining mismatches are the unimplemented M2+ surface: the `Pref_*`
+  handlers (007, 021–032) and the external JSON API (033–045), plus the three
+  dataset artifacts above. Syndication (046–048) and feed icons (049–050) are
+  ported and diff clean. (`hotkeyHelp` is ported; `checkForUpdates` is a
+  stubbed no-op by design — see `hotkeys.rs` / `rpc.rs::checkforupdates`.)
 - **Next (M3):** mutations I — article state: mark/publish/star/unread, catchup
   (feed/cat/all), notes, scores, labels, tags. The harness will check both the
   response **and** the resulting DB state vs PHP.

@@ -278,11 +278,13 @@ fn test_highlight_words_str_multibyte_characters() {
     let words = vec!["tëst".to_string()];
     let result = highlight_words_str(str_, &words);
 
-    // NOTE: PHP oracle (libxml 2.13.09) entity-encodes `ë` as `&euml;` in
-    // saveHTML, so this test FAILS on the oracle (it expects the raw char
-    // for LIBXML_VERSION >= 21200). Rust serializes raw UTF-8.
+    // NOTE: the PHP oracle (libxml 2.13.9) entity-encodes `ë` as `&euml;`
+    // in `saveHTML`. The ported serializer matches libxml (see
+    // `sanitizer::push_html_char`), so the oracle's actual output is the
+    // entity form — *not* the raw char the PHP test expects for
+    // `LIBXML_VERSION >= 21200` (that branch is wrong on this libxml).
     assert!(result.contains("class=\"highlight\""));
-    assert!(result.contains("tëst"));
+    assert!(result.contains("t&euml;st"));
 }
 
 #[test]

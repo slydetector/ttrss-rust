@@ -175,7 +175,21 @@ async fn public_handler(
         },
         // `Handler_Public::rss` — syndicated Atom/JSON feed (access-key gated).
         Some("rss") => {
-            syndication::handle_rss(&state, query.id.as_deref(), query.key.as_deref(), query.format.as_deref()).await
+            let req = syndication::RssRequest {
+                id: query.id.as_deref(),
+                key: query.key.as_deref(),
+                is_cat: param_to_bool(query.is_cat.as_deref()),
+                limit: clean_int(query.limit.as_deref()),
+                offset: clean_int(query.offset.as_deref()),
+                search: query.q.as_deref().unwrap_or(""),
+                view_mode: query.view_mode.as_deref().unwrap_or(""),
+                order: query.order.as_deref().unwrap_or(""),
+                start_ts: query.ts.as_deref().unwrap_or(""),
+                format: query.format.as_deref().unwrap_or("atom"),
+                orig_guid: query.orig_guid.as_deref().unwrap_or(""),
+                noxml: param_to_bool(query.noxml.as_deref()),
+            };
+            syndication::handle_rss(&state, &req).await
         }
         _ => StatusCode::NOT_FOUND.into_response(),
     }
@@ -189,6 +203,27 @@ fn cached_file(state: &AppState, file: Option<&str>) -> Response {
     }
 }
 
+/// `Handler::_param_to_bool($p)`: `clean($p) && ($p !== "f" && $p !== "false")`.
+fn param_to_bool(v: Option<&str>) -> bool {
+    match v {
+        Some(s) => {
+            let s = s.trim();
+            !s.is_empty() && s != "f" && s != "false"
+        }
+        None => false,
+    }
+}
+
+/// PHP `(int)clean(...)`: the leading integer prefix of the string
+/// (`""`/non-numeric → `0`).
+fn clean_int(v: Option<&str>) -> i64 {
+    let s = v.unwrap_or("").trim();
+    let end = s
+        .find(|c: char| !c.is_ascii_digit() && c != '-' && c != '+')
+        .unwrap_or(s.len());
+    s.get(..end).and_then(|p| p.parse::<i64>().ok()).unwrap_or(0)
+}
+
 #[derive(Deserialize)]
 struct PublicQuery {
     op: Option<String>,
@@ -199,6 +234,16 @@ struct PublicQuery {
     // `op=rss` (syndication) params
     key: Option<String>,
     format: Option<String>,
+    is_cat: Option<String>,
+    limit: Option<String>,
+    offset: Option<String>,
+    q: Option<String>,
+    #[serde(rename = "view-mode")]
+    view_mode: Option<String>,
+    order: Option<String>,
+    ts: Option<String>,
+    orig_guid: Option<String>,
+    noxml: Option<String>,
 }
 
 #[derive(Deserialize)]

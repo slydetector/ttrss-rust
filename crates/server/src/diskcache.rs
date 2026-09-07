@@ -9,6 +9,9 @@
 use axum::body::Body;
 use axum::http::{header, StatusCode};
 use axum::response::Response;
+use kuchikiki::parse_html;
+use kuchikiki::traits::TendrilSink;
+use sha1::{Digest, Sha1};
 use std::path::{Path, PathBuf};
 
 /// `Config::CACHE_MAX_DAYS` (T_INT, default 7): the `Expires` stamp is the
@@ -143,6 +146,126 @@ pub fn resolve_cached(feed_icon_dir: &Path, file: &str) -> Option<PathBuf> {
         return None;
     }
     Some(base.join(subdir.trim()).join(name))
+}
+
+/// `DiskCache::rewrite_urls($str)` — rewrite image `src`/`srcset`/`poster`
+/// URLs to local disk-cache URLs (`<self>/public.php?op=cached&file=images/<sha1>`)
+/// when a cached copy exists. Called *after* `sanitize`, so URLs are already
+/// absolute; unchanged input is returned as-is.
+pub fn rewrite_urls(html: &str, image_cache_dir: &Path, self_url: &str) -> String {
+    let res = html.trim();
+    if res.is_empty() {
+        return String::new();
+    }
+
+    let doc = parse_html().one(res);
+    let mut changed = false;
+
+    for node in doc.descendants() {
+        let Some(el) = node.as_element() else {
+            continue;
+        };
+        // `//img[@src]|//source[@src|@srcset]|//video[@poster|@src]`
+        let name = el.name.local.to_string();
+        if !matches!(name.as_str(), "img" | "source" | "video") {
+            continue;
+        }
+        // `src` / `poster`: a cached hit rewrites the attribute and drops
+        // `srcset`.
+        for attr in ["src", "poster"] {
+            let url = el.attributes.borrow().get(attr).map(str::to_string);
+            let Some(url) = url else {
+                continue;
+            };
+            if let Some(cached) = cached_file_url(image_cache_dir, &url, self_url) {
+                el.attributes.borrow_mut().insert(attr, cached);
+                el.attributes.borrow_mut().remove("srcset");
+                changed = true;
+            }
+        }
+        // Remaining `srcset`: rewrite each entry that has a cached copy.
+        let srcset = el.attributes.borrow().get("srcset").map(str::to_string);
+        if let Some(srcset) = srcset {
+            let mut items = decode_srcset(&srcset);
+            let mut any = false;
+            for item in items.iter_mut() {
+                if let Some(cached) = cached_file_url(image_cache_dir, &item.url, self_url) {
+                    item.url = cached;
+                    any = true;
+                }
+            }
+            if any {
+                el.attributes.borrow_mut().insert("srcset", encode_srcset(&items));
+                changed = true;
+            }
+        }
+    }
+
+    if !changed {
+        return html.to_string();
+    }
+    // Re-serialize the `<body>` contents (the sanitizer's
+    // saveHTML-then-extract-`<body>` equivalent).
+    let mut out = String::new();
+    if let Some(body) = crate::sanitizer::find_body(&doc) {
+        for child in body.children() {
+            crate::sanitizer::serialize_node(&child, &mut out);
+        }
+    }
+    out
+}
+
+/// `<self_url>/public.php?op=cached&file=images/<sha1(url)>` when
+/// `<image_cache_dir>/<sha1(url)>` exists.
+fn cached_file_url(image_cache_dir: &Path, url: &str, self_url: &str) -> Option<String> {
+    let mut h = Sha1::new();
+    h.update(url.as_bytes());
+    let name: String = h
+        .finalize()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    if image_cache_dir.join(&name).is_file() {
+        Some(format!("{self_url}/public.php?op=cached&file=images/{name}"))
+    } else {
+        None
+    }
+}
+
+/// One `srcset` subitem (`<url> <desc>`).
+struct SrcsetItem {
+    url: String,
+    size: String,
+}
+
+/// `RSSUtils::decode_srcset`: `"<url> <desc>, <url> …"` → items. (A
+/// practical port of the PHP regex; the corpus never rewrites srcset.)
+fn decode_srcset(srcset: &str) -> Vec<SrcsetItem> {
+    let mut out = Vec::new();
+    for part in srcset.split(',') {
+        let part = part.trim();
+        if part.is_empty() {
+            continue;
+        }
+        let (url, size) = match part.split_once(char::is_whitespace) {
+            Some((u, s)) => (u.trim().to_string(), s.trim().to_string()),
+            None => (part.to_string(), String::new()),
+        };
+        if !url.is_empty() {
+            out.push(SrcsetItem { url, size });
+        }
+    }
+    out
+}
+
+/// `RSSUtils::encode_srcset`: items → `"<url> <desc>, …"` (PHP always joins
+/// url + `" "` + desc).
+fn encode_srcset(items: &[SrcsetItem]) -> String {
+    items
+        .iter()
+        .map(|i| format!("{} {}", i.url, i.size))
+        .collect::<Vec<_>>()
+        .join(",")
 }
 
 #[cfg(test)]

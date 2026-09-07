@@ -95,6 +95,29 @@ pub fn truncate_middle(s: &str, max_len: usize, suffix: &str) -> String {
     }
 }
 
+/// PHP `htmlspecialchars` (default `ENT_QUOTES`): escape `&`, `<`, `>`,
+/// `"`, `'` as XML/HTML entities.
+pub fn htmlspecialchars(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#039;")
+}
+
+/// PHP `truncate_string($str, $max_len, $suffix = '&hellip;')`: when the char
+/// count exceeds `$max_len`, keep the first `$max_len` chars and append
+/// `$suffix`.
+pub fn truncate_string(s: &str, max_len: usize, suffix: &str) -> String {
+    let len = s.chars().count();
+    if len > max_len {
+        let head: String = s.chars().take(max_len).collect();
+        format!("{head}{suffix}")
+    } else {
+        s.to_string()
+    }
+}
+
 /// `arr_qmarks()`: stringify a scalar JSON value the way PHP string coercion
 /// would (`"a"` → `a`, `3.5` → `3.5`, `null` → `""`, `true` → `1`).
 fn value_to_php_string(v: &Value) -> String {
@@ -319,6 +342,37 @@ mod tests {
         let r = truncate_middle("café world", 8, d);
         assert!(r.contains("café"), "got: {r}");
         assert!(r.contains("rld"), "got: {r}");
+    }
+
+    // ── Ported 1:1 from tt-rss/tests_functional/FunctionsTest.php ─────────
+    #[test]
+    fn truncate_string_chars() {
+        let d = "&hellip;";
+        // test_truncate_string_no_truncation
+        assert_eq!(truncate_string("hello", 10, d), "hello");
+        // test_truncate_string_exact_length
+        assert_eq!(truncate_string("hello", 5, d), "hello");
+        // test_truncate_string_shortens
+        assert_eq!(truncate_string("hello world", 5, d), "hello&hellip;");
+        // test_truncate_string_with_custom_suffix
+        assert_eq!(truncate_string("hello world", 5, "---"), "hello---");
+        // test_truncate_string_empty_string
+        assert_eq!(truncate_string("", 10, d), "");
+        // test_truncate_string_max_len_zero
+        assert_eq!(truncate_string("hello", 0, d), "&hellip;");
+        // test_truncate_string_multibyte_ascii
+        assert_eq!(truncate_string("hello", 4, d), "hell&hellip;");
+        // test_truncate_string_multibyte_unicode
+        assert_eq!(truncate_string("café", 4, d), "café");
+        // test_truncate_string_multibyte_unicode_boundary
+        assert_eq!(truncate_string("café", 2, d), "ca&hellip;");
+        // test_truncate_string_emoji
+        assert_eq!(truncate_string("👋🌍", 2, d), "👋🌍");
+        let r = truncate_string("👋🌍", 1, d);
+        assert!(r.contains("👋") && r.contains("&hellip;"), "got: {r}");
+        // test_truncate_string_cjk
+        let r = truncate_string("你好世界", 3, d);
+        assert!(r.contains("你") && r.contains("&hellip;"), "got: {r}");
     }
 
     #[test]

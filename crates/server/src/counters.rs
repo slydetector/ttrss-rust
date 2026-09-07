@@ -12,13 +12,14 @@ use sqlx::Row;
 use ttrss_core::db::Db;
 
 use crate::prefs;
+use crate::headlines::PLUGIN_FEED_BASE_INDEX;
 use crate::labels::{feed_to_label_id, label_to_feed_id, LABEL_BASE_INDEX};
 use crate::session::Sess;
 use crate::time::TzCtx;
 use crate::AppState;
 
 // `Feeds::*` (functions.php).
-const PLUGIN_FEED_BASE_INDEX: i64 = -128;
+
 const FEED_ARCHIVED: i64 = 0;
 const FEED_STARRED: i64 = -1;
 const FEED_PUBLISHED: i64 = -2;

@@ -38,9 +38,9 @@ fn test_sanitize_nested_tags() {
 #[test]
 fn test_sanitize_unicode_content() {
     let result = san("<p>中文内容</p>");
-    // NOTE: PHP (libxml2) encodes unicode as HTML entities (`&#20013;`);
-    // the Rust serializer emits raw UTF-8 (same document semantically).
-    assert!(result.contains("中"));
+    // PHP (libxml2) encodes unicode as HTML entities (`&#20013;`); the
+    // ported serializer matches (see `sanitizer::push_html_char`).
+    assert!(result.contains("&#20013;"));
 }
 
 #[test]

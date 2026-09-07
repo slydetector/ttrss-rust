@@ -16,23 +16,26 @@ use sqlx::Row;
 use crate::prefs;
 use crate::sanitizer;
 use crate::session::Sess;
-use crate::util::strip_tags;
+use crate::util::{strip_tags, truncate_string};
 use crate::time::{self, TzCtx};
 use crate::AppState;
 
 use crate::labels::{feed_to_label_id, label_to_feed_id, LABEL_BASE_INDEX};
 
 // `Feeds::*` (functions.php).
-const FEED_ARCHIVED: i64 = 0;
-const FEED_STARRED: i64 = -1;
-const FEED_PUBLISHED: i64 = -2;
-const FEED_FRESH: i64 = -3;
-const FEED_ALL: i64 = -4;
-const FEED_RECENTLY_READ: i64 = -6;
-const FEED_ERROR: i64 = -7;
-const CAT_UNCATEGORIZED: i64 = 0;
-const CAT_SPECIAL: i64 = -1;
-const CAT_LABELS: i64 = -2;
+pub(crate) const FEED_ARCHIVED: i64 = 0;
+pub(crate) const FEED_STARRED: i64 = -1;
+pub(crate) const FEED_PUBLISHED: i64 = -2;
+pub(crate) const FEED_FRESH: i64 = -3;
+pub(crate) const FEED_ALL: i64 = -4;
+pub(crate) const FEED_RECENTLY_READ: i64 = -6;
+pub(crate) const FEED_ERROR: i64 = -7;
+pub(crate) const CAT_UNCATEGORIZED: i64 = 0;
+pub(crate) const CAT_SPECIAL: i64 = -1;
+pub(crate) const CAT_LABELS: i64 = -2;
+/// `PLUGIN_FEED_BASE_INDEX` (functions.php): virtual plugin feeds occupy
+/// `(LABEL_BASE_INDEX, PLUGIN_FEED_BASE_INDEX)`.
+pub(crate) const PLUGIN_FEED_BASE_INDEX: i64 = -128;
 const NEVER_GROUP_FEEDS: &[i64] = &[FEED_RECENTLY_READ, FEED_ARCHIVED];
 const NEVER_GROUP_BY_DATE: &[i64] = &[FEED_PUBLISHED, FEED_STARRED, FEED_FRESH];
 
@@ -293,7 +296,7 @@ fn generate_error_feed(error: &str) -> Value {
 }
 
 /// `Feeds::_order_to_override_query`.
-fn order_to_override_query(order: &str) -> (String, bool) {
+pub(crate) fn order_to_override_query(order: &str) -> (String, bool) {
     let mut query = String::new();
     let mut skip_first_id = false;
     // HOOK_HEADLINES_CUSTOM_SORT_OVERRIDE — none of the loaded plugins in this
@@ -373,6 +376,8 @@ async fn format_headlines_list(
         rows,
         profile,
         0, // since_id (the SPA `view` call does not paginate by id)
+        false, // ignore_vfeed_group (the SPA view path does not set it)
+        "", // start_ts (the SPA view path does not set it)
     )
     .await;
 
@@ -926,16 +931,6 @@ fn color_unpack(hex: &str) -> (i64, i64, i64) {
     (((c >> 16) & 0xFF) as i64, ((c >> 8) & 0xFF) as i64, (c & 0xFF) as i64)
 }
 
-/// `truncate_string($str, $max_len, $suffix = '&hellip;')` (char-based).
-fn truncate_string(s: &str, max_len: usize, suffix: &str) -> String {
-    if s.chars().count() > max_len {
-        let cut: String = s.chars().take(max_len).collect();
-        format!("{cut}{suffix}")
-    } else {
-        s.to_string()
-    }
-}
-
 // ---- `_get_headlines` ------------------------------------------------------
 
 /// Result of the headline query ([`get_headlines_query`] / `Feeds::_get_headlines`):
@@ -973,6 +968,27 @@ pub struct HeadlinesParams {
     pub since_id: i64,
     /// `owner_uid` (PHP: `$_SESSION["uid"]`).
     pub owner_uid: i64,
+    /// `search` (PHP default `""`): the search filter.
+    ///
+    /// NOTE: the `_search_to_sql` filter itself is not ported yet — a
+    /// non-empty search still affects the feed title ("Search results:") and
+    /// skips the first-id check, but does not filter rows.
+    pub search: String,
+    /// `override_order` (PHP default `""`): explicit `ORDER BY` override
+    /// (from `Feeds::_order_to_override_query` or a virtual-feed default).
+    pub override_order: String,
+    /// `include_children` (PHP default false): include subcategory feeds in
+    /// a category view.
+    pub include_children: bool,
+    /// `ignore_vfeed_group` (PHP default false): skip the VFEED_GROUP_BY_FEED
+    /// date-group ordering (syndicated feeds set this true).
+    pub ignore_vfeed_group: bool,
+    /// `start_ts` (PHP default `""`): only articles entered on/after this
+    /// timestamp.
+    pub start_ts: String,
+    /// `skip_first_id_check` (PHP default false): skip the topmost-article-id
+    /// pagination check (set by `date_reverse` ordering via syndication).
+    pub skip_first_id_check: bool,
 }
 
 impl HeadlinesParams {
@@ -986,6 +1002,12 @@ impl HeadlinesParams {
             offset: 0,
             since_id: 0,
             owner_uid,
+            search: String::new(),
+            override_order: String::new(),
+            include_children: false,
+            ignore_vfeed_group: false,
+            start_ts: String::new(),
+            skip_first_id_check: false,
         }
     }
 }
@@ -1006,17 +1028,19 @@ pub async fn get_headlines_query(db: &ttrss_core::db::Db, params: &HeadlinesPara
         params.limit,
         &params.view_mode,
         params.cat_view,
-        "", // no active search
+        &params.search,
         "",
-        "", // no override order
+        &params.override_order,
         params.offset,
-        false, // include_children
+        params.include_children,
         0, // check_first_id
-        false, // skip_first_id_check
+        params.skip_first_id_check,
         "", // order_by (PHP: commented out)
         &rows,
         None, // profile
         params.since_id,
+        params.ignore_vfeed_group,
+        &params.start_ts,
     )
     .await
 }
@@ -1044,17 +1068,41 @@ async fn get_headlines(
     rows: &[(String, Option<i32>, String)],
     profile: Option<i32>,
     since_id: i64,
+    ignore_vfeed_group: bool,
+    start_ts: &str,
 ) -> HeadlinesQuery {
     // The branch logic below mutates `$override_order` (starred / published /
     // recently-read get a default order unless the caller supplied one).
     let mut override_order = override_order.to_string();
+
+    // `$start_ts_query_part = $start_ts ? "date_entered >= 'Y/m/d H:i:s' AND " : ''`
+    //
+    // `strtotime` of the client ts, rendered as UTC `Y/m/d H:i:s` (the PHP
+    // server runs in UTC; the stored datetimes are UTC). `strtotime`'s
+    // garbage-input behavior (`false` → epoch) is mirrored in the fallback.
+    let start_ts_query_part = if start_ts.is_empty() {
+        String::new()
+    } else {
+        let dt = chrono::NaiveDateTime::parse_from_str(start_ts, "%Y-%m-%d %H:%M:%S")
+            .or_else(|_| chrono::NaiveDateTime::parse_from_str(start_ts, "%Y-%m-%d %H:%M"))
+            .or_else(|_| {
+                chrono::NaiveDate::parse_from_str(start_ts, "%Y-%m-%d")
+                    .map(|d| d.and_hms_opt(0, 0, 0).unwrap())
+            })
+            .or_else(|_| {
+                chrono::DateTime::parse_from_rfc3339(start_ts)
+                    .map(|d| d.with_timezone(&chrono::Utc).naive_utc())
+            })
+            .unwrap_or_else(|_| chrono::DateTime::UNIX_EPOCH.naive_utc());
+        format!("date_entered >= '{}' AND ", dt.format("%Y/%m/%d %H:%M:%S"))
+    };
 
     // Assigned in every branch of the `feed_num` match below.
     let query_strategy_part: String;
     let mut vfeed_query_part = String::new();
     let mut ext_tables_part = String::new();
     let mut allow_archived = false;
-    let mut ignore_vfeed_group = false;
+    let mut ignore_vfeed_group = ignore_vfeed_group;
 
     let fresh_max_age = prefs::resolve("FRESH_ARTICLE_MAX_AGE", rows, profile).as_int();
     let recently_read_max_age = prefs::resolve("RECENTLY_READ_MAX_AGE", rows, profile).as_int();
@@ -1314,7 +1362,7 @@ async fn get_headlines(
 \t\t\t\tWHERE
 \t\t\t\t{feed_check_qpart}
 \t\t\t\tttrss_user_entries.owner_uid = '{uid}' AND
-\t\t\t\t{since_id_part}date_entered >= NOW() - INTERVAL '1 hour' AND
+\t\t\t\t{start_ts_query_part}{since_id_part}date_entered >= NOW() - INTERVAL '1 hour' AND
 \t\t\t\t{first_id_query_strategy_part} ORDER BY {order_by} LIMIT 1"
             );
             if let Ok(Some(r)) = sqlx::query(&query).fetch_optional(pool).await {
@@ -1367,6 +1415,7 @@ async fn get_headlines(
 \t\t\t\tWHERE
 \t\t\t\t{feed_check_qpart}
 \t\t\t\tttrss_user_entries.owner_uid = '{uid}' AND
+\t\t\t\t{start_ts_query_part}
 \t\t\t\t{view_query_part}
 \t\t\t\t{since_id_part}
 \t\t\t\t{query_strategy_part} ORDER BY {order_by}
@@ -1420,6 +1469,7 @@ async fn get_headlines(
 \t\t\t\t\t\t\tpost_int_id = int_id AND
 \t\t\t\t\t\t\ttag_name = '{feed}' AND
 \t\t\t\t\t\t\t{view_query_part}
+\t\t\t\t\t\t\t{start_ts_query_part}
 \t\t\t\t\t\t\t{query_strategy_part} ORDER BY {order_by}
 \t\t\t\t\t\t\t{limit_query_part} {offset_query_part}"
         );
@@ -1539,36 +1589,6 @@ mod tests {
         assert_eq!(url_to_youtube_vid("https://vimeo.com/12345"), None);
         assert_eq!(url_to_youtube_vid("not-a-url"), None);
         assert_eq!(url_to_youtube_vid(""), None);
-    }
-
-    #[test]
-    fn truncate_string_chars() {
-        let d = "&hellip;";
-        // test_truncate_string_no_truncation
-        assert_eq!(truncate_string("hello", 10, d), "hello");
-        // test_truncate_string_exact_length
-        assert_eq!(truncate_string("hello", 5, d), "hello");
-        // test_truncate_string_shortens
-        assert_eq!(truncate_string("hello world", 5, d), "hello&hellip;");
-        // test_truncate_string_with_custom_suffix
-        assert_eq!(truncate_string("hello world", 5, "---"), "hello---");
-        // test_truncate_string_empty_string
-        assert_eq!(truncate_string("", 10, d), "");
-        // test_truncate_string_max_len_zero
-        assert_eq!(truncate_string("hello", 0, d), "&hellip;");
-        // test_truncate_string_multibyte_ascii
-        assert_eq!(truncate_string("hello", 4, d), "hell&hellip;");
-        // test_truncate_string_multibyte_unicode
-        assert_eq!(truncate_string("café", 4, d), "café");
-        // test_truncate_string_multibyte_unicode_boundary
-        assert_eq!(truncate_string("café", 2, d), "ca&hellip;");
-        // test_truncate_string_emoji
-        assert_eq!(truncate_string("👋🌍", 2, d), "👋🌍");
-        let r = truncate_string("👋🌍", 1, d);
-        assert!(r.contains("👋") && r.contains("&hellip;"), "got: {r}");
-        // test_truncate_string_cjk
-        let r = truncate_string("你好世界", 3, d);
-        assert!(r.contains("你") && r.contains("&hellip;"), "got: {r}");
     }
 
     #[test]

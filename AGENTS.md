@@ -67,6 +67,15 @@ session in this directory. The frozen PHP reference lives in `tt-rss/`
   Also: `make_db`/`Db::connect_url` keep `statement_cache_capacity(0)` for the
   same width-mixing reason — do not re-enable it.
 
+## Harness verification: ask before assuming byte-exact
+
+Don't default to "match the oracle byte-for-byte." When the verification target
+has more than one defensible bar — **byte-exact** vs **functionally equivalent**
+(e.g. syndication feeds, where a maintained library emitting an equivalent
+result is fine) — lay out the situation, the options, and the trade-offs, and
+get direction before committing to an approach. Surface the choice; don't
+assume it.
+
 ## Test harness / oracle
 
 - The oracle + record/replay/diff harness is documented in **`oracle/README.md`**
@@ -76,11 +85,18 @@ session in this directory. The frozen PHP reference lives in `tt-rss/`
   and diffs). The harness verifies read-only ops for now; write/mutating ops
   come later. Prefer `make <target>` over long inline commands.
 
-## Test-parity rule
+## Test-parity rule (port the tests, not just the code)
 
-- Port each PHP test case **1:1** (same inputs, same expected values). If a PHP
-  test is broken, port it with the corrected expectation and add a `NOTE`
-  comment explaining the deviation.
+When porting a PHP module, **replicate its PHP test cases 1:1** — the PHP suite
+is the spec for expected behavior, and it lands *with* the code, not after.
+Mirror each matching PHP `#[test]` into Rust (same inputs, same expected values):
+- PHP test locations: `tt-rss/{tests,tests_functional,tests_integration,tests/integration,tests/mocked}/`.
+  `docs/plan.md` (the test-parity board) tracks the PHP-suite → Rust-module map.
+- A PHP case exercising a feature the port omits is kept as a `// TODO(port): …`
+  or a `NOTE` (named, commented), never silently dropped.
+- If a PHP test is itself broken, port it with the corrected expectation + a
+  `NOTE` explaining the deviation.
 - DB-backed tests must **not** depend on the mutable golden dump
   (`oracle/data/golden-db.sql`); use the stable version-controlled schema +
-  fixtures. The golden dump is reserved for the end-to-end oracle harness.
+  fixtures (`crates/testing`). The golden dump is reserved for the end-to-end
+  oracle harness.

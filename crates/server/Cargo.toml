@@ -33,3 +33,5 @@ tracing-subscriber.workspace = true
 ttrss-core = { path = "../core" }
 kuchikiki.workspace = true
 html5ever.workspace = true
+sha1.workspace = true
+minijinja.workspace = true

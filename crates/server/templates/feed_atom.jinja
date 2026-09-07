@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<feed xmlns="http://www.w3.org/2005/Atom">
+<title>{{ feed_title }}</title>
+<generator uri="https://github.com/tt-rss/tt-rss">Tiny Tiny RSS/{{ version }}</generator>
+<updated>{{ feed_updated }}</updated>
+<id>{{ feed_url }}</id>
+<link href="{{ feed_url }}" rel="self"/>
+
+<link href="{{ self_url }}" rel="alternate"/>
+{% for a in articles %}
+<entry>
+	<id>{{ a.id }}</id>
+	<link href="{{ a.link }}" rel="alternate" type="text/html"/>
+	<title type="html">{{ a.title }}</title>
+	<summary type="html"><![CDATA[{{ a.excerpt }}]]></summary>
+	<content type="html"><![CDATA[{{ a.content }}]]></content>
+	<updated>{{ a.updated }}</updated>
+	<author><name>{{ a.author }}</name></author>
+	<source>
+		<id>{{ a.source_link }}</id>
+		<link rel="self" href="{{ a.source_link }}"/>
+		<updated>{{ a.updated }}</updated>
+		<title>{{ a.source_title }}</title></source>
+{% for t in a.tags %}
+	<category term="{{ t }}"/>
+{% endfor %}
+{% for e in a.enclosures %}
+	<link rel="enclosure" 
+		type="{{ e.type }}" 
+		length="{{ e.length }}"
+		href="{{ e.href }}"/>
+{% endfor %}
+</entry>
+{% endfor %}
+
+</feed>
+<!-- vim:ft=xml
+	  -->

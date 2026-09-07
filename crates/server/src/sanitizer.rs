@@ -87,8 +87,9 @@ fn allowed_elements(has_sandbox: bool) -> BTreeSet<String> {
 }
 
 /// Find the `<body>` element of a full-document parse (the fragment is placed
-/// there, mirroring PHP's `DOMDocument::loadHTML`).
-fn find_body(doc: &NodeRef) -> Option<NodeRef> {
+/// there, mirroring PHP's `DOMDocument::loadHTML`). Exposed for
+/// `diskcache::rewrite_urls`.
+pub(crate) fn find_body(doc: &NodeRef) -> Option<NodeRef> {
     for html in doc.children() {
         if let Some(el) = html.as_element() {
             if el_name(el) == "html" {
@@ -1203,7 +1204,8 @@ pub(crate) fn serialize_for_tests(node: &NodeRef, out: &mut String) {
 }
 
 /// Serialize a node (and descendants) to HTML, iteratively (heap stack).
-fn serialize_node(node: &NodeRef, out: &mut String) {
+/// Exposed for `diskcache::rewrite_urls` (same re-serialization path).
+pub(crate) fn serialize_node(node: &NodeRef, out: &mut String) {
     let mut stack = vec![SerItem::Visit(node.clone())];
     while let Some(item) = stack.pop() {
         match item {
@@ -1247,32 +1249,138 @@ fn write_start_tag(el: &ElementData, name: &str, out: &mut String) {
             out.push(':');
         }
         out.push_str(&exp_name.local);
-        out.push_str("=\"");
-        escape_attr(&attr.value, out);
-        out.push('"');
+        out.push('=');
+        // libxml quote selection: a value containing `"` but not `'`
+        // is single-quoted (with `"` raw); otherwise double-quoted with
+        // `"` escaped as `&quot;` (`'` is never escaped).
+        let value = &attr.value;
+        let single = value.contains('"') && !value.contains('\'');
+        out.push(if single { '\'' } else { '"' });
+        escape_attr(value, out, !single);
+        out.push(if single { '\'' } else { '"' });
     }
     out.push('>');
 }
 
+// libxml2's HTML named-entity table, as used by PHP `DOMDocument::saveHTML()`
+// (the oracle's serializer), derived from the frozen PHP reference (243 entries:
+// ISO-8859-1 + Latin-1 Supplement + Latin Ext-A + Greek + HTML4 "special" entities).
+const HTML_NAMED_ENTITIES: &[(u32, &str)] = &[
+    (160, "nbsp"), (161, "iexcl"), (162, "cent"), (163, "pound"),
+    (164, "curren"), (165, "yen"), (166, "brvbar"), (167, "sect"),
+    (168, "uml"), (169, "copy"), (170, "ordf"), (171, "laquo"),
+    (172, "not"), (173, "shy"), (174, "reg"), (175, "macr"),
+    (176, "deg"), (177, "plusmn"), (178, "sup2"), (179, "sup3"),
+    (180, "acute"), (181, "micro"), (182, "para"), (183, "middot"),
+    (184, "cedil"), (185, "sup1"), (186, "ordm"), (187, "raquo"),
+    (188, "frac14"), (189, "frac12"), (190, "frac34"), (191, "iquest"),
+    (192, "Agrave"), (193, "Aacute"), (194, "Acirc"), (195, "Atilde"),
+    (196, "Auml"), (197, "Aring"), (198, "AElig"), (199, "Ccedil"),
+    (200, "Egrave"), (201, "Eacute"), (202, "Ecirc"), (203, "Euml"),
+    (204, "Igrave"), (205, "Iacute"), (206, "Icirc"), (207, "Iuml"),
+    (208, "ETH"), (209, "Ntilde"), (210, "Ograve"), (211, "Oacute"),
+    (212, "Ocirc"), (213, "Otilde"), (214, "Ouml"), (215, "times"),
+    (216, "Oslash"), (217, "Ugrave"), (218, "Uacute"), (219, "Ucirc"),
+    (220, "Uuml"), (221, "Yacute"), (222, "THORN"), (223, "szlig"),
+    (224, "agrave"), (225, "aacute"), (226, "acirc"), (227, "atilde"),
+    (228, "auml"), (229, "aring"), (230, "aelig"), (231, "ccedil"),
+    (232, "egrave"), (233, "eacute"), (234, "ecirc"), (235, "euml"),
+    (236, "igrave"), (237, "iacute"), (238, "icirc"), (239, "iuml"),
+    (240, "eth"), (241, "ntilde"), (242, "ograve"), (243, "oacute"),
+    (244, "ocirc"), (245, "otilde"), (246, "ouml"), (247, "divide"),
+    (248, "oslash"), (249, "ugrave"), (250, "uacute"), (251, "ucirc"),
+    (252, "uuml"), (253, "yacute"), (254, "thorn"), (255, "yuml"),
+    (338, "OElig"), (339, "oelig"), (352, "Scaron"), (353, "scaron"),
+    (376, "Yuml"), (402, "fnof"), (710, "circ"), (732, "tilde"),
+    (913, "Alpha"), (914, "Beta"), (915, "Gamma"), (916, "Delta"),
+    (917, "Epsilon"), (918, "Zeta"), (919, "Eta"), (920, "Theta"),
+    (921, "Iota"), (922, "Kappa"), (923, "Lambda"), (924, "Mu"),
+    (925, "Nu"), (926, "Xi"), (927, "Omicron"), (928, "Pi"),
+    (929, "Rho"), (931, "Sigma"), (932, "Tau"), (933, "Upsilon"),
+    (934, "Phi"), (935, "Chi"), (936, "Psi"), (937, "Omega"),
+    (945, "alpha"), (946, "beta"), (947, "gamma"), (948, "delta"),
+    (949, "epsilon"), (950, "zeta"), (951, "eta"), (952, "theta"),
+    (953, "iota"), (954, "kappa"), (955, "lambda"), (956, "mu"),
+    (957, "nu"), (958, "xi"), (959, "omicron"), (960, "pi"),
+    (961, "rho"), (962, "sigmaf"), (963, "sigma"), (964, "tau"),
+    (965, "upsilon"), (966, "phi"), (967, "chi"), (968, "psi"),
+    (969, "omega"), (977, "thetasym"), (978, "upsih"), (982, "piv"),
+    (8194, "ensp"), (8195, "emsp"), (8201, "thinsp"), (8204, "zwnj"),
+    (8205, "zwj"), (8206, "lrm"), (8207, "rlm"), (8211, "ndash"),
+    (8212, "mdash"), (8216, "lsquo"), (8217, "rsquo"), (8218, "sbquo"),
+    (8220, "ldquo"), (8221, "rdquo"), (8222, "bdquo"), (8224, "dagger"),
+    (8225, "Dagger"), (8226, "bull"), (8230, "hellip"), (8240, "permil"),
+    (8242, "prime"), (8243, "Prime"), (8249, "lsaquo"), (8250, "rsaquo"),
+    (8254, "oline"), (8260, "frasl"), (8364, "euro"), (8465, "image"),
+    (8472, "weierp"), (8476, "real"), (8482, "trade"), (8501, "alefsym"),
+    (8592, "larr"), (8593, "uarr"), (8594, "rarr"), (8595, "darr"),
+    (8596, "harr"), (8629, "crarr"), (8656, "lArr"), (8657, "uArr"),
+    (8658, "rArr"), (8659, "dArr"), (8660, "hArr"), (8704, "forall"),
+    (8706, "part"), (8707, "exist"), (8709, "empty"), (8711, "nabla"),
+    (8712, "isin"), (8713, "notin"), (8715, "ni"), (8719, "prod"),
+    (8721, "sum"), (8722, "minus"), (8727, "lowast"), (8730, "radic"),
+    (8733, "prop"), (8734, "infin"), (8736, "ang"), (8743, "and"),
+    (8744, "or"), (8745, "cap"), (8746, "cup"), (8747, "int"),
+    (8756, "there4"), (8764, "sim"), (8773, "cong"), (8776, "asymp"),
+    (8800, "ne"), (8801, "equiv"), (8804, "le"), (8805, "ge"),
+    (8834, "sub"), (8835, "sup"), (8836, "nsub"), (8838, "sube"),
+    (8839, "supe"), (8853, "oplus"), (8855, "otimes"), (8869, "perp"),
+    (8901, "sdot"), (8968, "lceil"), (8969, "rceil"), (8970, "lfloor"),
+    (8971, "rfloor"), (9001, "lang"), (9002, "rang"),
+];
+
+/// `DOMDocument::saveHTML()` text-node serialization: `&`, `<`, `>` are
+/// entity-escaped; non-ASCII characters become the HTML named entity (when
+/// one exists in the table above) or a decimal numeric reference; `NUL`
+/// becomes a space and other C0 controls are dropped (libxml behavior).
 fn escape_text(s: &str, out: &mut String) {
     for c in s.chars() {
-        match c {
-            '&' => out.push_str("&amp;"),
-            '<' => out.push_str("&lt;"),
-            '>' => out.push_str("&gt;"),
-            '\0' => out.push('\u{fffd}'),
-            _ => out.push(c),
+        let cp = c as u32;
+        if cp < 0x80 {
+            match c {
+                '&' => out.push_str("&amp;"),
+                '<' => out.push_str("&lt;"),
+                '>' => out.push_str("&gt;"),
+                '\0' => out.push(' '),
+                '\t' | '\n' | '\r' => out.push(c),
+                _ if cp < 0x20 => {}
+                _ => out.push(c),
+            }
+        } else {
+            push_html_char(c, out);
         }
     }
 }
 
-fn escape_attr(s: &str, out: &mut String) {
+/// A single character >= 0x80 in libxml's HTML serializer form: the named
+/// HTML entity when the table has one, else a decimal numeric reference.
+fn push_html_char(c: char, out: &mut String) {
+    let cp = c as u32;
+    match HTML_NAMED_ENTITIES.binary_search_by(|&(p, _)| p.cmp(&cp)) {
+        Ok(i) => {
+            out.push('&');
+            out.push_str(HTML_NAMED_ENTITIES[i].1);
+            out.push(';');
+        }
+        Err(_) => out.push_str(&format!("&#{cp};")),
+    }
+}
+fn escape_attr(s: &str, out: &mut String, escape_quote: bool) {
     for c in s.chars() {
-        match c {
-            '"' => out.push_str("&quot;"),
-            '&' => out.push_str("&amp;"),
-            '<' => out.push_str("&lt;"),
-            _ => out.push(c),
+        let cp = c as u32;
+        if cp < 0x80 {
+            match c {
+                '&' => out.push_str("&amp;"),
+                '<' => out.push_str("&lt;"),
+                '>' => out.push_str("&gt;"),
+                '"' if escape_quote => out.push_str("&quot;"),
+                '\0' => out.push(' '),
+                '\t' | '\n' | '\r' => out.push(c),
+                _ if cp < 0x20 => {}
+                _ => out.push(c),
+            }
+        } else {
+            push_html_char(c, out);
         }
     }
 }
@@ -1346,13 +1454,19 @@ mod tests {
         assert!(out.contains("rel=\"noopener noreferrer\""), "got: {out}");
     }
 
+    /// NOTE(port): the serializer re-encodes characters to HTML entities
+    /// exactly like PHP `DOMDocument::saveHTML()` (libxml), so an entity in
+    /// the input comes out as the *same* entity in the output (the earlier
+    /// port decoded to a literal `’`, which the syndication feed diff caught).
     #[test]
-    fn decodes_entities_to_chars() {
+    fn entity_roundtrip_matches_php() {
         let out = san("<p>a&rsquo;b &amp; c</p>");
-        assert!(out.contains("’"), "got: {out}");
-        assert!(out.contains("&amp;"), "got: {out}");
+        assert!(out.contains("a&rsquo;b &amp; c"), "got: {out}");
+        assert!(!out.contains('’'), "got: {out}");
+        // Non-entity-encodable non-ASCII → decimal numeric reference.
+        let out2 = san("<p>中</p>");
+        assert!(out2.contains("&#20013;"), "got: {out2}");
     }
-
     #[test]
     fn deep_nesting_does_not_recurse() {
         // 20k nested <div>s — must not blow the call stack.
