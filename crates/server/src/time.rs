@@ -63,6 +63,30 @@ impl TzCtx {
     }
 }
 
+impl TzCtx {
+    /// Build the context for the current session (loads the owner's date/time
+    /// prefs once). Handlers that render dates via `make_local_datetime` use
+    /// this instead of inlining the `prefs::load_rows` + `resolve` sequence.
+    pub async fn for_session(state: &crate::AppState, data: &ttrss_core::session::Session) -> Self {
+        let uid = data.uid().unwrap_or(0);
+        let profile = data.profile().map(|p| p as i32);
+        let rows = crate::prefs::load_rows(&state.db, uid, profile).await;
+        Self {
+            user_tz: crate::prefs::resolve("USER_TIMEZONE", &rows, profile)
+                .as_str()
+                .to_string(),
+            client_tz_offset: data.get_int("clientTzOffset").unwrap_or(0),
+            short_date_format: crate::prefs::resolve("SHORT_DATE_FORMAT", &rows, profile)
+                .as_str()
+                .to_string(),
+            long_date_format: crate::prefs::resolve("LONG_DATE_FORMAT", &rows, profile)
+                .as_str()
+                .to_string(),
+        }
+    }
+}
+
+
 /// `TimeHelper::make_local_datetime($timestamp, …, $eta_min)` — smart-date path.
 pub fn make_local_datetime(timestamp: Option<&str>, eta_min: bool, ctx: &TzCtx) -> String {
     // `if (!$timestamp) $timestamp = '1970-01-01 0:00';`

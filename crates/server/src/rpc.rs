@@ -26,6 +26,8 @@ use crate::article;
 use crate::util;
 use crate::settings;
 use crate::filters;
+use crate::system;
+use crate::users;
 use crate::labels;
 
 /// Form/query params for `backend.php` (all arrive via `$_REQUEST`).
@@ -181,6 +183,15 @@ async fn dispatch(
         "Pref_Prefs" => match method {
             "getProfiles" => DispatchOutput::Json(settings::get_profiles(state, sess).await),
             _ => DispatchOutput::Json(unknown_method("Pref_Prefs", method)),
+        },
+        "Pref_System" => match method {
+            "getscheduledtasks" => DispatchOutput::Html(system::getscheduledtasks(state, sess).await),
+            _ => DispatchOutput::Json(unknown_method("Pref_System", method)),
+        },
+        "Pref_Users" => match method {
+            "index" => DispatchOutput::Html(users::index(state, sess, extra).await),
+            "userdetails" => DispatchOutput::Html(users::user_details(state, sess, extra).await),
+            _ => DispatchOutput::Json(unknown_method("Pref_Users", method)),
         },
         other => DispatchOutput::Json(unknown_method(other, method)),
     }

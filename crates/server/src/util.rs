@@ -96,6 +96,12 @@ pub fn clean_int(v: Option<&Value>) -> i64 {
     }
 }
 
+/// PHP `format_error($msg, $id = '')` (`include/controls_compat.php`) — the
+/// inline error banner.
+pub fn format_error(msg: &str, id: &str) -> String {
+    format!("<div class=\"alert alert-danger\" id=\"{id}\">{msg}</div>")
+}
+
 /// PHP `mb_substr_replace()` (`include/functions.php`): character-wise
 /// (UTF-8) replacement of `[position, position+length)` with `replacement`.
 pub fn mb_substr_replace(original: &str, replacement: &str, position: usize, length: usize) -> String {
