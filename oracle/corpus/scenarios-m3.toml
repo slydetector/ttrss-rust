@@ -118,3 +118,110 @@ form = [ ["op", "RPC"], ["method", "publishSelected"],
          ["csrf_token", "{{csrf}}"] ]
 expect_status = 200
 db_state = "SELECT ref_id, unread, marked, published FROM ttrss_user_entries WHERE owner_uid = 1 ORDER BY ref_id"
+
+# ── Article mutations (setScore / tags / labels / metadata / tags list) ─────
+# ref ids: 2, 3 (first Ars Technica entries), 20 = article_1, 429 = article_2.
+
+[[step]]
+name = "m3_set_score"
+method = "POST"
+path = "/backend.php"
+form = [ ["op", "Article"], ["method", "setScore"],
+         ["ids", "2,3,{{article_1}}"], ["score", "5"],
+         ["csrf_token", "{{csrf}}"] ]
+expect_status = 200
+db_state = "SELECT ref_id, score FROM ttrss_user_entries WHERE owner_uid = 1 AND score <> 0 ORDER BY ref_id"
+
+[[step]]
+name = "m3_set_tags"
+method = "POST"
+path = "/backend.php"
+form = [ ["op", "Article"], ["method", "setArticleTags"],
+         ["id", "{{article_1}}"], ["tags_str", "harness-test,parity"],
+         ["csrf_token", "{{csrf}}"] ]
+expect_status = 200
+db_state = "SELECT tag_name FROM ttrss_tags WHERE post_int_id IN (SELECT int_id FROM ttrss_user_entries WHERE owner_uid = 1 AND ref_id IN (2,3,20,429)) ORDER BY tag_name"
+
+[[step]]
+name = "m3_set_tags_clear"
+method = "POST"
+path = "/backend.php"
+form = [ ["op", "Article"], ["method", "setArticleTags"],
+         ["id", "{{article_2}}"], ["tags_str", ""],
+         ["csrf_token", "{{csrf}}"] ]
+expect_status = 200
+db_state = "SELECT tag_name FROM ttrss_tags WHERE post_int_id IN (SELECT int_id FROM ttrss_user_entries WHERE owner_uid = 1 AND ref_id IN (2,3,20,429)) ORDER BY tag_name"
+
+[[step]]
+name = "m3_assign_label"
+method = "POST"
+path = "/backend.php"
+form = [ ["op", "Article"], ["method", "assigntolabel"],
+         ["ids", "2,{{article_1}}"], ["lid", "{{labels.Read later}}"],
+         ["csrf_token", "{{csrf}}"] ]
+expect_status = 200
+db_state = "SELECT article_id, label_id FROM ttrss_user_labels2 WHERE article_id IN (2,3,20,429) ORDER BY article_id, label_id"
+
+[[step]]
+name = "m3_remove_label"
+method = "POST"
+path = "/backend.php"
+form = [ ["op", "Article"], ["method", "removefromlabel"],
+         ["ids", "2,{{article_1}}"], ["lid", "{{labels.Read later}}"],
+         ["csrf_token", "{{csrf}}"] ]
+expect_status = 200
+db_state = "SELECT article_id, label_id FROM ttrss_user_labels2 WHERE article_id IN (2,3,20,429) ORDER BY article_id, label_id"
+
+[[step]]
+name = "m3_article_print_tags"
+method = "POST"
+path = "/backend.php"
+form = [ ["op", "Article"], ["method", "printArticleTags"],
+         ["id", "{{article_1}}"], ["csrf_token", "{{csrf}}"] ]
+expect_status = 200
+
+[[step]]
+name = "m3_article_complete_tags"
+method = "POST"
+path = "/backend.php"
+form = [ ["op", "Article"], ["method", "completeTags"],
+         ["search", "rust"], ["csrf_token", "{{csrf}}"] ]
+expect_status = 200
+
+[[step]]
+name = "m3_article_metadata"
+method = "POST"
+path = "/backend.php"
+form = [ ["op", "Article"], ["method", "getmetadatabyid"],
+         ["id", "{{article_1}}"], ["csrf_token", "{{csrf}}"] ]
+expect_status = 200
+
+[[step]]
+name = "m3_article_redirect"
+method = "POST"
+path = "/backend.php"
+form = [ ["op", "Article"], ["method", "redirect"],
+         ["id", "{{article_1}}"], ["csrf_token", "{{csrf}}"] ]
+expect_status = 302
+
+# ── Catchup-scope mutations (RPC::catchupFeed / Feeds::catchupAll) ──────────
+
+[[step]]
+name = "m3_catchup_feed_read"
+method = "POST"
+path = "/backend.php"
+form = [ ["op", "RPC"], ["method", "catchupFeed"],
+         ["feed_id", "{{feed_ars}}"], ["cmode", "0"],
+         ["csrf_token", "{{csrf}}"] ]
+expect_status = 200
+db_state = "SELECT ref_id, unread FROM ttrss_user_entries WHERE owner_uid = 1 AND feed_id = 1 ORDER BY ref_id"
+
+[[step]]
+name = "m3_catchup_feed_unread"
+method = "POST"
+path = "/backend.php"
+form = [ ["op", "Feeds"], ["method", "catchupAll"],
+         ["feed_id", "{{feed_ars}}"], ["cmode", "1"],
+         ["csrf_token", "{{csrf}}"] ]
+expect_status = 200
+db_state = "SELECT ref_id, unread FROM ttrss_user_entries WHERE owner_uid = 1 AND feed_id = 1 ORDER BY ref_id"

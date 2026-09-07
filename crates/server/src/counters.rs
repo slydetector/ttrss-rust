@@ -130,7 +130,7 @@ fn parse_id_list(count: Option<&Value>, ids: Option<&Value>) -> Option<Vec<i64>>
 /// `Counters::get_all` / `get_conditional` body (faithful port — the PHP
 /// method takes this many parameters).
 #[allow(clippy::too_many_arguments)]
-async fn all_counters(
+pub(crate) async fn all_counters(
     pool: &sqlx::PgPool,
     uid: i64,
     profile: Option<i32>,

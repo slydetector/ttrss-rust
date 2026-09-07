@@ -1494,7 +1494,7 @@ async fn get_headlines(
 }
 
 /// `Feeds::_get_child_cats` (natural PG order).
-async fn child_cats(pool: &sqlx::PgPool, uid: i64, cat: i64) -> Vec<i64> {
+pub(crate) async fn child_cats(pool: &sqlx::PgPool, uid: i64, cat: i64) -> Vec<i64> {
     let rows = sqlx::query(
         "SELECT id FROM ttrss_feed_categories WHERE (parent_cat = $1 AND owner_uid = $2)",
     )

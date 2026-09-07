@@ -96,6 +96,49 @@ pub fn clean_int(v: Option<&Value>) -> i64 {
     }
 }
 
+/// PHP `is_numeric()` (the string form): decimal/scientific integers and
+/// floats with an optional sign. `"inf"`/`"NaN"` are not numeric.
+pub fn is_numeric(s: &str) -> bool {
+    let t = s.trim();
+    if t.is_empty() {
+        return false;
+    }
+    if t.parse::<i64>().is_ok() {
+        return true;
+    }
+    matches!(t.parse::<f64>(), Ok(f) if f.is_finite())
+}
+
+/// `FeedItem_Common::normalize_categories`: flatten each input on `","`,
+/// then per tag `clean(trim(mb_strtolower(x)))`; numeric tags get the `t:`
+/// prefix ("no numeric tags"); `,'"` are stripped; length capped at 250
+/// (chars); empties dropped; the result is sorted ascending and de-duplicated
+/// (PHP `asort` + `array_unique`).
+pub fn normalize_categories(raw: &[String]) -> Vec<String> {
+    let mut flat: Vec<String> = Vec::new();
+    for part in raw {
+        flat.extend(part.split(',').map(str::to_string));
+    }
+    let mut tags: Vec<String> = flat
+        .into_iter()
+        .map(|srccat| {
+            let mut cat = clean_str(&srccat.trim().to_lowercase());
+            if is_numeric(&cat) {
+                cat = format!("t:{cat}");
+            }
+            cat = cat.replace([',', '\'', '"'], "");
+            if cat.chars().count() > 250 {
+                cat = cat.chars().take(250).collect();
+            }
+            cat
+        })
+        .filter(|c| !c.is_empty())
+        .collect();
+    tags.sort();
+    tags.dedup();
+    tags
+}
+
 /// PHP `format_error($msg, $id = '')` (`include/controls_compat.php`) — the
 /// inline error banner.
 pub fn format_error(msg: &str, id: &str) -> String {
@@ -493,5 +536,39 @@ mod tests {
         assert_eq!(strip_tags("<!-- comment -->text"), "text");
         assert_eq!(strip_tags("a < 5"), "a < 5");
         assert_eq!(strip_tags("<div>multi\n  line</div>"), "multi\n  line");
+    }
+
+    #[test]
+    fn is_numeric_matches_php() {
+        for s in ["123", "-12", "+5", "1.5", "-.25", "1e3", "2.5e-2", "0"] {
+            assert!(is_numeric(s), "{s:?}");
+        }
+        for s in ["", "  ", "abc", "12a", "inf", "-inf", "NaN", "0x1A"] {
+            assert!(!is_numeric(s), "{s:?}");
+        }
+    }
+
+    #[test]
+    fn normalize_categories_matches_php() {
+        // test_set_article_tags_trims_whitespace: trims + lowercases + sorts
+        let out = normalize_categories(&[
+            "  tag-a  ".into(),
+            "  Tag-B  ".into(),
+        ]);
+        assert_eq!(out, vec!["tag-a", "tag-b"]);
+        // numeric tags get the `t:` prefix and sort as strings
+        let out = normalize_categories(&["2".into(), "10".into(), "a".into()]);
+        assert_eq!(out, vec!["a", "t:10", "t:2"]);
+        // commas split tags; quotes stripped inside tags, empties dropped, dups removed
+        let out = normalize_categories(&[
+            "a,b".into(),
+            "a".into(),
+            ",".into(),
+            "it's".into(),
+        ]);
+        assert_eq!(out, vec!["a", "b", "its"]);
+        // 250-char cap (chars, not bytes)
+        let long = normalize_categories(&["é".repeat(300)]);
+        assert_eq!(long[0].chars().count(), 250);
     }
 }

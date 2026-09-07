@@ -464,13 +464,27 @@ clean** on the golden dataset. Done so far:
     instead of the 302 + shell);
   - the otpuser flow (058–061) — disabled for now.
   The active harness is **53/53 clean** against `oracle/data/runs/oracle-a`.
-- **Next (M3):** mutations I — article state: mark/publish/star/unread, catchup
-  (feed/cat/all), notes, scores, labels, tags. The harness will check both the
-  response **and** the resulting DB state vs PHP.
+- **M3 (mutations I: article state), in progress (2026-09-07):** the
+  Rust-server mutation surface is ported and diffed against the PHP oracle with
+  the `db_state`-capturing M3 corpus (`oracle/corpus/scenarios-m3.toml`, now
+  **21 steps**). Done and **21/21 clean**: RPC catchup (read/unread/toggle),
+  mark star/unstar/toggle, publish/unpublish, plus the new `Article` handlers
+  `setScore` / `setArticleTags` (transactional `ttrss_tags` + `tag_cache` rewrite,
+  `FeedItem_Common::normalize_categories` ported to `util::normalize_categories`),
+  `assigntolabel` / `removefromlabel` (`labels::add_article` / `remove_article`),
+  `printArticleTags`, `completeTags`, `getmetadatabyid`, `redirect` (302/404 via a
+  new `DispatchOutput::Raw`), and the catchup-scope handlers `RPC::catchupFeed` /
+  `Feeds::catchupAll` (full `Feeds::_catchup` port in `feeds::catchup_scope`).
+  Test parity: `ArticleHandlerTest.php` (17) → `tests/article_handler_parity.rs`
+  (row 15 below). Notes: the `search` scope in `Feeds::_catchup` is unported
+  (returns a `true` no-op, NOTE in `feeds.rs`); article `note` (notes are plugin
+  territory) is excluded from M3. Remaining M3 work: port `notes` (the `note`
+  handler) if it is in-scope, and re-enable the disabled main-corpus logout steps
+  (051–052) once the session teardown is ported. See §3a M3 notes.
 
 ### Test-parity program (PHP `#[test]` → Rust `#[test]`, 2026-09-05)
 
-> **STATUS: ✅ COMPLETE (2026-09-06).** All **14/14 rows** ported and green —
+> **STATUS: ✅ COMPLETE (2026-09-06; row 15 added 2026-09-07 with M3).** All **15/15 rows** ported and green —
 > every PHP `#[test]` suite that maps to an already-ported Rust module is now
 > replicated 1:1 (per-row counts in the table below). Ground truth at completion:
 > `cargo nextest run` = **572 pass / 0 fail** (full workspace; **587** after the
@@ -526,6 +540,7 @@ tracked were ported 1:1 in `tests/prefs_parity.rs` alongside the `Prefs::set` /
 | 12 | `FeedsHeadlinesIntegrationTest` (20) | `server::headlines` | ✅ 20/20 ported (`tests/headlines_parity.rs`). `Feeds::_get_headlines` exposed as `headlines::get_headlines_query(&Db, &HeadlinesParams)` (pub `HeadlinesQuery` = the typed form of PHP's 9-tuple return); `since_id` plumbed into the private query builder (numeric-feed main query + first-id query, not the tag-browsing query — faithful to PHP); `HeadlinesParams::new(feed, owner_uid)` carries the PHP defaults (limit 30, `view_mode` all); prefs loaded with profile `None` (no session profile at this layer) | 
 | 13 | `LabelsTest`/`LabelsIntegrationTest` (15/35) | `server::labels` | ✅ 50/50 ported (15 pure + 35 DB, `tests/labels_parity.rs`). New `server::labels` = the PHP `Labels` class: `label_to_feed_id`/`feed_to_label_id` (canonical i64 home; `article` re-exports), case-insensitive `find_id`/`find_caption`, `get_all`/`get_as_hash`, transactional `create`/`remove` (`remove` binds the varchar `ttrss_access_keys.feed_id` as a **string** — PHP PDO binds ints as strings), `add_article`/`remove_article`, `clear_cache`, `update_cache` + `get_labels_json` (string-level `Article::_get_labels` with the cache-hit-as-is semantics; `article::get_labels` delegates to it) |
 | 14 | `RPCTest` (10) | `server::rpc` | ✅ 10/10 ported (`tests/rpc_parity.rs`). PHP `RPC::mark`/`publ`/`delete` ported to `article::{mark, publ, delete}` (cleaned string params, Postgres-side `$1::boolean` cast like PDO string binding, `pub` request key for `publ`, `Null` output on empty `delete`), dispatched from `rpc.rs`; the `markSelected`/`publishSelected` arms were already present; tests seed a `Sess` with `uid = 1` (PHP `DbTestCase`'s `$_SESSION["uid"]`) |
+| 15 | `ArticleHandlerTest` (17) | `server::article` (handlers) | ✅ 17/17 ported (`tests/article_handler_parity.rs`). PHP `Article` handler methods invoked directly (`invokeHandler('Article', …)`, `$_SESSION["uid"]=1`) ported to the Rust handler functions: `setScore` (3 — single/multi/zero; `ttrss_user_entries.score`), `setArticleTags` (4 — new/replaces/clears/trims; transactional `ttrss_tags` + `tag_cache`), `printArticleTags` (2 — existing/empty), `completeTags` (3 — matching/no-match/case-sensitive; `LIKE 'search%' LIMIT 10`), `assigntolabel`/`removefromlabel` (2 — `ttrss_user_labels2` + `label_cache`), `getmetadatabyid` (2 — `{link,title}` / `[]`), `redirect` (1 — 302 + `Location`). Also fixed a latent `metadata_by_id` SQL bug (a doubled `\\` line-continuation that made the query invalid; masked because the corpus sent the wrong `id` param so both sides returned `[]`) and corrected corpus steps 022/023 to send `id` — the oracle baseline was re-recorded so they now exercise the real path. `util::normalize_categories` gained its own unit test (trim/lower/sort, `t:` numeric prefix, quote-strip, 250-char cap) |
 
 #### What's next (after the parity program)
 
@@ -827,6 +842,7 @@ Port each handler class, method-by-method, against golden files (read methods la
 10. `Pref_System`: log viewer, clear log, send test email, scheduled tasks list.
 11. Plugin handler hooks (where relevant to UI).
 - **Exit criteria**: every JS `xhr` call in `js/` answered with structurally identical JSON (golden diff < 0); Selenium smoke (existing `selenium_test.py`) passes against Rust server.
+- **M3 status (2026-09-07):** item 1's mutation arms (`mark`/`publ`/`delete`/`catchupSelected`/`publishSelected`/`catchupFeed`), item 2's `catchupAll` (full `Feeds::_catchup` port), and item 3's `Article::redirect`/tags (print/set/complete)/score/labels (assign/remove)/`getmetadatabyid` are ported and diffed 21/21 by the `db_state`-capturing `scenarios-m3.toml` corpus (parity: row 15). Item 3's `enclosures` read path is row 10; `note` is M7 (plugin territory). Item 2's `view`/`search`/`opensite`/`subscribeToFeed` remain M2/M4.
 
 ### Phase 5 — External API + syndication (→ M2 reads, M5 writes)
 

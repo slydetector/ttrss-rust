@@ -74,6 +74,25 @@ pub async fn handler(
         DispatchOutput::Json(v) => (v.to_string(), "application/json; charset=utf-8"),
         DispatchOutput::Html(h) => (h, "application/json; charset=utf-8"),
         DispatchOutput::TextHtml(h) => (h, "text/html;charset=UTF-8"),
+        DispatchOutput::Raw(status, location, body) => {
+            let mut res = Response::builder()
+                .status(status)
+                .header(header::CONTENT_TYPE, "application/json; charset=utf-8")
+                .body(Body::from(body))
+                .expect("valid response");
+            if let Some(loc) = location {
+                // A 302 without a parseable `Location` would be malformed; the
+                // validated URL is always parseable, but fall back rather than panic.
+                let hv = loc
+                    .parse()
+                    .unwrap_or_else(|_| axum::http::HeaderValue::from_static("/"));
+                res.headers_mut().insert(header::LOCATION, hv);
+            }
+            if sess.had_cookie() {
+                super::nocache_headers(res.headers_mut());
+            }
+            return res;
+        }
     };
 
     let mut res = Response::builder()
@@ -96,6 +115,8 @@ enum DispatchOutput {
     Json(Value),
     Html(String),
     TextHtml(String),
+    /// A raw status + body (the `Article::redirect` 302/404).
+    Raw(StatusCode, Option<String>, String),
 }
 
 async fn dispatch(
@@ -147,6 +168,7 @@ async fn dispatch(
             "view" => DispatchOutput::Json(crate::headlines::view(state, sess, extra).await),
             "search" => DispatchOutput::Json(crate::headlines::search(state, sess, extra).await),
             "updatedebugger" => DispatchOutput::TextHtml(crate::feeds::updatedebugger(state, sess, extra, csrf).await),
+            "catchupAll" => DispatchOutput::Json(crate::feeds::catchup_all(state, sess).await),
             _ => DispatchOutput::Json(unknown_method("Feeds", method)),
         },
         "Pref_Feeds" => match method {
@@ -172,6 +194,15 @@ async fn dispatch(
                 )
                 .await,
             ),
+            "setScore" => DispatchOutput::Json(article::set_score(state, sess, extra).await),
+            "setArticleTags" => DispatchOutput::Json(article::set_article_tags(state, sess, extra).await),
+            "completeTags" => DispatchOutput::Json(article::complete_tags(state, sess, extra).await),
+            "assigntolabel" => DispatchOutput::Json(article::label_ops(state, sess, extra, true).await),
+            "removefromlabel" => DispatchOutput::Json(article::label_ops(state, sess, extra, false).await),
+            "redirect" => {
+                let (status, location, body) = article::redirect(state, sess, extra).await;
+                DispatchOutput::Raw(status, location, body)
+            }
             _ => DispatchOutput::Json(unknown_method("Article", method)),
         },
         "Pref_Labels" => match method {
@@ -241,6 +272,7 @@ async fn rpc_handler(
         "mark" => crate::article::mark(state, sess, extra).await,
         "publ" => crate::article::publ(state, sess, extra).await,
         "delete" => crate::article::delete(state, sess, extra).await,
+        "catchupFeed" => crate::feeds::catchup_feed(state, sess, extra).await,
         other => unknown_method("RPC", other),
     }
 }

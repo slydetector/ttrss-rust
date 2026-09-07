@@ -821,7 +821,7 @@ fn build_url(p: &UrlParts) -> String {
 /// Port of `UrlHelper::validate` (non-extended). Returns the validated URL —
 /// rebuilt from `parse_url` tokens, so the original scheme/host case and raw
 /// (non-encoded) path characters are preserved — or `None`.
-fn validate(url: &str) -> Option<String> {
+pub(crate) fn validate(url: &str) -> Option<String> {
     let url = crate::util::clean_str(url);
     let url = if url.starts_with("//") {
         format!("https:{url}")

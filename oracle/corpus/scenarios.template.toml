@@ -191,7 +191,7 @@ name = "article_metadata"
 method = "POST"
 path = "/backend.php"
 form = [ ["op", "Article"], ["method", "getmetadatabyid"],
-         ["int_id", "{{article_1}}"], ["csrf_token", "{{csrf}}"] ]
+         ["id", "{{article_1}}"], ["csrf_token", "{{csrf}}"] ]
 expect_status = 200
 
 [[step]]
@@ -199,7 +199,7 @@ name = "article_print_tags"
 method = "POST"
 path = "/backend.php"
 form = [ ["op", "Article"], ["method", "printArticleTags"],
-         ["int_id", "{{article_1}}"], ["csrf_token", "{{csrf}}"] ]
+         ["id", "{{article_1}}"], ["csrf_token", "{{csrf}}"] ]
 expect_status = 200
 
 [[step]]

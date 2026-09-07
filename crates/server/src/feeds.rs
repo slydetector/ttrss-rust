@@ -393,6 +393,210 @@ pub async fn feed_title(pool: &sqlx::PgPool, id: i64, owner_uid: i64) -> String 
     }
 }
 
+/// `Feeds::_catchup`: mark the owner's unread entries as read
+/// (`last_read = NOW()`) within the scope of a category / feed / virtual
+/// feed / label / tag name. `mode` is the optional recency window
+/// (`1day`/`1week`/`2week`).
+///
+/// NOTE: the PHP search scope (plugin `HOOK_SEARCH`, else
+/// `Feeds::_search_to_sql($search_query, $search_lang, …)`) is not ported —
+/// no plugin host, search filter not yet ported — so the search part is
+/// always `true` (same NOTE as `headlines::search`).
+async fn catchup_scope(
+    pool: &sqlx::PgPool,
+    owner_uid: i64,
+    profile: Option<i32>,
+    rows: &[(String, Option<i32>, String)],
+    feed_id_or_tag: &str,
+    is_cat: bool,
+    mode: &str,
+) {
+    let date_qpart = match mode {
+        "1day" | "1week" | "2week" => {
+            let n = mode.chars().next().unwrap();
+            let unit = &mode[1..];
+            format!("date_entered < NOW() - INTERVAL '{n} {unit}'")
+        }
+        _ => "true".to_string(),
+    };
+    let search_qpart = "true".to_string();
+
+    if !crate::util::is_numeric(feed_id_or_tag) {
+        // tag
+        let _ = sqlx::query(&format!(
+            "UPDATE ttrss_user_entries SET unread = false, last_read = NOW()
+             WHERE ref_id IN (SELECT id FROM
+                 (SELECT DISTINCT ttrss_entries.id FROM ttrss_entries, ttrss_user_entries, ttrss_tags
+                  WHERE ref_id = ttrss_entries.id AND post_int_id = int_id AND tag_name = $1
+                  AND ttrss_user_entries.owner_uid = $2 AND unread = true
+                  AND {date_qpart} AND {search_qpart}) as tmp)"
+        ))
+        .bind(feed_id_or_tag)
+        .bind(owner_uid)
+        .execute(pool)
+        .await;
+        return;
+    }
+
+    let feed_id = crate::util::php_int_cast(feed_id_or_tag);
+    if is_cat {
+        if feed_id >= 0 {
+            let cat_qpart = if feed_id == 0 {
+                // `Feeds::CATEGORY_UNCATEGORIZED`
+                "cat_id IS NULL".to_string()
+            } else {
+                let mut children = crate::headlines::child_cats(pool, owner_uid, feed_id).await;
+                children.push(feed_id);
+                format!("cat_id IN ({})", children.iter().map(|c| c.to_string()).collect::<Vec<_>>().join(","))
+            };
+            let _ = sqlx::query(&format!(
+                "UPDATE ttrss_user_entries SET unread = false, last_read = NOW()
+                 WHERE ref_id IN (SELECT id FROM
+                     (SELECT DISTINCT id FROM ttrss_entries, ttrss_user_entries
+                      WHERE ref_id = id AND owner_uid = $1 AND unread = true
+                      AND feed_id IN (SELECT id FROM ttrss_feeds WHERE {cat_qpart})
+                      AND {date_qpart} AND {search_qpart}) as tmp)"
+            ))
+            .bind(owner_uid)
+            .execute(pool)
+            .await;
+        } else if feed_id == CAT_LABELS {
+            let _ = sqlx::query(&format!(
+                "UPDATE ttrss_user_entries SET unread = false, last_read = NOW()
+                 WHERE (SELECT COUNT(*) FROM ttrss_user_labels2, ttrss_entries
+                        WHERE article_id = ref_id AND id = ref_id
+                        AND {date_qpart} AND {search_qpart}) > 0
+                 AND unread = true AND owner_uid = $1"
+            ))
+            .bind(owner_uid)
+            .execute(pool)
+            .await;
+        }
+    } else if feed_id > 0 {
+        let _ = sqlx::query(&format!(
+            "UPDATE ttrss_user_entries SET unread = false, last_read = NOW()
+             WHERE ref_id IN (SELECT id FROM
+                 (SELECT DISTINCT id FROM ttrss_entries, ttrss_user_entries
+                  WHERE ref_id = id AND owner_uid = $1 AND unread = true AND feed_id = $2
+                  AND {date_qpart} AND {search_qpart}) as tmp)"
+        ))
+        .bind(owner_uid)
+        .bind(feed_id)
+        .execute(pool)
+        .await;
+    } else if feed_id < 0 && feed_id > LABEL_BASE_INDEX {
+        // special (virtual) feeds
+        let query = match feed_id {
+            FEED_STARRED => Some(format!(
+                "UPDATE ttrss_user_entries SET unread = false, last_read = NOW()
+                 WHERE ref_id IN (SELECT id FROM
+                     (SELECT DISTINCT id FROM ttrss_entries, ttrss_user_entries
+                      WHERE ref_id = id AND owner_uid = $1 AND unread = true AND marked = true
+                      AND {date_qpart} AND {search_qpart}) as tmp)"
+            )),
+            FEED_PUBLISHED => Some(format!(
+                "UPDATE ttrss_user_entries SET unread = false, last_read = NOW()
+                 WHERE ref_id IN (SELECT id FROM
+                     (SELECT DISTINCT id FROM ttrss_entries, ttrss_user_entries
+                      WHERE ref_id = id AND owner_uid = $1 AND unread = true AND published = true
+                      AND {date_qpart} AND {search_qpart}) as tmp)"
+            )),
+            FEED_FRESH => {
+                let intl = prefs::resolve("FRESH_ARTICLE_MAX_AGE", rows, profile).as_int();
+                Some(format!(
+                    "UPDATE ttrss_user_entries SET unread = false, last_read = NOW()
+                     WHERE ref_id IN (SELECT id FROM
+                         (SELECT DISTINCT id FROM ttrss_entries, ttrss_user_entries
+                          WHERE ref_id = id AND owner_uid = $1 AND score >= 0 AND unread = true
+                          AND date_entered > NOW() - INTERVAL '{intl} hour'
+                          AND {date_qpart} AND {search_qpart}) as tmp)"
+                ))
+            }
+            FEED_ALL => Some(format!(
+                "UPDATE ttrss_user_entries SET unread = false, last_read = NOW()
+                 WHERE ref_id IN (SELECT id FROM
+                     (SELECT DISTINCT id FROM ttrss_entries, ttrss_user_entries
+                      WHERE ref_id = id AND owner_uid = $1 AND unread = true
+                      AND {date_qpart} AND {search_qpart}) as tmp)"
+            )),
+            _ => None,
+        };
+        if let Some(q) = query {
+            let _ = sqlx::query(&q)
+                .bind(owner_uid)
+                .execute(pool)
+                .await;
+        }
+    } else if feed_id < LABEL_BASE_INDEX {
+        // label
+        let label_id = crate::labels::feed_to_label_id(feed_id);
+        let _ = sqlx::query(&format!(
+            "UPDATE ttrss_user_entries SET unread = false, last_read = NOW()
+             WHERE ref_id IN (SELECT id FROM
+                 (SELECT DISTINCT ttrss_entries.id FROM ttrss_entries, ttrss_user_entries, ttrss_user_labels2
+                  WHERE ref_id = id AND label_id = $1 AND ref_id = article_id
+                  AND owner_uid = $2 AND unread = true
+                  AND {date_qpart} AND {search_qpart}) as tmp)"
+        ))
+        .bind(label_id)
+        .bind(owner_uid)
+        .execute(pool)
+        .await;
+    }
+}
+
+/// `RPC::catchupFeed` — mark the feed / category / label / tag read, then
+/// return the full counters synchronously (the frontend uses them to find
+/// the next unread feed).
+pub async fn catchup_feed(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Value {
+    let data = sess.data();
+    let uid = data.uid().unwrap_or(0);
+    let profile = data.profile().map(|p| p as i32);
+    let pool = state.db.pool();
+    let rows = prefs::load_rows(&state.db, uid, profile).await;
+    let feed_id = extra
+        .get("feed_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    let is_cat = extra.get("is_cat").is_some_and(param_to_bool);
+    let mode = extra
+        .get("mode")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    catchup_scope(pool, uid, profile, &rows, &feed_id, is_cat, &mode).await;
+    let client_tz_offset = data.get_int("clientTzOffset").unwrap_or(0);
+    let counters = crate::counters::all_counters(
+        pool,
+        uid,
+        profile,
+        &rows,
+        &state.config.feed_icon_dir,
+        client_tz_offset,
+        None,
+        None,
+        None,
+    )
+    .await;
+    json!({ "counters": counters })
+}
+
+/// `Feeds::catchupAll` — mark all of the session user's entries read.
+pub async fn catchup_all(state: &AppState, sess: &Sess) -> Value {
+    let uid = sess.data().uid().unwrap_or(0);
+    let _ = sqlx::query(
+        "UPDATE ttrss_user_entries SET last_read = NOW(), unread = false
+         WHERE unread = true AND owner_uid = $1",
+    )
+    .bind(uid)
+    .execute(state.db.pool())
+    .await;
+    json!({ "message": "UPDATE_COUNTERS" })
+}
+
 /// `Feeds::updatedebugger` — the standalone feed-update debug page
 /// (`Content-Type: text/html`). Reproduced verbatim from the PHP template;
 /// the cache-bust timestamp and the csrf token normalize away in the diff.

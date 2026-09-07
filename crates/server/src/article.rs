@@ -11,6 +11,7 @@
 //! has no plugin host or disk cache, so those paths are no-ops / omitted and
 //! documented at the call site.
 
+use axum::http::StatusCode;
 use std::collections::HashSet;
 use std::sync::OnceLock;
 
@@ -280,8 +281,8 @@ pub async fn get_labels(
 /// or `[]` if none.
 pub async fn metadata_by_id(pool: &sqlx::PgPool, uid: i64, id: i32) -> Value {
     let row: Option<(String, String)> = sqlx::query_as(
-        "SELECT e.link, e.title FROM ttrss_entries e \\
-         JOIN ttrss_user_entries ue ON ue.ref_id = e.id \\
+        "SELECT e.link, e.title FROM ttrss_entries e \
+         JOIN ttrss_user_entries ue ON ue.ref_id = e.id \
          WHERE e.id = $1 AND ue.owner_uid = $2 LIMIT 1",
     )
     .bind(id)
@@ -772,6 +773,201 @@ pub async fn delete(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -
         .execute(state.db.pool())
         .await;
     json!({ "message": "UPDATE_COUNTERS" })
+}
+
+/// `Article::setScore`: set the session user's score for the given
+/// articles. `{"id": [...], "score": n}`; an empty id list is a no-op with
+/// no output (PHP returns before printing) — [`Value::Null`] models that.
+pub async fn set_score(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Value {
+    let ids = param_int_array(extra, "ids");
+    if ids.is_empty() {
+        return Value::Null; // PHP: `if (!$ids) return;` (no output)
+    }
+    let uid = sess.data().uid().unwrap_or(0);
+    let score = crate::util::clean_int(extra.get("score")) as i32;
+    let sql = format!(
+        "UPDATE ttrss_user_entries SET score = ${} WHERE ref_id IN ({}) AND owner_uid = ${}",
+        ids.len() + 1,
+        in_placeholders(&ids),
+        ids.len() + 2
+    );
+    let _ = bind_ids(sqlx::query(&sql), &ids)
+        .bind(score)
+        .bind(uid)
+        .execute(state.db.pool())
+        .await;
+    json!({ "id": ids, "score": score })
+}
+
+/// `Article::setArticleTags`: replace article `id`'s tags for the session
+/// user with `tags_str` (split on `,[\r\n]+`, normalized via
+/// `util::normalize_categories`), in a transaction; the `tag_cache` column
+/// is updated to the comma-joined tag list. Returns `"id" => (int)$id, "tags"
+/// => _get_tags($id)` re-read from the database (the original `tags_str`
+/// is sometimes JSON-encoded as a hash — PHP re-reads for that reason).
+pub async fn set_article_tags(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Value {
+    let uid = sess.data().uid().unwrap_or(0) as i32;
+    let id = extra
+        .get("id")
+        .and_then(scalar_str)
+        .map(|s| crate::util::php_int_cast(&s))
+        .unwrap_or(0) as i32;
+    // PHP: `preg_split('/[,\r\n]+/', clean($_REQUEST['tags_str'] ?? ''), -1,
+    // PREG_SPLIT_NO_EMPTY)`.
+    let raw_tags: Vec<String> = extra
+        .get("tags_str")
+        .and_then(scalar_str)
+        .map(|s| crate::util::clean_str(&s))
+        .unwrap_or_default()
+        .split([',', '\r', '\n'])
+        .filter(|p| !p.is_empty())
+        .map(str::to_string)
+        .collect();
+    let tags = crate::util::normalize_categories(&raw_tags);
+
+    let pool = state.db.pool();
+    let int_id: Option<i32> = sqlx::query_scalar(
+        "SELECT int_id FROM ttrss_user_entries WHERE ref_id = $1 AND owner_uid = $2 LIMIT 1",
+    )
+    .bind(id)
+    .bind(uid)
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten();
+
+    if let (Some(int_id), Ok(mut tx)) = (int_id, pool.begin().await) {
+        let _ = sqlx::query("DELETE FROM ttrss_tags WHERE post_int_id = $1 AND owner_uid = $2")
+            .bind(int_id)
+            .bind(uid)
+            .execute(&mut *tx)
+            .await;
+        let mut tags_to_cache: Vec<String> = Vec::new();
+        for tag in &tags {
+            let exists: Option<i32> = sqlx::query_scalar(
+                "SELECT post_int_id FROM ttrss_tags
+                 WHERE post_int_id = $1 AND owner_uid = $2 AND tag_name = $3",
+            )
+            .bind(int_id)
+            .bind(uid)
+            .bind(tag)
+            .fetch_optional(&mut *tx)
+            .await
+            .ok()
+            .flatten();
+            if exists.is_none() {
+                let _ = sqlx::query(
+                    "INSERT INTO ttrss_tags (post_int_id, owner_uid, tag_name)
+                     VALUES ($1, $2, $3)",
+                )
+                .bind(int_id)
+                .bind(uid)
+                .bind(tag)
+                .execute(&mut *tx)
+                .await;
+            }
+            tags_to_cache.push(tag.clone());
+        }
+        // update the tag cache
+        let _ = sqlx::query(
+            "UPDATE ttrss_user_entries SET tag_cache = $1 WHERE ref_id = $2 AND owner_uid = $3",
+        )
+        .bind(tags_to_cache.join(","))
+        .bind(id)
+        .bind(uid)
+        .execute(&mut *tx)
+        .await;
+        let _ = tx.commit().await;
+    }
+
+    let tags = get_tags(pool, uid as i64, id, None, None).await;
+    json!({ "id": id, "tags": tags })
+}
+
+/// `Article::completeTags`: tag-name completion for the session user
+/// (case-sensitive prefix `LIKE`, first 10, ordered by name).
+pub async fn complete_tags(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Value {
+    let uid = sess.data().uid().unwrap_or(0) as i32;
+    let search = cleaned_str(extra, "search");
+    let rows: Vec<String> = sqlx::query_scalar(
+        "SELECT DISTINCT tag_name FROM ttrss_tags
+         WHERE owner_uid = $1 AND tag_name LIKE $2 ORDER BY tag_name
+         LIMIT 10",
+    )
+    .bind(uid)
+    .bind(format!("{search}%"))
+    .fetch_all(state.db.pool())
+    .await
+    .unwrap_or_default();
+    Value::Array(rows.into_iter().map(Value::from).collect())
+}
+
+/// `Article::assigntolabel` / `Article::removefromlabel` (PHP
+/// `_label_ops($assign)`): attach/detach the label `lid` from each id, and
+/// reply with each id's fresh label list. A `lid` that resolves to no
+/// caption is a no-op (PHP `if ($label)`).
+pub async fn label_ops(
+    state: &AppState,
+    sess: &Sess,
+    extra: &Map<String, Value>,
+    assign: bool,
+) -> Value {
+    let uid = sess.data().uid().unwrap_or(0);
+    let pool = state.db.pool();
+    let ids = param_int_array(extra, "ids");
+    let label_id = cleaned_str(extra, "lid");
+    // PHP passes the cleaned string to `Labels::find_caption` (typed `int`
+    // — PHP's string→int coercion is the leading-integer prefix).
+    let label = crate::labels::find_caption(pool, crate::util::php_int_cast(&label_id) as i32, uid).await;
+    let mut labels_for: Vec<Value> = Vec::new();
+    if !label.is_empty() {
+        for &id in &ids {
+            if assign {
+                crate::labels::add_article(pool, id, &label, uid).await;
+            } else {
+                crate::labels::remove_article(pool, id, &label, uid).await;
+            }
+            labels_for.push(json!({
+                "id": id,
+                "labels": get_labels(pool, uid, id, None).await,
+            }));
+        }
+    }
+    json!({ "labels-for": labels_for, "message": "UPDATE_COUNTERS" })
+}
+
+/// `Article::redirect`: 302 to the article's URL (validated with
+/// `UrlHelper::validate`), or 404 + message when the article is not found or
+/// the URL fails validation. Returns `(status, Location, body)`.
+pub async fn redirect(
+    state: &AppState,
+    sess: &Sess,
+    extra: &Map<String, Value>,
+) -> (StatusCode, Option<String>, String) {
+    let uid = sess.data().uid().unwrap_or(0);
+    let id = crate::util::clean_int(extra.get("id")) as i32;
+    let link: Option<String> = sqlx::query_scalar(
+        "SELECT e.link FROM ttrss_entries e
+         JOIN ttrss_user_entries ue ON ue.ref_id = e.id
+         WHERE e.id = $1 AND ue.owner_uid = $2",
+    )
+    .bind(id)
+    .bind(uid)
+    .fetch_optional(state.db.pool())
+    .await
+    .ok()
+    .flatten();
+    match link {
+        None => (StatusCode::NOT_FOUND, None, "Article not found.".into()),
+        Some(link) => match crate::sanitizer::validate(&link) {
+            Some(url) => (StatusCode::FOUND, Some(url), String::new()),
+            None => (
+                StatusCode::NOT_FOUND,
+                None,
+                "Article URL did not pass validation.  No redirection performed.".into(),
+            ),
+        },
+    }
 }
 
 /// `clean($_REQUEST[name])` for the string form: `trim(strip_tags(v))`.
