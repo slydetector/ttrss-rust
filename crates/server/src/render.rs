@@ -174,6 +174,7 @@ mod tests {
             listen: "127.0.0.1:8281".parse().unwrap(),
             feed_icon_dir: docroot.join("cache").join("feed-icons"),
             max_favicon_file_size: 1024 * 1024,
+            force_article_purge: 0,
             docroot,
         }
     }

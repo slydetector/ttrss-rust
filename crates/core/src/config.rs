@@ -55,6 +55,9 @@ pub struct Config {
     /// custom favicon, in bytes (default 1 MiB). Overridable via
     /// `TTRSS_RUST_MAX_FAVICON_FILE_SIZE`.
     pub max_favicon_file_size: usize,
+    /// `Config::FORCE_ARTICLE_PURGE` (T_INT, default 0): when non-zero, article
+    /// purging is forced to this many days (overriding per-feed / per-user settings).
+    pub force_article_purge: i32,
 }
 
 impl Config {
@@ -96,6 +99,7 @@ impl Config {
                 .map(PathBuf::from)
                 .unwrap_or_else(|_| PathBuf::from("tt-rss/cache/feed-icons")),
             max_favicon_file_size: env("TTRSS_RUST_MAX_FAVICON_FILE_SIZE", "1048576")?,
+            force_article_purge: env("TTRSS_RUST_FORCE_ARTICLE_PURGE", "0")?,
         })
     }
 
@@ -189,6 +193,7 @@ mod tests {
             docroot: PathBuf::from("tt-rss"),
             feed_icon_dir: PathBuf::from("tt-rss/cache/feed-icons"),
             max_favicon_file_size: 1024 * 1024,
+            force_article_purge: 0,
         }
     }
 

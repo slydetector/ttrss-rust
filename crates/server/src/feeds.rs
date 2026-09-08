@@ -8,6 +8,7 @@
 //! real categories as a flat top-level list (no `root` node); mode 0 wraps
 //! everything in a single `root` node.
 
+use std::collections::HashMap;
 use std::fs;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -1833,6 +1834,296 @@ pub async fn upload_icon(
     json!({
         "rc": rc,
         "icon_url": format!("{}?ts={}", feed_icon_url(state, feed_id), ts),
+    })
+}
+
+/// `Feeds::decrypt_feed_pass` — reverse the stored `auth_pass` envelope (base64 →
+/// PHP-unserialized `{algo,nonce,payload}` → decrypt) to the plaintext password.
+/// Returns the input unchanged when it can't be decoded.
+pub fn decrypt_feed_pass(auth_pass: &str, key: Option<&[u8; 32]>) -> String {
+    if !auth_pass.is_empty() {
+        if let Some(k) = key {
+            if let Ok(decoded) = base64::engine::general_purpose::STANDARD.decode(auth_pass) {
+                if let Ok(pt) = ttrss_core::session::decrypt_envelope(&decoded, k) {
+                    return String::from_utf8_lossy(&pt).to_string();
+                }
+            }
+        }
+    }
+    auth_pass.to_string()
+}
+
+/// `Feeds::_get_icon` — the Material icon name for a virtual feed id, or the
+/// feed's icon URL for a real feed id ("" when it has no icon).
+pub fn get_icon(state: &AppState, feed_id: i64) -> String {
+    match feed_id {
+        0 => "archive".to_string(),
+        -1 => "star".to_string(),
+        -2 => "rss_feed".to_string(),
+        -3 => "whatshot".to_string(),
+        -4 => "inbox".to_string(),
+        -6 => "restore".to_string(),
+        _ if feed_id < crate::labels::LABEL_BASE_INDEX => "label".to_string(),
+        _ => feed_icon_url(state, feed_id),
+    }
+}
+
+/// `Controls::select_feeds_cats` — a `<select>` of the user's feed categories,
+/// nested by `parent_cat` (indented by level), with a disabled separator and an
+/// "Uncategorized" option (value 0) at the end. `default_id` is pre-selected;
+/// `attributes` is a raw trailing attribute string (e.g. `disabled="1"`).
+pub async fn select_feeds_cats(
+    pool: &sqlx::PgPool,
+    uid: i64,
+    name: &str,
+    default_id: Option<i32>,
+    attributes: &str,
+) -> String {
+    let rows: Vec<(i32, String, Option<i32>)> = sqlx::query_as(
+        "SELECT id, title, parent_cat FROM ttrss_feed_categories \nWHERE owner_uid = $1 ORDER BY title",
+    )
+    .bind(uid)
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default();
+    // Group by parent (None = top-level). A single query ordered by title keeps
+    // each group in title order (matching the PHP's per-level `ORDER BY title`).
+    let mut by_parent: HashMap<Option<i32>, Vec<(i32, String)>> = HashMap::new();
+    for (id, title, parent) in &rows {
+        by_parent.entry(*parent).or_default().push((*id, title.clone()));
+    }
+    let mut ret = String::new();
+    ret.push_str(&format!(
+        "<select name=\"{}\" id=\"\" default=\"{}\" dojoType=\"fox.form.Select\" {}>",
+        util::htmlspecialchars(name),
+        default_id.map(|d| d.to_string()).unwrap_or_default(),
+        attributes
+    ));
+    let mut found = 0usize;
+    // Pre-order DFS with an explicit stack; children are pushed in reverse so the
+    // first child is emitted first.
+    let mut stack: Vec<(i32, i32)> = by_parent
+        .get(&None)
+        .map(|cats| cats.iter().rev().map(|(id, _)| (*id, 0)).collect())
+        .unwrap_or_default();
+    while let Some((id, level)) = stack.pop() {
+        let title = rows.iter().find(|(rid, _, _)| *rid == id).map(|(_, t, _)| t);
+        if let Some(title) = title {
+            found += 1;
+            let is_selected = if Some(id) == default_id { "selected=\"1\"" } else { "" };
+            let mut indented = title.to_string();
+            for _ in 0..level {
+                indented.insert(0, ' ');
+            }
+            if !title.is_empty() {
+                ret.push_str(&format!(
+                    "<option {is_selected} value='{id}'>{}</option>",
+                    util::htmlspecialchars(&indented)
+                ));
+            }
+            if let Some(children) = by_parent.get(&Some(id)) {
+                for (cid, _) in children.iter().rev() {
+                    stack.push((*cid, level + 1));
+                }
+            }
+        }
+    }
+    if found > 0 {
+        ret.push_str("<option disabled=\"1\">―――――――――――――――</option>");
+    }
+    let is_selected = if default_id == Some(0) { "selected=\"1\"" } else { "" };
+    ret.push_str(&format!("<option {is_selected} value=\"0\">Uncategorized</option>"));
+    ret.push_str("</select>");
+    ret
+}
+
+/// `Pref_Feeds::get_ts_languages` — the installed Postgres text-search
+/// configurations, each with its first letter uppercased.
+pub async fn get_ts_languages(pool: &sqlx::PgPool) -> Vec<String> {
+    let rows: Vec<String> = sqlx::query_scalar("SELECT cfgname FROM pg_ts_config")
+        .fetch_all(pool)
+        .await
+        .unwrap_or_default();
+    rows.iter().map(|s| ucfirst(s)).collect()
+}
+
+/// `ucfirst` — uppercase the first character of `s`.
+fn ucfirst(s: &str) -> String {
+    let mut chars = s.chars();
+    match chars.next() {
+        None => String::new(),
+        Some(c) => c.to_uppercase().collect::<String>() + chars.as_str(),
+    }
+}
+
+/// The editable `ttrss_feeds` columns the feed-edit form pre-fills.
+#[derive(sqlx::FromRow)]
+struct FeedEditRow {
+    id: i32,
+    title: String,
+    feed_url: String,
+    site_url: String,
+    auth_login: String,
+    auth_pass: String,
+    cat_id: Option<i32>,
+    update_interval: i32,
+    purge_interval: i32,
+    include_in_digest: bool,
+    always_display_enclosures: bool,
+    hide_images: bool,
+    cache_images: bool,
+    mark_unread_on_update: bool,
+    feed_language: String,
+    private: bool,
+    hidden: bool,
+    favicon_is_custom: Option<bool>,
+    auth_pass_encrypted: bool,
+}
+
+/// `Pref_Feeds::editfeed` — the data the single-feed edit form needs: the feed
+/// row (with a computed `icon` + decrypted `auth_pass`), the category `<select>`,
+/// the update/purge interval options, the user's access level, and the language
+/// list. `plugin_data` is empty (no plugins are ported).
+pub async fn editfeed(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Value {
+    let uid = sess.data().uid().unwrap_or(0);
+    let profile = sess.data().profile().map(|p| p as i32);
+    let feed_id = util::clean_int(extra.get("id"));
+    let pool = state.db.pool();
+    let row: Option<FeedEditRow> = sqlx::query_as(
+        "SELECT id, title, feed_url, site_url, auth_login, auth_pass, cat_id, update_interval, purge_interval, include_in_digest, always_display_enclosures, hide_images, cache_images, mark_unread_on_update, feed_language, private, hidden, favicon_is_custom, auth_pass_encrypted FROM ttrss_feeds WHERE owner_uid = $1 AND id = $2",
+    )
+    .bind(uid)
+    .bind(feed_id as i32)
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten();
+    let Some(row) = row else {
+        return Value::Null;
+    };
+    let pref_rows = prefs::load_rows(&state.db, uid, None).await;
+
+    let mut feed = Map::new();
+    feed.insert("id".into(), json!(row.id));
+    feed.insert("title".into(), json!(row.title));
+    feed.insert("feed_url".into(), json!(row.feed_url));
+    feed.insert("site_url".into(), json!(row.site_url));
+    feed.insert("auth_login".into(), json!(row.auth_login));
+    feed.insert(
+        "auth_pass".into(),
+        json!(decrypt_feed_pass(
+            &row.auth_pass,
+            state.config.encryption_key.as_ref()
+        )),
+    );
+    feed.insert("cat_id".into(), json!(row.cat_id));
+    feed.insert("update_interval".into(), json!(row.update_interval));
+    feed.insert("purge_interval".into(), json!(row.purge_interval));
+    feed.insert("include_in_digest".into(), json!(row.include_in_digest));
+    feed.insert("always_display_enclosures".into(), json!(row.always_display_enclosures));
+    feed.insert("hide_images".into(), json!(row.hide_images));
+    feed.insert("cache_images".into(), json!(row.cache_images));
+    feed.insert("mark_unread_on_update".into(), json!(row.mark_unread_on_update));
+    feed.insert("feed_language".into(), json!(row.feed_language));
+    feed.insert("private".into(), json!(row.private));
+    feed.insert("hidden".into(), json!(row.hidden));
+    feed.insert("favicon_is_custom".into(), json!(row.favicon_is_custom));
+    feed.insert("auth_pass_encrypted".into(), json!(row.auth_pass_encrypted));
+    feed.insert("icon".into(), json!(get_icon(state, feed_id)));
+
+    // update intervals (key => label), with the "Default interval" option annotated.
+    let mut update: Map<String, Value> = Map::new();
+    for (k, v) in [
+        ("0", "Default interval"),
+        ("-1", "Disable updates"),
+        ("15", "15 minutes"),
+        ("30", "30 minutes"),
+        ("60", "Hourly"),
+        ("240", "4 hours"),
+        ("720", "12 hours"),
+        ("1440", "Daily"),
+        ("10080", "Weekly"),
+    ] {
+        update.insert(k.to_string(), Value::String(v.to_string()));
+    }
+    let default_update = prefs::resolve("DEFAULT_UPDATE_INTERVAL", &pref_rows, None).as_int();
+    let default_update_label = update
+        .get(&default_update.to_string())
+        .cloned()
+        .unwrap_or_else(|| Value::String(default_update.to_string()));
+    update.insert(
+        "0".to_string(),
+        Value::String(format!("Default interval ({default_update_label})")),
+    );
+
+    // purge intervals.
+    let purge: Value = if state.config.force_article_purge == 0 {
+        let mut m: Map<String, Value> = Map::new();
+        for (k, v) in [
+            ("0", "Use default"),
+            ("-1", "Never purge"),
+            ("7", "1 week old"),
+            ("14", "2 weeks old"),
+            ("31", "1 month old"),
+            ("60", "2 months old"),
+            ("90", "3 months old"),
+        ] {
+            m.insert(k.to_string(), Value::String(v.to_string()));
+        }
+        let default_purge = prefs::resolve("PURGE_OLD_DAYS", &pref_rows, None).as_int();
+        let suffix = if default_purge > 0 {
+            format!("({default_purge} day{})", if default_purge == 1 { "" } else { "s" })
+        } else {
+            "(Disabled)".to_string()
+        };
+        m.insert("0".to_string(), Value::String(format!("Use default {suffix}")));
+        Value::Object(m)
+    } else {
+        let fp = state.config.force_article_purge;
+        Value::Array(vec![Value::String(format!(
+            "{fp} day{}",
+            if fp == 1 {
+                ""
+            } else {
+                "s"
+            }
+        ))])
+    };
+
+    // user access level.
+    let access_level: Option<i32> =
+        sqlx::query_scalar("SELECT access_level FROM ttrss_users WHERE id = $1")
+            .bind(uid)
+            .fetch_optional(pool)
+            .await
+            .ok()
+            .flatten();
+
+    let cats_enabled = prefs::resolve(prefs::ENABLE_FEED_CATS, &pref_rows, profile).as_bool();
+    let cats_select = select_feeds_cats(pool, uid, "cat_id", row.cat_id, "").await;
+    let default_lang = prefs::resolve("DEFAULT_SEARCH_LANGUAGE", &pref_rows, profile).as_str().to_string();
+    let all_lang = get_ts_languages(pool).await;
+
+    json!({
+        "feed": feed,
+        "cats": {
+            "enabled": cats_enabled,
+            "select": cats_select,
+        },
+        "plugin_data": "",
+        "force_purge": state.config.force_article_purge,
+        "intervals": {
+            "update": update,
+            "purge": purge,
+        },
+        "user": {
+            "access_level": access_level,
+        },
+        "lang": {
+            "enabled": true,
+            "default": default_lang,
+            "all": all_lang,
+        },
     })
 }
 

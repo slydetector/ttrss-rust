@@ -560,6 +560,23 @@ clean** on the golden dataset. Done so far:
   the read-side `editfeed`/`editfeeds` forms (and the export's settings section)
   remain for Feed CRUD.
 
+  A sixth increment ports the read-side **`editfeed`** form-data handler
+  (`Pref_Feeds::editfeed`, in `feeds.rs`): the data the single-feed edit dialog
+  needs — the feed row (with a computed `icon` via `Feeds::_get_icon` + a
+  decrypted `auth_pass` via `Feeds::decrypt_feed_pass`, base64 → PHP-unserialize →
+  envelope-decrypt), the category `<select>` (`Controls::select_feeds_cats`, ported
+  to an iterative pre-order DFS over a single `ORDER BY title` fetch, indented by
+  level with a disabled separator + `Uncategorized` option), the update/purge
+  interval options (with the `Default interval (…) (N days)` annotations and the
+  `FORCE_ARTICLE_PURGE` override — a new `Config::force_article_purge` field), the
+  user's `access_level`, and the text-search language list
+  (`get_ts_languages` = `pg_ts_config` `cfgname`s, `ucfirst`ed). `plugin_data` is
+  empty (no plugins ported). `editfeed` is login-gated but NOT CSRF-ignored
+  (matching PHP, where `csrf_ignore` = `index`/`getfeedtree` only). Fidelity bar is
+  *functionally equivalent* (the `<select>`/JSON shapes, not byte-exact HTML).
+  5 tests in `tests/feed_edit.rs`. `editfeeds` (the batch-edit HTML) and the
+  export's settings section remain for Feed CRUD.
+
 ### Test-parity program (PHP `#[test]` → Rust `#[test]`, 2026-09-05)
 
 > **STATUS: ✅ COMPLETE (2026-09-06; row 15 added 2026-09-07 with M3).** All **15/15 rows** ported and green —
