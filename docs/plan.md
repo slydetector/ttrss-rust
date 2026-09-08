@@ -495,6 +495,18 @@ clean** on the golden dataset. Done so far:
   verified in the oracle. Remaining M3 work: port `notes` (the `note`
   handler) if it is in-scope, and re-enable the disabled main-corpus logout steps
   (051–052) once the session teardown is ported. See §3a M3 notes.
+  **Feed CRUD (M4):** the `Pref_Feeds` write surface is ported in `feeds.rs`
+  (dispatch in `rpc.rs`): `editSave`/`batchEditSave` (shared `editsaveops` —
+  the single-feed owner-scoped save plus per-column batch UPDATEs; `cat_id = 0`
+  → NULL, `cat_id` gated on `ENABLE_FEED_CATS`, `auth_pass` encrypted up front
+  when a key is set and the batch path clears `auth_pass_encrypted`), `remove`
+  (per-id `remove_feed` — the feed row + its access keys deleted in a
+  transaction, starred entries preserved feedless, non-starred entries cascade
+  away, favicon-cache file removed best-effort; negative id → `Labels::remove`),
+  and `addCat`/`renameCat`/`removeCat` (the `Feeds::_add_cat`/`_remove_cat`
+  trio). Plugin hooks are no-ops. Rust-only (no PHP `Pref_Feeds` config
+  tests): 12 DB tests in `tests/feed_crud.rs`. Icons + ordering + OPML +
+  access-key management + the read-side `editfeed` form remain.
 
 ### Test-parity program (PHP `#[test]` → Rust `#[test]`, 2026-09-05)
 

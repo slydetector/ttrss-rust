@@ -10,6 +10,9 @@
 
 use serde_json::{json, Map, Value};
 use sqlx::Row;
+use base64::Engine as _;
+
+use crate::util;
 
 use crate::prefs;
 use crate::time::TzCtx;
@@ -1003,4 +1006,370 @@ async fn counters(
         .fetch_one(pool)
         .await
         .unwrap_or(0)
+    }
+
+// ---------------------------------------------------------------------------
+// Feed configuration mutations (M4: feed CRUD)
+//
+// Ports the `Pref_Feeds` write surface: `editSave` / `batchEditSave` (both
+// delegating to `editsaveops`), `remove` (per-id `remove_feed`), and the
+// category add/rename/remove trio. Plugin hooks are no-ops in this port.
+// ---------------------------------------------------------------------------
+
+fn scalar_str(v: &Value) -> Option<String> {
+    match v {
+        Value::String(s) => Some(s.clone()),
+        Value::Number(n) => Some(n.to_string()),
+        Value::Bool(b) => Some(b.to_string()),
+        _ => None,
+    }
 }
+
+/// `Handler::_param_to_int_array` (shared semantics with `article.rs`): parse
+/// `name` / `name[]` into `i32`s; a non-int token rejects the whole input.
+fn param_int_array(extra: &Map<String, Value>, name: &str) -> Vec<i32> {
+    let raw = extra.get(&format!("{name}[]")).or_else(|| extra.get(name));
+    let Some(raw) = raw else { return Vec::new() };
+    let mut parts: Vec<String> = Vec::new();
+    match raw {
+        Value::Array(items) => {
+            for it in items {
+                if let Some(s) = scalar_str(it) {
+                    parts.push(s.trim().to_string());
+                }
+            }
+        }
+        other => {
+            if let Some(s) = scalar_str(other) {
+                parts.push(s.trim().to_string());
+            }
+        }
+    }
+    if parts.iter().any(|p| p.parse::<i32>().is_err()) {
+        return Vec::new();
+    }
+    parts.iter().map(|p| p.parse::<i32>().unwrap()).collect()
+}
+
+/// `checkbox_to_sql_bool($val)` — a checkbox is truthy only when `"on"`.
+fn checkbox(extra: &Map<String, Value>, name: &str) -> bool {
+    extra.get(name).and_then(|v| v.as_str()) == Some("on")
+}
+
+/// `Pref_Feeds::editsaveops($batch)` — the shared single-feed and batch feed
+/// save. Single: 0 or 1; batch: total rows touched.
+async fn editsaveops(state: &AppState, uid: i64, profile: Option<i32>, extra: &Map<String, Value>, batch: bool) -> i64 {
+    let pool = state.db.pool();
+    let s = |k: &str| extra.get(k).and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let feed_title = util::clean_str(&s("title"));
+    let feed_url = util::clean_str(&s("feed_url"));
+    let site_url = util::clean_str(&s("site_url"));
+    let upd_intl = util::php_int_cast(&s("update_interval"));
+    let purge_intl = util::php_int_cast(&s("purge_interval"));
+    let feed_id = util::clean_int(extra.get("id")) as i32;
+    let feed_ids = if batch { param_int_array(extra, "ids") } else { Vec::new() };
+    let cat_id = util::clean_int(extra.get("cat_id")) as i32;
+    let auth_login = util::clean_str(&s("auth_login"));
+    let mut auth_pass = util::clean_str(&s("auth_pass"));
+    let private = checkbox(extra, "private");
+    let include_in_digest = checkbox(extra, "include_in_digest");
+    let cache_images = checkbox(extra, "cache_images");
+    let hide_images = checkbox(extra, "hide_images");
+    let always_display_enclosures = checkbox(extra, "always_display_enclosures");
+    let mark_unread_on_update = checkbox(extra, "mark_unread_on_update");
+    let feed_language = util::clean_str(&s("feed_language"));
+
+    // Encrypt the password up front (PHP: before the single/batch branch).
+    if let Some(key) = &state.config.encryption_key {
+        if !auth_pass.is_empty() {
+            if let Ok(env) = ttrss_core::session::encrypt_envelope(auth_pass.as_bytes(), key) {
+                auth_pass = base64::engine::general_purpose::STANDARD.encode(env);
+            }
+        }
+    }
+
+    if !batch {
+        let exists = sqlx::query_scalar::<_, i32>("SELECT id FROM ttrss_feeds WHERE id = $1 AND owner_uid = $2")
+            .bind(feed_id)
+            .bind(uid)
+            .fetch_optional(pool)
+            .await
+            .ok()
+            .flatten()
+            .is_some();
+        if !exists {
+            return 0;
+        }
+        let cat: Option<i32> = (cat_id != 0).then_some(cat_id);
+        sqlx::query(
+            "UPDATE ttrss_feeds SET
+                 title = $1, cat_id = $2, feed_url = $3, site_url = $4,
+                 update_interval = $5, purge_interval = $6, auth_login = $7, auth_pass = $8,
+                 private = $9, cache_images = $10, hide_images = $11, feed_language = $12,
+                 include_in_digest = $13, always_display_enclosures = $14, mark_unread_on_update = $15
+             WHERE id = $16 AND owner_uid = $17",
+        )
+        .bind(&feed_title)
+        .bind(cat)
+        .bind(&feed_url)
+        .bind(&site_url)
+        .bind(upd_intl as i32)
+        .bind(purge_intl as i32)
+        .bind(&auth_login)
+        .bind(&auth_pass)
+        .bind(private)
+        .bind(cache_images)
+        .bind(hide_images)
+        .bind(&feed_language)
+        .bind(include_in_digest)
+        .bind(always_display_enclosures)
+        .bind(mark_unread_on_update)
+        .bind(feed_id)
+        .bind(uid)
+        .execute(pool)
+        .await
+        .map(|r| r.rows_affected())
+        .unwrap_or(0) as i64
+    } else {
+        if feed_ids.is_empty() {
+            return 0;
+        }
+        let rows = prefs::load_rows(&state.db, uid, profile).await;
+        let enable_cats = prefs::resolve("ENABLE_FEED_CATS", &rows, profile).as_bool();
+        let mut tx = pool.begin().await.expect("begin");
+        let mut touched: i64 = 0;
+        if extra.contains_key("update_interval") {
+            let sql = batch_update_sql("update_interval = $1", &feed_ids);
+            touched += run_val(&mut tx, &sql, upd_intl as i32, &feed_ids, uid).await;
+        }
+        if extra.contains_key("purge_interval") {
+            let sql = batch_update_sql("purge_interval = $1", &feed_ids);
+            touched += run_val(&mut tx, &sql, purge_intl as i32, &feed_ids, uid).await;
+        }
+        if extra.contains_key("auth_login") {
+            let sql = batch_update_sql("auth_login = $1", &feed_ids);
+            touched += run_str(&mut tx, &sql, &auth_login, &feed_ids, uid).await;
+        }
+        if extra.contains_key("auth_pass") {
+            let sql = batch_update_sql("auth_pass = $1, auth_pass_encrypted = false", &feed_ids);
+            touched += run_str(&mut tx, &sql, &auth_pass, &feed_ids, uid).await;
+        }
+        if extra.contains_key("private") {
+            let sql = batch_update_sql("private = $1", &feed_ids);
+            touched += run_bool(&mut tx, &sql, private, &feed_ids, uid).await;
+        }
+        if extra.contains_key("include_in_digest") {
+            let sql = batch_update_sql("include_in_digest = $1", &feed_ids);
+            touched += run_bool(&mut tx, &sql, include_in_digest, &feed_ids, uid).await;
+        }
+        if extra.contains_key("always_display_enclosures") {
+            let sql = batch_update_sql("always_display_enclosures = $1", &feed_ids);
+            touched += run_bool(&mut tx, &sql, always_display_enclosures, &feed_ids, uid).await;
+        }
+        if extra.contains_key("mark_unread_on_update") {
+            let sql = batch_update_sql("mark_unread_on_update = $1", &feed_ids);
+            touched += run_bool(&mut tx, &sql, mark_unread_on_update, &feed_ids, uid).await;
+        }
+        if extra.contains_key("cache_images") {
+            let sql = batch_update_sql("cache_images = $1", &feed_ids);
+            touched += run_bool(&mut tx, &sql, cache_images, &feed_ids, uid).await;
+        }
+        if extra.contains_key("hide_images") {
+            let sql = batch_update_sql("hide_images = $1", &feed_ids);
+            touched += run_bool(&mut tx, &sql, hide_images, &feed_ids, uid).await;
+        }
+        if enable_cats && extra.contains_key("cat_id") {
+            let sql = batch_update_sql("cat_id = $1", &feed_ids);
+            touched += run_opt(&mut tx, &sql, (cat_id != 0).then_some(cat_id), &feed_ids, uid).await;
+        }
+        if extra.contains_key("feed_language") {
+            let sql = batch_update_sql("feed_language = $1", &feed_ids);
+            touched += run_str(&mut tx, &sql, &feed_language, &feed_ids, uid).await;
+        }
+        tx.commit().await.expect("commit");
+        touched
+    }
+}
+
+/// `UPDATE ttrss_feeds SET <set> WHERE id IN ($2..$n+1) AND owner_uid = $(n+2)`.
+/// `<set>` uses `$1` for the value.
+fn batch_update_sql(set_expr: &str, feed_ids: &[i32]) -> String {
+    let ids = (2..=feed_ids.len() + 1).map(|i| format!("${i}")).collect::<Vec<_>>().join(", ");
+    let uid_pos = feed_ids.len() + 2;
+    format!("UPDATE ttrss_feeds SET {set_expr} WHERE id IN ({ids}) AND owner_uid = ${uid_pos}")
+}
+
+async fn run_val(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, sql: &str, v: i32, feed_ids: &[i32], uid: i64) -> i64 {
+    let mut q = sqlx::query(sql).bind(v);
+    for id in feed_ids {
+        q = q.bind(*id);
+    }
+    q.bind(uid).execute(&mut **tx).await.map(|r| r.rows_affected() as i64).unwrap_or(0)
+}
+
+async fn run_str(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, sql: &str, v: &str, feed_ids: &[i32], uid: i64) -> i64 {
+    let mut q = sqlx::query(sql).bind(v);
+    for id in feed_ids {
+        q = q.bind(*id);
+    }
+    q.bind(uid).execute(&mut **tx).await.map(|r| r.rows_affected() as i64).unwrap_or(0)
+}
+
+async fn run_bool(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, sql: &str, v: bool, feed_ids: &[i32], uid: i64) -> i64 {
+    let mut q = sqlx::query(sql).bind(v);
+    for id in feed_ids {
+        q = q.bind(*id);
+    }
+    q.bind(uid).execute(&mut **tx).await.map(|r| r.rows_affected() as i64).unwrap_or(0)
+}
+
+async fn run_opt(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, sql: &str, v: Option<i32>, feed_ids: &[i32], uid: i64) -> i64 {
+    let mut q = sqlx::query(sql).bind(v);
+    for id in feed_ids {
+        q = q.bind(*id);
+    }
+    q.bind(uid).execute(&mut **tx).await.map(|r| r.rows_affected() as i64).unwrap_or(0)
+}
+
+
+/// `Pref_Feeds::editSave` — save one feed's config (`editsaveops(false)`).
+pub async fn edit_save(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Value {
+    let data = sess.data();
+    let _ = editsaveops(state, data.uid().unwrap_or(0), data.profile().map(|p| p as i32), extra, false).await;
+    Value::Null
+}
+
+/// `Pref_Feeds::batchEditSave` — batch-save feed config (`editsaveops(true)`).
+pub async fn batch_edit_save(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Value {
+    let data = sess.data();
+    let _ = editsaveops(state, data.uid().unwrap_or(0), data.profile().map(|p| p as i32), extra, true).await;
+    Value::Null
+}
+
+/// `Pref_Feeds::remove` — remove each feed/label id (no-op response).
+pub async fn remove_feeds(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Value {
+    let uid = sess.data().uid().unwrap_or(0);
+    for id in param_int_array(extra, "ids") {
+        remove_feed(state, id, uid).await;
+    }
+    Value::Null
+}
+
+/// `Feeds::remove_feed` — delete a feed (positive id) or a label (negative id).
+async fn remove_feed(state: &AppState, id: i32, uid: i64) {
+    let pool = state.db.pool();
+    if id > 0 {
+        let mut tx = pool.begin().await.expect("begin");
+        // Starred (archived) entries → archived (feed_id = NULL).
+        sqlx::query("UPDATE ttrss_user_entries SET feed_id = NULL, orig_feed_id = NULL
+                     WHERE feed_id = $1 AND marked = true AND owner_uid = $2")
+            .bind(id)
+            .bind(uid)
+            .execute(&mut *tx)
+            .await
+            .ok();
+        // Access keys for the feed.
+        sqlx::query("DELETE FROM ttrss_access_keys WHERE feed_id = $1 AND owner_uid = $2")
+            .bind(id.to_string())
+            .bind(uid)
+            .execute(&mut *tx)
+            .await
+            .ok();
+        // The feed itself.
+        sqlx::query("DELETE FROM ttrss_feeds WHERE id = $1 AND owner_uid = $2")
+            .bind(id)
+            .bind(uid)
+            .execute(&mut *tx)
+            .await
+            .ok();
+        tx.commit().await.expect("commit");
+        // Best-effort favicon-cache removal (PHP: `DiskCache('feed-icons')->remove`).
+        let _ = std::fs::remove_file(state.config.feed_icon_dir.join(id.to_string()));
+    } else {
+        let label_id = crate::labels::feed_to_label_id(id as i64);
+        let _ = crate::labels::remove(&state.db, label_id as i32, uid, Some(uid)).await;
+    }
+}
+
+/// `Pref_Feeds::addCat` — add a feed category (`Feeds::_add_cat`).
+pub async fn add_cat(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Value {
+    let uid = sess.data().uid().unwrap_or(0);
+    let title = util::clean_str(extra.get("cat").and_then(|v| v.as_str()).unwrap_or(""));
+    let pool = state.db.pool();
+    // Find an existing category for this owner + parent (NULL) + title.
+    let existing = sqlx::query_scalar::<_, i32>(
+        "SELECT id FROM ttrss_feed_categories WHERE owner_uid = $1 AND parent_cat IS NULL AND title = $2",
+    )
+    .bind(uid)
+    .bind(&title)
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten();
+    if existing.is_none() {
+        sqlx::query("INSERT INTO ttrss_feed_categories (owner_uid, parent_cat, order_id, title) VALUES ($1, NULL, $2, $3)")
+            .bind(uid)
+            .bind(0)
+            .bind(&title)
+            .execute(pool)
+            .await
+            .ok();
+    }
+    Value::Null
+}
+
+/// `Pref_Feeds::renameCat` — rename a category if it exists and the title is set.
+pub async fn rename_cat(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Value {
+    let uid = sess.data().uid().unwrap_or(0);
+    let id = util::clean_int(extra.get("id")) as i32;
+    let title = util::clean_str(extra.get("title").and_then(|v| v.as_str()).unwrap_or(""));
+    let pool = state.db.pool();
+    if !title.is_empty() {
+        let found = sqlx::query_scalar::<_, i32>("SELECT id FROM ttrss_feed_categories WHERE owner_uid = $1 AND id = $2")
+            .bind(uid)
+            .bind(id)
+            .fetch_optional(pool)
+            .await
+            .ok()
+            .flatten()
+            .is_some();
+        if found {
+            sqlx::query("UPDATE ttrss_feed_categories SET title = $1 WHERE owner_uid = $2 AND id = $3")
+                .bind(&title)
+                .bind(uid)
+                .bind(id)
+                .execute(pool)
+                .await
+                .ok();
+        }
+    }
+    Value::Null
+}
+
+pub async fn remove_cat(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Value {
+    let uid = sess.data().uid().unwrap_or(0);
+    let pool = state.db.pool();
+    for id in param_int_array(extra, "ids") {
+        // `Feeds::_remove_cat`: find the category (owner-scoped) and delete it
+        // (feeds keep their rows; their `cat_id` is nulled via `ON DELETE SET NULL`).
+        let found = sqlx::query_scalar::<_, i32>("SELECT id FROM ttrss_feed_categories WHERE owner_uid = $1 AND id = $2")
+            .bind(uid)
+            .bind(id)
+            .fetch_optional(pool)
+            .await
+            .ok()
+            .flatten()
+            .is_some();
+        if found {
+            sqlx::query("DELETE FROM ttrss_feed_categories WHERE owner_uid = $1 AND id = $2")
+                .bind(uid)
+                .bind(id)
+                .execute(pool)
+                .await
+                .ok();
+        }
+    }
+    Value::Null
+}
+
+

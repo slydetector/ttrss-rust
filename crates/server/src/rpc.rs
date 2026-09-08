@@ -175,6 +175,12 @@ async fn dispatch(
             "getfeedtree" => DispatchOutput::Json(feeds::getfeedtree(state, sess, extra).await),
             "feedsWithErrors" => DispatchOutput::Json(feeds::feeds_with_errors(state, sess).await),
             "inactiveFeeds" => DispatchOutput::Json(feeds::inactive_feeds(state, sess).await),
+            "editSave" => DispatchOutput::Json(feeds::edit_save(state, sess, extra).await),
+            "batchEditSave" => DispatchOutput::Json(feeds::batch_edit_save(state, sess, extra).await),
+            "remove" => DispatchOutput::Json(feeds::remove_feeds(state, sess, extra).await),
+            "addCat" => DispatchOutput::Json(feeds::add_cat(state, sess, extra).await),
+            "renameCat" => DispatchOutput::Json(feeds::rename_cat(state, sess, extra).await),
+            "removeCat" => DispatchOutput::Json(feeds::remove_cat(state, sess, extra).await),
             _ => DispatchOutput::Json(unknown_method("Pref_Feeds", method)),
         },
         "Article" => match method {
