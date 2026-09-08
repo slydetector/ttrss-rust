@@ -21,6 +21,7 @@ pub mod prefs;
 pub mod plugins;
 pub mod render;
 pub mod rpc;
+pub mod search;
 pub mod sanitizer;
 pub mod search_date;
 pub mod syndication;

@@ -94,8 +94,13 @@ pub fn php_date_day(query: &str, user_tz: &str) -> Option<NaiveDate> {
 /// The pure parse (relative to a fixed `today`) — the unit-tested core.
 pub fn parse_date(query: &str, today: NaiveDate) -> Option<NaiveDate> {
     let s = query.trim();
+    // PHP: `new DateTime('')` (and whitespace-only) = *now*, so the day is
+    // today. (NOTE(port): PHP's ext/date parser also accepts lone format
+    // characters and assorted partial garbage as *now* — e.g. `@q`, `@.`,
+    // `@u` — which this port reports as unrecognized. Known divergence,
+    // limited to exotic `@garbage` searches.)
     if s.is_empty() {
-        return None;
+        return Some(today);
     }
     let lower = s.to_lowercase();
 
@@ -503,9 +508,16 @@ mod tests {
     }
 
     #[test]
+    fn empty_query_is_today() {
+        // PHP: new DateTime('') = now.
+        assert_eq!(parse_date("", t()), Some(t()));
+        assert_eq!(parse_date("  ", t()), Some(t()));
+    }
+
+    #[test]
     fn invalid_inputs() {
         for s in [
-            "", "  ", "bogus", "last", "next", "2", "2 days extra",
+            "bogus", "last", "next", "2", "2 days extra",
             "tomorrow at 3pm", "2026-05-31 minus 1 month", "11-28",
             "2026-05-25 13:", "mon day",
         ] {
