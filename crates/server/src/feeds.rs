@@ -12,9 +12,10 @@ use std::collections::HashMap;
 use std::fs;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use base64::Engine as _;
+use serde::Serialize;
 use serde_json::{json, Map, Value};
 use sqlx::Row;
-use base64::Engine as _;
 
 use crate::util;
 
@@ -1894,7 +1895,7 @@ pub async fn select_feeds_cats(
     }
     let mut ret = String::new();
     ret.push_str(&format!(
-        "<select name=\"{}\" id=\"\" default=\"{}\" dojoType=\"fox.form.Select\" {}>",
+        "<select name=\"{}\"\n                        id=\"\"\n                        default=\"{}\"\n                        dojoType=\"fox.form.Select\" {}>",
         util::htmlspecialchars(name),
         default_id.map(|d| d.to_string()).unwrap_or_default(),
         attributes
@@ -1913,7 +1914,7 @@ pub async fn select_feeds_cats(
             let is_selected = if Some(id) == default_id { "selected=\"1\"" } else { "" };
             let mut indented = title.to_string();
             for _ in 0..level {
-                indented.insert(0, ' ');
+                indented.insert(0, '\u{2003}');
             }
             if !title.is_empty() {
                 ret.push_str(&format!(
@@ -1929,7 +1930,7 @@ pub async fn select_feeds_cats(
         }
     }
     if found > 0 {
-        ret.push_str("<option disabled=\"1\">―――――――――――――――</option>");
+        ret.push_str(&format!("<option disabled=\"1\">{}</option>", "\u{2015}".repeat(15)));
     }
     let is_selected = if default_id == Some(0) { "selected=\"1\"" } else { "" };
     ret.push_str(&format!("<option {is_selected} value=\"0\">Uncategorized</option>"));
@@ -1956,27 +1957,49 @@ fn ucfirst(s: &str) -> String {
     }
 }
 
-/// The editable `ttrss_feeds` columns the feed-edit form pre-fills.
-#[derive(sqlx::FromRow)]
-struct FeedEditRow {
+/// The full `ttrss_feeds` row (all 40 columns) as returned by the PHP `editfeed`
+/// form data. The six timestamp columns are cast to `::text` to match the PDO
+/// string representation the PHP `as_array()` produces.
+#[derive(sqlx::FromRow, Serialize)]
+struct FeedFullRow {
     id: i32,
+    owner_uid: i32,
     title: String,
-    feed_url: String,
-    site_url: String,
-    auth_login: String,
-    auth_pass: String,
     cat_id: Option<i32>,
+    feed_url: String,
+    icon_url: String,
     update_interval: i32,
     purge_interval: i32,
-    include_in_digest: bool,
-    always_display_enclosures: bool,
-    hide_images: bool,
-    cache_images: bool,
-    mark_unread_on_update: bool,
-    feed_language: String,
-    private: bool,
-    hidden: bool,
+    last_updated: Option<String>,
+    last_unconditional: Option<String>,
+    last_error: String,
+    last_modified: String,
+    favicon_avg_color: Option<String>,
     favicon_is_custom: Option<bool>,
+    site_url: String,
+    auth_login: String,
+    parent_feed: Option<i32>,
+    private: bool,
+    auth_pass: String,
+    hidden: bool,
+    include_in_digest: bool,
+    rtl_content: bool,
+    cache_images: bool,
+    hide_images: bool,
+    cache_content: bool,
+    last_viewed: Option<String>,
+    last_update_started: Option<String>,
+    last_successful_update: Option<String>,
+    update_method: i32,
+    always_display_enclosures: bool,
+    order_id: i32,
+    mark_unread_on_update: bool,
+    update_on_checksum_change: bool,
+    strip_images: bool,
+    view_settings: String,
+    pubsub_state: i32,
+    favicon_last_checked: Option<String>,
+    feed_language: String,
     auth_pass_encrypted: bool,
 }
 
@@ -1989,8 +2012,8 @@ pub async fn editfeed(state: &AppState, sess: &Sess, extra: &Map<String, Value>)
     let profile = sess.data().profile().map(|p| p as i32);
     let feed_id = util::clean_int(extra.get("id"));
     let pool = state.db.pool();
-    let row: Option<FeedEditRow> = sqlx::query_as(
-        "SELECT id, title, feed_url, site_url, auth_login, auth_pass, cat_id, update_interval, purge_interval, include_in_digest, always_display_enclosures, hide_images, cache_images, mark_unread_on_update, feed_language, private, hidden, favicon_is_custom, auth_pass_encrypted FROM ttrss_feeds WHERE owner_uid = $1 AND id = $2",
+    let row: Option<FeedFullRow> = sqlx::query_as(
+        "SELECT id, owner_uid, title, cat_id, feed_url, icon_url, update_interval, purge_interval, last_updated::text AS last_updated, last_unconditional::text AS last_unconditional, last_error, last_modified, favicon_avg_color, favicon_is_custom, site_url, auth_login, parent_feed, private, auth_pass, hidden, include_in_digest, rtl_content, cache_images, hide_images, cache_content, last_viewed::text AS last_viewed, last_update_started::text AS last_update_started, last_successful_update::text AS last_successful_update, update_method, always_display_enclosures, order_id, mark_unread_on_update, update_on_checksum_change, strip_images, view_settings, pubsub_state, favicon_last_checked::text AS favicon_last_checked, feed_language, auth_pass_encrypted FROM ttrss_feeds WHERE owner_uid = $1 AND id = $2",
     )
     .bind(uid)
     .bind(feed_id as i32)
@@ -2003,33 +2026,20 @@ pub async fn editfeed(state: &AppState, sess: &Sess, extra: &Map<String, Value>)
     };
     let pref_rows = prefs::load_rows(&state.db, uid, None).await;
 
-    let mut feed = Map::new();
-    feed.insert("id".into(), json!(row.id));
-    feed.insert("title".into(), json!(row.title));
-    feed.insert("feed_url".into(), json!(row.feed_url));
-    feed.insert("site_url".into(), json!(row.site_url));
-    feed.insert("auth_login".into(), json!(row.auth_login));
-    feed.insert(
-        "auth_pass".into(),
-        json!(decrypt_feed_pass(
-            &row.auth_pass,
-            state.config.encryption_key.as_ref()
-        )),
-    );
-    feed.insert("cat_id".into(), json!(row.cat_id));
-    feed.insert("update_interval".into(), json!(row.update_interval));
-    feed.insert("purge_interval".into(), json!(row.purge_interval));
-    feed.insert("include_in_digest".into(), json!(row.include_in_digest));
-    feed.insert("always_display_enclosures".into(), json!(row.always_display_enclosures));
-    feed.insert("hide_images".into(), json!(row.hide_images));
-    feed.insert("cache_images".into(), json!(row.cache_images));
-    feed.insert("mark_unread_on_update".into(), json!(row.mark_unread_on_update));
-    feed.insert("feed_language".into(), json!(row.feed_language));
-    feed.insert("private".into(), json!(row.private));
-    feed.insert("hidden".into(), json!(row.hidden));
-    feed.insert("favicon_is_custom".into(), json!(row.favicon_is_custom));
-    feed.insert("auth_pass_encrypted".into(), json!(row.auth_pass_encrypted));
-    feed.insert("icon".into(), json!(get_icon(state, feed_id)));
+    // The PHP `as_array()` returns the whole row; serialize it in column order,
+    // then override `auth_pass` (decrypted) and add the computed `icon`.
+    let mut feed: Value = serde_json::to_value(&row).expect("feed row");
+    {
+        let obj = feed.as_object_mut().unwrap();
+        obj.insert(
+            "auth_pass".into(),
+            json!(decrypt_feed_pass(
+                &row.auth_pass,
+                state.config.encryption_key.as_ref()
+            )),
+        );
+        obj.insert("icon".into(), json!(get_icon(state, feed_id)));
+    }
 
     // update intervals (key => label), with the "Default interval" option annotated.
     let mut update: Map<String, Value> = Map::new();
@@ -2047,10 +2057,13 @@ pub async fn editfeed(state: &AppState, sess: &Sess, extra: &Map<String, Value>)
         update.insert(k.to_string(), Value::String(v.to_string()));
     }
     let default_update = prefs::resolve("DEFAULT_UPDATE_INTERVAL", &pref_rows, None).as_int();
+    // Match the PHP: the label is looked up by the default interval value, and
+    // a non-standard value (not a dropdown key) yields an empty suffix.
     let default_update_label = update
         .get(&default_update.to_string())
-        .cloned()
-        .unwrap_or_else(|| Value::String(default_update.to_string()));
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
     update.insert(
         "0".to_string(),
         Value::String(format!("Default interval ({default_update_label})")),

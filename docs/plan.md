@@ -562,18 +562,13 @@ clean** on the golden dataset. Done so far:
 
   A sixth increment ports the read-side **`editfeed`** form-data handler
   (`Pref_Feeds::editfeed`, in `feeds.rs`): the data the single-feed edit dialog
-  needs — the feed row (with a computed `icon` via `Feeds::_get_icon` + a
-  decrypted `auth_pass` via `Feeds::decrypt_feed_pass`, base64 → PHP-unserialize →
-  envelope-decrypt), the category `<select>` (`Controls::select_feeds_cats`, ported
-  to an iterative pre-order DFS over a single `ORDER BY title` fetch, indented by
-  level with a disabled separator + `Uncategorized` option), the update/purge
-  interval options (with the `Default interval (…) (N days)` annotations and the
+  needs — the **full feed row** (all `ttrss_feeds` columns, mirroring PHP's `find_one(…)->as_array()`; the 6 nullable timestamp columns are cast `::text` so `NULL` → `null`), a computed `icon` (`Feeds::_get_icon`/`_get_icon_url` → `self_url` + `/public.php?op=feed_icon&id=<id>` when the feed has an icon, else `""`; special feed IDs map to Material icons), a decrypted `auth_pass` (`Feeds::decrypt_feed_pass`, base64 → PHP-unserialize → envelope-decrypt), the category `<select>` (`Controls::select_feeds_cats`, ported
+  to an iterative pre-order DFS over a single `ORDER BY title` fetch; the `cats.select` string is **byte-exact** vs PHP — verified against the running oracle: the multi-line `<select name=…>` tag with 24-space continuations, nested titles indented by one U+2003 (em space) per level, a disabled `<option>` of 15×U+2015, single-quoted `value='%d'` category options, and the double-quoted `value="0"` `Uncategorized` tail), the update/purge interval options (with the `Default interval (…) (N days)` annotations, the non-standard-value fallback to `""`, and the
   `FORCE_ARTICLE_PURGE` override — a new `Config::force_article_purge` field), the
   user's `access_level`, and the text-search language list
   (`get_ts_languages` = `pg_ts_config` `cfgname`s, `ucfirst`ed). `plugin_data` is
   empty (no plugins ported). `editfeed` is login-gated but NOT CSRF-ignored
-  (matching PHP, where `csrf_ignore` = `index`/`getfeedtree` only). Fidelity bar is
-  *functionally equivalent* (the `<select>`/JSON shapes, not byte-exact HTML).
+  (matching PHP, where `csrf_ignore` = `index`/`getfeedtree` only). The `feed` object is the **full row** (40 keys = 39 columns + `icon`), and `cats.select` is **byte-exact** vs the PHP oracle (verified by diffing the Rust output against a live `select_feeds_cats` run on the golden DB — 602 bytes identical); the overall JSON is *functionally equivalent* (same data; `serde_json` sorts keys / does not escape non-ASCII or `/`, which the frontend's `JSON.parse` transparently normalizes).
   5 tests in `tests/feed_edit.rs`. `editfeeds` (the batch-edit HTML) and the
   export's settings section remain for Feed CRUD.
 

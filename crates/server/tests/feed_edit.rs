@@ -89,11 +89,24 @@ async fn test_editfeed_basic(
     assert_eq!(feed["purge_interval"], 0);
     assert!(feed["icon"].is_string(), "icon should be a string");
     assert_eq!(feed["auth_pass"], "", "empty auth_pass stays empty");
+    // The full row is returned: all 39 columns + icon = 40 keys.
+    let n_keys = feed.as_object().unwrap().len();
+    assert_eq!(n_keys, 40, "feed should have all 39 columns + icon, got {n_keys}");
+    // Spot-check a few internal columns the form does not display.
+    assert_eq!(feed["owner_uid"], 1);
+    assert_eq!(feed["update_method"], 0);
+    assert!(feed["last_updated"].is_null(), "last_updated should be null: {feed}");
 
     // cats
     assert_eq!(result["cats"]["enabled"], true);
     let select = result["cats"]["select"].as_str().unwrap();
-    assert!(select.contains("<select name=\"cat_id\""), "{select}");
+    // The <select> tag matches the PHP's multi-line format exactly.
+    assert!(
+        select.starts_with(
+            "<select name=\"cat_id\"\n                        id=\"\"\n                        default=\"1\"\n                        dojoType=\"fox.form.Select\" >"
+        ),
+        "exact <select> tag: {select}"
+    );
     assert!(select.contains("value='1'"), "Technology option missing: {select}");
     assert!(select.contains("Technology"));
     assert!(
@@ -102,6 +115,11 @@ async fn test_editfeed_basic(
     );
     assert!(select.contains("value=\"0\""), "Uncategorized option missing: {select}");
     assert!(select.contains("Uncategorized"));
+    // The disabled separator is 15 U+2015 bars (matching the PHP).
+    assert!(
+        select.contains(&format!("<option disabled=\"1\">{}</option>", "\u{2015}".repeat(15))),
+        "separator: {select}"
+    );
     // feed 1's cat is 1, so Technology is pre-selected.
     assert!(
         select.contains("selected=\"1\" value='1'"),
@@ -188,9 +206,9 @@ async fn test_editfeed_cats_nested(
     let result =
         ttrss_server::feeds::editfeed(&state, &sess, &request(&[("id", json!(1))])).await;
     let select = result["cats"]["select"].as_str().unwrap();
-    // "Technology" (top) comes before its child " Sub-Tech" (indented by one space).
+    // "Technology" (top) comes before its child "\u{2003}Sub-Tech" (indented by an em space).
     let tech_pos = select.find("Technology").expect("Technology");
-    let sub_pos = select.find(" Sub-Tech").expect("indented Sub-Tech: {select}");
+    let sub_pos = select.find("\u{2003}Sub-Tech").expect("indented Sub-Tech: {select}");
     assert!(sub_pos > tech_pos, "child should follow parent: {select}");
     assert!(select.contains("Sub-Tech"));
 }
