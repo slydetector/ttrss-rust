@@ -414,9 +414,11 @@ clean** on the golden dataset. Done so far:
   content goes through `sanitizer::sanitize` + `DiskCache::rewrite_urls`, with a
   non-empty note prepended as a styled div; `noxml` switches the content type to
   `text/plain`. `046 syndication_feed_atom` / `047 syndication_cat_rss` /
-  `048 syndication_bad_key` diff clean. NOTE(port): the `q` search filter is not ported
-  (affects title/first-id but not row filtering); the plugin-feed branch is not ported
-  (no plugin feeds in the deployment); `Config::get_version()` is a placeholder const.
+  `048 syndication_bad_key` diff clean. The `q` search filter is ported
+  (`Feeds::_search_to_sql` is spliced into the headline query with its dry-run
+  precheck — see the M3 search note below). NOTE(port): the plugin-feed branch
+  is not ported (no plugin feeds in the deployment); `Config::get_version()`
+  is a placeholder const.
 - **Harness normalizer (M2 additions):** smart-date / bare-time tokens collapse to one
   token (they differ run-to-run and server-to-server); URL authority ports are stripped
   (oracle vs Rust run on different ports by construction).
@@ -476,9 +478,21 @@ clean** on the golden dataset. Done so far:
   new `DispatchOutput::Raw`), and the catchup-scope handlers `RPC::catchupFeed` /
   `Feeds::catchupAll` (full `Feeds::_catchup` port in `feeds::catchup_scope`).
   Test parity: `ArticleHandlerTest.php` (17) → `tests/article_handler_parity.rs`
-  (row 15 below). Notes: the `search` scope in `Feeds::_catchup` is unported
-  (returns a `true` no-op, NOTE in `feeds.rs`); article `note` (notes are plugin
-  territory) is excluded from M3. Remaining M3 work: port `notes` (the `note`
+  (row 15 below). Notes: the `search` scope in `Feeds::_catchup` is ported
+  (the `_search_to_sql` fragment is spliced into the mark-read UPDATE);
+  article `note` (notes are plugin territory) is excluded from M3.
+  **Search (M3+):** `Feeds::_search_to_sql` fully ported in
+  `crates/server/src/search.rs` (oracle-verified: the `str_getcsv` tokenizer,
+  the three quote-grouping `preg_replace` passes, and the keyword loop —
+  71 exact fragment cases incl. date-relative, in `tests/search_to_sql.rs`;
+  `@date` parsing in `search_date.rs`). The headline view splices the
+  fragment with its dry-run precheck (unexecutable → `false` + "Incorrect
+  search syntax: <words>."), and `_catchup` accepts `search_query`/
+  `search_lang` (7 DB tests in `tests/search_scope.rs`). The `af_psql_trgm`
+  plugin-search fallback (`HOOK_SEARCH`) remains M7 territory; with the
+  default (empty) search language, plain FTS words are unexecutable
+  (Postgres rejects `to_tsquery('', …)`) — the actual tt-rss behavior,
+  verified in the oracle. Remaining M3 work: port `notes` (the `note`
   handler) if it is in-scope, and re-enable the disabled main-corpus logout steps
   (051–052) once the session teardown is ported. See §3a M3 notes.
 
