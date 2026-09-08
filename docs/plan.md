@@ -515,8 +515,19 @@ clean** on the golden dataset. Done so far:
   `removeIcon` (delete the `feed-icons` cache file + reset the feed's
   `favicon_*` columns). 20 DB tests in `tests/feed_crud.rs`; `savefeedorder`
   verified against the real PHP logic (same resulting `order_id`/`cat_id`/
-  `parent_cat` for reorder + move payloads). `uploadIcon` (multipart), `importOpml`/
-  `opml_export` (XML), and the read-side `editfeed` form remain.
+  `parent_cat` for reorder + move payloads). A third increment adds
+  **`uploadIcon`** (multipart file upload → write the `feed-icons` cache file +
+  set `favicon_is_custom`, gated on `Config::MAX_FAVICON_FILE_SIZE`, returning
+  `{rc, icon_url}` with the `E_ICON_*` markers). This required generalizing the
+  `backend.php` request path in `rpc.rs`: the handler now parses the request
+  itself (`parse_backend`) instead of the `Form<RpcForm>` extractor — branching
+  on `Content-Type` into `multipart/form-data` (axum `Multipart`, the file part
+  threaded to the handler as `Option<&[u8]>`), `application/json`, or
+  `application/x-www-form-urlencoded` / GET query — with multipart text fields
+  landing in `extra` as `Value::String` (matching the old form path). 21 DB
+  tests in `tests/feed_crud.rs` + 4 `parse_backend` unit tests (get / json /
+  urlencoded / multipart); the 53-step main corpus still matches 53/53. Only
+  `importOpml`/`opml_export` (XML) and the read-side `editfeed` form remain.
 
 ### Test-parity program (PHP `#[test]` → Rust `#[test]`, 2026-09-05)
 

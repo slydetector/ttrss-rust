@@ -9,6 +9,7 @@
 //! everything in a single `root` node.
 
 use std::fs;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::{json, Map, Value};
 use sqlx::Row;
@@ -1734,7 +1735,7 @@ pub async fn savefeedorder(
 // Icons (M4: feed CRUD)
 //
 // `Pref_Feeds::removeIcon` — drop the feed's custom favicon cache and reset the
-// feed's favicon columns. `uploadIcon` (multipart file upload) is deferred.
+// `Pref_Feeds::removeIcon` / `uploadIcon` — manage the feed's custom favicon
 // ============================================================================
 
 /// `Pref_Feeds::removeIcon` — delete the feed's favicon cache and reset its
@@ -1772,5 +1773,67 @@ pub async fn remove_icon(
     Value::Null
 }
 
+/// `Pref_Feeds::uploadIcon` — persist an uploaded custom favicon to the
+/// `feed-icons` cache and flag the feed. Returns `{rc, icon_url}` where `rc`
+/// is one of the `E_ICON_*` markers. The PHP temp-file + `move_uploaded_file`
+/// dance is elided — the multipart bytes are already in hand.
+pub async fn upload_icon(
+    state: &AppState, sess: &Sess, extra: &Map<String, Value>, file: Option<&[u8]>,
+) -> Value {
+    let uid = sess.data().uid().unwrap_or(0);
+    let feed_id = util::clean_int(extra.get("feed_id"));
+    let pool = state.db.pool();
+
+    // Default (PHP `self::E_ICON_UPLOAD_FAILED`).
+    let mut rc = "E_ICON_UPLOAD_FAILED".to_string();
+
+    let feed: Option<i32> = sqlx::query_scalar(
+        "SELECT id FROM ttrss_feeds WHERE owner_uid = $1 AND id = $2",
+    )
+    .bind(uid)
+    .bind(feed_id)
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten();
+
+    if let (Some(fid), Some(bytes)) = (feed, file) {
+        if bytes.len() < state.config.max_favicon_file_size {
+            let dir = &state.config.feed_icon_dir;
+            let cache_file = dir.join(fid.to_string());
+            let written = fs::create_dir_all(dir)
+                .ok()
+                .and_then(|_| fs::write(&cache_file, bytes).ok())
+                .is_some();
+            if written {
+                let n = sqlx::query(
+                    "UPDATE ttrss_feeds SET favicon_avg_color = NULL, \
+                     favicon_is_custom = true WHERE owner_uid = $1 AND id = $2",
+                )
+                .bind(uid)
+                .bind(fid)
+                .execute(pool)
+                .await
+                .ok();
+                if n.map(|r| r.rows_affected() > 0).unwrap_or(false) {
+                    rc = "E_ICON_UPLOAD_SUCCESS".to_string();
+                }
+            } else {
+                rc = "E_ICON_RENAME_FAILED".to_string();
+            }
+        } else {
+            rc = "E_ICON_FILE_TOO_LARGE".to_string();
+        }
+    }
+
+    let ts = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    json!({
+        "rc": rc,
+        "icon_url": format!("{}?ts={}", feed_icon_url(state, feed_id), ts),
+    })
+}
 
 

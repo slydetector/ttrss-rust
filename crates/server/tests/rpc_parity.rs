@@ -34,6 +34,7 @@ fn test_config() -> Config {
         listen: "127.0.0.1:8281".parse().unwrap(),
         docroot: std::path::PathBuf::from("tt-rss"),
         feed_icon_dir: std::path::PathBuf::from("no-such-test-icon-dir"),
+        max_favicon_file_size: 1024 * 1024,
     }
 }
 

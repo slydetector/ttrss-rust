@@ -111,6 +111,7 @@ mod tests {
             listen: "127.0.0.1:8281".parse().unwrap(),
             docroot: PathBuf::from("tt-rss"),
             feed_icon_dir: PathBuf::from("tt-rss/cache/feed-icons"),
+            max_favicon_file_size: 1024 * 1024,
         };
 
         let db = match Db::connect(&cfg).await {

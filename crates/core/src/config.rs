@@ -51,6 +51,10 @@ pub struct Config {
     /// feed tree. (Upstream lives under the app cache dir; here it's a
     /// deployment artifact, overridable via `TTRSS_RUST_FEED_ICONS_DIR`.)
     pub feed_icon_dir: PathBuf,
+    /// `Config::MAX_FAVICON_FILE_SIZE` (T_INT): the max size of an uploaded
+    /// custom favicon, in bytes (default 1 MiB). Overridable via
+    /// `TTRSS_RUST_MAX_FAVICON_FILE_SIZE`.
+    pub max_favicon_file_size: usize,
 }
 
 impl Config {
@@ -91,6 +95,7 @@ impl Config {
             feed_icon_dir: std::env::var("TTRSS_RUST_FEED_ICONS_DIR")
                 .map(PathBuf::from)
                 .unwrap_or_else(|_| PathBuf::from("tt-rss/cache/feed-icons")),
+            max_favicon_file_size: env("TTRSS_RUST_MAX_FAVICON_FILE_SIZE", "1048576")?,
         })
     }
 
@@ -183,6 +188,7 @@ mod tests {
             listen: "127.0.0.1:8281".parse().unwrap(),
             docroot: PathBuf::from("tt-rss"),
             feed_icon_dir: PathBuf::from("tt-rss/cache/feed-icons"),
+            max_favicon_file_size: 1024 * 1024,
         }
     }
 

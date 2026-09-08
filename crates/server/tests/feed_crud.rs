@@ -33,6 +33,7 @@ fn test_config() -> Config {
         listen: "127.0.0.1:8281".parse().unwrap(),
         docroot: std::path::PathBuf::from("tt-rss"),
         feed_icon_dir: std::path::PathBuf::from("no-such-test-icon-dir"),
+        max_favicon_file_size: 1024 * 1024,
     }
 }
 
@@ -819,5 +820,78 @@ async fn test_remove_icon(
     use sqlx::Row as _;
     assert_eq!(row.get::<Option<String>, _>(0), None, "avg color reset to NULL");
     assert_eq!(row.get::<Option<bool>, _>(2), Some(false), "is_custom reset to false");
+    let _ = std::fs::remove_dir_all(&icon_dir);
+}
+
+#[sqlx::test(fixtures(
+    "../../testing/fixtures/schema.sql",
+    "../../testing/fixtures/baseline.sql",
+    "../../testing/fixtures/seed.sql",
+))]
+async fn test_upload_icon(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
+    use sqlx::Row as _;
+    let (state, sess) = setup(pool, options).await;
+    let db = &state.db;
+    let icon_dir =
+        std::env::temp_dir().join(format!("ttrss-feedicon-up-{}", std::process::id()));
+    std::fs::create_dir_all(&icon_dir).unwrap();
+    let mut cfg = test_config();
+    cfg.feed_icon_dir = icon_dir.clone();
+    let state = AppState { config: cfg, db: state.db.clone() };
+
+    // Success: upload a small icon for feed 1.
+    let res = ttrss_server::feeds::upload_icon(
+        &state, &sess, &request(&[("feed_id", json!("1"))]), Some(b"PNGDATA"),
+    )
+    .await;
+    assert_eq!(
+        res.get("rc").and_then(|v| v.as_str()),
+        Some("E_ICON_UPLOAD_SUCCESS"),
+        "res: {res}"
+    );
+    assert!(icon_dir.join("1").is_file(), "icon file written");
+    let row = sqlx::query("SELECT favicon_avg_color, favicon_is_custom FROM ttrss_feeds WHERE id = 1")
+        .fetch_one(db.pool())
+        .await
+        .unwrap();
+    assert_eq!(row.get::<Option<String>, _>(0), None, "avg color reset to NULL");
+    assert!(row.get::<bool, _>(1), "is_custom set to true");
+    let url = res.get("icon_url").and_then(|v| v.as_str()).unwrap_or("");
+    
+    assert!(url.contains("op=feed_icon&id=1") && url.contains("?ts="), "icon_url cache-buster: {url}");
+
+    // File too large: a 10-byte upload with a 4-byte cap.
+    let mut cfg2 = test_config();
+    cfg2.feed_icon_dir = icon_dir.clone();
+    cfg2.max_favicon_file_size = 4;
+    let state2 = AppState { config: cfg2, db: state.db.clone() };
+    let res2 = ttrss_server::feeds::upload_icon(
+        &state2, &sess, &request(&[("feed_id", json!("2"))]), Some(&[0u8; 10]),
+    )
+    .await;
+    assert_eq!(
+        res2.get("rc").and_then(|v| v.as_str()),
+        Some("E_ICON_FILE_TOO_LARGE"),
+        "res2: {res2}"
+    );
+    assert!(!icon_dir.join("2").exists(), "no file written for too-large upload");
+
+    // No such feed.
+    let res3 = ttrss_server::feeds::upload_icon(
+        &state, &sess, &request(&[("feed_id", json!("999"))]), Some(b"PNGDATA"),
+    )
+    .await;
+    assert_eq!(res3.get("rc").and_then(|v| v.as_str()), Some("E_ICON_UPLOAD_FAILED"));
+
+    // No file part at all.
+    let res4 = ttrss_server::feeds::upload_icon(
+        &state, &sess, &request(&[("feed_id", json!("3"))]), None,
+    )
+    .await;
+    assert_eq!(res4.get("rc").and_then(|v| v.as_str()), Some("E_ICON_UPLOAD_FAILED"));
+
     let _ = std::fs::remove_dir_all(&icon_dir);
 }

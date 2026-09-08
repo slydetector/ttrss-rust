@@ -7,8 +7,8 @@
 //! load sequence) and `getRuntimeInfo`. Other handlers/methods return
 //! `E_UNKNOWN_METHOD` until ported.
 
-use axum::body::Body;
-use axum::extract::{Form, State};
+use axum::body::{to_bytes, Body};
+use axum::extract::{FromRequest, Multipart, Request, State};
 use axum::http::{header, StatusCode};
 use axum::response::{IntoResponse, Response};
 use chrono::{Datelike, Timelike};
@@ -32,7 +32,7 @@ use crate::plugins;
 use crate::labels;
 
 /// Form/query params for `backend.php` (all arrive via `$_REQUEST`).
-#[derive(Deserialize)]
+#[derive(Deserialize, Default)]
 pub struct RpcForm {
     op: Option<String>,
     method: Option<String>,
@@ -46,8 +46,9 @@ pub struct RpcForm {
 pub async fn handler(
     State(state): State<AppState>,
     sess: axum::extract::Extension<Sess>,
-    form: Form<RpcForm>,
+    req: Request,
 ) -> Response {
+    let (form, file) = parse_backend(req).await;
     let op = form.op.clone().unwrap_or_default();
     let method = form
         .subop
@@ -70,7 +71,7 @@ pub async fn handler(
             .into_response();
     }
 
-    let (body, content_type) = match dispatch(&state, &sess, &op, &method, &csrf, &extra).await {
+    let (body, content_type) = match dispatch(&state, &sess, &op, &method, &csrf, &extra, file.as_deref()).await {
         DispatchOutput::Json(v) => (v.to_string(), "application/json; charset=utf-8"),
         DispatchOutput::Html(h) => (h, "application/json; charset=utf-8"),
         DispatchOutput::TextHtml(h) => (h, "text/html;charset=UTF-8"),
@@ -108,6 +109,66 @@ pub async fn handler(
     res
 }
 
+/// Parse a `backend.php` request into its [`RpcForm`] fields plus any uploaded
+/// file bytes. `backend.php` is driven three ways: GET (query string) or POST
+/// `application/x-www-form-urlencoded` / `application/json` (scalar `$_REQUEST`
+/// fields), and POST `multipart/form-data` (the icon / OPML uploads, which
+/// carry a `$_FILES` part). The multipart text fields populate `RpcForm`
+/// exactly as the urlencoded path does (scalar strings → `Value::String`);
+/// the single file part's bytes are returned alongside.
+async fn parse_backend(req: Request) -> (RpcForm, Option<Vec<u8>>) {
+    let ct = req
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+
+    if ct.starts_with("multipart/form-data") {
+        let mut form = RpcForm::default();
+        let mut file: Option<Vec<u8>> = None;
+        let mut mp = match Multipart::from_request(req, &()).await {
+            Ok(m) => m,
+            Err(_) => return (form, None),
+        };
+        while let Ok(Some(field)) = mp.next_field().await {
+            let is_file = field.file_name().is_some();
+            let name = field.name().unwrap_or("").to_string();
+            let bytes = field.bytes().await.unwrap_or_default().to_vec();
+            if is_file {
+                file = Some(bytes);
+            } else if !name.is_empty() {
+                let s = String::from_utf8_lossy(&bytes).to_string();
+                match name.as_str() {
+                    "op" => form.op = Some(s),
+                    "method" => form.method = Some(s),
+                    "subop" => form.subop = Some(s),
+                    "csrf_token" => form.csrf_token = Some(s),
+                    _ => {
+                        form.extra.insert(name, Value::String(s));
+                    }
+                }
+            }
+        }
+        return (form, file);
+    }
+
+    // GET (query string) or POST urlencoded / json body.
+    let query = req.uri().query().unwrap_or("").to_string();
+    let body = to_bytes(req.into_body(), 10 * 1024 * 1024)
+        .await
+        .unwrap_or_default()
+        .to_vec();
+    let form = if ct.contains("application/json") {
+        serde_json::from_slice(&body).unwrap_or_default()
+    } else if !body.is_empty() {
+        serde_urlencoded::from_bytes(&body).unwrap_or_default()
+    } else {
+        serde_urlencoded::from_str(&query).unwrap_or_default()
+    };
+    (form, None)
+}
+
 /// `backend.php` dispatch output: the JSON envelope, or raw HTML for the few
 /// methods that `echo` markup directly (they keep the JSON content-type —
 /// PHP sets it in `backend.php` before dispatch).
@@ -126,6 +187,7 @@ async fn dispatch(
     method: &str,
     csrf: &str,
     extra: &Map<String, Value>,
+    file: Option<&[u8]>,
 ) -> DispatchOutput {
     let mut data = sess.data();
 
@@ -185,6 +247,7 @@ async fn dispatch(
             "feedsortreset" => DispatchOutput::Json(feeds::feedsortreset(state, sess, extra).await),
             "savefeedorder" => DispatchOutput::Json(feeds::savefeedorder(state, sess, extra).await),
             "removeIcon" => DispatchOutput::Json(feeds::remove_icon(state, sess, extra).await),
+            "uploadIcon" => DispatchOutput::Json(feeds::upload_icon(state, sess, extra, file).await),
             "clearKeys" => DispatchOutput::Json(feeds::clear_keys(state, sess, extra).await),
             "regenFeedKey" => DispatchOutput::Json(feeds::regen_feed_key(state, sess, extra).await),
             "getSharedURL" => DispatchOutput::Json(feeds::get_shared_url(state, sess, extra).await),
@@ -703,4 +766,88 @@ mod tests {
         let docroot = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tt-rss");
         assert!(!theme_exists(&docroot, "nonexistent-theme-xyz"));
     }
+
+    fn rt() -> tokio::runtime::Runtime {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+    }
+
+    fn build(uri: &str, ct: Option<&str>, body: &str) -> Request {
+        let mut b = Request::builder().method(axum::http::Method::POST).uri(uri);
+        if let Some(ct) = ct {
+            b = b.header(header::CONTENT_TYPE, ct);
+        }
+        b.body(Body::from(body.to_string())).unwrap()
+    }
+
+    #[test]
+    fn parse_backend_get_query() {
+        let req = Request::builder()
+            .method(axum::http::Method::GET)
+            .uri("/backend.php?op=Feeds&method=getfeedtree&csrf_token=tok")
+            .body(Body::empty())
+            .unwrap();
+        let (form, file) = rt().block_on(parse_backend(req));
+        assert_eq!(form.op.as_deref(), Some("Feeds"));
+        assert_eq!(form.method.as_deref(), Some("getfeedtree"));
+        assert_eq!(form.csrf_token.as_deref(), Some("tok"));
+        assert!(file.is_none());
+    }
+
+    #[test]
+    fn parse_backend_urlencoded() {
+        let (form, file) = rt().block_on(parse_backend(build(
+            "/backend.php",
+            Some("application/x-www-form-urlencoded"),
+            "op=Pref_Feeds&method=remove&csrf_token=tok&id=5&ids=1%2C2",
+        )));
+        assert_eq!(form.op.as_deref(), Some("Pref_Feeds"));
+        assert_eq!(form.method.as_deref(), Some("remove"));
+        assert_eq!(form.csrf_token.as_deref(), Some("tok"));
+        // Extra values are `Value::String` (matching the axum `Form` path).
+        assert_eq!(form.extra.get("id"), Some(&Value::String("5".into())));
+        assert_eq!(form.extra.get("ids"), Some(&Value::String("1,2".into())));
+        assert!(file.is_none());
+    }
+
+    #[test]
+    fn parse_backend_json() {
+        let (form, file) = rt().block_on(parse_backend(build(
+            "/backend.php",
+            Some("application/json"),
+            r#"{"op":"Feeds","method":"index","extra_val":7}"#,
+        )));
+        assert_eq!(form.op.as_deref(), Some("Feeds"));
+        assert_eq!(form.method.as_deref(), Some("index"));
+        assert_eq!(form.extra.get("extra_val"), Some(&json!(7)));
+        assert!(file.is_none());
+    }
+
+    #[test]
+    fn parse_backend_multipart() {
+        let boundary = "BOUND123";
+        let body = [
+            "--{B}\r\nContent-Disposition: form-data; name=\"op\"\r\n\r\nPref_Feeds\r\n",
+            "--{B}\r\nContent-Disposition: form-data; name=\"method\"\r\n\r\nuploadIcon\r\n",
+            "--{B}\r\nContent-Disposition: form-data; name=\"feed_id\"\r\n\r\n1\r\n",
+            "--{B}\r\nContent-Disposition: form-data; name=\"icon_file\"; filename=\"icon.png\"\r\nContent-Type: image/png\r\n\r\nPNGBYTES\r\n",
+            "--{B}--\r\n",
+        ]
+        .iter()
+        .map(|s| s.replace("{B}", boundary))
+        .collect::<Vec<_>>()
+        .join("");
+        let (form, file) = rt().block_on(parse_backend(build(
+            "/backend.php",
+            Some(&format!("multipart/form-data; boundary={boundary}")),
+            &body,
+        )));
+        assert_eq!(form.op.as_deref(), Some("Pref_Feeds"));
+        assert_eq!(form.method.as_deref(), Some("uploadIcon"));
+        assert_eq!(form.extra.get("feed_id"), Some(&Value::String("1".into())));
+        assert_eq!(file.as_deref(), Some(b"PNGBYTES".as_slice()));
+    }
 }
+
