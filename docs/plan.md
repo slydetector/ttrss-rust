@@ -531,9 +531,12 @@ clean** on the golden dataset. Done so far:
   in `opml.rs`): the owner category + feed tree is walked iteratively
   (sub-cats before feeds; empty categories *retained* — the PHP emits every
   titled category and its "cleanup empty categories" pass is a no-op because
-  it queries `//outline[@title]` while exported outlines use `text`), rendered
-  as *functionally equivalent* OPML (2-space indent, `text`/`xmlUrl`/`htmlUrl`
-  + the `ttrss*` attrs when `include_settings`), served as an
+  it queries `//outline[@title]` while exported outlines use `text`) and
+  serialized with **quick-xml** (`se::Serializer::with_root(...).indent(' ',
+  2)` — the document is built as a typed `Doc`/`Outline` tree, not
+  hand-assembled), yielding *functionally equivalent* OPML (2-space indent,
+  `text`/`xmlUrl`/`htmlUrl` + the `ttrss*` attrs when `include_settings`),
+  served as an
   `application/xml+opml` attachment via a new `DispatchOutput::Download`
   variant (`export` is login-gated + CSRF-ignored, like the PHP). 4 DB tests in
   `tests/opml_export.rs`. The `tt-rss-prefs`/`tt-rss-labels`/`tt-rss-filters`

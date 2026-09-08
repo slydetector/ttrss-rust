@@ -140,9 +140,8 @@ async fn test_export_retains_empty_category(pool: sqlx::pool::PoolOptions<sqlx::
         .expect("insert empty cat");
 
     let opml = ttrss_server::opml::build_opml(state.db.pool(), 1, false).await;
-    // The empty category is emitted as an outline with no children.
-    assert!(opml.contains("    <outline text=\"Empty Cat\">"), "empty category retained: {opml}");
-    assert!(opml.contains("    </outline>"), "empty category closes: {opml}");
+    // The empty category is emitted as a self-closing outline (no children).
+    assert!(opml.contains("    <outline text=\"Empty Cat\"/>"), "empty category retained: {opml}");
     // The real categories remain.
     assert!(opml.contains("text=\"Technology\""));
     assert!(opml.contains("text=\"Science &amp; Nature\""));
