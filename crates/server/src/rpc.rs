@@ -181,6 +181,13 @@ async fn dispatch(
             "addCat" => DispatchOutput::Json(feeds::add_cat(state, sess, extra).await),
             "renameCat" => DispatchOutput::Json(feeds::rename_cat(state, sess, extra).await),
             "removeCat" => DispatchOutput::Json(feeds::remove_cat(state, sess, extra).await),
+            "catsortreset" => DispatchOutput::Json(feeds::catsortreset(state, sess, extra).await),
+            "feedsortreset" => DispatchOutput::Json(feeds::feedsortreset(state, sess, extra).await),
+            "savefeedorder" => DispatchOutput::Json(feeds::savefeedorder(state, sess, extra).await),
+            "removeIcon" => DispatchOutput::Json(feeds::remove_icon(state, sess, extra).await),
+            "clearKeys" => DispatchOutput::Json(feeds::clear_keys(state, sess, extra).await),
+            "regenFeedKey" => DispatchOutput::Json(feeds::regen_feed_key(state, sess, extra).await),
+            "getSharedURL" => DispatchOutput::Json(feeds::get_shared_url(state, sess, extra).await),
             _ => DispatchOutput::Json(unknown_method("Pref_Feeds", method)),
         },
         "Article" => match method {

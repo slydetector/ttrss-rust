@@ -8,6 +8,8 @@
 //! real categories as a flat top-level list (no `root` node); mode 0 wraps
 //! everything in a single `root` node.
 
+use std::fs;
+
 use serde_json::{json, Map, Value};
 use sqlx::Row;
 use base64::Engine as _;
@@ -1371,5 +1373,404 @@ pub async fn remove_cat(state: &AppState, sess: &Sess, extra: &Map<String, Value
     }
     Value::Null
 }
+
+// ============================================================================
+// Access keys (M4: feed CRUD)
+//
+// `Pref_Feeds::clearKeys` / `regenFeedKey` / `getSharedURL` and their
+// `Feeds::_{clear,update,get}_access_key` helpers. These manage the per-feed
+// (or per-category) random keys that let a reader fetch a feed's articles via
+// the public `public.php?op=rss&id=..&key=..` endpoint (M4).
+// ============================================================================
+
+/// `Feeds::_get_access_key` — the access key for (owner, feed_id, is_cat),
+/// creating one with a fresh `uniqid_short()` if absent.
+async fn get_access_key(
+    pool: &sqlx::PgPool, feed_id: &str, is_cat: bool, owner_uid: i64,
+) -> Option<String> {
+    let existing: Option<String> = sqlx::query_scalar(
+        "SELECT access_key FROM ttrss_access_keys \
+         WHERE owner_uid = $1 AND feed_id = $2 AND is_cat = $3",
+    )
+    .bind(owner_uid)
+    .bind(feed_id)
+    .bind(is_cat)
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten();
+    if let Some(key) = existing {
+        return Some(key);
+    }
+    let key = crate::util::uniqid_short();
+    sqlx::query(
+        "INSERT INTO ttrss_access_keys (access_key, feed_id, is_cat, owner_uid) \
+         VALUES ($1, $2, $3, $4)",
+    )
+    .bind(&key)
+    .bind(feed_id)
+    .bind(is_cat)
+    .bind(owner_uid)
+    .execute(pool)
+    .await
+    .ok()
+    .map(|_| key)
+}
+
+/// `Feeds::_update_access_key` — drop the existing key and return a fresh one.
+async fn update_access_key(
+    pool: &sqlx::PgPool, feed_id: &str, is_cat: bool, owner_uid: i64,
+) -> Option<String> {
+    let _ = sqlx::query(
+        "DELETE FROM ttrss_access_keys \
+         WHERE owner_uid = $1 AND feed_id = $2 AND is_cat = $3",
+    )
+    .bind(owner_uid)
+    .bind(feed_id)
+    .bind(is_cat)
+    .execute(pool)
+    .await;
+    get_access_key(pool, feed_id, is_cat, owner_uid).await
+}
+
+/// `Feeds::_clear_access_keys` — delete every access key for the owner.
+async fn clear_access_keys(pool: &sqlx::PgPool, owner_uid: i64) {
+    let _ = sqlx::query("DELETE FROM ttrss_access_keys WHERE owner_uid = $1")
+        .bind(owner_uid)
+        .execute(pool)
+        .await;
+}
+
+/// `Handler::_param_to_bool` (via `clean`): a clean string is truthy unless it
+/// is `""`, `"0"`, `"f"` or `"false"`; absent/`null`/non-string fall to their
+/// scalar truthiness.
+fn request_param_to_bool(p: Option<&Value>) -> bool {
+    match p {
+        None | Some(Value::Null) => false,
+        Some(Value::String(s)) => {
+            let t = s.trim();
+            !t.is_empty() && t != "0" && t != "f" && t != "false"
+        }
+        Some(Value::Bool(b)) => *b,
+        Some(Value::Number(n)) => n.as_i64().unwrap_or(0) != 0,
+        Some(_) => false,
+    }
+}
+
+/// PHP `http_build_query` / `urlencode` (query-string form): preserves
+/// alphanumerics and `-_.`, encodes a space as `+`, and `%XX`s the rest.
+fn php_urlencode(s: &str) -> String {
+    let mut out = String::new();
+    for b in s.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' => {
+                out.push(b as char);
+            }
+            b' ' => out.push('+'),
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
+}
+
+/// PHP `http_build_query` for a flat `&`-separated list of key/value pairs
+/// (empty values kept, e.g. `q=`).
+fn http_build_query(pairs: &[(&str, &str)]) -> String {
+    pairs
+        .iter()
+        .map(|(k, v)| format!("{}={}", php_urlencode(k), php_urlencode(v)))
+        .collect::<Vec<_>>()
+        .join("&")
+}
+
+/// `Pref_Feeds::clearKeys` — clear every access key for the user.
+pub async fn clear_keys(
+    state: &AppState, sess: &Sess, _extra: &Map<String, Value>,
+) -> Value {
+    clear_access_keys(state.db.pool(), sess.data().uid().unwrap_or(0)).await;
+    Value::Null
+}
+
+/// `Pref_Feeds::regenFeedKey` — regenerate the (feed|category) access key.
+pub async fn regen_feed_key(
+    state: &AppState, sess: &Sess, extra: &Map<String, Value>,
+) -> Value {
+    let uid = sess.data().uid().unwrap_or(0);
+    let feed_id = util::clean_str(extra.get("id").and_then(scalar_str).as_deref().unwrap_or(""));
+    let is_cat = request_param_to_bool(extra.get("is_cat"));
+    let key = update_access_key(state.db.pool(), &feed_id, is_cat, uid).await;
+    json!({ "link": key })
+}
+
+/// `Pref_Feeds::getSharedURL` — the public RSS share URL for a feed/category.
+pub async fn get_shared_url(
+    state: &AppState, sess: &Sess, extra: &Map<String, Value>,
+) -> Value {
+    let uid = sess.data().uid().unwrap_or(0);
+    let feed_id = util::clean_str(extra.get("id").and_then(scalar_str).as_deref().unwrap_or(""));
+    let is_cat = request_param_to_bool(extra.get("is_cat"));
+    let search = util::clean_str(extra.get("search").and_then(scalar_str).as_deref().unwrap_or(""));
+    let key = get_access_key(state.db.pool(), &feed_id, is_cat, uid).await;
+    let is_cat_s = if is_cat { "1" } else { "0" };
+    let id = feed_id.parse::<i64>().unwrap_or(0);
+    let title = if is_cat {
+        category_title(state.db.pool(), id, uid).await
+    } else {
+        feed_title(state.db.pool(), id, uid).await
+    };
+    let link = format!(
+        "{}/public.php?{}",
+        state.config.self_url_rtrim(),
+        http_build_query(&[
+            ("op", "rss"),
+            ("id", &feed_id),
+            ("is_cat", is_cat_s),
+            ("q", &search),
+            ("key", key.as_deref().unwrap_or("")),
+        ])
+    );
+    json!({ "title": title, "link": link })
+}
+
+// ============================================================================
+// Ordering (M4: feed CRUD)
+//
+// `Pref_Feeds::catsortreset` / `feedsortreset` / `savefeedorder` — reset and
+// persist the feed/category drag-and-drop order from the dojo feed tree.
+// ============================================================================
+
+/// PHP `substr($id, strpos($id, ":") + 1)` — the bare numeric id after the
+/// `PREFIX:` marker (for ids without `:`, `strpos` is `false` → `substr($id, 1)`;
+/// empty string → empty string, matching PHP).
+fn bare_id(s: &str) -> &str {
+    match s.find(':') {
+        Some(pos) => &s[pos + 1..],
+        None => s.get(1..).unwrap_or(""),
+    }
+}
+
+/// `Pref_Feeds::catsortreset` — reset every category order position to 0.
+pub async fn catsortreset(
+    state: &AppState, sess: &Sess, _extra: &Map<String, Value>,
+) -> Value {
+    let uid = sess.data().uid().unwrap_or(0);
+    sqlx::query("UPDATE ttrss_feed_categories SET order_id = 0 WHERE owner_uid = $1")
+        .bind(uid)
+        .execute(state.db.pool())
+        .await
+        .ok();
+    Value::Null
+}
+
+/// `Pref_Feeds::feedsortreset` — reset every feed order position to 0.
+pub async fn feedsortreset(
+    state: &AppState, sess: &Sess, _extra: &Map<String, Value>,
+) -> Value {
+    let uid = sess.data().uid().unwrap_or(0);
+    sqlx::query("UPDATE ttrss_feeds SET order_id = 0 WHERE owner_uid = $1")
+        .bind(uid)
+        .execute(state.db.pool())
+        .await
+        .ok();
+    Value::Null
+}
+
+/// `Pref_Feeds::process_category_order` — walk the dojo tree and persist each
+/// feed's / category's `order_id` (and `cat_id` / `parent_cat`) for the owner.
+async fn process_category_order(
+    state: &AppState, uid: i64, data_map: &Map<String, Value>, root_item: &str,
+) {
+    let pool = state.db.pool();
+    // Iterative (stack-based) walk, equivalent to the PHP recursion: a category
+    // node sets its own `parent_cat` when its frame is popped, while its parent
+    // assigns its `order_id` (the position in the parent's list).
+    let mut stack: Vec<(String, String)> = vec![(root_item.to_string(), String::new())];
+    while let Some((item_id, parent_id)) = stack.pop() {
+        let bare_item_id = bare_id(&item_id);
+        if item_id != "root" {
+            let parent_qpart: Option<i32> = if !parent_id.is_empty() && parent_id != "root" {
+                Some(bare_id(&parent_id).parse().unwrap_or(0))
+            } else {
+                None
+            };
+            let bid = bare_item_id.parse::<i32>().unwrap_or(0);
+            let cat_exists = sqlx::query_scalar::<_, i32>(
+                "SELECT id FROM ttrss_feed_categories WHERE owner_uid = $1 AND id = $2",
+            )
+            .bind(uid)
+            .bind(bid)
+            .fetch_optional(pool)
+            .await
+            .ok()
+            .flatten()
+            .is_some();
+            if cat_exists {
+                sqlx::query(
+                    "UPDATE ttrss_feed_categories SET parent_cat = $1 \
+                     WHERE owner_uid = $2 AND id = $3",
+                )
+                .bind(parent_qpart)
+                .bind(uid)
+                .bind(bid)
+                .execute(pool)
+                .await
+                .ok();
+            }
+        }
+        let mut order_id: i32 = 1;
+        if let Some(Value::Array(children)) = data_map.get(&item_id) {
+            for item in children {
+                let id = item.get("_reference").and_then(|v| v.as_str()).unwrap_or("");
+                let bare = bare_id(id);
+                if !id.is_empty() {
+                    if id.starts_with("FEED") {
+                        let bid = bare.parse::<i32>().unwrap_or(0);
+                        let feed_exists = sqlx::query_scalar::<_, i32>(
+                            "SELECT id FROM ttrss_feeds WHERE owner_uid = $1 AND id = $2",
+                        )
+                        .bind(uid)
+                        .bind(bid)
+                        .fetch_optional(pool)
+                        .await
+                        .ok()
+                        .flatten()
+                        .is_some();
+                        if feed_exists {
+                            let cat_id: Option<i32> =
+                                if item_id != "root" && !bare_item_id.is_empty() {
+                                    Some(bare_item_id.parse().unwrap_or(0))
+                                } else {
+                                    None
+                                };
+                            sqlx::query(
+                                "UPDATE ttrss_feeds SET order_id = $1, cat_id = $2 \
+                                 WHERE owner_uid = $3 AND id = $4",
+                            )
+                            .bind(order_id)
+                            .bind(cat_id)
+                            .bind(uid)
+                            .bind(bid)
+                            .execute(pool)
+                            .await
+                            .ok();
+                        }
+                    } else if id.starts_with("CAT:") {
+                        let bid = bare.parse::<i32>().unwrap_or(0);
+                        let cat_exists = sqlx::query_scalar::<_, i32>(
+                            "SELECT id FROM ttrss_feed_categories WHERE owner_uid = $1 AND id = $2",
+                        )
+                        .bind(uid)
+                        .bind(bid)
+                        .fetch_optional(pool)
+                        .await
+                        .ok()
+                        .flatten()
+                        .is_some();
+                        if cat_exists {
+                            sqlx::query(
+                                "UPDATE ttrss_feed_categories SET order_id = $1 \
+                                 WHERE owner_uid = $2 AND id = $3",
+                            )
+                            .bind(order_id)
+                            .bind(uid)
+                            .bind(bid)
+                            .execute(pool)
+                            .await
+                            .ok();
+                        }
+                        stack.push((id.to_string(), item_id.clone()));
+                    }
+                }
+                order_id += 1;
+            }
+        }
+    }
+}
+
+/// `Pref_Feeds::savefeedorder` — persist the dojo feed-tree order (`payload`).
+pub async fn savefeedorder(
+    state: &AppState, sess: &Sess, extra: &Map<String, Value>,
+) -> Value {
+    let uid = sess.data().uid().unwrap_or(0);
+    let payload = extra.get("payload").and_then(|v| v.as_str()).unwrap_or("");
+    let data: Value = serde_json::from_str(payload).unwrap_or(Value::Null);
+    // `$data['items']` — already an array, or a JSON-encoded string to decode.
+    let items: Value = match &data {
+        Value::Object(m) => {
+            let raw = m.get("items").cloned().unwrap_or(Value::Null);
+            if raw.is_array() {
+                raw
+            } else {
+                serde_json::from_str(raw.as_str().unwrap_or("")).unwrap_or(Value::Null)
+            }
+        }
+        _ => Value::Null,
+    };
+    if let Some(items_list) = items.as_array() {
+        let mut data_map: Map<String, Value> = Map::new();
+        let mut root_item = String::new();
+        for item in items_list {
+            let id = item.get("id").and_then(|v| v.as_str()).unwrap_or("");
+            if let Some(items_field) =
+                item.get("items").filter(|v| v.is_array() || v.is_object())
+            {
+                let val = if items_field.get("_reference").is_some() {
+                    json!([items_field])
+                } else {
+                    items_field.clone()
+                };
+                data_map.insert(id.to_string(), val);
+            }
+            if id == "root" {
+                root_item = "root".to_string();
+            }
+        }
+        process_category_order(state, uid, &data_map, &root_item).await;
+    }
+    Value::Null
+}
+
+// ============================================================================
+// Icons (M4: feed CRUD)
+//
+// `Pref_Feeds::removeIcon` — drop the feed's custom favicon cache and reset the
+// feed's favicon columns. `uploadIcon` (multipart file upload) is deferred.
+// ============================================================================
+
+/// `Pref_Feeds::removeIcon` — delete the feed's favicon cache and reset its
+/// `favicon_*` columns (only if the cached file exists and is removable).
+pub async fn remove_icon(
+    state: &AppState, sess: &Sess, extra: &Map<String, Value>,
+) -> Value {
+    let uid = sess.data().uid().unwrap_or(0);
+    let feed_id = util::clean_int(extra.get("feed_id"));
+    let pool = state.db.pool();
+    let feed: Option<i32> = sqlx::query_scalar(
+        "SELECT id FROM ttrss_feeds WHERE owner_uid = $1 AND id = $2",
+    )
+    .bind(uid)
+    .bind(feed_id)
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten();
+    if let Some(fid) = feed {
+        let cache_file = state.config.feed_icon_dir.join(fid.to_string());
+        if cache_file.exists() && fs::remove_file(&cache_file).is_ok() {
+            sqlx::query(
+                "UPDATE ttrss_feeds SET favicon_avg_color = NULL, \
+                 favicon_last_checked = '1970-01-01', favicon_is_custom = false \
+                 WHERE owner_uid = $1 AND id = $2",
+            )
+            .bind(uid)
+            .bind(fid)
+            .execute(pool)
+            .await
+            .ok();
+        }
+    }
+    Value::Null
+}
+
 
 

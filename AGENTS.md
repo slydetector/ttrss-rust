@@ -49,6 +49,13 @@ session in this directory. The frozen PHP reference lives in `tt-rss/`
 - **Get to root cause; no whack-a-mole.** When a fix reveals another symptom,
   stop and find the underlying cause rather than patching symptoms one by one.
 - Keep the architecture clean, isolated, repeatable, and fast.
+- **Prefer iterative over recursive.** Refactor recursive functions into
+  explicit stack-based (or loop-based) iterations as a general rule. Recursion
+  in Rust — especially in `async fn` (which forces `Box::pin` to avoid a
+  self-referential future) — hides the control flow, risks deep call stacks,
+  and complicates the borrow checker. Keep recursion only where it is clearly
+  the most readable form (e.g. a trivial constant-bounded case); otherwise
+  drive the traversal with an explicit `Vec` work stack.
 - **Write code in small, verifiable blocks.** Don't emit hundreds of lines in a
   single tool call — large single-shot writes/edits are brittle (exact-match
   edits fail on any whitespace drift, and a big blob is hard to review or fix).

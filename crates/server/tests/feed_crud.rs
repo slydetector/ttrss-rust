@@ -523,3 +523,301 @@ async fn test_remove_cat(
     // Category 2 (feed 4) is untouched.
     assert_eq!(feed_row(db, 4).await.expect("feed 4").cat_id, Some(2));
 }
+
+// ============================================================================
+// Ordering + access keys + icons (M4: feed CRUD, second increment)
+// ============================================================================
+
+/// `(order_id, cat_id)` for a feed.
+async fn feed_order_cat(db: &Db, id: i32) -> (i32, Option<i32>) {
+    let r = sqlx::query("SELECT order_id, cat_id FROM ttrss_feeds WHERE id = $1")
+        .bind(id)
+        .fetch_one(db.pool())
+        .await
+        .expect("feed");
+    use sqlx::Row as _;
+    (r.get(0), r.get(1))
+}
+
+/// `(order_id, parent_cat)` for a category.
+async fn cat_order_parent(db: &Db, id: i32) -> (i32, Option<i32>) {
+    let r = sqlx::query("SELECT order_id, parent_cat FROM ttrss_feed_categories WHERE id = $1")
+        .bind(id)
+        .fetch_one(db.pool())
+        .await
+        .expect("cat");
+    use sqlx::Row as _;
+    (r.get(0), r.get(1))
+}
+
+async fn access_key_count(db: &Db) -> i64 {
+    sqlx::query_scalar("SELECT count(*) FROM ttrss_access_keys WHERE owner_uid = 1")
+        .fetch_one(db.pool())
+        .await
+        .expect("count")
+}
+
+async fn access_key_for(db: &Db, feed_id: &str, is_cat: bool) -> Option<String> {
+    sqlx::query_scalar(
+        "SELECT access_key FROM ttrss_access_keys \
+         WHERE owner_uid = 1 AND feed_id = $1 AND is_cat = $2",
+    )
+    .bind(feed_id)
+    .bind(is_cat)
+    .fetch_optional(db.pool())
+    .await
+    .expect("key")
+}
+
+/// `catsortreset` zeroes every category `order_id` for the owner.
+#[sqlx::test(fixtures(
+    "../../testing/fixtures/schema.sql",
+    "../../testing/fixtures/baseline.sql",
+    "../../testing/fixtures/seed.sql",
+))]
+async fn test_catsortreset(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
+    let (state, sess) = setup(pool, options).await;
+    let db = &state.db;
+    sqlx::query("UPDATE ttrss_feed_categories SET order_id = 5 WHERE id = 1")
+        .execute(db.pool())
+        .await
+        .unwrap();
+    sqlx::query("UPDATE ttrss_feed_categories SET order_id = 7 WHERE id = 2")
+        .execute(db.pool())
+        .await
+        .unwrap();
+
+    ttrss_server::feeds::catsortreset(&state, &sess, &request(&[])).await;
+
+    assert_eq!(cat_order_parent(db, 1).await.0, 0);
+    assert_eq!(cat_order_parent(db, 2).await.0, 0);
+}
+
+/// `feedsortreset` zeroes every feed `order_id` for the owner.
+#[sqlx::test(fixtures(
+    "../../testing/fixtures/schema.sql",
+    "../../testing/fixtures/baseline.sql",
+    "../../testing/fixtures/seed.sql",
+))]
+async fn test_feedsortreset(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
+    let (state, sess) = setup(pool, options).await;
+    let db = &state.db;
+    sqlx::query("UPDATE ttrss_feeds SET order_id = 9 WHERE id = 1")
+        .execute(db.pool())
+        .await
+        .unwrap();
+
+    ttrss_server::feeds::feedsortreset(&state, &sess, &request(&[])).await;
+
+    for id in [1i32, 2, 3, 4] {
+        assert_eq!(feed_order_cat(db, id).await.0, 0);
+    }
+}
+
+/// `savefeedorder` reorders feeds within a category and categories at the top
+/// level (the dojo `payload` tree).
+#[sqlx::test(fixtures(
+    "../../testing/fixtures/schema.sql",
+    "../../testing/fixtures/baseline.sql",
+    "../../testing/fixtures/seed.sql",
+))]
+async fn test_savefeedorder_reorder(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
+    let (state, sess) = setup(pool, options).await;
+    let db = &state.db;
+
+    let payload = json!({
+        "items": [
+            { "id": "root", "items": [
+                { "_reference": "CAT:1" }, { "_reference": "CAT:2" } ] },
+            { "id": "CAT:1", "items": [
+                { "_reference": "FEED:2" }, { "_reference": "FEED:1" }, { "_reference": "FEED:3" } ] },
+            { "id": "CAT:2", "items": [ { "_reference": "FEED:4" } ] }
+        ]
+    });
+    let _ = ttrss_server::feeds::savefeedorder(
+        &state, &sess, &request(&[("payload", json!(payload.to_string()))]),
+    ).await;
+
+    // Categories: top-level order + (top-level => parent NULL).
+    assert_eq!(cat_order_parent(db, 1).await, (1, None));
+    assert_eq!(cat_order_parent(db, 2).await, (2, None));
+    // Feeds reordered inside CAT:1 (2,1,3) with cat_id kept.
+    assert_eq!(feed_order_cat(db, 2).await, (1, Some(1)));
+    assert_eq!(feed_order_cat(db, 1).await, (2, Some(1)));
+    assert_eq!(feed_order_cat(db, 3).await, (3, Some(1)));
+    // Feed 4 stays the sole (order 1) member of CAT:2.
+    assert_eq!(feed_order_cat(db, 4).await, (1, Some(2)));
+}
+
+/// `savefeedorder` can move a feed to a different category (its `cat_id`).
+#[sqlx::test(fixtures(
+    "../../testing/fixtures/schema.sql",
+    "../../testing/fixtures/baseline.sql",
+    "../../testing/fixtures/seed.sql",
+))]
+async fn test_savefeedorder_move(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
+    let (state, sess) = setup(pool, options).await;
+    let db = &state.db;
+
+    let payload = json!({
+        "items": [
+            { "id": "root", "items": [
+                { "_reference": "CAT:1" }, { "_reference": "CAT:2" } ] },
+            { "id": "CAT:1", "items": [
+                { "_reference": "FEED:1" }, { "_reference": "FEED:2" },
+                { "_reference": "FEED:3" }, { "_reference": "FEED:4" } ] },
+            { "id": "CAT:2", "items": [] }
+        ]
+    });
+    let _ = ttrss_server::feeds::savefeedorder(
+        &state, &sess, &request(&[("payload", json!(payload.to_string()))]),
+    ).await;
+
+    // Feed 4 moved from CAT:2 into CAT:1 as the 4th entry.
+    assert_eq!(feed_order_cat(db, 4).await, (4, Some(1)));
+    assert_eq!(feed_order_cat(db, 3).await, (3, Some(1)));
+    // CAT:2 is now empty (still order 2, parent NULL).
+    assert_eq!(cat_order_parent(db, 2).await, (2, None));
+}
+
+/// `clearKeys` deletes every access key for the owner.
+#[sqlx::test(fixtures(
+    "../../testing/fixtures/schema.sql",
+    "../../testing/fixtures/baseline.sql",
+    "../../testing/fixtures/seed.sql",
+))]
+async fn test_clear_keys(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
+    let (state, sess) = setup(pool, options).await;
+    let db = &state.db;
+    sqlx::query(
+        "INSERT INTO ttrss_access_keys (access_key, feed_id, is_cat, owner_uid) \
+         VALUES ('aaa', '1', false, 1), ('bbb', '2', false, 1)",
+    )
+    .execute(db.pool())
+    .await
+    .unwrap();
+    assert_eq!(access_key_count(db).await, 2);
+
+    ttrss_server::feeds::clear_keys(&state, &sess, &request(&[])).await;
+
+    assert_eq!(access_key_count(db).await, 0);
+}
+
+/// `regenFeedKey` creates a key if absent, and re-rolls it on each call (while
+/// keeping a single row per (feed, is_cat)).
+#[sqlx::test(fixtures(
+    "../../testing/fixtures/schema.sql",
+    "../../testing/fixtures/baseline.sql",
+    "../../testing/fixtures/seed.sql",
+))]
+async fn test_regen_feed_key(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
+    let (state, sess) = setup(pool, options).await;
+    let db = &state.db;
+
+    let r1 = ttrss_server::feeds::regen_feed_key(
+        &state, &sess, &request(&[("id", json!("1")), ("is_cat", json!("0"))]),
+    ).await;
+    let key1 = r1["link"].as_str().expect("key1").to_string();
+    assert!(!key1.is_empty());
+    assert_eq!(access_key_for(db, "1", false).await, Some(key1.clone()));
+
+    let r2 = ttrss_server::feeds::regen_feed_key(
+        &state, &sess, &request(&[("id", json!("1")), ("is_cat", json!("0"))]),
+    ).await;
+    let key2 = r2["link"].as_str().expect("key2").to_string();
+    assert!(!key2.is_empty());
+    assert_ne!(key1, key2, "regenerated key should differ");
+    // Still exactly one key row for (feed 1, is_cat false).
+    assert_eq!(access_key_count(db).await, 1);
+}
+
+/// `getSharedURL` builds the public RSS share URL for a feed (title + link).
+#[sqlx::test(fixtures(
+    "../../testing/fixtures/schema.sql",
+    "../../testing/fixtures/baseline.sql",
+    "../../testing/fixtures/seed.sql",
+))]
+async fn test_get_shared_url(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
+    let (state, sess) = setup(pool, options).await;
+    let db = &state.db;
+
+    let r = ttrss_server::feeds::get_shared_url(
+        &state, &sess, &request(&[("id", json!("1")), ("is_cat", json!("0"))]),
+    ).await;
+    assert_eq!(r["title"].as_str(), Some("Hacker News"));
+    let link = r["link"].as_str().expect("link");
+    assert!(
+        link.starts_with("http://127.0.0.1:8280/tt-rss/public.php?op=rss&id=1&is_cat=0&q="),
+        "unexpected link: {link}"
+    );
+    // A key was created and is present + non-empty in the query string.
+    let key = link.split("key=").nth(1).expect("key in link");
+    assert!(!key.is_empty());
+    assert_eq!(access_key_for(db, "1", false).await, Some(key.to_string()));
+}
+
+/// `removeIcon` deletes the favicon cache file and resets the feed's
+/// `favicon_*` columns (only when the cached file exists and is removable).
+#[sqlx::test(fixtures(
+    "../../testing/fixtures/schema.sql",
+    "../../testing/fixtures/baseline.sql",
+    "../../testing/fixtures/seed.sql",
+))]
+async fn test_remove_icon(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
+    let (state, sess) = setup(pool, options).await;
+    let db = &state.db;
+    // A real, writable icon dir for this test.
+    let icon_dir = std::env::temp_dir().join(format!("ttrss-feedicon-{}", std::process::id()));
+    std::fs::create_dir_all(&icon_dir).unwrap();
+    let mut cfg = test_config();
+    cfg.feed_icon_dir = icon_dir.clone();
+    let state = AppState { config: cfg, db: state.db.clone() };
+
+    // Mark feed 1 as a custom favicon and drop a cache file for it.
+    sqlx::query(
+        "UPDATE ttrss_feeds SET favicon_is_custom = true, favicon_avg_color = '#123456', \
+         favicon_last_checked = '2024-01-01 00:00:00' WHERE id = 1",
+    )
+    .execute(db.pool())
+    .await
+    .unwrap();
+    std::fs::write(icon_dir.join("1"), b"fake-favicon").unwrap();
+
+    let _ = ttrss_server::feeds::remove_icon(&state, &sess, &request(&[("feed_id", json!("1"))])).await;
+
+    assert!(!icon_dir.join("1").exists(), "icon file should be removed");
+    let row = sqlx::query(
+        "SELECT favicon_avg_color, favicon_last_checked, favicon_is_custom FROM ttrss_feeds WHERE id = 1",
+    )
+    .fetch_one(db.pool())
+    .await
+    .unwrap();
+    use sqlx::Row as _;
+    assert_eq!(row.get::<Option<String>, _>(0), None, "avg color reset to NULL");
+    assert_eq!(row.get::<Option<bool>, _>(2), Some(false), "is_custom reset to false");
+    let _ = std::fs::remove_dir_all(&icon_dir);
+}

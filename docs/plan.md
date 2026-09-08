@@ -505,8 +505,18 @@ clean** on the golden dataset. Done so far:
   away, favicon-cache file removed best-effort; negative id → `Labels::remove`),
   and `addCat`/`renameCat`/`removeCat` (the `Feeds::_add_cat`/`_remove_cat`
   trio). Plugin hooks are no-ops. Rust-only (no PHP `Pref_Feeds` config
-  tests): 12 DB tests in `tests/feed_crud.rs`. Icons + ordering + OPML +
-  access-key management + the read-side `editfeed` form remain.
+  tests): DB tests in `tests/feed_crud.rs`.
+  Second increment adds **ordering** (`catsortreset`/`feedsortreset` zero the
+  `order_id` column; `savefeedorder` walks the dojo `payload` tree and persists
+  each feed/category `order_id` + `cat_id`/`parent_cat` — the recursion is an
+  explicit `Vec` work stack, not recursion), **access keys** (`clearKeys`/
+  `regenFeedKey`/`getSharedURL` via `Feeds::_{clear,update,get}_access_key` +
+  `uniqid_short`, share URL built with a PHP-faithful `http_build_query`), and
+  `removeIcon` (delete the `feed-icons` cache file + reset the feed's
+  `favicon_*` columns). 20 DB tests in `tests/feed_crud.rs`; `savefeedorder`
+  verified against the real PHP logic (same resulting `order_id`/`cat_id`/
+  `parent_cat` for reorder + move payloads). `uploadIcon` (multipart), `importOpml`/
+  `opml_export` (XML), and the read-side `editfeed` form remain.
 
 ### Test-parity program (PHP `#[test]` → Rust `#[test]`, 2026-09-05)
 
