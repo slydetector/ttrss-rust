@@ -46,6 +46,16 @@ session in this directory. The frozen PHP reference lives in `tt-rss/`
 
 ## Working style
 
+- **Surface your own decisions, and report them at turn end.** When a step
+  involves a judgment call the spec doesn't pin down — a behavioral detail
+  (e.g. drop-vs-retain empty categories), a formatting/structural choice, a
+  scoping call, an optimization, or a "clean up while I'm here" tweak — don't
+  silently pick one and move on. Flag it in-line as a decision you're making,
+  especially anything that deviates from the reference/spec (the PHP is the
+  spec). Then, at the end of your turn, give a short **Decisions to revisit**
+  list of the autonomous choices you made that the user might want to
+  reconsider or overturn — each with a one-line rationale and its concrete
+  effect, so it can be judged and, if needed, reverted.
 - **Get to root cause; no whack-a-mole.** When a fix reveals another symptom,
   stop and find the underlying cause rather than patching symptoms one by one.
 - Keep the architecture clean, isolated, repeatable, and fast.

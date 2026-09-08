@@ -30,6 +30,7 @@ use crate::system;
 use crate::users;
 use crate::plugins;
 use crate::labels;
+use crate::opml;
 
 /// Form/query params for `backend.php` (all arrive via `$_REQUEST`).
 #[derive(Deserialize, Default)]
@@ -88,6 +89,22 @@ pub async fn handler(
                     .parse()
                     .unwrap_or_else(|_| axum::http::HeaderValue::from_static("/"));
                 res.headers_mut().insert(header::LOCATION, hv);
+            }
+            if sess.had_cookie() {
+                super::nocache_headers(res.headers_mut());
+            }
+            return res;
+        }
+        DispatchOutput::Download(status, ct, disposition, body) => {
+            let mut res = Response::builder()
+                .status(status)
+                .header(header::CONTENT_TYPE, ct)
+                .body(Body::from(body))
+                .expect("valid response");
+            if let Some(d) = disposition {
+                if let Ok(hv) = d.parse() {
+                    res.headers_mut().insert(header::CONTENT_DISPOSITION, hv);
+                }
             }
             if sess.had_cookie() {
                 super::nocache_headers(res.headers_mut());
@@ -178,6 +195,9 @@ enum DispatchOutput {
     TextHtml(String),
     /// A raw status + body (the `Article::redirect` 302/404).
     Raw(StatusCode, Option<String>, String),
+    /// A direct download (OPML export): explicit content-type + optional
+    /// `Content-Disposition`, body is the (non-JSON) payload.
+    Download(StatusCode, String, Option<String>, String),
 }
 
 async fn dispatch(
@@ -307,6 +327,13 @@ async fn dispatch(
             "userdetails" => DispatchOutput::Html(users::user_details(state, sess, extra).await),
             _ => DispatchOutput::Json(unknown_method("Pref_Users", method)),
         },
+        "OPML" => match method {
+            "export" => {
+                let (status, ct, disp, body) = opml::export(state, sess, extra).await;
+                DispatchOutput::Download(status, ct, disp, body)
+            }
+            _ => DispatchOutput::Json(unknown_method("OPML", method)),
+        },
         other => DispatchOutput::Json(unknown_method(other, method)),
     }
 }
@@ -367,11 +394,13 @@ fn csrf_ignored(op: &str, method: &str) -> bool {
     matches!(op, "Pref_Feeds") && matches!(method, "index" | "getfeedtree")
         // `Feeds::csrf_ignore` = ["index"].
         || (op == "Feeds" && method == "index")
+        // `OPML::csrf_ignore` = ["export"].
+        || (op == "OPML" && method == "export")
 }
 
 /// `Handler_Protected` handlers (all the ones ported so far) require a user.
 fn is_protected(op: &str) -> bool {
-    matches!(op, "RPC" | "Feeds" | "Pref_Feeds" | "Article" | "Pref_Labels" | "Pref_Filters" | "Pref_Users" | "Pref_System" | "Pref_Prefs")
+    matches!(op, "RPC" | "Feeds" | "Pref_Feeds" | "Article" | "Pref_Labels" | "Pref_Filters" | "Pref_Users" | "Pref_System" | "Pref_Prefs" | "OPML")
 }
 
 /// `RPC::sanityCheck`.

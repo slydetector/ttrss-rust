@@ -526,8 +526,20 @@ clean** on the golden dataset. Done so far:
   `application/x-www-form-urlencoded` / GET query — with multipart text fields
   landing in `extra` as `Value::String` (matching the old form path). 21 DB
   tests in `tests/feed_crud.rs` + 4 `parse_backend` unit tests (get / json /
-  urlencoded / multipart); the 53-step main corpus still matches 53/53. Only
-  `importOpml`/`opml_export` (XML) and the read-side `editfeed` form remain.
+  urlencoded / multipart); the 53-step main corpus still matches 53/53.
+  A fourth increment ports the **OPML export** (`OPML::export` / `opml_export`,
+  in `opml.rs`): the owner category + feed tree is walked iteratively
+  (sub-cats before feeds; empty categories *retained* — the PHP emits every
+  titled category and its "cleanup empty categories" pass is a no-op because
+  it queries `//outline[@title]` while exported outlines use `text`), rendered
+  as *functionally equivalent* OPML (2-space indent, `text`/`xmlUrl`/`htmlUrl`
+  + the `ttrss*` attrs when `include_settings`), served as an
+  `application/xml+opml` attachment via a new `DispatchOutput::Download`
+  variant (`export` is login-gated + CSRF-ignored, like the PHP). 4 DB tests in
+  `tests/opml_export.rs`. The `tt-rss-prefs`/`tt-rss-labels`/`tt-rss-filters`
+  settings section is a TODO (needs `ttrss_user_prefs2` + labels + filters +
+  `Config::SCHEMA_VERSION`). Only the OPML **import** (`importOpml`) and the
+  read-side `editfeed`/`editfeeds` forms remain.
 
 ### Test-parity program (PHP `#[test]` → Rust `#[test]`, 2026-09-05)
 
