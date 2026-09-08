@@ -332,6 +332,7 @@ async fn dispatch(
                 let (status, ct, disp, body) = opml::export(state, sess, extra).await;
                 DispatchOutput::Download(status, ct, disp, body)
             }
+            "import" => DispatchOutput::Json(opml::import(state, sess, file).await),
             _ => DispatchOutput::Json(unknown_method("OPML", method)),
         },
         other => DispatchOutput::Json(unknown_method(other, method)),

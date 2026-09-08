@@ -541,8 +541,24 @@ clean** on the golden dataset. Done so far:
   variant (`export` is login-gated + CSRF-ignored, like the PHP). 4 DB tests in
   `tests/opml_export.rs`. The `tt-rss-prefs`/`tt-rss-labels`/`tt-rss-filters`
   settings section is a TODO (needs `ttrss_user_prefs2` + labels + filters +
-  `Config::SCHEMA_VERSION`). Only the OPML **import** (`importOpml`) and the
-  read-side `editfeed`/`editfeeds` forms remain.
+  `Config::SCHEMA_VERSION`). A fifth increment ports the **OPML import**
+  (`OPML::opml_import` / `importOpml`, in `opml.rs`): the uploaded `opml_file`
+  (the multipart `Option<&[u8]>`) is parsed with the quick-xml **pull** parser
+  (flat element list + child indices; `text` + CDATA captured) and the
+  `//opml/body/outline` tree is walked with an explicit work stack (in place of
+  the PHP recursion). A node with `text`/`title` and no `xmlUrl` is a category
+  (or one of the three settings sections, which are not created as feed cats);
+  otherwise it's a feed. Categories dedupe by title + parent
+  (`get_feed_category` + `Feeds::_add_cat`), feeds by `feed_url` + owner (title
+  defaulting to `[Unknown]`, `ttrss*` attrs honored); top-level feeds land in an
+  `Imported feeds` cat if present else uncategorized. The settings sections are
+  applied via `Labels::create` (deduped by caption), `Prefs::set` (known pref
+  keys only), and a `ttrss_filters2`/`_rules`/`_actions` insert from the filter's
+  JSON CDATA payload (`filter-type="2"`, rules resolved by feed/cat title via
+  `Feeds::_find_by_title`). `import` is login-gated (like all `OPML` ops) but
+  NOT CSRF-ignored (it's a write). 10 DB tests in `tests/opml_import.rs`. Only
+  the read-side `editfeed`/`editfeeds` forms (and the export's settings section)
+  remain for Feed CRUD.
 
 ### Test-parity program (PHP `#[test]` → Rust `#[test]`, 2026-09-05)
 
