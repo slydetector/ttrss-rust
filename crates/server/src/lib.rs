@@ -22,6 +22,7 @@ pub mod plugins;
 pub mod render;
 pub mod rpc;
 pub mod sanitizer;
+pub mod search_date;
 pub mod syndication;
 #[cfg(test)]
 mod sanitizer_parity;
