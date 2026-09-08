@@ -934,15 +934,18 @@ fn color_unpack(hex: &str) -> (i64, i64, i64) {
 // ---- `_get_headlines` ------------------------------------------------------
 
 /// Result of the headline query ([`get_headlines_query`] / `Feeds::_get_headlines`):
-/// the rows plus the feed metadata (PHP's 9-element return tuple minus the
-/// `search_words`, which is always empty without a plugin search).
+/// the rows plus the feed metadata (PHP's 9-element return tuple, including
+/// `search_words` — the FTS words from `_search_to_sql`, empty without an
+/// active search).
 pub struct HeadlinesQuery {
     pub article_rows: Vec<sqlx::postgres::PgRow>,
     pub feed_title: String,
     pub feed_site_url: String,
     pub last_error: String,
     pub last_updated: Option<String>,
-    /// `search_words` (no plugin search in this port: always empty).
+    /// `search_words` from `_search_to_sql` (the FTS words); empty when the
+    /// search filter is inactive (and used in the "Incorrect search syntax"
+    /// message when the fragment fails its dry-run precheck).
     pub search_words: Vec<String>,
     pub first_id: i64,
     pub is_vfeed: bool,
@@ -968,12 +971,16 @@ pub struct HeadlinesParams {
     pub since_id: i64,
     /// `owner_uid` (PHP: `$_SESSION["uid"]`).
     pub owner_uid: i64,
-    /// `search` (PHP default `""`): the search filter.
-    ///
-    /// NOTE: the `_search_to_sql` filter itself is not ported yet — a
-    /// non-empty search still affects the feed title ("Search results:") and
-    /// skips the first-id check, but does not filter rows.
+    /// `search` (PHP default `""`): the search filter, converted to a SQL
+    /// fragment by `_search_to_sql` (see [`crate::search`]) and spliced into
+    /// the query; an unexecutable fragment degrades to `false` with a
+    /// `query_error_override` message.
     pub search: String,
+    /// `search_language` (PHP: `$_REQUEST["search_language"] ?? ""`,
+    /// "PGSQL only"): the `to_tsquery` text-search config for FTS words;
+    /// empty falls back to the `DEFAULT_SEARCH_LANGUAGE` pref (itself
+    /// defaulting to `""`, in which case plain FTS words cannot execute).
+    pub search_language: String,
     /// `override_order` (PHP default `""`): explicit `ORDER BY` override
     /// (from `Feeds::_order_to_override_query` or a virtual-feed default).
     pub override_order: String,
@@ -1003,6 +1010,7 @@ impl HeadlinesParams {
             since_id: 0,
             owner_uid,
             search: String::new(),
+            search_language: String::new(),
             override_order: String::new(),
             include_children: false,
             ignore_vfeed_group: false,
@@ -1029,7 +1037,7 @@ pub async fn get_headlines_query(db: &ttrss_core::db::Db, params: &HeadlinesPara
         &params.view_mode,
         params.cat_view,
         &params.search,
-        "",
+        &params.search_language,
         &params.override_order,
         params.offset,
         params.include_children,
@@ -1058,7 +1066,7 @@ async fn get_headlines(
     view_mode: &str,
     cat_view: bool,
     search: &str,
-    _search_language: &str,
+    search_language: &str,
     override_order: &str,
     offset: i64,
     include_children: bool,
@@ -1132,6 +1140,23 @@ async fn get_headlines(
     } else {
         String::new()
     };
+
+    // ---- search scope --------------------------------------------------
+    // PHP: HOOK_SEARCH (plugins, M7) then `_search_to_sql`, plus a dry-run
+    // precheck: an unexecutable fragment becomes `false` with an
+    // "Incorrect search syntax: <words>." override message.
+    let (search_query_part, search_words, query_error_override) =
+        if search.is_empty() {
+            (String::new(), Vec::new(), String::new())
+        } else {
+            let parts = crate::search::search_to_sql_cached(
+                pool, rows, uid, profile, search, search_language,
+            )
+            .await;
+            let (qpart, override_msg) =
+                crate::search::dry_run(pool, &parts.query_part, &parts.words).await;
+            (format!("{qpart} AND "), parts.words, override_msg)
+        };
 
     // query strategy per branch
     match feed_num {
@@ -1415,6 +1440,7 @@ async fn get_headlines(
 \t\t\t\tWHERE
 \t\t\t\t{feed_check_qpart}
 \t\t\t\tttrss_user_entries.owner_uid = '{uid}' AND
+\t\t\t\t{search_query_part}
 \t\t\t\t{start_ts_query_part}
 \t\t\t\t{view_query_part}
 \t\t\t\t{since_id_part}
@@ -1469,6 +1495,7 @@ async fn get_headlines(
 \t\t\t\t\t\t\tpost_int_id = int_id AND
 \t\t\t\t\t\t\ttag_name = '{feed}' AND
 \t\t\t\t\t\t\t{view_query_part}
+\t\t\t\t\t\t\t{search_query_part}
 \t\t\t\t\t\t\t{start_ts_query_part}
 \t\t\t\t\t\t\t{query_strategy_part} ORDER BY {order_by}
 \t\t\t\t\t\t\t{limit_query_part} {offset_query_part}"
@@ -1485,10 +1512,10 @@ async fn get_headlines(
         feed_site_url,
         last_error,
         last_updated,
-        search_words: Vec::new(),
+        search_words,
         first_id,
         is_vfeed: !vfeed_query_part.is_empty(),
-        query_error_override: String::new(),
+        query_error_override,
         first_id_changed,
     }
 }

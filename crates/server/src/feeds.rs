@@ -396,12 +396,10 @@ pub async fn feed_title(pool: &sqlx::PgPool, id: i64, owner_uid: i64) -> String 
 /// `Feeds::_catchup`: mark the owner's unread entries as read
 /// (`last_read = NOW()`) within the scope of a category / feed / virtual
 /// feed / label / tag name. `mode` is the optional recency window
-/// (`1day`/`1week`/`2week`).
-///
-/// NOTE: the PHP search scope (plugin `HOOK_SEARCH`, else
-/// `Feeds::_search_to_sql($search_query, $search_lang, …)`) is not ported —
-/// no plugin host, search filter not yet ported — so the search part is
-/// always `true` (same NOTE as `headlines::search`).
+/// (`1day`/`1week`/`2week`); `search`/`search_lang` optionally restrict the
+/// scope to the search results (plugin `HOOK_SEARCH` is M7 territory — the
+/// `_search_to_sql` fallback is used directly).
+#[allow(clippy::too_many_arguments)]
 async fn catchup_scope(
     pool: &sqlx::PgPool,
     owner_uid: i64,
@@ -410,6 +408,8 @@ async fn catchup_scope(
     feed_id_or_tag: &str,
     is_cat: bool,
     mode: &str,
+    search: &str,
+    search_lang: &str,
 ) {
     let date_qpart = match mode {
         "1day" | "1week" | "2week" => {
@@ -419,7 +419,19 @@ async fn catchup_scope(
         }
         _ => "true".to_string(),
     };
-    let search_qpart = "true".to_string();
+    // PHP: `is_array($search) && $search[0]` → the `_search_to_sql` fragment
+    // (no dry-run precheck here — a fragment that errors at execution is
+    // swallowed by the `let _ = …` below, cf. the uncaught PDOException the
+    // PHP would throw); otherwise `true`.
+    let search_qpart = if search.is_empty() {
+        "true".to_string()
+    } else {
+        crate::search::search_to_sql_cached(
+            pool, rows, owner_uid, profile, search, search_lang,
+        )
+        .await
+        .query_part
+    };
 
     if !crate::util::is_numeric(feed_id_or_tag) {
         // tag
@@ -567,7 +579,23 @@ pub async fn catchup_feed(state: &AppState, sess: &Sess, extra: &Map<String, Val
         .unwrap_or("")
         .trim()
         .to_string();
-    catchup_scope(pool, uid, profile, &rows, &feed_id, is_cat, &mode).await;
+    // `clean($_REQUEST["search_query"])` / `clean($_REQUEST["search_lang"])`.
+    let search_query = extra
+        .get("search_query")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    let search_lang = extra
+        .get("search_lang")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    catchup_scope(
+        pool, uid, profile, &rows, &feed_id, is_cat, &mode, &search_query, &search_lang,
+    )
+    .await;
     let client_tz_offset = data.get_int("clientTzOffset").unwrap_or(0);
     let counters = crate::counters::all_counters(
         pool,

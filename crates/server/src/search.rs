@@ -32,7 +32,8 @@ pub struct SearchParts {
     pub words: Vec<String>,
 }
 
-/// `Feeds::_search_to_sql($search, $search_language, $owner_uid, $profile)`.
+/// `Feeds::_search_to_sql($search, $search_language, $owner_uid, $profile)`
+/// (loads the owner's prefs rows).
 pub async fn search_to_sql(
     db: &Db,
     owner_uid: i64,
@@ -40,10 +41,24 @@ pub async fn search_to_sql(
     search: &str,
     search_language: &str,
 ) -> SearchParts {
-    let pool = db.pool();
     let rows = prefs::load_rows(db, owner_uid, profile).await;
+    search_to_sql_cached(db.pool(), &rows, owner_uid, profile, search, search_language)
+        .await
+}
+
+/// The same conversion over an already-loaded prefs row set (callers that
+/// already hold `rows` — the headline list and `_catchup` — avoid a second
+/// prefs fetch).
+pub async fn search_to_sql_cached(
+    pool: &sqlx::PgPool,
+    rows: &[(String, Option<i32>, String)],
+    owner_uid: i64,
+    profile: Option<i32>,
+    search: &str,
+    search_language: &str,
+) -> SearchParts {
     // PHP: the date branch reads USER_TIMEZONE without a profile.
-    let user_tz = prefs::resolve("USER_TIMEZONE", &rows, None).as_str().to_string();
+    let user_tz = prefs::resolve("USER_TIMEZONE", rows, None).as_str().to_string();
 
     // Quote grouping so command pairs tokenize as one keyword:
     //   keyword:"foo bar" -> "keyword:foo bar"
@@ -241,7 +256,7 @@ pub async fn search_to_sql(
         // `$search_language ?: Prefs::get(DEFAULT_SEARCH_LANGUAGE, …)` —
         // PHP truthiness: "" and "0" are falsy.
         let lang = if search_language.is_empty() || search_language == "0" {
-            prefs::resolve("DEFAULT_SEARCH_LANGUAGE", &rows, profile).as_str().to_string()
+            prefs::resolve("DEFAULT_SEARCH_LANGUAGE", rows, profile).as_str().to_string()
         } else {
             search_language.to_string()
         };
@@ -277,7 +292,7 @@ pub(crate) fn preprocess(search: &str) -> String {
 /// replaced) query part plus the "Incorrect search syntax" message when the
 /// fragment is not executable.
 pub async fn dry_run(
-    db: &Db,
+    pool: &sqlx::PgPool,
     query_part: &str,
     words: &[String],
 ) -> (String, String) {
@@ -285,7 +300,7 @@ pub async fn dry_run(
         "select {query_part}
 \t\t\t\tFROM ttrss_entries, ttrss_user_entries WHERE id = ref_id limit 1"
     );
-    match sqlx::query(&sql).fetch_all(db.pool()).await {
+    match sqlx::query(&sql).fetch_all(pool).await {
         Ok(_) => (query_part.to_string(), String::new()),
         Err(_) => (
             "false".to_string(),

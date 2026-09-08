@@ -130,6 +130,8 @@ async fn generate_feed(state: &AppState, owner_uid: i64, req: &RssRequest<'_>) -
         since_id: 0,
         owner_uid,
         search: req.search.to_string(),
+        // The syndication path never sets search_language (PHP default "").
+        search_language: String::new(),
         override_order: override_order.to_string(),
         include_children: true,
         ignore_vfeed_group: true,

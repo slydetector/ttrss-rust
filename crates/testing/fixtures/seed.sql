@@ -140,6 +140,11 @@ INSERT INTO ttrss_entries (id, title, guid, link, updated, content, content_hash
 
 SELECT setval(pg_get_serial_sequence('ttrss_entries', 'id'), (SELECT MAX(id) FROM ttrss_entries));
 
+-- Full-text column (tt-rss maintains it in the import/update paths —
+-- RSSUtils.php / Article.php — not via a trigger).
+UPDATE ttrss_entries
+SET tsvector_combined = to_tsvector(COALESCE(lang, 'english')::regconfig, title || ' ' || content);
+
 -- 5. User entries (ttrss_user_entries) — mix of read/unread
 -- Columns: ref_id, uuid, feed_id, owner_uid, unread, marked, tag_cache, label_cache
 INSERT INTO ttrss_user_entries (ref_id, uuid, feed_id, owner_uid, unread, marked, tag_cache, label_cache) VALUES
