@@ -446,6 +446,12 @@ pub fn param_int_array(extra: &Map<String, Value>, name: &str) -> Vec<i32> {
     out
 }
 
+/// PHP `checkbox_to_sql_bool($val)`: a checkbox is set only when its value is
+/// exactly the string `"on"` (an unchecked Dojo checkbox posts `["off"]` or is
+/// absent → false).
+pub fn checkbox(extra: &Map<String, Value>, name: &str) -> bool {
+    extra.get(name).and_then(|v| v.as_str()) == Some("on")
+}
 /// Last path segment of a URL (`` for the empty string).
 pub fn basename(url: &str) -> String {
     if url.is_empty() {

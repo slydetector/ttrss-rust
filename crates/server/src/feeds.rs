@@ -993,10 +993,6 @@ async fn counters(
 // category add/rename/remove trio. Plugin hooks are no-ops in this port.
 // ---------------------------------------------------------------------------
 
-/// `checkbox_to_sql_bool($val)` — a checkbox is truthy only when `"on"`.
-fn checkbox(extra: &Map<String, Value>, name: &str) -> bool {
-    extra.get(name).and_then(|v| v.as_str()) == Some("on")
-}
 
 /// `Pref_Feeds::editsaveops($batch)` — the shared single-feed and batch feed
 /// save. Single: 0 or 1; batch: total rows touched.
@@ -1013,12 +1009,12 @@ async fn editsaveops(state: &AppState, uid: i64, profile: Option<i32>, extra: &M
     let cat_id = util::clean_int(extra.get("cat_id")) as i32;
     let auth_login = util::clean_str(&s("auth_login"));
     let mut auth_pass = util::clean_str(&s("auth_pass"));
-    let private = checkbox(extra, "private");
-    let include_in_digest = checkbox(extra, "include_in_digest");
-    let cache_images = checkbox(extra, "cache_images");
-    let hide_images = checkbox(extra, "hide_images");
-    let always_display_enclosures = checkbox(extra, "always_display_enclosures");
-    let mark_unread_on_update = checkbox(extra, "mark_unread_on_update");
+    let private = util::checkbox(extra, "private");
+    let include_in_digest = util::checkbox(extra, "include_in_digest");
+    let cache_images = util::checkbox(extra, "cache_images");
+    let hide_images = util::checkbox(extra, "hide_images");
+    let always_display_enclosures = util::checkbox(extra, "always_display_enclosures");
+    let mark_unread_on_update = util::checkbox(extra, "mark_unread_on_update");
     let feed_language = util::clean_str(&s("feed_language"));
 
     // Encrypt the password up front (PHP: before the single/batch branch).

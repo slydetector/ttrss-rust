@@ -329,6 +329,34 @@ async fn dispatch(
         },
         "Pref_Filters" => match method {
             "getfiltertree" => DispatchOutput::Json(filters::get_filter_tree(state, sess).await),
+            "editSave" => {
+                let _ = filters::edit_save(state, sess, extra).await;
+                DispatchOutput::TextHtml(String::new())
+            }
+            "add" => {
+                let _ = filters::add_filter(state, sess, extra).await;
+                DispatchOutput::TextHtml(String::new())
+            }
+            "remove" => {
+                let _ = filters::remove_filters(state, sess, extra).await;
+                DispatchOutput::TextHtml(String::new())
+            }
+            "clone" => {
+                let _ = filters::clone_filters(state, sess, extra).await;
+                DispatchOutput::TextHtml(String::new())
+            }
+            "join" => {
+                let _ = filters::join_filters(state, sess, extra).await;
+                DispatchOutput::TextHtml(String::new())
+            }
+            "savefilterorder" => {
+                let _ = filters::savefilterorder(state, sess, extra).await;
+                DispatchOutput::TextHtml(String::new())
+            }
+            "filtersortreset" => {
+                let _ = filters::filtersortreset(state, sess).await;
+                DispatchOutput::TextHtml(String::new())
+            }
             _ => DispatchOutput::Json(unknown_method("Pref_Filters", method)),
         },
         "Pref_Prefs" => match method {
