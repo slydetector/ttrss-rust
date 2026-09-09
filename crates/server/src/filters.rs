@@ -70,6 +70,51 @@ fn action_name(action_id: i64, action_param: &str) -> String {
     }
 }
 
+/// `Pref_Filters::_get_rule_name` — the `… on TYPE in FEED (inverse)` name for a
+/// rule's `feed_id` list, `filter_type`, `reg_exp`, and `inverse` key presence.
+/// `html_format` wraps the parts in the `filterRule`/`field`/`feed` spans.
+async fn get_rule_name(pool: &sqlx::PgPool, uid: i64, rule: &Map<String, Value>, html_format: bool) -> String {
+    let feeds = rule.get("feed_id").cloned().unwrap_or(Value::Null);
+    let feeds_vec: Vec<Value> = match feeds {
+        Value::Array(v) => v,
+        other => vec![other],
+    };
+    let mut feeds_fmt: Vec<String> = Vec::new();
+    for feed_id in &feeds_vec {
+        let s = util::scalar_str(feed_id).unwrap_or_default();
+        if let Some(cat) = s.strip_prefix("CAT:") {
+            feeds_fmt.push(crate::feeds::category_title(pool, util::php_int_cast(cat), uid).await);
+        } else {
+            let fid = util::php_int_cast(&s);
+            feeds_fmt.push(if fid != 0 {
+                crate::feeds::feed_title(pool, fid, uid).await
+            } else {
+                "All feeds".to_string()
+            });
+        }
+    }
+    let feed = feeds_fmt.join(", ");
+    let filter_type_desc = filter_type_description(util::clean_int(rule.get("filter_type")))
+        .unwrap_or("unknown filter type");
+    let inverse = rule.get("inverse").is_some();
+    let inverse_text = if inverse { "(inverse)" } else { "" };
+    if html_format {
+        let reg_exp = rule.get("reg_exp").and_then(Value::as_str).unwrap_or("").to_string();
+        let inner = t_sprintf(
+            "%s on %s in %s %s",
+            &[
+                &htmlspecialchars(&reg_exp),
+                &format!("<span class='field'>{}</span>", htmlspecialchars(filter_type_desc)),
+                &format!("<span class='feed'>{}</span>", htmlspecialchars(&feed)),
+                inverse_text,
+            ],
+        );
+        format!("<span class='filterRule {}'>{inner}</span>", if inverse { "inverse" } else { "" })
+    } else {
+        let reg_exp = rule.get("reg_exp").and_then(Value::as_str).unwrap_or("");
+        t_sprintf("%s on %s in %s %s", &[reg_exp, filter_type_desc, &feed, inverse_text])
+    }
+}
 /// `Pref_Filters::_get_details` — `{title_summary, actions_summary}` for a filter.
 async fn filter_details(pool: &sqlx::PgPool, id: i32) -> (String, String) {
     let (title, match_any, inverse, num_rules): (String, bool, bool, i64) =
@@ -323,6 +368,180 @@ async fn rule_match(pool: &sqlx::PgPool, filter_id: i32, search: &str) -> bool {
     n > 0
 }
 
+/// `Pref_Filters::edit` — the edit-dialog prefill: the filter row (or defaults
+/// for a new filter, `id = 0`), its rule/action lists, the `filter_types` /
+/// `action_types` maps, and the owner's labels. Returns `None` when the id is
+/// nonzero but not found (the PHP prints nothing).
+pub async fn edit(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Option<Value> {
+    use sqlx::Row as _;
+    let pool = state.db.pool();
+    let uid = sess.data().uid().unwrap_or(0);
+    let filter_id = util::clean_int(extra.get("id")) as i32;
+
+    let row = sqlx::query(
+        "SELECT id, enabled, match_any_rule, inverse, title FROM ttrss_filters2 WHERE id = $1 AND owner_uid = $2",
+    )
+    .bind(filter_id)
+    .bind(uid)
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten();
+
+    if !(filter_id == 0 || row.is_some()) {
+        return None;
+    }
+
+    let (enabled, match_any, inverse, title) = row
+        .as_ref()
+        .map(|r| {
+            (
+                r.get::<bool, _>(1),
+                r.get::<bool, _>(2),
+                r.get::<bool, _>(3),
+                r.get::<String, _>(4),
+            )
+        })
+        .unwrap_or((true, false, false, String::new()));
+
+    let mut filter_types = Map::new();
+    for id in [1, 2, 3, 4, 6, 7] {
+        if let Some(desc) = filter_type_description(id) {
+            filter_types.insert(id.to_string(), Value::String(desc.to_string()));
+        }
+    }
+    let mut action_types = Map::new();
+    for id in 1..=10 {
+        if let Some(desc) = action_description(id) {
+            action_types.insert(id.to_string(), Value::String(desc.to_string()));
+        }
+    }
+
+    let mut rules: Vec<Value> = Vec::new();
+    let mut actions: Vec<Value> = Vec::new();
+    if filter_id > 0 {
+        // Rules (ORDER BY reg_exp, id — matching `_get_rules_list`).
+        let rule_rows = sqlx::query(
+            "SELECT reg_exp, filter_type, feed_id, cat_id, match_on, cat_filter, inverse \
+             FROM ttrss_filters2_rules WHERE filter_id = $1 ORDER BY reg_exp, id",
+        )
+        .bind(filter_id)
+        .fetch_all(pool)
+        .await
+        .unwrap_or_default();
+        for r in &rule_rows {
+            let reg_exp: String = r.get::<String, _>(0);
+            let filter_type: i32 = r.get::<i32, _>(1);
+            let feed_id: Option<i32> = r.get::<Option<i32>, _>(2);
+            let cat_id: Option<i32> = r.get::<Option<i32>, _>(3);
+            let match_on: Option<String> = r.get::<Option<String>, _>(4);
+            let cat_filter: bool = r.get::<bool, _>(5);
+            let inverse: bool = r.get::<bool, _>(6);
+
+            let mut rule = Map::new();
+            rule.insert("reg_exp".into(), Value::String(reg_exp));
+            rule.insert("filter_type".into(), Value::from(filter_type));
+            // feed_id: the `match_on` JSON array, else the single cat/feed id
+            // as a one-element string array (so `in_array` treats it as a string).
+            match match_on.as_deref().filter(|m| !m.is_empty()) {
+                Some(mo) => {
+                    rule.insert("feed_id".into(), serde_json::from_str(mo).unwrap_or(Value::Array(vec![Value::String(String::new())])));
+                }
+                None => {
+                    let fid = if cat_filter {
+                        format!("CAT:{}", cat_id.unwrap_or(0))
+                    } else {
+                        feed_id.unwrap_or(0).to_string()
+                    };
+                    rule.insert("feed_id".into(), Value::Array(vec![Value::String(fid)]));
+                }
+            }
+            // `inverse` is omitted when false (the checkbox is unset when unchecked).
+            if inverse {
+                rule.insert("inverse".into(), Value::Bool(true));
+            }
+            let name = get_rule_name(pool, uid, &rule, true).await;
+            rule.insert("name".into(), Value::String(name));
+            rules.push(Value::Object(rule));
+        }
+        // Actions (ORDER BY id).
+        let action_rows = sqlx::query(
+            "SELECT action_id, action_param FROM ttrss_filters2_actions WHERE filter_id = $1 ORDER BY id",
+        )
+        .bind(filter_id)
+        .fetch_all(pool)
+        .await
+        .unwrap_or_default();
+        for a in &action_rows {
+            let action_id: i32 = a.get::<i32, _>(0);
+            let action_param: String = a.get::<String, _>(1);
+            let mut action = Map::new();
+            action.insert("action_id".into(), Value::from(action_id));
+            action.insert("action_param".into(), Value::String(action_param.clone()));
+            action.insert("action_param_label".into(), Value::String(action_param.clone()));
+            action.insert("name".into(), Value::String(action_name(action_id as i64, &action_param)));
+            actions.push(Value::Object(action));
+        }
+    }
+
+    let labels = crate::labels::get_all(pool, uid).await;
+    Some(json!({
+        "id": filter_id,
+        "enabled": enabled,
+        "match_any_rule": match_any,
+        "inverse": inverse,
+        "title": title,
+        "rules": rules,
+        "actions": actions,
+        "filter_types": filter_types,
+        "action_types": action_types,
+        "plugin_actions": Value::Object(Map::new()),
+        "labels": labels,
+    }))
+}
+
+/// `Pref_Filters::printRuleName` — the rule name for a single rule JSON (the
+/// `rule` param is a JSON string; a non-object decodes to `invalid rule JSON`).
+pub async fn print_rule_name(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> String {
+    let pool = state.db.pool();
+    let uid = sess.data().uid().unwrap_or(0);
+    let Some(raw) = extra.get("rule") else {
+        return "malformed rule JSON".to_string();
+    };
+    let val = match raw {
+        Value::String(s) => match serde_json::from_str::<Value>(s) {
+            Ok(v) => v,
+            Err(_) => return "malformed rule JSON".to_string(),
+        },
+        other => other.clone(),
+    };
+    match val.as_object() {
+        Some(rule) => get_rule_name(pool, uid, rule, true).await,
+        None => "invalid rule JSON".to_string(),
+    }
+}
+
+/// `Pref_Filters::printActionName` — the action name for a single action JSON.
+pub async fn print_action_name(_state: &AppState, _sess: &Sess, extra: &Map<String, Value>) -> String {
+    let Some(raw) = extra.get("action") else {
+        return "malformed action JSON".to_string();
+    };
+    let val = match raw {
+        Value::String(s) => match serde_json::from_str::<Value>(s) {
+            Ok(v) => v,
+            Err(_) => return "malformed action JSON".to_string(),
+        },
+        other => other.clone(),
+    };
+    match val.as_object() {
+        Some(action) => {
+            let action_id = util::clean_int(action.get("action_id"));
+            let action_param = action.get("action_param").and_then(Value::as_str).unwrap_or("").to_string();
+            action_name(action_id, &action_param)
+        }
+        None => "invalid action JSON".to_string(),
+    }
+}
 // ---------------------------------------------------------------------------
 // `Pref_Filters` write handlers (filter CRUD).
 // ---------------------------------------------------------------------------

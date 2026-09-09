@@ -329,6 +329,16 @@ async fn dispatch(
         },
         "Pref_Filters" => match method {
             "getfiltertree" => DispatchOutput::Json(filters::get_filter_tree(state, sess).await),
+            "edit" => match filters::edit(state, sess, extra).await {
+                Some(json) => DispatchOutput::Json(json),
+                None => DispatchOutput::TextHtml(String::new()),
+            },
+            "printrulename" => {
+                DispatchOutput::TextHtml(filters::print_rule_name(state, sess, extra).await)
+            }
+            "printactionname" => {
+                DispatchOutput::TextHtml(filters::print_action_name(state, sess, extra).await)
+            }
             "editSave" => {
                 let _ = filters::edit_save(state, sess, extra).await;
                 DispatchOutput::TextHtml(String::new())
@@ -445,6 +455,8 @@ fn csrf_ignored(op: &str, method: &str) -> bool {
         || (op == "Feeds" && method == "index")
         // `OPML::csrf_ignore` = ["export"].
         || (op == "OPML" && method == "export")
+        // `Pref_Filters::csrf_ignore` = ["index", "getfiltertree"].
+        || (op == "Pref_Filters" && matches!(method, "index" | "getfiltertree"))
 }
 
 /// `Handler_Protected` handlers (all the ones ported so far) require a user.

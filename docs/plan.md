@@ -617,12 +617,23 @@ clean** on the golden dataset. Done so far:
   delete the rest). `savefilterorder` walks the dojo `payload` and persists each
   `FILTER:<id>` `order_id`; `filtersortreset` zeroes the owner's `order_id`.
   The shared `checkbox_to_sql_bool` helper was moved to `util::checkbox`
-  (used by both `feeds.rs` and `filters.rs`). All are login-gated + CSRF-checked
-  (no `csrf_ignore` in the PHP). Rust-only (no PHP `Pref_Filters` config tests):
-  9 DB tests in `tests/filter_crud.rs`. The read-side `edit` / `editrule` /
-  `printRuleName` / `printActionName` (the edit-dialog prefill + the recursive
-  `_feed_multi_select`) and `testFilterDo` (the M6 filter-execution engine) are
-  the remaining `Pref_Filters` work.
+  (used by both `feeds.rs` and `filters.rs`). Write ops are login-gated +
+  CSRF-checked; `index` / `getfiltertree` are the CSRF-ignored reads
+  (`Pref_Filters::csrf_ignore`). Rust-only (no PHP `Pref_Filters` config tests):
+  9 DB tests in `tests/filter_crud.rs`.
+
+  **Filter read side (M4):** the edit-dialog prefill is ported in `filters.rs`:
+  `edit` returns the owned filter row (or the empty-filter defaults for
+  `id = 0`) with its rule list (computed `name`, `feed_id` array, `inverse`
+  omitted when false), action list (`action_param_label` + `name`), the
+  `filter_types` / `action_types` maps (filter type 5 unsupported), and the
+  owner's labels; `printRuleName` / `printActionName` render a single
+  rule/action's HTML name (or the PHP's `malformed` / `invalid … JSON`
+  literals). `get_rule_name` resolves each `feed_id` element to a feed title, a
+  `CAT:<id>` category title, or "All feeds". Rust-only: 5 DB tests in
+  `tests/filter_read.rs`. Remaining `Pref_Filters` work: `editrule` + the
+  recursive `_feed_multi_select` feed multi-select, the `index` dojo page, and
+  `testFilterDo` (the M6 filter-execution engine).
 ### Test-parity program (PHP `#[test]` → Rust `#[test]`, 2026-09-05)
 
 > **STATUS: ✅ COMPLETE (2026-09-06; row 15 added 2026-09-07 with M3).** All **15/15 rows** ported and green —
@@ -977,7 +988,7 @@ Port each handler class, method-by-method, against golden files (read methods la
 4. `Counters`: get_all/get_conditional.
 5. `Pref_Prefs`: the big one (1647 L) — pref UI payload, profiles (add/clone/remove/activate/save), plugin list/install/uninstall/updates (install/update deferred, listing only), app passwords, OTP QR, digest preview, CSS customization, resetconfig.
 6. `Pref_Feeds`: feed tree, edit/save (single + batch), categories (add/rename/remove/sort), icons (upload/remove), OPML import, inactive/error feeds, access keys (clear/regen/shared URL).
-7. `Pref_Filters`: tree ✅, edit/clone/add/remove/save ✅ (write CRUD), ordering ✅, join ✅, optimize ✅; remaining: edit-dialog prefill (`edit`), rule/action names (`printRuleName`/`printActionName`), `editrule` feed multi-select, `testFilterDo` (M6).
+7. `Pref_Filters`: tree ✅, edit/clone/add/remove/save ✅ (write CRUD), ordering ✅, join ✅, optimize ✅, edit-dialog prefill (`edit`) ✅, rule/action names (`printRuleName`/`printActionName`) ✅; remaining: `editrule` feed multi-select (`_feed_multi_select`), the `index` dojo page, `testFilterDo` (M6).
 8. `Pref_Labels`: tree, edit, colors, save, add/remove.
 9. `Pref_Users`: list, add, edit, details, remove, resetPass (admin).
 10. `Pref_System`: log viewer, clear log, send test email, scheduled tasks list.
