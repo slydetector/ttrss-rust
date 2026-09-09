@@ -373,6 +373,26 @@ async fn dispatch(
         },
         "Pref_Prefs" => match method {
             "getProfiles" => DispatchOutput::Json(settings::get_profiles(state, sess).await),
+            "addprofile" => {
+                let _ = settings::add_profile(state, sess, extra).await;
+                DispatchOutput::TextHtml(String::new())
+            }
+            "cloneprofile" => {
+                let _ = settings::clone_profile(state, sess, extra).await;
+                DispatchOutput::TextHtml(String::new())
+            }
+            "remprofiles" => {
+                let _ = settings::remove_profiles(state, sess, extra).await;
+                DispatchOutput::TextHtml(String::new())
+            }
+            "activateprofile" => {
+                settings::activate_profile(state, sess, extra).await;
+                DispatchOutput::TextHtml(String::new())
+            }
+            "saveprofile" => {
+                let _ = settings::save_profile(state, sess, extra).await;
+                DispatchOutput::TextHtml(String::new())
+            }
             "previewDigest" => DispatchOutput::Json(settings::preview_digest(state, sess).await),
             "getPluginsList" => DispatchOutput::Json(plugins::get_plugins_list(state, sess).await),
             "getAvailablePlugins" => DispatchOutput::Json(plugins::get_available_plugins(sess)),

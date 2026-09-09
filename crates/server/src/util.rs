@@ -90,6 +90,12 @@ pub fn php_str_truthy(v: Option<&str>) -> bool {
     v.is_some_and(|s| !s.is_empty() && s != "0")
 }
 
+/// PHP `ctype_digit($s)`: true only when the string is non-empty and every
+/// byte is an ASCII digit (0-9). An empty string is false.
+pub fn ctype_digit(s: &str) -> bool {
+    !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit())
+}
+
 /// PHP `(int) $s`: parse the longest leading numeric prefix (integer, float,
 /// or scientific notation), then truncate to an integer — whitespace-trimmed,
 /// clamped to the `i64` range on overflow, non-numeric → 0. Matches PHP's

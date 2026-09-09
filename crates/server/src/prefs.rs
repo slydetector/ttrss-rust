@@ -70,7 +70,7 @@ impl Pref {
 
 /// `Prefs::_PROFILE_BLACKLIST` — prefs that ignore the active profile and
 /// always resolve against the default profile.
-const PROFILE_BLACKLIST: &[&str] = &[
+pub const PROFILE_BLACKLIST: &[&str] = &[
     "PURGE_OLD_DAYS",
     "PURGE_UNREAD_ARTICLES",
     "DIGEST_ENABLE",
