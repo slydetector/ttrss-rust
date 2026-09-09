@@ -307,6 +307,24 @@ async fn dispatch(
             "getlabeltree" => DispatchOutput::Json(
                 labels::get_label_tree(state.db.pool(), data.uid().unwrap_or(0)).await,
             ),
+            "edit" => match labels::edit(state, sess, extra).await {
+                Some(v) => DispatchOutput::Json(v),
+                None => DispatchOutput::TextHtml(String::new()),
+            },
+            "save" => DispatchOutput::TextHtml(labels::save(state, sess, extra).await.unwrap_or_default()),
+            "add" => DispatchOutput::TextHtml(labels::add_label(state, sess, extra).await.unwrap_or_default()),
+            "colorset" => {
+                let _ = labels::colorset(state, sess, extra).await;
+                DispatchOutput::TextHtml(String::new())
+            }
+            "colorreset" => {
+                let _ = labels::colorreset(state, sess, extra).await;
+                DispatchOutput::TextHtml(String::new())
+            }
+            "remove" => {
+                let _ = labels::remove_labels(state, sess, extra).await;
+                DispatchOutput::TextHtml(String::new())
+            }
             _ => DispatchOutput::Json(unknown_method("Pref_Labels", method)),
         },
         "Pref_Filters" => match method {

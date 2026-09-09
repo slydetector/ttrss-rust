@@ -83,6 +83,13 @@ pub fn clean_str(s: &str) -> String {
     php_trim(&strip_tags(s)).to_string()
 }
 
+/// PHP truthiness for a string value (the `if ($s)` / `!$s` idiom): true only
+/// for a present, non-empty string that is not the literal `"0"`. Matches PHP
+/// where `""` and `"0"` are falsy and every other non-empty string is truthy.
+pub fn php_str_truthy(v: Option<&str>) -> bool {
+    v.is_some_and(|s| !s.is_empty() && s != "0")
+}
+
 /// PHP `(int) $s`: parse the longest leading numeric prefix (integer, float,
 /// or scientific notation), then truncate to an integer — whitespace-trimmed,
 /// clamped to the `i64` range on overflow, non-numeric → 0. Matches PHP's

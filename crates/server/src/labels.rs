@@ -12,6 +12,9 @@ use serde_json::{json, Map, Value};
 use sqlx::Row;
 use ttrss_core::db::Db;
 
+use crate::session::Sess;
+use crate::util;
+use crate::AppState;
 /// `LABEL_BASE_INDEX` (functions.php) — the base of the label id space.
 pub const LABEL_BASE_INDEX: i64 = -1024;
 
@@ -401,4 +404,200 @@ pub async fn create(
     tx.commit().await?;
 
     Ok(result)
+}
+
+// ---------------------------------------------------------------------------
+// `Pref_Labels` handler methods (the label CRUD UI). These are distinct from
+// the `Labels::*` helpers above; `remove_labels` is named to avoid clashing
+// with `Labels::remove`.
+// ---------------------------------------------------------------------------
+
+/// PHP `clean($_REQUEST[name])` as an `Option<String>`: `Some(clean(s))` for a
+/// present string/number, `None` for absent/null (PHP `clean(null)` = null).
+fn req_clean(extra: &Map<String, Value>, name: &str) -> Option<String> {
+    extra.get(name).and_then(util::scalar_str).map(|s| util::clean_str(&s))
+}
+
+/// `req_clean` defaulting absent values to `""`.
+fn req_str(extra: &Map<String, Value>, name: &str) -> String {
+    req_clean(extra, name).unwrap_or_default()
+}
+
+/// `Pref_Labels::edit` — fetch one label (by id + owner) as a JSON object, or
+/// `None` when it does not exist (PHP prints nothing).
+pub async fn edit(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Option<Value> {
+    let uid = sess.data().uid().unwrap_or(0);
+    let id = util::clean_int(extra.get("id")) as i32;
+    let pool = state.db.pool();
+    let row = sqlx::query(
+        "SELECT id, owner_uid, fg_color, bg_color, caption FROM ttrss_labels2
+         WHERE owner_uid = $1 AND id = $2",
+    )
+    .bind(uid)
+    .bind(id)
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten();
+    row.map(|r| {
+        json!({
+            "id": r.get::<i32, _>(0),
+            "owner_uid": r.get::<i32, _>(1),
+            "fg_color": r.get::<String, _>(2),
+            "bg_color": r.get::<String, _>(3),
+            "caption": r.get::<String, _>(4),
+        })
+    })
+}
+
+/// `Pref_Labels::save` — rename a label (update its caption). When the rename
+/// happens (new caption is truthy and does not collide with another of the
+/// owner's labels), also rewrite the "Assign label" filter actions
+/// (`action_id = 7`) that reference the old caption. Returns the (possibly
+/// unchanged) caption — PHP prints it.
+pub async fn save(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Result<String, sqlx::Error> {
+    let uid = sess.data().uid().unwrap_or(0);
+    let pool = state.db.pool();
+    let id = req_clean(extra, "id");
+    let caption = req_clean(extra, "caption");
+
+    let mut tx = pool.begin().await?;
+    let mut out = String::new();
+
+    let old_caption: Option<String> = sqlx::query_scalar(
+        "SELECT caption FROM ttrss_labels2 WHERE id = $1::int AND owner_uid = $2",
+    )
+    .bind(&id)
+    .bind(uid)
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    if let Some(old) = old_caption {
+        let collision: Option<i32> = sqlx::query_scalar(
+            "SELECT id FROM ttrss_labels2 WHERE caption = $1 AND owner_uid = $2",
+        )
+        .bind(&caption)
+        .bind(uid)
+        .fetch_optional(&mut *tx)
+        .await?;
+
+        if collision.is_none() {
+            if util::php_str_truthy(caption.as_deref()) {
+                let new = caption.clone().unwrap();
+                sqlx::query("UPDATE ttrss_labels2 SET caption = $1 WHERE id = $2::int AND owner_uid = $3")
+                    .bind(&new)
+                    .bind(&id)
+                    .bind(uid)
+                    .execute(&mut *tx)
+                    .await?;
+                sqlx::query(
+                    "UPDATE ttrss_filters2_actions SET action_param = $1
+                     WHERE action_param = $2 AND action_id = 7
+                       AND filter_id IN (SELECT id FROM ttrss_filters2 WHERE owner_uid = $3)",
+                )
+                .bind(&new)
+                .bind(&old)
+                .bind(uid)
+                .execute(&mut *tx)
+                .await?;
+                out = new;
+            } else {
+                out = old;
+            }
+        } else {
+            out = old;
+        }
+    }
+
+    tx.commit().await?;
+    Ok(out)
+}
+
+/// `Pref_Labels::colorset` — set the foreground/background color of the
+/// selected labels. `kind` selects the columns: `"fg"`/`"bg"` sets a single
+/// column from `color`; anything else sets both from `fg`/`bg`. Clears the
+/// owner's label cache after each label.
+pub async fn colorset(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Result<(), sqlx::Error> {
+    let uid = sess.data().uid().unwrap_or(0);
+    let pool = state.db.pool();
+    let kind = req_str(extra, "kind");
+    let ids = util::param_int_array(extra, "ids");
+    let color = req_str(extra, "color");
+    let fg = req_str(extra, "fg");
+    let bg = req_str(extra, "bg");
+
+    for id in ids {
+        if kind == "fg" || kind == "bg" {
+            // `kind` is validated to be exactly "fg" or "bg" here, so the
+            // interpolated column name is safe.
+            let sql = format!(
+                "UPDATE ttrss_labels2 SET {kind}_color = $1 WHERE id = $2 AND owner_uid = $3"
+            );
+            sqlx::query(&sql)
+                .bind(&color)
+                .bind(id)
+                .bind(uid)
+                .execute(pool)
+                .await?;
+        } else {
+            sqlx::query("UPDATE ttrss_labels2 SET fg_color = $1, bg_color = $2 WHERE id = $3 AND owner_uid = $4")
+                .bind(&fg)
+                .bind(&bg)
+                .bind(id)
+                .bind(uid)
+                .execute(pool)
+                .await?;
+        }
+        sqlx::query("UPDATE ttrss_user_entries SET label_cache = '' WHERE owner_uid = $1")
+            .bind(uid)
+            .execute(pool)
+            .await?;
+    }
+    Ok(())
+}
+
+/// `Pref_Labels::colorreset` — reset the selected labels' colors to default
+/// (`''`), clearing the owner's label cache after each.
+pub async fn colorreset(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Result<(), sqlx::Error> {
+    let uid = sess.data().uid().unwrap_or(0);
+    let pool = state.db.pool();
+    let ids = util::param_int_array(extra, "ids");
+    for id in ids {
+        sqlx::query("UPDATE ttrss_labels2 SET fg_color = '', bg_color = '' WHERE id = $1 AND owner_uid = $2")
+            .bind(id)
+            .bind(uid)
+            .execute(pool)
+            .await?;
+        sqlx::query("UPDATE ttrss_user_entries SET label_cache = '' WHERE owner_uid = $1")
+            .bind(uid)
+            .execute(pool)
+            .await?;
+    }
+    Ok(())
+}
+
+/// `Pref_Labels::remove` — remove each selected label (`Labels::remove`).
+pub async fn remove_labels(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Result<(), sqlx::Error> {
+    let uid = sess.data().uid().unwrap_or(0);
+    let ids = util::param_int_array(extra, "ids");
+    for id in ids {
+        remove(&state.db, id, uid, None).await?;
+    }
+    Ok(())
+}
+
+/// `Pref_Labels::add` — create a new label; when created and `output` is
+/// falsy, returns `Created label <b>caption</b>` (else empty).
+pub async fn add_label(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Result<String, sqlx::Error> {
+    let uid = sess.data().uid().unwrap_or(0);
+    let caption = req_str(extra, "caption");
+    let output = req_str(extra, "output");
+
+    if util::php_str_truthy(Some(&caption))
+        && create(&state.db, &caption, None, None, uid, None).await?.is_some()
+        && !util::php_str_truthy(Some(&output))
+    {
+        return Ok(format!("Created label <b>{}</b>", util::htmlspecialchars(&caption)));
+    }
+    Ok(String::new())
 }
