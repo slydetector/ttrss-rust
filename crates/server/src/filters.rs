@@ -1,6 +1,7 @@
 //! `Pref_Filters` backend read handlers (the filters UI in
 //! `backend.php?op=Pref_Filters`).
 
+use minijinja::Environment;
 use serde_json::{json, Map, Value};
 use std::collections::HashMap;
 use sqlx::Row;
@@ -752,6 +753,50 @@ pub async fn editrule(state: &AppState, sess: &Sess, extra: &Map<String, Value>)
     )
     .await;
     json!({ "multiselect": multiselect })
+}
+
+/// `Pref_Filters::index` — the filters tab page (the Dojo UI). The `search`
+/// param (when present) is cleaned and stored in the session as
+/// `prefs_filter_search`; otherwise the session value is used. Renders the page
+/// (toolbar with the search form + the filter tree/store). The trailing
+/// `PluginHost` hook is a no-op (no plugins) and `__()` is the identity, so the
+/// button labels are their literal English text.
+pub async fn index(_state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> String {
+    let filter_search = if let Some(v) = extra.get("search") {
+        let s = util::clean_str(v.as_str().unwrap_or(""));
+        sess.with_mut(|d| {
+            d.set(
+                "prefs_filter_search",
+                ttrss_core::phpser::Value::Bytes(s.as_bytes().to_vec()),
+            )
+        });
+        s
+    } else {
+        sess.data().get_str("prefs_filter_search").unwrap_or("").to_string()
+    };
+
+    let mut ctx: Map<String, Value> = Map::new();
+    ctx.insert(
+        "filter_search".into(),
+        Value::String(htmlspecialchars(&filter_search)),
+    );
+
+    filters_index_env()
+        .get_template("filters_index")
+        .expect("filters_index template")
+        .render(ctx)
+        .expect("filters_index template render")
+}
+
+/// The minijinja environment holding `filters_index` (parsed once).
+fn filters_index_env() -> &'static Environment<'static> {
+    static ENV: std::sync::OnceLock<Environment<'static>> = std::sync::OnceLock::new();
+    ENV.get_or_init(|| {
+        let mut env = Environment::new();
+        env.add_template("filters_index", include_str!("../templates/filters_index.html.jinja"))
+            .expect("valid filters_index template");
+        env
+    })
 }
 
 // ---------------------------------------------------------------------------

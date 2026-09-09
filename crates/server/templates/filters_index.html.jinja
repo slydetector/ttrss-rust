@@ -1,0 +1,51 @@
+<div dojoType='dijit.layout.BorderContainer' gutters='false'>
+	<div style='padding : 0px' dojoType='dijit.layout.ContentPane' region='top'>
+		<div dojoType='fox.Toolbar'>
+
+			<div style='float : right; padding-right : 4px;'>
+				<form dojoType="dijit.form.Form" onsubmit="dijit.byId('filterTree').reload(); return false;">
+					<input dojoType="dijit.form.TextBox" id="filter_search" size="20" type="search"
+						value="{{ filter_search }}">
+					<button dojoType="dijit.form.Button" type="submit">
+						Search</button>
+				</form>
+			</div>
+
+			<div dojoType="fox.form.DropDownButton">
+				<span>Select</span>
+				<div dojoType="dijit.Menu" style="display: none;">
+					<div onclick="dijit.byId('filterTree').model.setAllChecked(true)"
+						dojoType="dijit.MenuItem">All</div>
+					<div onclick="dijit.byId('filterTree').model.setAllChecked(false)"
+						dojoType="dijit.MenuItem">None</div>
+				</div>
+			</div>
+
+			<button dojoType="dijit.form.Button" onclick="return Filters.edit()">
+				Create filter</button>
+			<button dojoType="dijit.form.Button" onclick="return dijit.byId('filterTree').cloneSelectedFilters()">
+				Clone</button>
+			<button dojoType="dijit.form.Button" onclick="return dijit.byId('filterTree').joinSelectedFilters()">
+				Combine</button>
+			<button dojoType="dijit.form.Button" onclick="return dijit.byId('filterTree').removeSelectedFilters()">
+				Remove</button>
+			<button dojoType="dijit.form.Button" onclick="return dijit.byId('filterTree').resetFilterOrder()">
+				Reset sort order</button>
+			<button dojoType="dijit.form.Button" onclick="return dijit.byId('filterTree').toggleRules()">
+				Toggle rule display</button>
+
+		</div>
+	</div>
+	<div style='padding : 0px' dojoType='dijit.layout.ContentPane' region='center'>
+		<div dojoType="fox.PrefFilterStore" jsId="filterStore"
+			url="backend.php?op=Pref_Filters&method=getfiltertree">
+		</div>
+		<div dojoType="lib.CheckBoxStoreModel" jsId="filterModel" store="filterStore"
+			query="{id:'root'}" rootId="root" rootLabel="Filters"
+			childrenAttrs="items" checkboxStrict="false" checkboxAll="false">
+		</div>
+		<div dojoType="fox.PrefFilterTree" id="filterTree" dndController="dijit.tree.dndSource"
+			betweenThreshold="5" model="filterModel" openOnClick="true">
+		</div>
+	</div>
+</div>

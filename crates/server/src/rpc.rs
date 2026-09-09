@@ -328,6 +328,7 @@ async fn dispatch(
             _ => DispatchOutput::Json(unknown_method("Pref_Labels", method)),
         },
         "Pref_Filters" => match method {
+            "index" => DispatchOutput::Html(filters::index(state, sess, extra).await),
             "getfiltertree" => DispatchOutput::Json(filters::get_filter_tree(state, sess).await),
             "edit" => match filters::edit(state, sess, extra).await {
                 Some(json) => DispatchOutput::Json(json),

@@ -638,8 +638,13 @@ clean** on the golden dataset. Done so far:
   feed list when `ENABLE_FEED_CATS` is off, and the PHP's
   `<select multiple=<TAB>rue"` opening quirk — byte-for-byte the PHP (4 DB tests in
   `tests/filter_editrule.rs`, oracle-diffed via `oracle/recorders/feed_multi_select.php`).
-  Remaining `Pref_Filters` work: the `index` dojo page and `testFilterDo` (the M6
-  filter-execution engine).
+  The `index` dojo page is also ported: the HTML lives in a minijinja template
+  (`templates/filters_index.html.jinja`) per the AGENTS.md large-markup rule; the
+  handler reads/stores `prefs_filter_search` in the session and supplies the one
+  dynamic value (the `clean()`ed, html-escaped search box). The `PluginHost` hook
+  is a no-op and `__()` is the identity. Structure verified against the PHP (3 DB
+  tests in `tests/filter_index.rs`; `oracle/recorders/filters_index.php`). Only
+  `testFilterDo` remains (the M6 filter-execution engine).
 ### Test-parity program (PHP `#[test]` → Rust `#[test]`, 2026-09-05)
 
 > **STATUS: ✅ COMPLETE (2026-09-06; row 15 added 2026-09-07 with M3).** All **15/15 rows** ported and green —
@@ -994,7 +999,7 @@ Port each handler class, method-by-method, against golden files (read methods la
 4. `Counters`: get_all/get_conditional.
 5. `Pref_Prefs`: the big one (1647 L) — pref UI payload, profiles (add/clone/remove/activate/save), plugin list/install/uninstall/updates (install/update deferred, listing only), app passwords, OTP QR, digest preview, CSS customization, resetconfig.
 6. `Pref_Feeds`: feed tree, edit/save (single + batch), categories (add/rename/remove/sort), icons (upload/remove), OPML import, inactive/error feeds, access keys (clear/regen/shared URL).
-7. `Pref_Filters`: tree ✅, edit/clone/add/remove/save ✅ (write CRUD), ordering ✅, join ✅, optimize ✅, edit-dialog prefill (`edit`) ✅, rule/action names (`printRuleName`/`printActionName`) ✅, feed multi-select (`editrule`/`_feed_multi_select`) ✅; remaining: the `index` dojo page, `testFilterDo` (M6).
+7. `Pref_Filters`: tree ✅, edit/clone/add/remove/save ✅ (write CRUD), ordering ✅, join ✅, optimize ✅, edit-dialog prefill (`edit`) ✅, rule/action names (`printRuleName`/`printActionName`) ✅, feed multi-select (`editrule`/`_feed_multi_select`) ✅, `index` dojo page ✅ (jinja); remaining: `testFilterDo` (M6).
 8. `Pref_Labels`: tree, edit, colors, save, add/remove.
 9. `Pref_Users`: list, add, edit, details, remove, resetPass (admin).
 10. `Pref_System`: log viewer, clear log, send test email, scheduled tasks list.
