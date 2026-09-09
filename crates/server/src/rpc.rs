@@ -339,6 +339,7 @@ async fn dispatch(
             "printactionname" => {
                 DispatchOutput::TextHtml(filters::print_action_name(state, sess, extra).await)
             }
+            "editrule" => DispatchOutput::Json(filters::editrule(state, sess, extra).await),
             "editSave" => {
                 let _ = filters::edit_save(state, sess, extra).await;
                 DispatchOutput::TextHtml(String::new())

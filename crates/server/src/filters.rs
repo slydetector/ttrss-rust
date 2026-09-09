@@ -2,6 +2,7 @@
 //! `backend.php?op=Pref_Filters`).
 
 use serde_json::{json, Map, Value};
+use std::collections::HashMap;
 use sqlx::Row;
 
 use crate::prefs;
@@ -542,8 +543,220 @@ pub async fn print_action_name(_state: &AppState, _sess: &Sess, extra: &Map<Stri
         None => "invalid action JSON".to_string(),
     }
 }
+
+/// `Pref_Filters::_feed_multi_select` — a `<select multiple>` of the owner's
+/// feeds, grouped under the category tree when `enable_cats` is set (otherwise a
+/// flat feed list). `default_ids` pre-selects feeds (by id string) and
+/// categories (by `CAT:<id>`), plus the "All feeds" (`"0"`) and "Uncategorized"
+/// (`"CAT:0"`) options.
+///
+/// Ported iteratively (explicit work stack) per the AGENTS.md rule: the PHP
+/// recurses down the category tree, emitting each category, then its whole
+/// subtree, then the category's own feeds.
+async fn feed_multi_select(
+    pool: &sqlx::PgPool,
+    uid: i64,
+    id: &str,
+    default_ids: &[String],
+    attributes: &str,
+    include_all_feeds: bool,
+    enable_cats: bool,
+) -> String {
+    let mut rv = String::new();
+
+    // Open the `<select>` (top level only — the recursive calls nest inside it).
+    rv.push_str(&format!(
+        "<select multiple={tab}rue\" id=\"{}\" name=\"{}\" {}>",
+        id, id, attributes, tab = '\t'
+    ));
+    if include_all_feeds {
+        let sel = if default_ids.contains(&"0".to_string()) { "selected=\"1\"" } else { "" };
+        rv.push_str(&format!("<option {} value=\"0\">All feeds</option>", sel));
+    }
+
+    if enable_cats {
+        // Categories grouped by parent (None = top-level) and feeds grouped by
+        // cat_id (None = uncategorized), each title-ordered (the PHP does a
+        // per-level `ORDER BY title`).
+        let cats: Vec<(i32, String, Option<i32>)> = sqlx::query_as(
+            "SELECT id, title, parent_cat FROM ttrss_feed_categories WHERE owner_uid = $1",
+        )
+        .bind(uid)
+        .fetch_all(pool)
+        .await
+        .unwrap_or_default();
+        let mut by_parent: HashMap<Option<i32>, Vec<(i32, String)>> = HashMap::new();
+        for (cid, title, parent) in &cats {
+            by_parent.entry(*parent).or_default().push((*cid, title.clone()));
+        }
+        for v in by_parent.values_mut() {
+            v.sort_by(|a, b| a.1.cmp(&b.1));
+        }
+
+        let feeds: Vec<(i32, String, Option<i32>)> = sqlx::query_as(
+            "SELECT id, title, cat_id FROM ttrss_feeds WHERE owner_uid = $1",
+        )
+        .bind(uid)
+        .fetch_all(pool)
+        .await
+        .unwrap_or_default();
+        let mut feeds_by_cat: HashMap<Option<i32>, Vec<(i32, String)>> = HashMap::new();
+        for (fid, title, cat) in &feeds {
+            feeds_by_cat.entry(*cat).or_default().push((*fid, title.clone()));
+        }
+        for v in feeds_by_cat.values_mut() {
+            v.sort_by(|a, b| a.1.cmp(&b.1));
+        }
+
+        let cat_title = |cid: i32| -> String {
+            cats.iter()
+                .find(|(id, _, _)| *id == cid)
+                .map(|(_, t, _)| t.clone())
+                .unwrap_or_default()
+        };
+        // Em-space (U+2003) indentation by `level` (the PHP prepends one per level).
+        let indent_str = |title: &str, level: i32| -> String {
+            let mut s = String::with_capacity(title.len() + level as usize);
+            for _ in 0..level {
+                s.push('\u{2003}');
+            }
+            s.push_str(title);
+            s
+        };
+        // Work-stack DFS. `ProcessCat` emits the category, schedules the feeds
+        // (after the children), then the children in reverse so the first child
+        // is processed first. `EmitFeeds` emits one category's feeds.
+        enum Task {
+            ProcessCat(i32, i32),
+            EmitFeeds(i32, i32),
+        }
+        let mut stack: Vec<Task> = by_parent
+            .get(&None)
+            .map(|top| top.iter().rev().map(|(cid, _)| Task::ProcessCat(*cid, 0)).collect())
+            .unwrap_or_default();
+
+        while let Some(task) = stack.pop() {
+            match task {
+                Task::ProcessCat(cid, level) => {
+                    let title = cat_title(cid);
+                    let sel = if default_ids.contains(&format!("CAT:{}", cid)) {
+                        "selected=\"1\""
+                    } else {
+                        ""
+                    };
+                    let indented = indent_str(&title, level);
+                    rv.push_str(&format!(
+                        "<option {} value='CAT:{}'>{}</option>",
+                        sel,
+                        cid,
+                        htmlspecialchars(&indented)
+                    ));
+                    stack.push(Task::EmitFeeds(cid, level + 1));
+                    if let Some(children) = by_parent.get(&Some(cid)) {
+                        for (child, _) in children.iter().rev() {
+                            stack.push(Task::ProcessCat(*child, level + 1));
+                        }
+                    }
+                }
+                Task::EmitFeeds(cid, indent) => {
+                    if let Some(feeds) = feeds_by_cat.get(&Some(cid)) {
+                        for (fid, ftitle) in feeds {
+                            let sel = if default_ids.contains(&fid.to_string()) {
+                                "selected=\"1\""
+                            } else {
+                                ""
+                            };
+                            let indented = indent_str(ftitle, indent);
+                            rv.push_str(&format!(
+                                "<option {} value='{}'>{}</option>",
+                                sel,
+                                fid,
+                                htmlspecialchars(&indented)
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+
+        // "Uncategorized" category + uncategorized feeds (top level only).
+        let sel = if default_ids.contains(&"CAT:0".to_string()) { "selected=\"1\"" } else { "" };
+        rv.push_str(&format!("<option {} value='CAT:0'>Uncategorized</option>", sel));
+        if let Some(feeds) = feeds_by_cat.get(&None) {
+            for (fid, ftitle) in feeds {
+                let sel = if default_ids.contains(&fid.to_string()) {
+                    "selected=\"1\""
+                } else {
+                    ""
+                };
+                let indented = indent_str(ftitle, 1);
+                rv.push_str(&format!(
+                    "<option {} value='{}'>{}</option>",
+                    sel,
+                    fid,
+                    htmlspecialchars(&indented)
+                ));
+            }
+        }
+    } else {
+        // No categories: a flat, title-ordered feed list (no indentation).
+        let feeds: Vec<(i32, String)> = sqlx::query_as(
+            "SELECT id, title FROM ttrss_feeds WHERE owner_uid = $1 ORDER BY title",
+        )
+        .bind(uid)
+        .fetch_all(pool)
+        .await
+        .unwrap_or_default();
+        for (fid, ftitle) in feeds {
+            let sel = if default_ids.contains(&fid.to_string()) {
+                "selected=\"1\""
+            } else {
+                ""
+            };
+            rv.push_str(&format!(
+                "<option {} value='{}'>{}</option>",
+                sel,
+                fid,
+                htmlspecialchars(&ftitle)
+            ));
+        }
+    }
+
+    rv.push_str("</select>");
+    rv
+}
+
+/// `Pref_Filters::editrule` — the feed multi-select for a rule. `ids` is a
+/// comma-separated list of feed ids and `CAT:<id>` category strings (cleaned, so
+/// the category strings are preserved — not run through `_param_to_int_array`).
+/// Returns `{"multiselect": <select html>}`.
+pub async fn editrule(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Value {
+    let pool = state.db.pool();
+    let uid = sess.data().uid().unwrap_or(0);
+    let profile = sess.data().profile().map(|p| p as i32);
+    let pref_rows = prefs::load_rows(&state.db, uid, None).await;
+    let enable_cats = prefs::resolve(prefs::ENABLE_FEED_CATS, &pref_rows, profile).as_bool();
+
+    let raw = extra.get("ids").and_then(Value::as_str).unwrap_or("");
+    let ids = util::clean_str(raw);
+    let feed_ids: Vec<String> = ids.split(',').map(|s| s.to_string()).collect();
+
+    let multiselect = feed_multi_select(
+        pool,
+        uid,
+        "feed_id",
+        &feed_ids,
+        r#"required="1" style="width : 100%; height : 300px" dojoType="fox.form.ValidationMultiSelect""#,
+        true,
+        enable_cats,
+    )
+    .await;
+    json!({ "multiselect": multiselect })
+}
+
 // ---------------------------------------------------------------------------
 // `Pref_Filters` write handlers (filter CRUD).
+// ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
 
 /// `Pref_Filters::filtersortreset` — reset every filter's order to 0.
