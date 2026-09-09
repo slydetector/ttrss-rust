@@ -41,10 +41,12 @@ pub const ARTICLE_KIND_VIDEO: i32 = 2;
 pub const ARTICLE_KIND_YOUTUBE: i32 = 3;
 
 fn cmode_of(extra: &Map<String, Value>) -> i32 {
+    // PHP: `(int) clean($_REQUEST["cmode"])` — clean (strip_tags + trim), then
+    // PHP's truncating int cast (leading integer prefix), not a strict parse.
     extra
         .get("cmode")
         .and_then(scalar_str)
-        .and_then(|s| s.trim().parse::<i32>().ok())
+        .map(|s| crate::util::php_int_cast(&crate::util::clean_str(&s)) as i32)
         .unwrap_or(0)
 }
 

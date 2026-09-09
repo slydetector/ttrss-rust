@@ -99,3 +99,18 @@ record: ## record a fresh oracle baseline -> oracle/data/runs/oracle-a
 .PHONY: diff
 diff: ## diff two run dirs (A/B via ARGS=--a <dir> --b <dir>)
 	$(HARNESS_BIN) diff $(ARGS)
+
+# --- differential param fixtures (recorded from the frozen PHP reference) ---
+# These drive the *real* PHP helpers (the frozen tt-rss reference) over a
+# front-end-shaped input battery and record the ground truth as a fixture the
+# Rust tests compare against. They run in the *public* PHP image matching the
+# app's PHP 8.5 — no oracle stack required. See oracle/recorders/.
+PHP_IMAGE := php:8.5-cli
+
+.PHONY: record-params
+record-params: ## re-record the param differential fixtures from frozen PHP (public php:8.5-cli)
+	docker run --rm \
+		-v "$(CURDIR)/tt-rss":/tt-rss:ro \
+		-v "$(CURDIR)/crates/server/tests/fixtures":/fx:rw \
+		-v "$(CURDIR)/oracle/recorders":/rec:ro \
+		$(PHP_IMAGE) php /rec/param_int_array.php /fx/param_int_array.json

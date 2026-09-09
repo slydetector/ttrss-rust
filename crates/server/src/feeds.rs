@@ -562,32 +562,16 @@ pub async fn catchup_feed(state: &AppState, sess: &Sess, extra: &Map<String, Val
     let profile = data.profile().map(|p| p as i32);
     let pool = state.db.pool();
     let rows = prefs::load_rows(&state.db, uid, profile).await;
-    let feed_id = extra
-        .get("feed_id")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .trim()
-        .to_string();
+    // PHP: `clean(...)` = `strip_tags` + trim — use `clean_str` (not a bare
+    // `.trim()`) so these match PHP exactly, including tag stripping.
+    let clean_param = |k: &str| {
+        util::clean_str(extra.get(k).and_then(|v| v.as_str()).unwrap_or(""))
+    };
+    let feed_id = clean_param("feed_id");
     let is_cat = extra.get("is_cat").is_some_and(|v| util::param_to_bool(Some(v)));
-    let mode = extra
-        .get("mode")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .trim()
-        .to_string();
-    // `clean($_REQUEST["search_query"])` / `clean($_REQUEST["search_lang"])`.
-    let search_query = extra
-        .get("search_query")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .trim()
-        .to_string();
-    let search_lang = extra
-        .get("search_lang")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .trim()
-        .to_string();
+    let mode = clean_param("mode");
+    let search_query = clean_param("search_query");
+    let search_lang = clean_param("search_lang");
     catchup_scope(
         pool, uid, profile, &rows, &feed_id, is_cat, &mode, &search_query, &search_lang,
     )
