@@ -1,0 +1,66 @@
+<div class="alert alert-info" id="">Enable the options you wish to apply using checkboxes on the right.</div>
+{{ hidden_ids }}
+{{ hidden_op }}
+{{ hidden_method }}
+<div dojoType="dijit.layout.TabContainer" style="height : 450px">
+  <div dojoType="dijit.layout.ContentPane" title="General">
+    <section>
+{% if enable_feed_cats %}
+      <fieldset>
+        <label>Place in category:</label>
+{{ cat_select }}
+{{ toggle_cat }}
+      </fieldset>
+{% endif %}
+      <fieldset>
+        <label>Language:</label>
+{{ lang_select }}
+{{ toggle_lang }}
+      </fieldset>
+    </section>
+    <hr/>
+    <section>
+      <fieldset>
+        <label>Update interval:</label>
+{{ update_select }}
+{{ toggle_update }}
+      </fieldset>
+{% if not force_purge %}
+      <fieldset>
+        <label>Article purging:</label>
+{{ purge_select }}
+{{ toggle_purge }}
+      </fieldset>
+{% endif %}
+    </section>
+  </div>
+  <div dojoType="dijit.layout.ContentPane" title="Authentication">
+    <section>
+      <fieldset>
+        <label>Login:</label>
+        <input dojoType='dijit.form.TextBox' disabled='1' autocomplete='new-password' name='auth_login' value=''>
+{{ toggle_login }}
+      </fieldset>
+      <fieldset>
+        <label>Password:</label>
+        <input dojoType='dijit.form.TextBox' type='password' name='auth_pass' autocomplete='new-password' disabled='1' value=''>
+{{ toggle_pass }}
+      </fieldset>
+    </section>
+  </div>
+  <div dojoType="dijit.layout.ContentPane" title="Options">
+{% for opt in options %}
+    <fieldset class='narrow'>
+      <label class="checkbox text-muted">
+{{ opt.checkbox }}
+        {{ opt.caption }}
+{{ opt.toggle }}
+      </label>
+    </fieldset>
+{% endfor %}
+  </div>
+</div>
+<footer>
+{{ save_btn }}
+{{ cancel_btn }}
+</footer>

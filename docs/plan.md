@@ -569,8 +569,35 @@ clean** on the golden dataset. Done so far:
   (`get_ts_languages` = `pg_ts_config` `cfgname`s, `ucfirst`ed). `plugin_data` is
   empty (no plugins ported). `editfeed` is login-gated but NOT CSRF-ignored
   (matching PHP, where `csrf_ignore` = `index`/`getfeedtree` only). The `feed` object is the **full row** (40 keys = 39 columns + `icon`), and `cats.select` is **byte-exact** vs the PHP oracle (verified by diffing the Rust output against a live `select_feeds_cats` run on the golden DB — 602 bytes identical); the overall JSON is *functionally equivalent* (same data; `serde_json` sorts keys / does not escape non-ASCII or `/`, which the frontend's `JSON.parse` transparently normalizes).
-  5 tests in `tests/feed_edit.rs`. `editfeeds` (the batch-edit HTML) and the
-  export's settings section remain for Feed CRUD.
+  5 tests in `tests/feed_edit.rs`.
+
+  A seventh increment ports the read-side **`editfeeds`** (batch-edit) dialog
+  (`Pref_Feeds::editfeeds`, in `feeds.rs`, dispatched as `DispatchOutput::Html`):
+  the HTML the frontend feeds into a `dijit.Dialog` (via `innerHTML`). Per the
+  AGENTS.md "Frontend HTML forms" finding, the browser normalizes whitespace,
+  so the HTML lives in `templates/editfeeds.html.jinja` (rendered with
+  minijinja, the established pattern used for the Atom feed) and the handler
+  just supplies the context: a notice, three hidden fields (`ids`/`op`/
+  `method=batchEditSave`), and a three-tab `TabContainer` (General /
+  Authentication / Options). The General tab has the category
+  `select_feeds_cats` (only when the `ENABLE_FEED_CATS` pref is set), the
+  language `select_tag`, and the update/purge `select_hash` selects (the purge
+  one only when `FORCE_ARTICLE_PURGE == 0`), each paired with a
+  `_batch_toggle_checkbox` (a "Check to enable field" checkbox carrying
+  `data-control-for` + `onchange=App.dialogOf(this).toggleField(this)`). The
+  Authentication tab has the disabled `auth_login`/`auth_pass` inputs
+  (single-quoted attributes, `autocomplete='new-password'`). The Options tab
+  has the five boolean checkboxes (`include_in_digest`,
+  `always_display_enclosures`, `hide_images`, `cache_images`,
+  `mark_unread_on_update`) each with a caption + toggle. The footer has the
+  Save (`type=submit`) + Cancel buttons. The rendered output is **structurally
+  identical** to the PHP oracle (verified by whitespace-normalizing both and
+  diffing — 6881 normalized chars identical); only the whitespace the browser
+  collapses differs. `editfeeds` is login-gated but NOT CSRF-ignored (like
+  `editfeed`). 5 structural tests in `tests/feed_edit.rs` (parse with
+  kuchikiki; assert the fields, `name`/`data-control-for`/`dojoType`
+  attributes, option values, and captions). Only the export's settings section
+  remains for Feed CRUD.
 
 ### Test-parity program (PHP `#[test]` → Rust `#[test]`, 2026-09-05)
 

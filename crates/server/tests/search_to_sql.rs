@@ -56,7 +56,6 @@ const CASES: &[(&str, &str, &[&str])] = &[
     ("tag:foo", "(ttrss_user_entries.int_id  IN (SELECT post_int_id FROM ttrss_tags WHERE tag_name = 'foo'))", &[]),
     ("-tag:bar", "(ttrss_user_entries.int_id NOT IN (SELECT post_int_id FROM ttrss_tags WHERE tag_name = 'bar'))", &[]),
     ("unknown:foo", "(tsvector_combined @@ to_tsquery('', 'unknown:foo'))", &["unknown:foo"]),
-    ("@tomorrow", "(  (updated >= '2026-09-09 00:00:00' AND updated <= '2026-09-09 23:59:59'))", &[]),
     ("@date:2020-01-15", "( will generate an error )", &["The date keyword \"date:2020-01-15\" was not recognized."]),
     ("@date:\"last Monday\"", "( will generate an error )", &["The date keyword \"date:last monday\" was not recognized."]),
     ("@bogus-word", "( will generate an error )", &["The date keyword \"bogus-word\" was not recognized."]),
@@ -70,7 +69,6 @@ const CASES: &[(&str, &str, &[&str])] = &[
     ("hello world | title:foo", "( (LOWER(ttrss_entries.title) LIKE '%foo%')) AND (tsvector_combined @@ to_tsquery('', 'hello world |'))", &["hello", "world"]),
     ("\"a b\" & c", "(tsvector_combined @@ to_tsquery('', '(a <-> b) & c'))", &["a b", "c"]),
     ("star:true title:\"x y\" -unread:true", "( (marked = true)) AND ( (LOWER(ttrss_entries.title) LIKE '%x y%')) AND (NOT (unread = true))", &[]),
-    ("@yesterday title:foo", "(  (updated >= '2026-09-07 00:00:00' AND updated <= '2026-09-07 23:59:59')) AND ( (LOWER(ttrss_entries.title) LIKE '%foo%'))", &[]),
     ("-hello | world", "(tsvector_combined @@ to_tsquery('', '!hello | world'))", &["world"]),
     ("!", "(tsvector_combined @@ to_tsquery('', '!'))", &[]),
     ("(", "(tsvector_combined @@ to_tsquery('', '('))", &[]),
@@ -91,6 +89,8 @@ const DATE_CASES: &[(&str, &str, &str)] = &[
     ("@\"last Monday\"", "last_monday", "(  (updated >= '<<D>> 00:00:00' AND updated <= '<<D>> 23:59:59'))"),
     ("-@\"last Monday\"", "last_monday", "( NOT (updated >= '<<D>> 00:00:00' AND updated <= '<<D>> 23:59:59'))"),
     ("@now", "today", "(  (updated >= '<<D>> 00:00:00' AND updated <= '<<D>> 23:59:59'))"),
+    ("@tomorrow", "tomorrow", "(  (updated >= '<<D>> 00:00:00' AND updated <= '<<D>> 23:59:59'))"),
+    ("@yesterday title:foo", "yesterday", "(  (updated >= '<<D>> 00:00:00' AND updated <= '<<D>> 23:59:59')) AND ( (LOWER(ttrss_entries.title) LIKE '%foo%'))"),
     ("@  x", "today", "(  (updated >= '<<D>> 00:00:00' AND updated <= '<<D>> 23:59:59')) AND (tsvector_combined @@ to_tsquery('', 'x'))"),
     ("x @  y", "today", "(  (updated >= '<<D>> 00:00:00' AND updated <= '<<D>> 23:59:59')) AND (tsvector_combined @@ to_tsquery('', 'x & y'))"),
 ];
@@ -139,6 +139,7 @@ async fn search_to_sql_date_cases(
     let dates: std::collections::HashMap<&str, chrono::NaiveDate> = [
         ("today", today),
         ("yesterday", today - chrono::Duration::days(1)),
+        ("tomorrow", today + chrono::Duration::days(1)),
         // PHP "last <weekday>": the previous occurrence (7 days back when
         // today already is that weekday).
         ("last_monday", today - chrono::Duration::days(if wd == 0 { 7 } else { wd })),

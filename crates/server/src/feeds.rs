@@ -15,8 +15,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use base64::Engine as _;
 use serde::Serialize;
 use serde_json::{json, Map, Value};
+use minijinja::Environment;
 use sqlx::Row;
 
+use crate::controls;
 use crate::util;
 
 use crate::prefs;
@@ -1932,7 +1934,9 @@ pub async fn select_feeds_cats(
     if found > 0 {
         ret.push_str(&format!("<option disabled=\"1\">{}</option>", "\u{2015}".repeat(15)));
     }
-    let is_selected = if default_id == Some(0) { "selected=\"1\"" } else { "" };
+    // PHP `$default_id == 0`: `null == 0` is true, so a null default (the
+    // `editfeeds` batch form) also selects `Uncategorized`.
+    let is_selected = if default_id.is_none() || default_id == Some(0) { "selected=\"1\"" } else { "" };
     ret.push_str(&format!("<option {is_selected} value=\"0\">Uncategorized</option>"));
     ret.push_str("</select>");
     ret
@@ -2140,4 +2144,169 @@ pub async fn editfeed(state: &AppState, sess: &Sess, extra: &Map<String, Value>)
     })
 }
 
+/// `Pref_Feeds::editfeeds` — the batch-edit dialog (the read side; the write is
+/// `batchEditSave`). Renders the HTML the frontend ingests (a notice, three
+/// hidden fields, and a three-tab container). Every editable field carries a
+/// disabled input + a "Check to enable field" toggle so only the checked
+/// fields are applied on save.
+///
+/// The browser normalizes whitespace (the content is fed to a `dijit.Dialog`
+/// via `innerHTML`), so the HTML lives in `editfeeds.html.jinja` (see
+/// AGENTS.md "Frontend HTML forms"); this function just supplies the context.
+pub async fn editfeeds(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> String {
+    let uid = sess.data().uid().unwrap_or(0);
+    let profile = sess.data().profile().map(|p| p as i32);
+    let pool = state.db.pool();
 
+    let feed_ids = extra
+        .get("ids")
+        .and_then(Value::as_str)
+        .map(util::clean_str)
+        .unwrap_or_default();
+
+    let pref_rows = prefs::load_rows(&state.db, uid, None).await;
+    let enable_feed_cats =
+        prefs::resolve(prefs::ENABLE_FEED_CATS, &pref_rows, profile).as_bool();
+    let default_update = prefs::resolve("DEFAULT_UPDATE_INTERVAL", &pref_rows, None).as_int();
+    let default_purge = prefs::resolve("PURGE_OLD_DAYS", &pref_rows, None).as_int();
+
+    // PHP `$update_intervals` / `$purge_intervals` (backend.php), with the
+    // default-annotation appended to the `0` key (PHP `editfeeds`).
+    let update: Vec<(String, String)> = vec![
+        ("0".to_string(), format!("Default interval ({})", update_interval_label(default_update))),
+        ("-1".to_string(), "Disable updates".to_string()),
+        ("15".to_string(), "15 minutes".to_string()),
+        ("30".to_string(), "30 minutes".to_string()),
+        ("60".to_string(), "Hourly".to_string()),
+        ("240".to_string(), "4 hours".to_string()),
+        ("720".to_string(), "12 hours".to_string()),
+        ("1440".to_string(), "Daily".to_string()),
+        ("10080".to_string(), "Weekly".to_string()),
+    ];
+    let purge_default = if default_purge > 0 {
+        format!(" ({} days)", default_purge)
+    } else {
+        " (Disabled)".to_string()
+    };
+    let purge: Vec<(String, String)> = vec![
+        ("0".to_string(), format!("Use default{}", purge_default)),
+        ("-1".to_string(), "Never purge".to_string()),
+        ("7".to_string(), "1 week old".to_string()),
+        ("14".to_string(), "2 weeks old".to_string()),
+        ("31".to_string(), "1 month old".to_string()),
+        ("60".to_string(), "2 months old".to_string()),
+        ("90".to_string(), "3 months old".to_string()),
+    ];
+
+    let cat_select = select_feeds_cats(pool, uid, "cat_id", None, "disabled=\"1\"").await;
+    let languages = get_ts_languages(pool).await;
+
+    let options: Vec<Value> = [
+        ("include_in_digest", "Include in email digest"),
+        ("always_display_enclosures", "Always display image attachments"),
+        ("hide_images", "Do not embed media"),
+        ("cache_images", "Cache media"),
+        ("mark_unread_on_update", "Mark updated articles as unread"),
+    ]
+    .iter()
+    .map(|(name, caption)| {
+        json!({
+            "checkbox": controls::checkbox_tag(name, false, "", &[("disabled", "1".to_string())]),
+            "caption": *caption,
+            "toggle": batch_toggle_checkbox(name),
+        })
+    })
+    .collect();
+
+    let mut ctx: Map<String, Value> = Map::new();
+    ctx.insert("hidden_ids".into(), json!(controls::hidden_tag("ids", &feed_ids)));
+    ctx.insert("hidden_op".into(), json!(controls::hidden_tag("op", "Pref_Feeds")));
+    ctx.insert("hidden_method".into(), json!(controls::hidden_tag("method", "batchEditSave")));
+    ctx.insert("enable_feed_cats".into(), json!(enable_feed_cats));
+    ctx.insert("force_purge".into(), json!(state.config.force_article_purge != 0));
+    ctx.insert("cat_select".into(), json!(cat_select));
+    ctx.insert("toggle_cat".into(), json!(batch_toggle_checkbox("cat_id")));
+    ctx.insert(
+        "lang_select".into(),
+        json!(controls::select_tag(
+            "feed_language",
+            "",
+            &languages,
+            &[("disabled", "1".to_string())]
+        )),
+    );
+    ctx.insert("toggle_lang".into(), json!(batch_toggle_checkbox("feed_language")));
+    ctx.insert(
+        "update_select".into(),
+        json!(controls::select_hash(
+            "update_interval",
+            "",
+            &update,
+            &[("disabled", "1".to_string())]
+        )),
+    );
+    ctx.insert("toggle_update".into(), json!(batch_toggle_checkbox("update_interval")));
+    ctx.insert(
+        "purge_select".into(),
+        json!(controls::select_hash(
+            "purge_interval",
+            "",
+            &purge,
+            &[("disabled", "1".to_string())]
+        )),
+    );
+    ctx.insert("toggle_purge".into(), json!(batch_toggle_checkbox("purge_interval")));
+    ctx.insert("toggle_login".into(), json!(batch_toggle_checkbox("auth_login")));
+    ctx.insert("toggle_pass".into(), json!(batch_toggle_checkbox("auth_pass")));
+    ctx.insert("options".into(), Value::Array(options));
+    ctx.insert("save_btn".into(), json!(controls::submit_tag("Save")));
+    ctx.insert("cancel_btn".into(), json!(controls::cancel_dialog_tag("Cancel")));
+
+    editfeeds_env()
+        .get_template("editfeeds")
+        .expect("editfeeds template")
+        .render(ctx)
+        .expect("editfeeds template render")
+}
+
+/// The `editfeeds` "Check to enable field" toggle for a given field name.
+fn batch_toggle_checkbox(name: &str) -> String {
+    controls::checkbox_tag(
+        "",
+        false,
+        "",
+        &[
+            ("data-control-for", name.to_string()),
+            ("title", "Check to enable field".to_string()),
+            ("onchange", "App.dialogOf(this).toggleField(this)".to_string()),
+        ],
+    )
+}
+
+/// PHP `update_intervals[$value]` for the `editfeeds` update-interval default
+/// annotation; a non-standard value yields an empty string.
+fn update_interval_label(value: i64) -> String {
+    match value {
+        0 => "Default interval".to_string(),
+        -1 => "Disable updates".to_string(),
+        15 => "15 minutes".to_string(),
+        30 => "30 minutes".to_string(),
+        60 => "Hourly".to_string(),
+        240 => "4 hours".to_string(),
+        720 => "12 hours".to_string(),
+        1440 => "Daily".to_string(),
+        10080 => "Weekly".to_string(),
+        _ => String::new(),
+    }
+}
+
+/// The minijinja environment holding `editfeeds` (parsed once).
+fn editfeeds_env() -> &'static Environment<'static> {
+    static ENV: std::sync::OnceLock<Environment<'static>> = std::sync::OnceLock::new();
+    ENV.get_or_init(|| {
+        let mut env = Environment::new();
+        env.add_template("editfeeds", include_str!("../templates/editfeeds.html.jinja"))
+            .expect("valid editfeeds template");
+        env
+    })
+}

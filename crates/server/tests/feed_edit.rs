@@ -9,6 +9,9 @@
 
 mod common;
 
+use kuchikiki::parse_html;
+use kuchikiki::traits::TendrilSink;
+
 use base64::Engine as _;
 use serde_json::{json, Map, Value};
 use ttrss_core::config::Config;
@@ -256,4 +259,242 @@ async fn test_get_icon_virtual(
     assert_eq!(get_icon(&state, ttrss_server::labels::LABEL_BASE_INDEX - 5), "label");
     // A real feed with no icon file maps to the empty string.
     assert_eq!(get_icon(&state, 1), "");
+}
+
+// --- editfeeds (batch-edit dialog) structural tests -----------------------
+//
+// The browser's HTML parser normalizes whitespace (the content is fed to a
+// `dijit.Dialog` via `innerHTML`), so these tests parse the rendered HTML and
+// assert the element/attribute structure and visible text rather than a
+// byte-exact string (see AGENTS.md "Frontend HTML forms").
+
+/// Parse an HTML fragment into a `kuchikiki` document root.
+fn parse_doc(html: &str) -> kuchikiki::NodeRef {
+    parse_html().one(html)
+}
+
+#[sqlx::test(fixtures(
+    "../../testing/fixtures/schema.sql",
+    "../../testing/fixtures/baseline.sql",
+    "../../testing/fixtures/seed.sql",
+))]
+async fn test_editfeeds_overview(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
+    let (state, sess) = setup(pool, options).await;
+    let html =
+        ttrss_server::feeds::editfeeds(&state, &sess, &request(&[("ids", json!("1,2"))])).await;
+    let doc = parse_doc(&html);
+
+    // The three hidden fields (the form's identity).
+    for (name, value) in [("ids", "1,2"), ("op", "Pref_Feeds"), ("method", "batchEditSave")] {
+        let els = doc
+            .select(&format!("input[name={name}]"))
+            .unwrap()
+            .collect::<Vec<_>>();
+        assert_eq!(els.len(), 1, "exactly one hidden field {name}");
+        assert_eq!(
+            els[0].attributes.borrow().get("value"),
+            Some(value),
+            "value of {name}"
+        );
+    }
+
+    // The tab container and the three tabs in order.
+    assert_eq!(
+        doc.select("div[dojoType='dijit.layout.TabContainer']")
+            .unwrap()
+            .count(),
+        1,
+        "one tab container"
+    );
+    let tabs: Vec<String> = doc
+        .select("div[dojoType='dijit.layout.ContentPane']")
+        .unwrap()
+        .map(|t| t.attributes.borrow().get("title").unwrap_or("").to_string())
+        .collect();
+    assert_eq!(
+        tabs,
+        vec![
+            "General".to_string(),
+            "Authentication".to_string(),
+            "Options".to_string(),
+        ]
+    );
+}
+
+#[sqlx::test(fixtures(
+    "../../testing/fixtures/schema.sql",
+    "../../testing/fixtures/baseline.sql",
+    "../../testing/fixtures/seed.sql",
+))]
+async fn test_editfeeds_general_tab(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
+    let (state, sess) = setup(pool, options).await;
+    let html =
+        ttrss_server::feeds::editfeeds(&state, &sess, &request(&[("ids", json!("1,2"))])).await;
+    let doc = parse_doc(&html);
+
+    // The General tab's four selects, each paired with a "Check to enable
+    // field" toggle.
+    for name in ["cat_id", "feed_language", "update_interval", "purge_interval"] {
+        let sel = doc
+            .select(&format!("select[name={name}]"))
+            .unwrap()
+            .collect::<Vec<_>>();
+        assert_eq!(sel.len(), 1, "exactly one select {name}");
+
+        let toggle = doc
+            .select(&format!("input[data-control-for={name}]"))
+            .unwrap()
+            .collect::<Vec<_>>();
+        assert_eq!(toggle.len(), 1, "exactly one toggle for {name}");
+        let attrs = toggle[0].attributes.borrow();
+        assert_eq!(attrs.get("onchange"), Some("App.dialogOf(this).toggleField(this)"));
+        assert_eq!(attrs.get("title"), Some("Check to enable field"));
+    }
+
+    // The update-interval select carries the default-annotation on key 0.
+    let update_options: Vec<String> = doc
+        .select("select[name=update_interval] option")
+        .unwrap()
+        .map(|o| {
+            let v = o.attributes.borrow().get("value").unwrap_or("").to_string();
+            format!("{v}={}", o.text_contents())
+        })
+        .collect();
+    assert!(
+        update_options.contains(&"0=Default interval (30 minutes)".to_string()),
+        "{update_options:?}"
+    );
+    assert!(
+        update_options.contains(&"-1=Disable updates".to_string()),
+        "{update_options:?}"
+    );
+}
+
+#[sqlx::test(fixtures(
+    "../../testing/fixtures/schema.sql",
+    "../../testing/fixtures/baseline.sql",
+    "../../testing/fixtures/seed.sql",
+))]
+async fn test_editfeeds_auth_tab(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
+    let (state, sess) = setup(pool, options).await;
+    let html =
+        ttrss_server::feeds::editfeeds(&state, &sess, &request(&[("ids", json!("1,2"))])).await;
+    let doc = parse_doc(&html);
+
+    // The Authentication tab's login + password inputs (disabled, autocomplete).
+    let login = doc.select("input[name=auth_login]").unwrap().collect::<Vec<_>>();
+    assert_eq!(login.len(), 1);
+    let la = login[0].attributes.borrow();
+    assert_eq!(la.get("disabled"), Some("1"));
+    assert_eq!(la.get("autocomplete"), Some("new-password"));
+    let pass = doc.select("input[name=auth_pass]").unwrap().collect::<Vec<_>>();
+    assert_eq!(pass.len(), 1);
+    let pa = pass[0].attributes.borrow();
+    assert_eq!(pa.get("type"), Some("password"));
+    assert_eq!(pa.get("disabled"), Some("1"));
+    assert_eq!(pa.get("autocomplete"), Some("new-password"));
+
+    // Each is paired with a toggle.
+    for name in ["auth_login", "auth_pass"] {
+        let toggle = doc
+            .select(&format!("input[data-control-for={name}]"))
+            .unwrap()
+            .collect::<Vec<_>>();
+        assert_eq!(toggle.len(), 1, "exactly one toggle for {name}");
+    }
+}
+
+#[sqlx::test(fixtures(
+    "../../testing/fixtures/schema.sql",
+    "../../testing/fixtures/baseline.sql",
+    "../../testing/fixtures/seed.sql",
+))]
+async fn test_editfeeds_options_tab(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
+    let (state, sess) = setup(pool, options).await;
+    let html =
+        ttrss_server::feeds::editfeeds(&state, &sess, &request(&[("ids", json!("1,2"))])).await;
+    let doc = parse_doc(&html);
+
+    // The five boolean options, each a disabled checkbox + caption + toggle.
+    let expected = [
+        ("include_in_digest", "Include in email digest"),
+        ("always_display_enclosures", "Always display image attachments"),
+        ("hide_images", "Do not embed media"),
+        ("cache_images", "Cache media"),
+        ("mark_unread_on_update", "Mark updated articles as unread"),
+    ];
+    for (name, caption) in expected {
+        let cb = doc.select(&format!("input[name={name}]")).unwrap().collect::<Vec<_>>();
+        assert_eq!(cb.len(), 1, "exactly one checkbox {name}");
+        assert_eq!(cb[0].attributes.borrow().get("disabled"), Some("1"));
+        assert!(html.contains(caption), "caption {caption} present");
+        let toggle = doc
+            .select(&format!("input[data-control-for={name}]"))
+            .unwrap()
+            .collect::<Vec<_>>();
+        assert_eq!(toggle.len(), 1, "exactly one toggle for {name}");
+    }
+
+    // The footer has the Save (submit) button.
+    assert_eq!(
+        doc.select("button[type=submit]").unwrap().count(),
+        1,
+        "one submit button"
+    );
+}
+
+#[sqlx::test(fixtures(
+    "../../testing/fixtures/schema.sql",
+    "../../testing/fixtures/baseline.sql",
+    "../../testing/fixtures/seed.sql",
+))]
+async fn test_editfeeds_category_options(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
+    let (state, sess) = setup(pool, options).await;
+    let html =
+        ttrss_server::feeds::editfeeds(&state, &sess, &request(&[("ids", json!("1,2"))])).await;
+    let doc = parse_doc(&html);
+
+    let options: Vec<(String, bool, bool)> = doc
+        .select("select[name=cat_id] option")
+        .unwrap()
+        .map(|o| {
+            let a = o.attributes.borrow();
+            (
+                o.text_contents(),
+                a.get("disabled").is_some(),
+                a.get("selected").is_some(),
+            )
+        })
+        .collect();
+
+    // The two fixture categories (top-level, no indent).
+    let texts: Vec<&str> = options.iter().map(|(t, _, _)| t.as_str()).collect();
+    assert!(texts.contains(&"Technology"), "{texts:?}");
+    assert!(texts.contains(&"Science & Nature"), "{texts:?}");
+    // The separator (15 U+2015) is a disabled option.
+    let sep = "\u{2015}".repeat(15);
+    assert!(
+        options.iter().any(|(t, d, _)| t == &sep && *d),
+        "separator disabled: {options:?}"
+    );
+    // "Uncategorized" is selected (default_id is None).
+    assert!(
+        options.iter().any(|(t, _, s)| t == "Uncategorized" && *s),
+        "Uncategorized selected: {options:?}"
+    );
 }

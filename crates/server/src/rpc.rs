@@ -272,6 +272,7 @@ async fn dispatch(
             "regenFeedKey" => DispatchOutput::Json(feeds::regen_feed_key(state, sess, extra).await),
             "getSharedURL" => DispatchOutput::Json(feeds::get_shared_url(state, sess, extra).await),
             "editfeed" => DispatchOutput::Json(feeds::editfeed(state, sess, extra).await),
+            "editfeeds" => DispatchOutput::Html(feeds::editfeeds(state, sess, extra).await),
             _ => DispatchOutput::Json(unknown_method("Pref_Feeds", method)),
         },
         "Article" => match method {

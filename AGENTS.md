@@ -93,6 +93,19 @@ result is fine) — lay out the situation, the options, and the trade-offs, and
 get direction before committing to an approach. Surface the choice; don't
 assume it.
 
+**Frontend HTML forms: match structure + visible text, not whitespace.** The
+read-side dialog HTML (e.g. `editfeed`/`editfeeds`) is fed to a Dojo
+dijit.Dialog via innerHTML (fox.SingleUseDialog → dijit.Dialog), so the
+browser's HTML parser normalizes whitespace before the JS runs. The JS then
+works on the resulting DOM (querySelector('input[name=…]'),
+data-control-for, dijit.getEnclosingWidget, form attr('value')), never the
+raw string. So when porting these forms, match the element/attribute
+structure and the visible text (option labels, captions, the U+2003 em-space
+nesting indent and U+2015 separator inside select_feeds_cats); the
+tabs/newlines/indent depth are irrelevant and need not be reproduced
+byte-for-byte. Prefer emitting clean, consistently-indented HTML. (Confirmed
+from tt-rss/js/PrefFeedTree.js editMultiple + SingleUseDialog.js.)
+
 ## Test harness / oracle
 
 - The oracle + record/replay/diff harness is documented in **`oracle/README.md`**

@@ -9,6 +9,7 @@ pub mod api;
 pub mod article;
 pub mod auth;
 pub mod counters;
+pub mod controls;
 pub mod diskcache;
 pub mod digest;
 pub mod feeds;
