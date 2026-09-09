@@ -393,6 +393,18 @@ async fn dispatch(
                 let _ = settings::save_profile(state, sess, extra).await;
                 DispatchOutput::TextHtml(String::new())
             }
+            "generateAppPassword" => {
+                let html = settings::generate_app_password(state, sess, extra)
+                    .await
+                    .unwrap_or_default();
+                DispatchOutput::Html(html)
+            }
+            "deleteAppPasswords" => {
+                let html = settings::delete_app_passwords(state, sess, extra)
+                    .await
+                    .unwrap_or_default();
+                DispatchOutput::Html(html)
+            }
             "previewDigest" => DispatchOutput::Json(settings::preview_digest(state, sess).await),
             "getPluginsList" => DispatchOutput::Json(plugins::get_plugins_list(state, sess).await),
             "getAvailablePlugins" => DispatchOutput::Json(plugins::get_available_plugins(sess)),

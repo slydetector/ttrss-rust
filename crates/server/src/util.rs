@@ -96,6 +96,22 @@ pub fn ctype_digit(s: &str) -> bool {
     !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit())
 }
 
+/// PHP `make_password($length)` (include/functions.php): a random `$length`
+/// -character string of *distinct* characters drawn from the tt-rss password
+/// alphabet (no vowels/`l`/`o`/`u` lookalikes). Sampling without replacement is
+/// distributionally identical to the PHP's pick-and-reject-until-unique loop.
+pub fn make_password(length: usize) -> String {
+    const ALPHABET: &[u8] = b"0123456789abcdfghjkmnpqrstvwxyzABCDFGHJKMNPQRSTVWXYZ*%+^";
+    let mut rng = rand::thread_rng();
+    let mut remaining: Vec<u8> = ALPHABET.to_vec();
+    let mut out = String::with_capacity(length.min(remaining.len()));
+    while out.len() < length && !remaining.is_empty() {
+        let idx = rng.gen_range(0..remaining.len());
+        out.push(remaining.remove(idx) as char);
+    }
+    out
+}
+
 /// PHP `(int) $s`: parse the longest leading numeric prefix (integer, float,
 /// or scientific notation), then truncate to an integer — whitespace-trimmed,
 /// clamped to the `i64` range on overflow, non-numeric → 0. Matches PHP's

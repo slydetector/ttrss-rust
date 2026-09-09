@@ -1,12 +1,14 @@
 //! `Pref_Prefs` backend read handlers (the settings/preferences UI in
 //! `backend.php?op=Pref_Prefs`).
 
+use minijinja::Environment;
 use serde_json::{json, Map, Value};
 use sqlx::Row;
 use ttrss_core::phpser::Value as PValue;
 
 use crate::prefs;
 use crate::session::Sess;
+use crate::time::{make_local_datetime, TzCtx};
 use crate::util;
 use crate::AppState;
 
@@ -225,3 +227,117 @@ pub async fn preview_digest(state: &AppState, sess: &Sess) -> Value {
     let uid = sess.data().uid().unwrap_or(0) as i32;
     crate::digest::prepare_headlines_digest(state, uid, 1, 16).await
 }
+
+/// `Pref_Prefs::appPasswordList` (the private renderer shared by
+/// `generateAppPassword` and `deleteAppPasswords`): the user's app-password
+/// table (ordered by title) rendered as the Dojo UI the SPA injects into
+/// `app_passwords_holder`. Titles are html-escaped; dates go through
+/// `make_local_datetime` (a `NULL` `last_used` renders as "Never").
+pub async fn app_password_list(state: &AppState, sess: &Sess) -> Result<String, sqlx::Error> {
+    let pool = state.db.pool();
+    let uid = sess.data().uid().unwrap_or(0) as i32;
+    let ctx = TzCtx::for_session(state, &sess.data()).await;
+    let rows = sqlx::query(
+        "SELECT id, title, created::text AS created, last_used::text AS last_used \
+         FROM ttrss_app_passwords WHERE owner_uid = $1 ORDER BY title",
+    )
+    .bind(uid)
+    .fetch_all(pool)
+    .await?;
+
+    let mut passwords: Vec<Value> = Vec::new();
+    for row in &rows {
+        let id: i32 = row.get(0);
+        let title: String = row.get(1);
+        let created: String = row.get(2);
+        let last_used: Option<String> = row.get(3);
+        passwords.push(json!({
+            "id": id,
+            "title": util::htmlspecialchars(&title),
+            "created": make_local_datetime(Some(&created), false, &ctx),
+            "last_used": make_local_datetime(last_used.as_deref(), false, &ctx),
+        }));
+    }
+
+    let mut map: Map<String, Value> = Map::new();
+    map.insert("passwords".into(), Value::Array(passwords));
+    app_password_list_env()
+        .get_template("app_password_list")
+        .expect("app_password_list template")
+        .render(map)
+        .map_err(sqlx::Error::config)
+}
+
+/// `Pref_Prefs::generateAppPassword`: insert a new app-password row (a random
+/// 16-char password, hashed SSHA-512 with a fresh salt) and return the warning
+/// div (showing the plaintext password) plus the refreshed list.
+pub async fn generate_app_password(
+    state: &AppState,
+    sess: &Sess,
+    extra: &Map<String, Value>,
+) -> Result<String, sqlx::Error> {
+    let pool = state.db.pool();
+    let uid = sess.data().uid().unwrap_or(0) as i32;
+    let title = util::clean_str(extra.get("title").and_then(Value::as_str).unwrap_or(""));
+    let new_password = util::make_password(16);
+    let new_salt = ttrss_core::user::get_salt();
+    let new_password_hash = ttrss_core::user::hash_password(
+        &new_password,
+        &new_salt,
+        ttrss_core::user::ALGO_SSHA512,
+    )
+    .expect("hash_password");
+
+    sqlx::query(
+        "INSERT INTO ttrss_app_passwords (title, owner_uid, pwd_hash, service, created) \
+         VALUES ($1, $2, $3, $4, now())",
+    )
+    .bind(&title)
+    .bind(uid)
+    .bind(format!("{new_password_hash}:{new_salt}"))
+    .bind("_api") // Auth_Base::AUTH_SERVICE_API
+    .execute(pool)
+    .await?;
+
+    let list = app_password_list(state, sess).await?;
+    let msg = format!(
+        "<div class=\"alert\" id=\"\">Generated password <strong>{new_password}</strong> \
+         for {title}. Please remember it for future reference.</div>"
+    );
+    Ok(format!("{msg}{list}"))
+}
+
+/// `Pref_Prefs::deleteAppPasswords`: delete the selected owned app-password
+/// rows, then return the refreshed list.
+pub async fn delete_app_passwords(
+    state: &AppState,
+    sess: &Sess,
+    extra: &Map<String, Value>,
+) -> Result<String, sqlx::Error> {
+    let pool = state.db.pool();
+    let uid = sess.data().uid().unwrap_or(0) as i32;
+    let ids = util::param_int_array(extra, "ids");
+    if !ids.is_empty() {
+        sqlx::query("DELETE FROM ttrss_app_passwords WHERE owner_uid = $1 AND id = ANY($2)")
+            .bind(uid)
+            .bind(&ids)
+            .execute(pool)
+            .await?;
+    }
+    app_password_list(state, sess).await
+}
+
+/// The minijinja environment holding `app_password_list` (parsed once).
+fn app_password_list_env() -> &'static Environment<'static> {
+    static ENV: std::sync::OnceLock<Environment<'static>> = std::sync::OnceLock::new();
+    ENV.get_or_init(|| {
+        let mut env = Environment::new();
+        env.add_template(
+            "app_password_list",
+            include_str!("../templates/app_password_list.html.jinja"),
+        )
+        .expect("valid app_password_list template");
+        env
+    })
+}
+

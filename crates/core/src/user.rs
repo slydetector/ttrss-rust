@@ -54,6 +54,19 @@ pub fn hash_password(pass: &str, salt: &str, algo: &str) -> Option<String> {
     Some(format!("{algo}:{hex}"))
 }
 
+/// `UserHelper::get_salt()`: 250 hex characters (`bin2hex` of 125 random
+/// bytes). Used for the per-app-password salt embedded in `pwd_hash`.
+pub fn get_salt() -> String {
+    use rand::RngCore;
+    let mut bytes = [0u8; 125];
+    rand::thread_rng().fill_bytes(&mut bytes);
+    let mut s = String::with_capacity(250);
+    for b in bytes {
+        s.push_str(&format!("{b:02x}"));
+    }
+    s
+}
+
 /// Verify a stored user `pwd_hash` (`ALGO:hash`) against a candidate password
 /// and salt — mirrors `auth_internal::check_password`.
 pub fn verify_password(stored: &str, pass: &str, salt: &str) -> bool {
