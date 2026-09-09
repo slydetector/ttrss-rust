@@ -22,6 +22,7 @@ use ttrss_core::db::Db;
 use ttrss_core::phpser::Value;
 use ttrss_core::session::{self as core_session, Session};
 use ttrss_core::user;
+use crate::util::now_unix;
 
 /// `AUTH_MIN_INTERVAL` (seconds) — minimum gap between failed login attempts.
 pub const AUTH_MIN_INTERVAL: i64 = 5;
@@ -213,11 +214,4 @@ fn random_hex(n_bytes: usize) -> String {
     (0..n_bytes)
         .map(|_| format!("{:02x}", rng.gen_range(0u8..=255)))
         .collect()
-}
-
-fn now_unix() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0)
 }

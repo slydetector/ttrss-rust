@@ -158,7 +158,7 @@ async fn generate_feed(state: &AppState, owner_uid: i64, req: &RssRequest<'_>) -
     // No session in this public context: `bw_limit`/`safe_mode` are unset;
     // `STRIP_IMAGES` resolves against the feed owner's default profile.
     let rows = prefs::load_rows(&state.db, owner_uid, None).await;
-    let strip_images = prefs::resolve("STRIP_IMAGES", &rows, None).as_bool();
+    let strip_images = prefs::resolve(prefs::STRIP_IMAGES, &rows, None).as_bool();
     let note_style = "color: #9a8c59; background-color: #fff7d5; border: 1px dashed #e7d796; padding: 5px; margin-bottom: 1em;";
     // `DiskCache::instance("images")` → `<CACHE_DIR>/images/`.
     let image_cache_dir = state

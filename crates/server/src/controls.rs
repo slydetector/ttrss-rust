@@ -12,18 +12,12 @@ use crate::util;
 pub fn attributes_to_string(attributes: &[(&str, String)]) -> String {
     let mut parts = Vec::new();
     for (k, v) in attributes {
-        if *k == "disabled" && !sql_bool_to_bool(v) {
+        if *k == "disabled" && !ttrss_core::config::sql_bool_to_bool(v) {
             continue;
         }
         parts.push(format!("{}=\"{}\"", k, util::htmlspecialchars(v)));
     }
     parts.join(" ")
-}
-
-/// PHP `sql_bool_to_bool($s)` (`include/functions.php`): truthy unless empty,
-/// `"f"`, or `"false"` (a no-op for PDO, kept for the legacy layer).
-fn sql_bool_to_bool(s: &str) -> bool {
-    !s.is_empty() && s != "f" && s != "false"
 }
 
 /// PHP `Controls::hidden_tag($name, $value, $attributes = [])`.

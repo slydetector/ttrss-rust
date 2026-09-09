@@ -14,9 +14,10 @@ use serde_json::{json, Map, Value};
 use sqlx::Row;
 
 use crate::prefs;
+use crate::cats::{CAT_LABELS, CAT_SPECIAL, CAT_UNCATEGORIZED};
 use crate::sanitizer;
 use crate::session::Sess;
-use crate::util::{strip_tags, truncate_string};
+use crate::util::{basename, param_to_bool, strip_tags, truncate_string};
 use crate::time::{self, TzCtx};
 use crate::AppState;
 
@@ -30,27 +31,11 @@ pub(crate) const FEED_FRESH: i64 = -3;
 pub(crate) const FEED_ALL: i64 = -4;
 pub(crate) const FEED_RECENTLY_READ: i64 = -6;
 pub(crate) const FEED_ERROR: i64 = -7;
-pub(crate) const CAT_UNCATEGORIZED: i64 = 0;
-pub(crate) const CAT_SPECIAL: i64 = -1;
-pub(crate) const CAT_LABELS: i64 = -2;
 /// `PLUGIN_FEED_BASE_INDEX` (functions.php): virtual plugin feeds occupy
 /// `(LABEL_BASE_INDEX, PLUGIN_FEED_BASE_INDEX)`.
 pub(crate) const PLUGIN_FEED_BASE_INDEX: i64 = -128;
 const NEVER_GROUP_FEEDS: &[i64] = &[FEED_RECENTLY_READ, FEED_ARCHIVED];
 const NEVER_GROUP_BY_DATE: &[i64] = &[FEED_PUBLISHED, FEED_STARRED, FEED_FRESH];
-
-/// `Handler::_param_to_bool`.
-fn param_to_bool(v: Option<&Value>) -> bool {
-    match v {
-        Some(Value::Bool(b)) => *b,
-        Some(Value::String(s)) => {
-            let t = s.trim();
-            !t.is_empty() && t != "f" && t != "false"
-        }
-        Some(Value::Number(n)) => n.as_i64().unwrap_or(0) != 0,
-        _ => false,
-    }
-}
 
 /// `Feeds::view`.
 pub async fn view(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Value {
@@ -268,7 +253,7 @@ pub async fn search(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -
         all_languages.push(Value::from(s));
     }
 
-    let default_language = prefs::resolve("DEFAULT_SEARCH_LANGUAGE", &rows, profile).as_str().to_string();
+    let default_language = prefs::resolve(prefs::DEFAULT_SEARCH_LANGUAGE, &rows, profile).as_str().to_string();
 
     json!({
         "show_language": true,
@@ -395,10 +380,10 @@ async fn format_headlines_list(
     } = q;
 
     let tz = TzCtx {
-        user_tz: prefs::resolve("USER_TIMEZONE", rows, profile).as_str().to_string(),
+        user_tz: prefs::resolve(prefs::USER_TIMEZONE, rows, profile).as_str().to_string(),
         client_tz_offset: data.get_int("clientTzOffset").unwrap_or(0),
-        short_date_format: prefs::resolve("SHORT_DATE_FORMAT", rows, profile).as_str().to_string(),
-        long_date_format: prefs::resolve("LONG_DATE_FORMAT", rows, profile).as_str().to_string(),
+        short_date_format: prefs::resolve(prefs::SHORT_DATE_FORMAT, rows, profile).as_str().to_string(),
+        long_date_format: prefs::resolve(prefs::LONG_DATE_FORMAT, rows, profile).as_str().to_string(),
     };
 
     // `HOOK_HEADLINE_TOOLBAR_*` — no loaded plugins register them.
@@ -453,7 +438,7 @@ async fn format_headlines_list(
     const I_VF_CONTENT: usize = 27;
 
     let show_content_preview = prefs::resolve("SHOW_CONTENT_PREVIEW", rows, profile).as_bool();
-    let strip_images = prefs::resolve("STRIP_IMAGES", rows, profile).as_bool();
+    let strip_images = prefs::resolve(prefs::STRIP_IMAGES, rows, profile).as_bool();
     let bw_limit = data.get_bool("bw_limit").unwrap_or(false);
     let has_sandbox = data.get_bool("hasSandbox").unwrap_or(false);
 
@@ -847,15 +832,6 @@ fn contains_img(content: &str) -> bool {
     content.to_lowercase().contains("<img")
 }
 
-/// `basename($url)` — the last path segment (PHP semantics).
-fn basename(url: &str) -> String {
-    if url.is_empty() {
-        return String::new();
-    }
-    let no_slash = url.rfind('/').map(|i| &url[i + 1..]).unwrap_or(url);
-    no_slash.to_string()
-}
-
 /// `UrlHelper::url_to_youtube_vid`.
 fn url_to_youtube_vid(url: &str) -> Option<String> {
     let url = url.replace("youtube.com", "youtube-nocookie.com");
@@ -1112,7 +1088,7 @@ async fn get_headlines(
     let mut allow_archived = false;
     let mut ignore_vfeed_group = ignore_vfeed_group;
 
-    let fresh_max_age = prefs::resolve("FRESH_ARTICLE_MAX_AGE", rows, profile).as_int();
+    let fresh_max_age = prefs::resolve(prefs::FRESH_ARTICLE_MAX_AGE, rows, profile).as_int();
     let recently_read_max_age = prefs::resolve("RECENTLY_READ_MAX_AGE", rows, profile).as_int();
 
     // $view_query_part

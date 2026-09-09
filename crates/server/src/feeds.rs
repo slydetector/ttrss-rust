@@ -19,6 +19,7 @@ use minijinja::Environment;
 use sqlx::Row;
 
 use crate::controls;
+use crate::cats::{CAT_LABELS, CAT_SPECIAL};
 use crate::util;
 
 use crate::prefs;
@@ -34,8 +35,6 @@ const FEED_PUBLISHED: i64 = -2;
 const FEED_FRESH: i64 = -3;
 const FEED_ALL: i64 = -4;
 const FEED_RECENTLY_READ: i64 = -6;
-const CAT_SPECIAL: i64 = -1;
-const CAT_LABELS: i64 = -2;
 
 /// `clean($_REQUEST['mode'] ?? 0) == 2`.
 fn is_mode_2(extra: &Map<String, Value>) -> bool {
@@ -70,19 +69,6 @@ pub async fn feeds_with_errors(state: &AppState, sess: &Sess) -> Value {
         })
         .collect();
     Value::Array(items)
-}
-
-/// `Handler::_param_to_bool`.
-fn param_to_bool(v: &Value) -> bool {
-    match v {
-        Value::Bool(b) => *b,
-        Value::String(s) => {
-            let t = s.trim();
-            !t.is_empty() && t != "f" && t != "false"
-        }
-        Value::Number(n) => n.as_i64().unwrap_or(0) != 0,
-        _ => false,
-    }
 }
 
 /// A `ttrss_feed_categories` row (ordered by `order_id`, `title`).
@@ -144,13 +130,13 @@ pub async fn getfeedtree(
     let profile = data.profile().map(|p| p as i32);
     let pool = state.db.pool();
     let rows = prefs::load_rows(&state.db, uid, profile).await;
-    let enable_cats = prefs::resolve("ENABLE_FEED_CATS", &rows, profile).as_bool();
-    let fresh_max_age = prefs::resolve("FRESH_ARTICLE_MAX_AGE", &rows, profile).as_int();
+    let enable_cats = prefs::resolve(prefs::ENABLE_FEED_CATS, &rows, profile).as_bool();
+    let fresh_max_age = prefs::resolve(prefs::FRESH_ARTICLE_MAX_AGE, &rows, profile).as_int();
     let tz = TzCtx {
-        user_tz: prefs::resolve("USER_TIMEZONE", &rows, profile).as_str().to_string(),
+        user_tz: prefs::resolve(prefs::USER_TIMEZONE, &rows, profile).as_str().to_string(),
         client_tz_offset: data.get_int("clientTzOffset").unwrap_or(0),
-        short_date_format: prefs::resolve("SHORT_DATE_FORMAT", &rows, profile).as_str().to_string(),
-        long_date_format: prefs::resolve("LONG_DATE_FORMAT", &rows, profile).as_str().to_string(),
+        short_date_format: prefs::resolve(prefs::SHORT_DATE_FORMAT, &rows, profile).as_str().to_string(),
+        long_date_format: prefs::resolve(prefs::LONG_DATE_FORMAT, &rows, profile).as_str().to_string(),
     };
 
     let mode_is_2 = is_mode_2(extra);
@@ -165,7 +151,7 @@ pub async fn getfeedtree(
     };
     let force_show_empty = extra
         .get("force_show_empty")
-        .map(param_to_bool)
+        .map(|v| util::param_to_bool(Some(v)))
         .unwrap_or(false);
 
     let cats = fetch_all_cats(pool, uid).await;
@@ -524,7 +510,7 @@ async fn catchup_scope(
                       AND {date_qpart} AND {search_qpart}) as tmp)"
             )),
             FEED_FRESH => {
-                let intl = prefs::resolve("FRESH_ARTICLE_MAX_AGE", rows, profile).as_int();
+                let intl = prefs::resolve(prefs::FRESH_ARTICLE_MAX_AGE, rows, profile).as_int();
                 Some(format!(
                     "UPDATE ttrss_user_entries SET unread = false, last_read = NOW()
                      WHERE ref_id IN (SELECT id FROM
@@ -582,7 +568,7 @@ pub async fn catchup_feed(state: &AppState, sess: &Sess, extra: &Map<String, Val
         .unwrap_or("")
         .trim()
         .to_string();
-    let is_cat = extra.get("is_cat").is_some_and(param_to_bool);
+    let is_cat = extra.get("is_cat").is_some_and(|v| util::param_to_bool(Some(v)));
     let mode = extra
         .get("mode")
         .and_then(|v| v.as_str())
@@ -1023,41 +1009,6 @@ async fn counters(
 // category add/rename/remove trio. Plugin hooks are no-ops in this port.
 // ---------------------------------------------------------------------------
 
-fn scalar_str(v: &Value) -> Option<String> {
-    match v {
-        Value::String(s) => Some(s.clone()),
-        Value::Number(n) => Some(n.to_string()),
-        Value::Bool(b) => Some(b.to_string()),
-        _ => None,
-    }
-}
-
-/// `Handler::_param_to_int_array` (shared semantics with `article.rs`): parse
-/// `name` / `name[]` into `i32`s; a non-int token rejects the whole input.
-fn param_int_array(extra: &Map<String, Value>, name: &str) -> Vec<i32> {
-    let raw = extra.get(&format!("{name}[]")).or_else(|| extra.get(name));
-    let Some(raw) = raw else { return Vec::new() };
-    let mut parts: Vec<String> = Vec::new();
-    match raw {
-        Value::Array(items) => {
-            for it in items {
-                if let Some(s) = scalar_str(it) {
-                    parts.push(s.trim().to_string());
-                }
-            }
-        }
-        other => {
-            if let Some(s) = scalar_str(other) {
-                parts.push(s.trim().to_string());
-            }
-        }
-    }
-    if parts.iter().any(|p| p.parse::<i32>().is_err()) {
-        return Vec::new();
-    }
-    parts.iter().map(|p| p.parse::<i32>().unwrap()).collect()
-}
-
 /// `checkbox_to_sql_bool($val)` — a checkbox is truthy only when `"on"`.
 fn checkbox(extra: &Map<String, Value>, name: &str) -> bool {
     extra.get(name).and_then(|v| v.as_str()) == Some("on")
@@ -1074,7 +1025,7 @@ async fn editsaveops(state: &AppState, uid: i64, profile: Option<i32>, extra: &M
     let upd_intl = util::php_int_cast(&s("update_interval"));
     let purge_intl = util::php_int_cast(&s("purge_interval"));
     let feed_id = util::clean_int(extra.get("id")) as i32;
-    let feed_ids = if batch { param_int_array(extra, "ids") } else { Vec::new() };
+    let feed_ids = if batch { util::param_int_array(extra, "ids") } else { Vec::new() };
     let cat_id = util::clean_int(extra.get("cat_id")) as i32;
     let auth_login = util::clean_str(&s("auth_login"));
     let mut auth_pass = util::clean_str(&s("auth_pass"));
@@ -1142,7 +1093,7 @@ async fn editsaveops(state: &AppState, uid: i64, profile: Option<i32>, extra: &M
             return 0;
         }
         let rows = prefs::load_rows(&state.db, uid, profile).await;
-        let enable_cats = prefs::resolve("ENABLE_FEED_CATS", &rows, profile).as_bool();
+        let enable_cats = prefs::resolve(prefs::ENABLE_FEED_CATS, &rows, profile).as_bool();
         let mut tx = pool.begin().await.expect("begin");
         let mut touched: i64 = 0;
         if extra.contains_key("update_interval") {
@@ -1256,7 +1207,7 @@ pub async fn batch_edit_save(state: &AppState, sess: &Sess, extra: &Map<String, 
 /// `Pref_Feeds::remove` — remove each feed/label id (no-op response).
 pub async fn remove_feeds(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Value {
     let uid = sess.data().uid().unwrap_or(0);
-    for id in param_int_array(extra, "ids") {
+    for id in util::param_int_array(extra, "ids") {
         remove_feed(state, id, uid).await;
     }
     Value::Null
@@ -1356,7 +1307,7 @@ pub async fn rename_cat(state: &AppState, sess: &Sess, extra: &Map<String, Value
 pub async fn remove_cat(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Value {
     let uid = sess.data().uid().unwrap_or(0);
     let pool = state.db.pool();
-    for id in param_int_array(extra, "ids") {
+    for id in util::param_int_array(extra, "ids") {
         // `Feeds::_remove_cat`: find the category (owner-scoped) and delete it
         // (feeds keep their rows; their `cat_id` is nulled via `ON DELETE SET NULL`).
         let found = sqlx::query_scalar::<_, i32>("SELECT id FROM ttrss_feed_categories WHERE owner_uid = $1 AND id = $2")
@@ -1446,22 +1397,6 @@ async fn clear_access_keys(pool: &sqlx::PgPool, owner_uid: i64) {
         .await;
 }
 
-/// `Handler::_param_to_bool` (via `clean`): a clean string is truthy unless it
-/// is `""`, `"0"`, `"f"` or `"false"`; absent/`null`/non-string fall to their
-/// scalar truthiness.
-fn request_param_to_bool(p: Option<&Value>) -> bool {
-    match p {
-        None | Some(Value::Null) => false,
-        Some(Value::String(s)) => {
-            let t = s.trim();
-            !t.is_empty() && t != "0" && t != "f" && t != "false"
-        }
-        Some(Value::Bool(b)) => *b,
-        Some(Value::Number(n)) => n.as_i64().unwrap_or(0) != 0,
-        Some(_) => false,
-    }
-}
-
 /// PHP `http_build_query` / `urlencode` (query-string form): preserves
 /// alphanumerics and `-_.`, encodes a space as `+`, and `%XX`s the rest.
 fn php_urlencode(s: &str) -> String {
@@ -1501,8 +1436,8 @@ pub async fn regen_feed_key(
     state: &AppState, sess: &Sess, extra: &Map<String, Value>,
 ) -> Value {
     let uid = sess.data().uid().unwrap_or(0);
-    let feed_id = util::clean_str(extra.get("id").and_then(scalar_str).as_deref().unwrap_or(""));
-    let is_cat = request_param_to_bool(extra.get("is_cat"));
+    let feed_id = util::clean_str(extra.get("id").and_then(util::scalar_str).as_deref().unwrap_or(""));
+    let is_cat = util::param_to_bool(extra.get("is_cat"));
     let key = update_access_key(state.db.pool(), &feed_id, is_cat, uid).await;
     json!({ "link": key })
 }
@@ -1512,9 +1447,9 @@ pub async fn get_shared_url(
     state: &AppState, sess: &Sess, extra: &Map<String, Value>,
 ) -> Value {
     let uid = sess.data().uid().unwrap_or(0);
-    let feed_id = util::clean_str(extra.get("id").and_then(scalar_str).as_deref().unwrap_or(""));
-    let is_cat = request_param_to_bool(extra.get("is_cat"));
-    let search = util::clean_str(extra.get("search").and_then(scalar_str).as_deref().unwrap_or(""));
+    let feed_id = util::clean_str(extra.get("id").and_then(util::scalar_str).as_deref().unwrap_or(""));
+    let is_cat = util::param_to_bool(extra.get("is_cat"));
+    let search = util::clean_str(extra.get("search").and_then(util::scalar_str).as_deref().unwrap_or(""));
     let key = get_access_key(state.db.pool(), &feed_id, is_cat, uid).await;
     let is_cat_s = if is_cat { "1" } else { "0" };
     let id = feed_id.parse::<i64>().unwrap_or(0);
@@ -2087,7 +2022,7 @@ pub async fn editfeed(state: &AppState, sess: &Sess, extra: &Map<String, Value>)
         ] {
             m.insert(k.to_string(), Value::String(v.to_string()));
         }
-        let default_purge = prefs::resolve("PURGE_OLD_DAYS", &pref_rows, None).as_int();
+        let default_purge = prefs::resolve(prefs::PURGE_OLD_DAYS, &pref_rows, None).as_int();
         let suffix = if default_purge > 0 {
             format!("({default_purge} day{})", if default_purge == 1 { "" } else { "s" })
         } else {
@@ -2118,7 +2053,7 @@ pub async fn editfeed(state: &AppState, sess: &Sess, extra: &Map<String, Value>)
 
     let cats_enabled = prefs::resolve(prefs::ENABLE_FEED_CATS, &pref_rows, profile).as_bool();
     let cats_select = select_feeds_cats(pool, uid, "cat_id", row.cat_id, "").await;
-    let default_lang = prefs::resolve("DEFAULT_SEARCH_LANGUAGE", &pref_rows, profile).as_str().to_string();
+    let default_lang = prefs::resolve(prefs::DEFAULT_SEARCH_LANGUAGE, &pref_rows, profile).as_str().to_string();
     let all_lang = get_ts_languages(pool).await;
 
     json!({
@@ -2168,7 +2103,7 @@ pub async fn editfeeds(state: &AppState, sess: &Sess, extra: &Map<String, Value>
     let enable_feed_cats =
         prefs::resolve(prefs::ENABLE_FEED_CATS, &pref_rows, profile).as_bool();
     let default_update = prefs::resolve("DEFAULT_UPDATE_INTERVAL", &pref_rows, None).as_int();
-    let default_purge = prefs::resolve("PURGE_OLD_DAYS", &pref_rows, None).as_int();
+    let default_purge = prefs::resolve(prefs::PURGE_OLD_DAYS, &pref_rows, None).as_int();
 
     // PHP `$update_intervals` / `$purge_intervals` (backend.php), with the
     // default-annotation appended to the `0` key (PHP `editfeeds`).

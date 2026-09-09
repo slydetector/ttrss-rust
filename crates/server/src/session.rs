@@ -16,6 +16,7 @@ use ttrss_core::db::Db;
 use ttrss_core::phpser::Value;
 use ttrss_core::session::{self, Session};
 use ttrss_core::user;
+use crate::util::now_unix;
 
 use crate::AppState;
 
@@ -288,13 +289,6 @@ pub async fn save(db: &Db, key: Option<[u8; 32]>, id: &str, sess: &Session) -> a
         .await
         .then_some(())
         .ok_or_else(|| anyhow::anyhow!("failed to persist session"))
-}
-
-fn now_unix() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0)
 }
 
 /// Format a unix timestamp as an RFC 1123 date, e.g.

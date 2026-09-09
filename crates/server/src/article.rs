@@ -22,6 +22,7 @@ use sqlx::Row;
 use ttrss_core::db::Db;
 use ttrss_core::phpser::Value as PValue;
 use ttrss_core::session::Session;
+use crate::util::{basename, param_int_array, scalar_str};
 
 use crate::prefs;
 use crate::sanitizer::rewrite_relative;
@@ -38,62 +39,6 @@ pub const CATCHUP_MODE_TOGGLE: i32 = 2;
 pub const ARTICLE_KIND_ALBUM: i32 = 1;
 pub const ARTICLE_KIND_VIDEO: i32 = 2;
 pub const ARTICLE_KIND_YOUTUBE: i32 = 3;
-
-
-/// A scalar form value as its PHP string form.
-fn scalar_str(v: &Value) -> Option<String> {
-    match v {
-        Value::String(s) => Some(s.clone()),
-        Value::Number(n) => Some(n.to_string()),
-        Value::Bool(b) => Some(b.to_string()),
-        _ => None,
-    }
-}
-
-/// `Handler::_param_to_int_array`: parse `name` / `name[]` into ints. A string
-/// is trimmed and split on commas; any non-int rejects the whole input.
-fn param_int_array(extra: &Map<String, Value>, name: &str) -> Vec<i32> {
-    let raw = extra
-        .get(&format!("{name}[]"))
-        .or_else(|| extra.get(name));
-    let Some(raw) = raw else {
-        return Vec::new();
-    };
-    let mut parts: Vec<String> = Vec::new();
-    match raw {
-        Value::Array(items) => {
-            for it in items {
-                if let Some(s) = scalar_str(it) {
-                    parts.push(s);
-                }
-            }
-        }
-        other => {
-            if let Some(s) = scalar_str(other) {
-                parts.push(s);
-            }
-        }
-    }
-    let mut out: Vec<i32> = Vec::new();
-    let mut rejected = false;
-    for p in parts {
-        for tok in p.split(',') {
-            let t = tok.trim();
-            if t.is_empty() {
-                continue;
-            }
-            match t.parse::<i64>() {
-                Ok(n) => out.push(n as i32),
-                Err(_) => rejected = true,
-            }
-        }
-    }
-    if rejected {
-        Vec::new()
-    } else {
-        out
-    }
-}
 
 fn cmode_of(extra: &Map<String, Value>) -> i32 {
     extra
@@ -504,12 +449,6 @@ fn first_source_src(root: &NodeRef) -> Option<String> {
     None
 }
 
-/// PHP `basename()` on a URL string (segment after the last `/`, trailing
-/// slashes stripped).
-fn basename(url: &str) -> String {
-    url.rsplit('/').find(|s| !s.is_empty()).unwrap_or("").to_string()
-}
-
 /// `Article::_format_enclosures` result: the `formatted` / `entries` pair
 /// plus the `can_inline` / `inline_text_only` flags.
 #[derive(Clone, Debug, PartialEq)]
@@ -543,7 +482,7 @@ pub async fn format_enclosures(
     let strip_images = if let Some(uid) = uid {
         let profile = sess.get_int("profile").map(|p| p as i32);
         let rows = prefs::load_rows(db, uid, profile).await;
-        prefs::resolve("STRIP_IMAGES", &rows, profile).as_bool()
+        prefs::resolve(prefs::STRIP_IMAGES, &rows, profile).as_bool()
     } else {
         false
     };

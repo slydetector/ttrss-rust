@@ -5,7 +5,7 @@
 //! port lives here once and is reused by every module.
 
 use rand::Rng;
-use serde_json::Value;
+use serde_json::{Map, Value};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -316,6 +316,92 @@ pub fn gzdecode(data: &[u8]) -> std::io::Result<Vec<u8>> {
     let mut out = Vec::new();
     flate2::read::GzDecoder::new(data).read_to_end(&mut out)?;
     Ok(out)
+}
+
+/// Current Unix time in seconds (0 if the system clock is pre-epoch).
+pub fn now_unix() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}
+
+/// Scalar → `String` for a JSON value (numbers and bools stringify).
+pub fn scalar_str(v: &Value) -> Option<String> {
+    match v {
+        Value::String(s) => Some(s.clone()),
+        Value::Number(n) => Some(n.to_string()),
+        Value::Bool(b) => Some(b.to_string()),
+        _ => None,
+    }
+}
+
+/// `Handler::_param_to_int_array`: parse `name` / `name[]` into `i32`s.
+/// A comma-delimited string is split; any non-int token rejects the whole
+/// input (returns an empty vec).
+pub fn param_int_array(extra: &Map<String, Value>, name: &str) -> Vec<i32> {
+    let raw = extra
+        .get(&format!("{name}[]"))
+        .or_else(|| extra.get(name));
+    let Some(raw) = raw else {
+        return Vec::new();
+    };
+    let mut parts: Vec<String> = Vec::new();
+    match raw {
+        Value::Array(items) => {
+            for it in items {
+                if let Some(s) = scalar_str(it) {
+                    parts.push(s);
+                }
+            }
+        }
+        other => {
+            if let Some(s) = scalar_str(other) {
+                parts.push(s);
+            }
+        }
+    }
+    let mut out: Vec<i32> = Vec::new();
+    for part in parts {
+        for tok in part.split(',') {
+            let t = tok.trim();
+            if t.is_empty() {
+                continue;
+            }
+            match t.parse::<i64>() {
+                Ok(n) => out.push(n as i32),
+                Err(_) => return Vec::new(),
+            }
+        }
+    }
+    out
+}
+
+/// Last path segment of a URL (`` for the empty string).
+pub fn basename(url: &str) -> String {
+    if url.is_empty() {
+        return String::new();
+    }
+    url.rfind('/')
+        .map(|i| url[i + 1..].to_string())
+        .unwrap_or_else(|| url.to_string())
+}
+
+/// `Handler::_param_to_bool($p)`: `clean($p) && ($p !== "f" && $p !== "false")`.
+pub fn param_to_bool(v: Option<&Value>) -> bool {
+    let Some(v) = v else {
+        return false;
+    };
+    match v {
+        Value::Bool(b) => *b,
+        Value::Null => false,
+        Value::Number(n) => n.as_i64().unwrap_or(0) != 0,
+        Value::String(s) => {
+            let t = clean_str(s);
+            !t.is_empty() && t != "0" && t != "f" && t != "false"
+        }
+        _ => false,
+    }
 }
 
 #[cfg(test)]

@@ -58,7 +58,7 @@ pub async fn search_to_sql_cached(
     search_language: &str,
 ) -> SearchParts {
     // PHP: the date branch reads USER_TIMEZONE without a profile.
-    let user_tz = prefs::resolve("USER_TIMEZONE", rows, None).as_str().to_string();
+    let user_tz = prefs::resolve(prefs::USER_TIMEZONE, rows, None).as_str().to_string();
 
     // Quote grouping so command pairs tokenize as one keyword:
     //   keyword:"foo bar" -> "keyword:foo bar"
@@ -256,7 +256,7 @@ pub async fn search_to_sql_cached(
         // `$search_language ?: Prefs::get(DEFAULT_SEARCH_LANGUAGE, …)` —
         // PHP truthiness: "" and "0" are falsy.
         let lang = if search_language.is_empty() || search_language == "0" {
-            prefs::resolve("DEFAULT_SEARCH_LANGUAGE", rows, profile).as_str().to_string()
+            prefs::resolve(prefs::DEFAULT_SEARCH_LANGUAGE, rows, profile).as_str().to_string()
         } else {
             search_language.to_string()
         };

@@ -6,6 +6,7 @@
 //! routing, the login/logout flows, and static file serving.
 
 pub mod api;
+pub mod cats;
 pub mod article;
 pub mod auth;
 pub mod counters;

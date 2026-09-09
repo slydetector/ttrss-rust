@@ -274,10 +274,10 @@ pub async fn get_filter_tree(state: &AppState, sess: &Sess) -> Value {
             Some(ts) => {
                 let rows = prefs::load_rows(&state.db, uid, profile).await;
                 let tz = TzCtx {
-                    user_tz: prefs::resolve("USER_TIMEZONE", &rows, profile).as_str().to_string(),
+                    user_tz: prefs::resolve(prefs::USER_TIMEZONE, &rows, profile).as_str().to_string(),
                     client_tz_offset: data.get_int("clientTzOffset").unwrap_or(0),
-                    short_date_format: prefs::resolve("SHORT_DATE_FORMAT", &rows, profile).as_str().to_string(),
-                    long_date_format: prefs::resolve("LONG_DATE_FORMAT", &rows, profile).as_str().to_string(),
+                    short_date_format: prefs::resolve(prefs::SHORT_DATE_FORMAT, &rows, profile).as_str().to_string(),
+                    long_date_format: prefs::resolve(prefs::LONG_DATE_FORMAT, &rows, profile).as_str().to_string(),
                 };
                 Value::String(make_local_datetime(Some(ts), false, &tz))
             }

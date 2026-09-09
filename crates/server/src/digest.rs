@@ -88,10 +88,10 @@ pub async fn prepare_headlines_digest(
     let tz = TzCtx {
         user_tz: tz_string.clone(),
         client_tz_offset: 0,
-        short_date_format: prefs::resolve("SHORT_DATE_FORMAT", &rows, None)
+        short_date_format: prefs::resolve(prefs::SHORT_DATE_FORMAT, &rows, None)
             .as_str()
             .to_string(),
-        long_date_format: prefs::resolve("LONG_DATE_FORMAT", &rows, None)
+        long_date_format: prefs::resolve(prefs::LONG_DATE_FORMAT, &rows, None)
             .as_str()
             .to_string(),
     };

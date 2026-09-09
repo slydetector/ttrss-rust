@@ -592,11 +592,11 @@ async fn make_init_params(
     let mut out = Map::new();
     out.insert("on_catchup_show_next_feed".into(), Value::from(p("ON_CATCHUP_SHOW_NEXT_FEED").as_int()));
     out.insert("hide_read_feeds".into(), Value::from(p("HIDE_READ_FEEDS").as_int()));
-    out.insert("enable_feed_cats".into(), Value::from(p("ENABLE_FEED_CATS").as_int()));
+    out.insert("enable_feed_cats".into(), Value::from(p(prefs::ENABLE_FEED_CATS).as_int()));
     out.insert("feeds_sort_by_unread".into(), Value::from(p("FEEDS_SORT_BY_UNREAD").as_int()));
     out.insert("confirm_feed_catchup".into(), Value::from(p("CONFIRM_FEED_CATCHUP").as_int()));
     out.insert("cdm_auto_catchup".into(), Value::from(p("CDM_AUTO_CATCHUP").as_int()));
-    out.insert("fresh_article_max_age".into(), Value::from(p("FRESH_ARTICLE_MAX_AGE").as_int()));
+    out.insert("fresh_article_max_age".into(), Value::from(p(prefs::FRESH_ARTICLE_MAX_AGE).as_int()));
     out.insert("recently_read_max_age".into(), Value::from(p("RECENTLY_READ_MAX_AGE").as_int()));
     out.insert("hide_read_shows_special".into(), Value::from(p("HIDE_READ_SHOWS_SPECIAL").as_int()));
     out.insert("combined_display_mode".into(), Value::from(p("COMBINED_DISPLAY_MODE").as_int()));

@@ -21,6 +21,7 @@ use sqlx::Row;
 use ttrss_core::user;
 
 use crate::auth;
+use crate::cats::{CAT_LABELS, CAT_SPECIAL, CAT_UNCATEGORIZED};
 use crate::counters;
 use crate::feeds;
 use crate::article;
@@ -29,7 +30,7 @@ use crate::labels;
 use crate::prefs;
 use crate::sanitizer;
 use crate::session::{self, Sess};
-use crate::util::{clean_int, clean_str, php_int_cast, strip_tags, truncate_string};
+use crate::util::{clean_int, clean_str, param_to_bool, php_int_cast, strip_tags, truncate_string};
 use crate::AppState;
 
 const API_LEVEL: i64 = 23;
@@ -148,25 +149,6 @@ fn content_type_is_json(ct: &str) -> bool {
     let base = ct.split(';').next().unwrap_or("").trim();
     let base = base.to_ascii_lowercase();
     base == "application/json" || base == "text/json"
-}
-
-/// `Handler::_param_to_bool` on a JSON value: `clean($p)` then
-/// `$p && ($p !== "f" && $p !== "false")` (PHP string truthiness: `""`/`"0"`
-/// are falsy).
-fn param_to_bool(v: Option<&Value>) -> bool {
-    let Some(v) = v else {
-        return false;
-    };
-    match v {
-        Value::Bool(b) => *b,
-        Value::Null => false,
-        Value::Number(n) => n.as_i64().unwrap_or(0) != 0,
-        Value::String(s) => {
-            let t = clean_str(s);
-            !t.is_empty() && t != "0" && t != "f" && t != "false"
-        }
-        _ => false,
-    }
 }
 
 /// Like `param_to_bool`, but falls back to `default` when the key is absent
@@ -465,9 +447,6 @@ async fn get_categories(state: &AppState, uid: Option<i64>, body: &Map<String, V
     (STATUS_OK, Value::Array(cats))
 }
 
-const CAT_UNCATEGORIZED: i64 = 0;
-const CAT_SPECIAL: i64 = -1;
-const CAT_LABELS: i64 = -2;
 
 fn cat_title(cat_id: i64) -> &'static str {
     match cat_id {
@@ -812,7 +791,7 @@ async fn get_article(state: &AppState, uid: Option<i64>, body: &Map<String, Valu
     .unwrap_or_default();
 
     let sanitize_rows = prefs::load_rows(&state.db, uid, None).await;
-    let strip_images = prefs::resolve("STRIP_IMAGES", &sanitize_rows, None).as_bool();
+    let strip_images = prefs::resolve(prefs::STRIP_IMAGES, &sanitize_rows, None).as_bool();
 
     let mut out: Vec<Value> = Vec::new();
     for r in &rows {

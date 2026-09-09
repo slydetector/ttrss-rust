@@ -17,6 +17,16 @@ pub const ENABLE_FEED_CATS: &str = "ENABLE_FEED_CATS";
 pub const USER_TIMEZONE: &str = "USER_TIMEZONE";
 pub const DIGEST_MIN_SCORE: &str = "DIGEST_MIN_SCORE";
 pub const _ENABLED_PLUGINS: &str = "_ENABLED_PLUGINS";
+pub const LONG_DATE_FORMAT: &str = "LONG_DATE_FORMAT";
+pub const SHORT_DATE_FORMAT: &str = "SHORT_DATE_FORMAT";
+pub const FRESH_ARTICLE_MAX_AGE: &str = "FRESH_ARTICLE_MAX_AGE";
+pub const STRIP_IMAGES: &str = "STRIP_IMAGES";
+pub const DEFAULT_SEARCH_LANGUAGE: &str = "DEFAULT_SEARCH_LANGUAGE";
+pub const VFEED_GROUP_BY_FEED: &str = "VFEED_GROUP_BY_FEED";
+pub const PURGE_OLD_DAYS: &str = "PURGE_OLD_DAYS";
+pub const HEADLINES_NO_DISTINCT: &str = "HEADLINES_NO_DISTINCT";
+pub const ENABLE_API_ACCESS: &str = "ENABLE_API_ACCESS";
+pub const DEFAULT_UPDATE_INTERVAL: &str = "DEFAULT_UPDATE_INTERVAL";
 /// PHP `Config::T_*` type hints.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Type {

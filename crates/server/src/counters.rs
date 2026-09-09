@@ -12,6 +12,7 @@ use sqlx::Row;
 use ttrss_core::db::Db;
 
 use crate::prefs;
+use crate::cats::CAT_LABELS;
 use crate::headlines::PLUGIN_FEED_BASE_INDEX;
 use crate::labels::{feed_to_label_id, label_to_feed_id, LABEL_BASE_INDEX};
 use crate::session::Sess;
@@ -27,7 +28,6 @@ const FEED_PUBLISHED: i64 = -2;
 const FEED_FRESH: i64 = -3;
 const FEED_ALL: i64 = -4;
 const FEED_RECENTLY_READ: i64 = -6;
-const CAT_LABELS: i64 = -2;
 
 /// `RPC::getAllCounters`.
 pub async fn get_all_counters(
@@ -141,7 +141,7 @@ pub(crate) async fn all_counters(
     label_ids: Option<&[i64]>,
     cat_ids: Option<&[i64]>,
 ) -> Vec<Value> {
-    let fresh_max_age = prefs::resolve("FRESH_ARTICLE_MAX_AGE", rows, profile).as_int();
+    let fresh_max_age = prefs::resolve(prefs::FRESH_ARTICLE_MAX_AGE, rows, profile).as_int();
 
     let mut out: Vec<Value> = Vec::new();
     out.extend(get_global(pool, uid).await);
@@ -280,10 +280,10 @@ async fn get_feeds(
     }
 
     let tz = TzCtx {
-        user_tz: prefs::resolve("USER_TIMEZONE", rows, profile).as_str().to_string(),
+        user_tz: prefs::resolve(prefs::USER_TIMEZONE, rows, profile).as_str().to_string(),
         client_tz_offset,
-        short_date_format: prefs::resolve("SHORT_DATE_FORMAT", rows, profile).as_str().to_string(),
-        long_date_format: prefs::resolve("LONG_DATE_FORMAT", rows, profile).as_str().to_string(),
+        short_date_format: prefs::resolve(prefs::SHORT_DATE_FORMAT, rows, profile).as_str().to_string(),
+        long_date_format: prefs::resolve(prefs::LONG_DATE_FORMAT, rows, profile).as_str().to_string(),
     };
 
     let q: String = match feed_ids {
@@ -653,7 +653,7 @@ pub async fn get_counters(
     }
     let fresh_max_age = if n_feed == FEED_FRESH {
         let rows = prefs::load_rows(db, owner, None).await;
-        prefs::resolve("FRESH_ARTICLE_MAX_AGE", &rows, None).as_int()
+        prefs::resolve(prefs::FRESH_ARTICLE_MAX_AGE, &rows, None).as_int()
     } else {
         0
     };

@@ -11,6 +11,7 @@
 //! ported here.
 
 use chrono::{DateTime, Datelike, NaiveDateTime, Timelike, Utc};
+use crate::prefs;
 
 /// A `timestamp without time zone` value (stored as UTC) to its PG text
 /// representation, e.g. `2026-09-04 12:36:12` or `…12.975486` (fraction only
@@ -72,14 +73,14 @@ impl TzCtx {
         let profile = data.profile().map(|p| p as i32);
         let rows = crate::prefs::load_rows(&state.db, uid, profile).await;
         Self {
-            user_tz: crate::prefs::resolve("USER_TIMEZONE", &rows, profile)
+            user_tz: crate::prefs::resolve(prefs::USER_TIMEZONE, &rows, profile)
                 .as_str()
                 .to_string(),
             client_tz_offset: data.get_int("clientTzOffset").unwrap_or(0),
-            short_date_format: crate::prefs::resolve("SHORT_DATE_FORMAT", &rows, profile)
+            short_date_format: crate::prefs::resolve(prefs::SHORT_DATE_FORMAT, &rows, profile)
                 .as_str()
                 .to_string(),
-            long_date_format: crate::prefs::resolve("LONG_DATE_FORMAT", &rows, profile)
+            long_date_format: crate::prefs::resolve(prefs::LONG_DATE_FORMAT, &rows, profile)
                 .as_str()
                 .to_string(),
         }

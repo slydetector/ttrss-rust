@@ -21,6 +21,7 @@ use ttrss_core::config::Config;
 use ttrss_core::db::Db;
 use ttrss_core::phpser::Value;
 use ttrss_core::session as core_session;
+use ttrss_server::util::now_unix;
 use tokio::fs;
 use ttrss_server::{
     nocache_headers, with_trailing_slash, AppState, api, auth, diskcache, mime, render, rpc, session,
@@ -236,13 +237,11 @@ fn cached_file(state: &AppState, file: Option<&str>) -> Response {
 
 /// `Handler::_param_to_bool($p)`: `clean($p) && ($p !== "f" && $p !== "false")`.
 fn param_to_bool(v: Option<&str>) -> bool {
-    match v {
-        Some(s) => {
-            let s = s.trim();
-            !s.is_empty() && s != "f" && s != "false"
-        }
-        None => false,
-    }
+    v.map(|s| {
+        let val = serde_json::Value::String(s.to_string());
+        ttrss_server::util::param_to_bool(Some(&val))
+    })
+    .unwrap_or(false)
 }
 
 /// PHP `(int)clean(...)`: the leading integer prefix of the string
@@ -483,13 +482,6 @@ fn truthy(s: Option<&str>) -> bool {
 /// `checkbox_to_sql_bool`: checked checkboxes post "1"/"on".
 fn checkbox(s: Option<&str>) -> bool {
     matches!(s, Some("1") | Some("on"))
-}
-
-fn now_unix() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0)
 }
 
 /// Catch-all static asset handler: serves a file from the doc root
