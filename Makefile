@@ -109,8 +109,10 @@ PHP_IMAGE := php:8.5-cli
 
 .PHONY: record-params
 record-params: ## re-record the param differential fixtures from frozen PHP (public php:8.5-cli)
-	docker run --rm \
-		-v "$(CURDIR)/tt-rss":/tt-rss:ro \
-		-v "$(CURDIR)/crates/server/tests/fixtures":/fx:rw \
-		-v "$(CURDIR)/oracle/recorders":/rec:ro \
-		$(PHP_IMAGE) php /rec/param_int_array.php /fx/param_int_array.json
+	@for r in param_int_array param_to_bool clean_str php_int_cast; do \
+		docker run --rm \
+			-v "$(CURDIR)/tt-rss":/tt-rss:ro \
+			-v "$(CURDIR)/crates/server/tests/fixtures":/fx:rw \
+			-v "$(CURDIR)/oracle/recorders":/rec:ro \
+			$(PHP_IMAGE) php /rec/$$r.php /fx/$$r.json; \
+	done

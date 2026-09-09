@@ -16,35 +16,44 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// `/`, `!`, or `?`; an unterminated tag strips to the end of the string;
 /// `<!-- … -->` comments are removed; a `<` that does not start a tag is
 /// kept.
+/// Strip HTML/XML tags the way PHP's `strip_tags` does.
+///
+/// PHP tracks open tags on a stack: a `<` begins a tag unless it is followed
+/// by a space (a bare `< ` is literal text), and a `<` at end-of-string is a
+/// tag. Every `>` closes one open tag (a stray `>` with no open tag is kept);
+/// all tag content — including nested `<` and stray `>` — is dropped. Verified
+/// against the frozen PHP reference in `tests/param_differential.rs`.
 pub fn strip_tags(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
-    let mut rest = s;
-    while let Some(i) = rest.find('<') {
-        out.push_str(&rest[..i]);
-        let after = &rest[i + 1..];
-        if let Some(c) = after.chars().next() {
-            if c == '!' && after.starts_with("<!--") {
-                match after[4..].find("-->") {
-                    Some(j) => rest = &after[4 + j + 3..],
-                    None => return out,
+    let chars: Vec<char> = s.chars().collect();
+    let n = chars.len();
+    let mut open = 0usize;
+    let mut i = 0;
+    while i < n {
+        match chars[i] {
+            '<' => {
+                let next_is_space = i + 1 < n && chars[i + 1] == ' ';
+                if next_is_space {
+                    out.push('<'); // bare "< " is literal text
+                } else {
+                    open += 1; // tag start; drop the "<"
                 }
-                continue;
             }
-            if c.is_ascii_alphabetic() || c == '/' || c == '!' || c == '?' {
-                match after.find('>') {
-                    Some(j) => {
-                        rest = &after[j + 1..];
-                        continue;
-                    }
-                    // non-terminated tag: PHP strips to the end of the string
-                    None => return out,
+            '>' => {
+                if open > 0 {
+                    open -= 1; // closes the tag; drop the ">"
+                } else {
+                    out.push('>'); // stray ">" is kept
+                }
+            }
+            other => {
+                if open == 0 {
+                    out.push(other); // tag content is dropped
                 }
             }
         }
-        out.push('<');
-        rest = after;
+        i += 1;
     }
-    out.push_str(rest);
     out
 }
 
@@ -74,16 +83,69 @@ pub fn clean_str(s: &str) -> String {
     php_trim(&strip_tags(s)).to_string()
 }
 
-/// PHP `(int) $s`: the leading integer (optional `+`/`-` sign); non-numeric → 0.
+/// PHP `(int) $s`: parse the longest leading numeric prefix (integer, float,
+/// or scientific notation), then truncate to an integer — whitespace-trimmed,
+/// clamped to the `i64` range on overflow, non-numeric → 0. Matches PHP's
+/// `(int)` cast; verified in `tests/param_differential.rs`.
 pub fn php_int_cast(s: &str) -> i64 {
     let t = s.trim();
-    let (sign, rest) = match t.as_bytes().first() {
-        Some(b'+') => (1i64, &t[1..]),
-        Some(b'-') => (-1i64, &t[1..]),
-        _ => (1i64, t),
-    };
-    let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
-    sign * digits.parse().unwrap_or(0)
+    let b = t.as_bytes();
+    let mut i = 0;
+    if i < b.len() && (b[i] == b'-' || b[i] == b'+') {
+        i += 1;
+    }
+    let mut digits = 0usize;
+    // integer part
+    while i < b.len() && b[i].is_ascii_digit() {
+        digits += 1;
+        i += 1;
+    }
+    // optional fractional part
+    if i < b.len() && b[i] == b'.' {
+        i += 1;
+        while i < b.len() && b[i].is_ascii_digit() {
+            digits += 1;
+            i += 1;
+        }
+    }
+    // optional exponent (only consumed if it actually has digits)
+    if i < b.len() && (b[i] == b'e' || b[i] == b'E') {
+        let mut j = i + 1;
+        if j < b.len() && (b[j] == b'-' || b[j] == b'+') {
+            j += 1;
+        }
+        let exp_start = j;
+        while j < b.len() && b[j].is_ascii_digit() {
+            digits += 1;
+            j += 1;
+        }
+        if j > exp_start {
+            i = j;
+        }
+    }
+    if digits == 0 {
+        return 0;
+    }
+    let prefix = &t[..i];
+    match prefix.parse::<i64>() {
+        Ok(v) => v,
+        Err(_) => {
+            // overflow or a float: parse as f64 and clamp to the i64 range
+            let f = match prefix.parse::<f64>() {
+                Ok(f) => f,
+                Err(_) => return 0,
+            };
+            if f.is_nan() {
+                0
+            } else if f >= i64::MAX as f64 {
+                i64::MAX
+            } else if f <= i64::MIN as f64 {
+                i64::MIN
+            } else {
+                f as i64
+            }
+        }
+    }
 }
 
 /// PHP `(int) clean($v)` on a JSON value: numbers pass through, strings are
