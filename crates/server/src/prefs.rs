@@ -27,6 +27,10 @@ pub const PURGE_OLD_DAYS: &str = "PURGE_OLD_DAYS";
 pub const HEADLINES_NO_DISTINCT: &str = "HEADLINES_NO_DISTINCT";
 pub const ENABLE_API_ACCESS: &str = "ENABLE_API_ACCESS";
 pub const DEFAULT_UPDATE_INTERVAL: &str = "DEFAULT_UPDATE_INTERVAL";
+pub const DIGEST_PREFERRED_TIME: &str = "DIGEST_PREFERRED_TIME";
+pub const USER_CSS_THEME: &str = "USER_CSS_THEME";
+pub const USER_LANGUAGE: &str = "USER_LANGUAGE";
+pub const BLACKLISTED_TAGS: &str = "BLACKLISTED_TAGS";
 /// PHP `Config::T_*` type hints.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Type {

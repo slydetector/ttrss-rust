@@ -341,3 +341,85 @@ fn app_password_list_env() -> &'static Environment<'static> {
     })
 }
 
+/// `Pref_Prefs::saveconfig`: persist every valid pref in the submitted form
+/// (the prefs form posts `op=Pref_Prefs&method=saveconfig`), applying the
+/// per-pref quirks — boolean defaults (`boolean_prefs`), the digest-time reset
+/// of `last_digest_sent`, the theme/language reload flag, and blacklisted-tag
+/// normalization. Returns the message the SPA shows (`PREFS_NEED_RELOAD` or
+/// the "saved" text); the SPA reloads on the former and toasts the latter.
+pub async fn saveconfig(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> String {
+    let pool = state.db.pool();
+    let uid = sess.data().uid().unwrap_or(0);
+    let profile = sess.data().profile().map(|p| p as i32);
+
+    // `$_POST[boolean_prefs]`: comma-separated boolean pref names, each
+    // defaulting to "false" when absent from the form (`??=`).
+    let boolean_names: Vec<String> = util::clean_str(
+        extra.get("boolean_prefs").and_then(Value::as_str).unwrap_or(""),
+    )
+    .split(',')
+    .map(|s| s.trim().to_string())
+    .filter(|s| !s.is_empty())
+    .collect();
+
+    // The effective POST map (the form fields + the boolean defaults).
+    let mut post: Map<String, Value> = extra.clone();
+    for name in &boolean_names {
+        post.entry(name.clone())
+            .or_insert_with(|| Value::String("false".into()));
+    }
+
+    // Current values (for the reload / digest-time comparisons). `load_rows`
+    // loads both the named-profile and default-profile overrides so the
+    // profile-blacklisted comparisons resolve correctly.
+    let rows = prefs::load_rows(&state.db, uid, profile).await;
+
+    let mut need_reload = false;
+    for (name, value) in &post {
+        let mut value_str = value.as_str().unwrap_or("").to_string();
+
+        match name.as_str() {
+            prefs::DIGEST_PREFERRED_TIME => {
+                if prefs::resolve(prefs::DIGEST_PREFERRED_TIME, &rows, profile).as_str()
+                    != value_str.as_str()
+                {
+                    let _ = sqlx::query("UPDATE ttrss_users SET last_digest_sent = NULL WHERE id = $1")
+                        .bind(uid)
+                        .execute(pool)
+                        .await;
+                }
+            }
+            prefs::USER_CSS_THEME | prefs::USER_LANGUAGE => {
+                if !need_reload && prefs::resolve(name, &rows, profile).as_str() != value_str.as_str() {
+                    need_reload = true;
+                }
+            }
+            prefs::BLACKLISTED_TAGS => {
+                let parts: Vec<String> = value_str.split(',').map(|s| s.to_string()).collect();
+                value_str = util::normalize_categories(&parts).join(", ");
+            }
+            _ => {}
+        }
+
+        if prefs::default_for(name).is_some() {
+            let _ = prefs::set(&state.db, name, &value_str, uid, profile).await;
+        }
+    }
+
+    if need_reload {
+        "PREFS_NEED_RELOAD".to_string()
+    } else {
+        "The configuration was saved.".to_string()
+    }
+}
+
+/// `Pref_Prefs::resetconfig`: discard every override the user set for the
+/// active profile (`Prefs::reset`) and tell the SPA to reload.
+pub async fn resetconfig(state: &AppState, sess: &Sess) -> String {
+    let uid = sess.data().uid().unwrap_or(0);
+    let profile = sess.data().profile().map(|p| p as i32);
+    prefs::reset(&state.db, uid, profile).await;
+    "PREFS_NEED_RELOAD".to_string()
+}
+
+
