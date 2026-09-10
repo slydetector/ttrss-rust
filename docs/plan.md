@@ -11,9 +11,9 @@ decisions: §6.
 ### 1.1 Inventory (what exists in `tt-rss/`)
 
 | Area | Size | Notes |
-|---|---|---|
+| --- | --- | --- |
 | Core PHP (`classes/`, `include/`, entry points) | ~43.5k LOC, 130 files | `classes/` alone is 58 files / 21.2k LOC |
-| Bundled plugins (`plugins/`) | ~2.8k LOC, 32 files, 15 plugins | auth_internal, auth_remote, af_* filters, nsfw, note, share, bookmarklets, cache_starred_images, hotkeys_*, etc. |
+| Bundled plugins (`plugins/`) | ~2.8k LOC, 32 files, 15 plugins | auth_internal, auth_remote, af_*filters, nsfw, note, share, bookmarklets, cache_starred_images, hotkeys_*, etc. |
 | JS frontend (`js/`) | ~9.6k LOC, 27 files | Dojo 1.x + "fox" custom widgets; SPA driven by `backend.php` |
 | Dojo libs (`lib/`) | ~13 MB | vendored dojo/dijit, MiniTemplator, gettext loader |
 | SQL (PostgreSQL) | base `schema.sql` (407 LOC) + **151 numbered migrations** | ~30 tables; MySQL files are empty — **this fork is PostgreSQL-only** |
@@ -38,7 +38,7 @@ The system is **three runtimes sharing one codebase**:
 ### 1.3 Core subsystems (the actual domain)
 
 | Subsystem | Key files | Responsibility |
-|---|---|---|
+| --- | --- | --- |
 | **Config** | `Config.php` (757 L) | ~60 env-var (`TTRSS_*`) + type-hinted settings; self-URL detection (proxy-aware); sanity checks; version detection (git) |
 | **Prefs** | `Prefs.php`, `Pref_*` | Per-user, per-profile settings; registry table `ttrss_prefs` (name/type/default/help); ~50 keys; profiles (`ttrss_settings_profiles`) |
 | **Users & auth** | `UserHelper.php`, `Auth_Base.php`, `IAuthModule(2)`, plugins `auth_internal`/`auth_remote` | Plugin-chained auth; password hashes (SSHA-512/256, MODE2, SHA1X, SHA1 — PHP crypt formats); TOTP (OTPHP); app passwords; access levels (disabled/readonly/user/poweruser/admin); auto-create/auto-login; session validation hook |
@@ -63,7 +63,7 @@ Schema evolution: `Db_Migrations` runs numbered `.sql` files (split on `;`, per 
 ### 1.5 Compatibility surface (what a Rust port must preserve)
 
 | # | Surface | Consumers |
-|---|---|---|
+| --- | --- | --- |
 | A | PostgreSQL schema v151 + migration semantics | existing data; coexistence with PHP instances |
 | B | `backend.php` internal JSON RPC (exact JSON shapes, loose param types) | the Dojo JS frontend (27 files, ~9.6k LOC) |
 | C | External JSON API level 23 (`{seq,status,content}`, error codes) | third-party clients (ttrss-reader, mobile, scripts) |
@@ -106,7 +106,7 @@ Binary: one **`tt-rust`** binary with subcommands `serve` (web server), `update`
 ### 2.2 Crate choices (vetted, mainstream — no custom infrastructure)
 
 | Concern | Crate(s) | Notes |
-|---|---|---|
+| --- | --- | --- |
 | HTTP server | **axum** + tokio + tower | matches PHP entry-point dispatch; middleware for sessions/CSRF/i18n |
 | HTTP client (feeds) | **reqwest** (rustls) | Guzzle replacement; proxies, timeouts, 429 handling |
 | Postgres | **sqlx** (runtime queries) | codebase is full of dynamic SQL (search, filters, counters); runtime SQL is the pragmatic fit. `sqlx::query` + manual row mapping |
@@ -140,7 +140,7 @@ Binary: one **`tt-rust`** binary with subcommands `serve` (web server), `update`
 Restructured per `research-report.md` (strangler-fig / vertical-slice / golden-master methodology). **Rule: every milestone ends with a live, demoable end-to-end system and a green oracle-diff harness for everything it claims.** Port order = usage-census order (hot ops first), respecting the read → write → background ladder. §3 (this section) is the **delivery order** (which milestone to demo next); §3a is the **detailed work-item reference** (per-subsystem, consulted as each milestone is started).
 
 | M | Milestone | Demo / exit criteria |
-|---|---|---|
+| --- | --- | --- |
 | **M0** | Oracle + harness | Dockerized PHP oracle (pinned `sha-` image) up with populated **golden DB** (`pg_dump` fixture); request-corpus recorder; structural JSON/HTML/Atom diff tool with non-determinism normalizers; harness proven against a stub Rust server; PHP perf baseline recorded |
 | **M1** | Walking skeleton | `tt-rust serve` serves all static assets + login page; real login (`auth_internal`, SSHA-512) against golden DB; SPA shell renders in a browser; DB sessions (encrypted) read/write |
 | **M2** | **Read-only UI on real data** (confidence marker) | Feed tree + counters + headlines + article content + search + labels correct on golden dataset; `backend.php` read ops + external API read ops (level 23) pass diff harness; Atom/JSON syndication, feed icons, ETag shells |
@@ -169,6 +169,7 @@ Restructured per `research-report.md` (strangler-fig / vertical-slice / golden-m
   ~46–117 ms mean incl. nginx + FPM cold worker + DB).
 
 Key PHP behaviors discovered (the Rust port must match these):
+
 - User passwords: `SSHA-512:sha512(salt+pass)` (salt in a **separate column**).
 - App passwords: `SSHA-512:sha512(salt+pass):salt` — **ALGO:HASH:SALT**.
 - TOTP: `otp_secret` column stores an ASCII string; it is base32-encoded on read,
@@ -197,6 +198,7 @@ golden DB with encrypted DB sessions; SPA shell renders. Progress is
 demoable and oracle-diff-verified per surface.
 
 Done:
+
 - **`ttrss-core` (24 tests, no HTTP dep):**
   - `phpser` — byte-oriented PHP `serialize`/`unserialize` subset (raw-byte
     strings, ordered arrays, `s:`/`a:`/quoted-string handling).
@@ -297,6 +299,7 @@ actually load data read-only: the `backend.php` RPC surface (`getfeedtree`,
   **61/61 clean**. Whole workspace: 51 tests passing, clippy clean.
 
 Design notes (this increment):
+
 - HTML compatibility = normalized/structural (parser-based DOM) + exact dynamic
   values + meaningful headers — not raw-byte matching. Static = byte-for-byte.
 - `ttrss-core` keeps zero HTTP deps so the web framework (axum) stays swappable.
@@ -322,7 +325,7 @@ clean** on the golden dataset. Done so far:
   file/dir existence check — `night` is a `.css` file so it's *not* a theme →
   `""`), `plugins`, `hotkeys` (61-entry static map + derived prefixes), 4
   `icon_*` base64 blobs, labels) and `_make_runtime_info`. `_make_runtime_info`
-  + `init-params` `labels` share `Labels::get_all`.
+  - `init-params` `labels` share `Labels::get_all`.
 - **`Prefs` resolver** (`crates/server/src/prefs.rs`): the `ttrss_prefs` DB
   registry is empty in this fork — defaults live in PHP `Prefs::_DEFAULTS`
   (reproduced) with the profile blacklist + `cast_to` (bool/int/str) +
@@ -388,7 +391,7 @@ clean** on the golden dataset. Done so far:
   byte-identical on the same DB (verified: PHP oracle and Rust produce the identical
   label-counter order on the same dataset).
 - **`time` module** (`crates/server/src/time.rs`): ports `TimeHelper::make_local_datetime`
-  + `smart_date_time` + the user's `SHORT_DATE_FORMAT`/`LONG_DATE_FORMAT` (uid 1: `j M, G:i`),
+  - `smart_date_time` + the user's `SHORT_DATE_FORMAT`/`LONG_DATE_FORMAT` (uid 1: `j M, G:i`),
   the `eta_min` and bare-time cases, and `naive_to_pg_text` (a `timestamp without time zone`
   → the exact PG/PDO text, fraction only when non-zero, trailing zeros stripped).
 - **Sanitizer libxml2 fidelity** (`crates/server/src/sanitizer.rs`): PHP uses libxml2
@@ -645,6 +648,7 @@ clean** on the golden dataset. Done so far:
   is a no-op and `__()` is the identity. Structure verified against the PHP (3 DB
   tests in `tests/filter_index.rs`; `oracle/recorders/filters_index.php`). Only
   `testFilterDo` remains (the M6 filter-execution engine).
+
 ### Test-parity program (PHP `#[test]` → Rust `#[test]`, 2026-09-05)
 
 > **STATUS: ✅ COMPLETE (2026-09-06; row 15 added 2026-09-07 with M3).** All **15/15 rows** ported and green —
@@ -688,7 +692,7 @@ tracked were ported 1:1 in `tests/prefs_parity.rs` alongside the `Prefs::set` /
 `reset` / `get_all` / profile-surface port (see row 3).*
 
 | # | PHP suite | Rust module | status |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | 1 | `TimeHelperTest` (41) | `server::time` | ✅ 24 ported (applicable); N/A: `$long`/`no_smart_dt`, uid/profile, `convert_timestamp` |
 | 2 | `SanitizerTest` (162) | `server::sanitizer` | ✅ **256** cases across all four PHP sanitizer suites — `tests/mocked/SanitizerUnitTest` (81), `tests_functional/SanitizerTest` (11), `tests/integration/SanitizerTest` (2), `tests_integration/SanitizerTest` (162) — ported 1:1 into `sanitizer_parity.rs` (+`sanitizer_parity/{mocked,functional,unit,integration}.rs`). Ground truth: PHP 8.5.9 / libxml 2.13.09 oracle. 5 cases carry a NOTE — 2 where the PHP test is itself buggy (the oracle fails it as written: `<source>` without `src` is not stripped; `<font color="red">` survives so the exact-string assert fails) and 3 where libxml 2.13 entity-encodes non-ASCII in `saveHTML` (Rust serializes raw UTF-8); each is ported 1:1 in inputs with the corrected / semantically-equivalent expectation. Re-implemented `validate`/`rewrite_relative`/`build_url`/`parse_url`/`has_disallowed_ip`/`canonicalize_ipv4_literal` to match PHP exactly (case-preserving, no dot-segment resolution, `//`→https, data/mailto/magnet exceptions, IP-literal canonicalization); added `iframe_whitelisted`, `wrap_iframes_in_div`, `highlight_words[_str]`, head→body fixup for `<noscript>`. |
 | 3 | `PrefsTest` (29) | `server::prefs` | ✅ **29/29** (15 pure + 1 extra guard in `prefs.rs::tests`; 14 DB-backed in `tests/prefs_parity.rs`). `Prefs::set`/`reset`/`get_all`/`create_profile` (+`get_profile_id`/`profile_exists`) ported to `server::prefs`; `all_defs()` = the ordered `_DEFAULTS` table (drives `default_for` + `get_all`); faithful PHP `(int)` cast; PHP 8.1+ PDO storage forms (bool → `"1"`/`""`); `headlines::pref_set` (the `_DEFAULT_VIEW_*` upsert) now delegates to `prefs::set`; PHP built-in `strip_tags` moved to `server::util` |
@@ -700,7 +704,7 @@ tracked were ported 1:1 in `tests/prefs_parity.rs` alongside the `Prefs::set` /
 | 9 | `SessionsIntegrationTest` (29) | `server::session` | ✅ 29/29 ported (`tests/session_parity.rs`) + row-8 regeneration case = 30 tests. `Sessions` class methods ported to `server::session::{exists,read,write,destroy,validate_session}` (raw string-level, matching `SessionHandlerInterface`); envelope helpers (`encrypt_envelope`/`decrypt_envelope`) + `Session::from_items` in `core::session`; `validate_session` (+`single_user_mode` config, `ACCESS_LEVEL_*` consts in `core::user`) now used by `rpc::dispatch`; middleware `load` auto-creates like PHP `session_start`; `sql_bool_to_bool` canonicalized in `core::config` (used by prefs + config) |
 | 10 | `ArticleTest` (32) | `server::article` | ✅ 32/32 ported (`tests/article_parity.rs`). `Article` static surface ported to `server::article`: `get_tags` / `get_labels` (+ `Labels::update_cache` marker) / `catchup_by_id` / `purge_orphans` / `get_enclosures` / `labels_of` / `feeds_of` / `get_image` (XPath subset via iterative kuchikiki walk, YouTube embed / video poster / img / enclosure fallback / ALBUM detection) / `format_enclosures` (+ `can_inline` via prefs `STRIP_IMAGES`); `rewrite_relative` now `pub(crate)`; PluginHost hooks + DiskCache wrapping omitted (no plugins / no disk cache) with NOTEs |
 | 11 | `FeedsCountersIntegrationTest` (40) | `server::counters` | ✅ 40/40 ported (`tests/counters_parity.rs`). `Feeds::_get_counters` ported to `counters::get_counters` (`FeedOrTag` = feed id **or** tag name, PHP `(int)`/`is_numeric` casts, tag branch, `FRESH_ARTICLE_MAX_AGE` pref lookup); `Counters::{get_all, get_conditional, get_labels}` exposed as `counters::{get_all, get_conditional, get_labels}` on the existing M3 counter machinery (private `get_all`/`get_labels` renamed `all_counters`/`labels_counters`); `feed_counters` gained the PHP `$n_feed === FEED_ARCHIVED` strict-int flag; PHP `setUp()`'s `Prefs::set(FRESH_ARTICLE_MAX_AGE, 999999, 1, null)` modeled as a `ttrss_user_prefs2` INSERT |
-| 12 | `FeedsHeadlinesIntegrationTest` (20) | `server::headlines` | ✅ 20/20 ported (`tests/headlines_parity.rs`). `Feeds::_get_headlines` exposed as `headlines::get_headlines_query(&Db, &HeadlinesParams)` (pub `HeadlinesQuery` = the typed form of PHP's 9-tuple return); `since_id` plumbed into the private query builder (numeric-feed main query + first-id query, not the tag-browsing query — faithful to PHP); `HeadlinesParams::new(feed, owner_uid)` carries the PHP defaults (limit 30, `view_mode` all); prefs loaded with profile `None` (no session profile at this layer) | 
+| 12 | `FeedsHeadlinesIntegrationTest` (20) | `server::headlines` | ✅ 20/20 ported (`tests/headlines_parity.rs`). `Feeds::_get_headlines` exposed as `headlines::get_headlines_query(&Db, &HeadlinesParams)` (pub `HeadlinesQuery` = the typed form of PHP's 9-tuple return); `since_id` plumbed into the private query builder (numeric-feed main query + first-id query, not the tag-browsing query — faithful to PHP); `HeadlinesParams::new(feed, owner_uid)` carries the PHP defaults (limit 30, `view_mode` all); prefs loaded with profile `None` (no session profile at this layer) |
 | 13 | `LabelsTest`/`LabelsIntegrationTest` (15/35) | `server::labels` | ✅ 50/50 ported (15 pure + 35 DB, `tests/labels_parity.rs`). New `server::labels` = the PHP `Labels` class: `label_to_feed_id`/`feed_to_label_id` (canonical i64 home; `article` re-exports), case-insensitive `find_id`/`find_caption`, `get_all`/`get_as_hash`, transactional `create`/`remove` (`remove` binds the varchar `ttrss_access_keys.feed_id` as a **string** — PHP PDO binds ints as strings), `add_article`/`remove_article`, `clear_cache`, `update_cache` + `get_labels_json` (string-level `Article::_get_labels` with the cache-hit-as-is semantics; `article::get_labels` delegates to it) |
 | 14 | `RPCTest` (10) | `server::rpc` | ✅ 10/10 ported (`tests/rpc_parity.rs`). PHP `RPC::mark`/`publ`/`delete` ported to `article::{mark, publ, delete}` (cleaned string params, Postgres-side `$1::boolean` cast like PDO string binding, `pub` request key for `publ`, `Null` output on empty `delete`), dispatched from `rpc.rs`; the `markSelected`/`publishSelected` arms were already present; tests seed a `Sess` with `uid = 1` (PHP `DbTestCase`'s `$_SESSION["uid"]`) |
 | 15 | `ArticleHandlerTest` (17) | `server::article` (handlers) | ✅ 17/17 ported (`tests/article_handler_parity.rs`). PHP `Article` handler methods invoked directly (`invokeHandler('Article', …)`, `$_SESSION["uid"]=1`) ported to the Rust handler functions: `setScore` (3 — single/multi/zero; `ttrss_user_entries.score`), `setArticleTags` (4 — new/replaces/clears/trims; transactional `ttrss_tags` + `tag_cache`), `printArticleTags` (2 — existing/empty), `completeTags` (3 — matching/no-match/case-sensitive; `LIKE 'search%' LIMIT 10`), `assigntolabel`/`removefromlabel` (2 — `ttrss_user_labels2` + `label_cache`), `getmetadatabyid` (2 — `{link,title}` / `[]`), `redirect` (1 — 302 + `Location`). Also fixed a latent `metadata_by_id` SQL bug (a doubled `\\` line-continuation that made the query invalid; masked because the corpus sent the wrong `id` param so both sides returned `[]`) and corrected corpus steps 022/023 to send `id` — the oracle baseline was re-recorded so they now exercise the real path. `util::normalize_categories` gained its own unit test (trim/lower/sort, `t:` numeric prefix, quote-strip, 250-char cap) |
@@ -712,7 +716,7 @@ modules that are **not yet ported**, so they land *alongside* those modules, not
 before them:
 
 | Remaining PHP coverage | Blocked on (Rust) | Milestone |
-|---|---|---|
+| --- | --- | --- |
 | `Feeds::view` / `Feeds::search` response handlers + `RPC::getAllCounters` (corpus 009/017/018/019/020/056) | `headlines::view`/`search` RPC wiring + `Feeds` branch in `rpc.rs` | **M2** (see the `M2 — Feeds::view` NEXT block below + §3a) |
 | Feed-parser / RSS-utils (fetch/parse/hash/dedup/filters/enclosures) | `FeedParser` + `RSSUtils` ports | **M6** |
 | DiskCache / Scheduler / counter-cache maintenance | DiskCache port + `daemon` tokio workers | **M6** |
@@ -721,6 +725,7 @@ before them:
 | Config CRUD (feed CRUD + categories + icons + OPML, filters, access keys) ✅ | M4 mutation handlers | **M4** (complete 2026-09-16; feed subscribe/create → M6) |
 **M2 close-out test parity (2026-09-16):** porting the `backend.php` read handlers
 surfaced two more PHP suites for already-ported modules, now replicated:
+
 - `FeedsTest.php` (3) + `FeedsIntegrationTest.php` (13) → the `Feeds::_get_title` /
   `_get_cat_title` feed-title resolution, ported 1:1 to `tests/feeds_parity.rs` (12
 cases; the one `test_get_title_non_numeric_id` case is N/A — the Rust `feed_title`
@@ -754,6 +759,7 @@ isolated per test, fast + repeatable.
 
 **Design (decided — replaces the earlier hand-rolled template-clone; build on
 libraries, don't cleanroom the lifecycle):**
+
 - **Server** = a *reused* testcontainers `postgres:15-alpine` container
   (`crates/testing`, `CONTAINER_NAME = "ttrss_test_pg"`). Reused containers persist
   across runs and are **not removed on handle drop** (verified in testcontainers
@@ -776,6 +782,7 @@ libraries, don't cleanroom the lifecycle):**
   (`TIME ZONE 0`, `datestyle = 'ISO, european'`, `cpu_tuple_cost`, `client_encoding`).
 
 **Research notes (verified against vendored/cloned sources, not memory):**
+
 - Repo names here differ from training data: sqlx = `transact-rs/sqlx`
   (`launchbadge/sqlx` 301s there); testcontainers = `testcontainers/testcontainers-rs`.
   Read the `repository` field from the vendored `Cargo.toml`; verify HTTP 200 before
@@ -801,6 +808,7 @@ libraries, don't cleanroom the lifecycle):**
 - nextest 0.9.143: the profile key is `test-threads` (not `threads`).
 
 **Shipped (committed):**
+
 - ✅ `core::db`: `SESSION_SETUP` now `pub`; added `Db::connect_url` +
   `Db::from_pool(PgPool)`.
 - ✅ `server` split into lib + bin; `auth::authenticate` fixed to match PHP (SSHA-512
@@ -871,6 +879,7 @@ Infra findings from rows 12–14 (affect all DB-backed tests):
 #### M2 — `Feeds::view` headlines / Sanitizer approach
 
 **DONE (committed):**
+
 - `8efb755` harness: HTML-bearing JSON fields compared **structurally** (canonical
   DOM via existing `scraper`/`html5ever` in `crates/harness/src/html.rs`), not as raw
   strings. `normalize_json` → `html::is_html_fragment(s)` → `canonical_html(s)`.
@@ -903,6 +912,7 @@ show_syntax_help:true,default_language:"",all_languages:Pref_Feeds::get_ts_langu
 `_get_headlines`(1354)/`search`(558), `TimeHelper.php`, `Article.php:308`.
 
 ##### M2 — `Feeds::view` headlines / Sanitizer approach (decided)
+
 The `view()` response's per-article `content` field is the **sanitized article
 body HTML** (`Sanitizer::sanitize` on the raw `ttrss_entries.content`, then
 `DiskCache::rewrite_urls` (no-op here), then content-transforming plugin hooks
@@ -955,6 +965,7 @@ detailed content reference consulted as each milestone is started; the delivery
 *order* itself is §3.
 
 ### Phase 0 — Foundations & test harness (→ M0/M1)
+
 - Cargo workspace, CI (fmt/clippy/test), GPL-3.0 headers, `rust-version` pin.
 - Copy assets (js/, lib/, themes/, images/, locale/, templates/, sql/pgsql) into the repo as data.
 - `ttrss-core::config`: all ~60 `TTRSS_*` settings with types + defaults (port `Config::_DEFAULTS`), self-URL detection rules, version detection (build-time embedded git info → `version_static` fallback).
@@ -964,6 +975,7 @@ detailed content reference consulted as each milestone is started; the delivery
 - **Exit criteria**: `ttrss-db` boots a pristine PG and a v151 DB identically to PHP; config parity test vs PHP `Config::get()` for a matrix of env setups.
 
 ### Phase 1 — Domain core (no HTTP) (→ M1/M2)
+
 - Model structs for all tables (sqlx FromRow).
 - `Prefs` subsystem: registry (`ttrss_prefs`), get/set with type casting + strip-tags rules, profiles, per-user overrides.
 - `users`: password hashing/verification for **all five PHP formats** (SSHA-512/256, MODE2, SHA1X, SHA1) — validate against hashes generated by the PHP implementation; TOTP verify; app passwords (generate/verify); access levels; user CRUD; auth chain (plugin hook skeleton + `auth_internal` + `auth_remote`).
@@ -973,6 +985,7 @@ detailed content reference consulted as each milestone is started; the delivery
 - **Exit criteria**: unit + golden tests pass for prefs, users (including login against PHP-seeded DB), i18n (sample strings in ≥5 locales), time formatting (time matrix vs PHP `date()`).
 
 ### Phase 2 — Feed pipeline (the engine) (→ M6; sanitizer/URL work needed earlier for M2 content rendering)
+
 - `FeedParser` + `FeedItem_*` port over `xml` (RDF/RSS/Atom, namespaces, content encoding, gzip detection).
 - `UrlHelper` port: reqwest client (proxy, connect/total timeouts, 429 throttle, conditional GETs, redirect policy) + URL validation + **SSRF guards** (private/reserved IP checks incl. resolved-IP validation, IDN) + srcset + YouTube id.
 - `Sanitizer` port over html5ever (allowed elements, disallowed attrs, iframe whitelist, highlighting, URL rewrite to cache, image strip) — differential tests against PHP sanitizer output on a corpus of nasty HTML (reuse `tests_functional/SanitizerTest` corpus).
@@ -982,6 +995,7 @@ detailed content reference consulted as each milestone is started; the delivery
 - **Exit criteria**: golden-file parity of an update run (feed XML fixtures → resulting DB rows) vs PHP; sanitizer corpus passes; counter math parity tests (feed/cat/label/virtual).
 
 ### Phase 3 — Web server foundation (→ M1)
+
 - axum app: router mirroring entry points (`/`, `/prefs.php`, `/backend.php`, `/public.php`, `/api/`, `/images/`, `/themes/`, `/js/`, `/lib/`, `/cache/`, `/plugins.local/…` static), static file serving with cache-busting mtime queries.
 - Sessions: DB-backed store port (encrypted via XChaCha20-Poly1305 when `ENCRYPTION_KEY` set — byte-compatible with PHP session rows), cookie handling (name, secure, httponly, remember-me lifetime), session validation (pwd_hash change, disabled account, plugin hook).
 - CSRF tokens (per-session, `hash_equals` → `subtle` constant-time compare).
@@ -992,7 +1006,9 @@ detailed content reference consulted as each milestone is started; the delivery
 - **Exit criteria**: a browser (with unmodified frontend JS) can log in, reach the main shell, and static assets all serve; login/logout/session flows match PHP (including encrypted session interop test: Rust reads session written by PHP and vice versa).
 
 ### Phase 4 — Frontend API parity (`backend.php` handlers) (→ M2 read ops, M3/M4/M5 write+admin ops)
+
 Port each handler class, method-by-method, against golden files (read methods land in M2; the rest follow the milestone ladder):
+
 1. `RPC` (legacy): togglepref, setpref, mark, delete, publ, counters, getFeedTree… (whatever App.js/Feeds.js/Headlines.js call).
 2. `Feeds`: view, search, opensite, updatedebugger, subscribeToFeed, catchupAll.
 3. `Article`: redirect, tags (print/set/complete), score, labels (assign/remove), enclosures, getmetadatabyid.
@@ -1004,6 +1020,7 @@ Port each handler class, method-by-method, against golden files (read methods la
 9. `Pref_Users`: list, add, edit, details, remove, resetPass (admin).
 10. `Pref_System`: log viewer, clear log, send test email, scheduled tasks list.
 11. Plugin handler hooks (where relevant to UI).
+
 - **Exit criteria**: every JS `xhr` call in `js/` answered with structurally identical JSON (golden diff < 0); Selenium smoke (existing `selenium_test.py`) passes against Rust server.
 - **M3 status (2026-09-07):** item 1's mutation arms (`mark`/`publ`/`delete`/`catchupSelected`/`publishSelected`/`catchupFeed`), item 2's `catchupAll` (full `Feeds::_catchup` port), and item 3's `Article::redirect`/tags (print/set/complete)/score/labels (assign/remove)/`getmetadatabyid` are ported and diffed 21/21 by the `db_state`-capturing `scenarios-m3.toml` corpus (parity: row 15). Item 3's `enclosures` read path is row 10; `note` is M7 (plugin territory). Item 2's `view`/`search` remain M2; `subscribeToFeed` + `opensite` are ported (M4, see the status bullets below).
 - **M4 status (2026-09-16):** the `Pref_Prefs` **profiles** slice is ported (`addprofile`/`cloneprofile`/`remprofiles`/`activateprofile`/`saveprofile`, with `getProfiles` already done) — verified by Rust-only DB tests in `tests/pref_profiles.rs` (Rust-only because the frozen PHP suite has no `Pref_Prefs` configuration tests). All five are pure DB + session work and have **no plugin overlap**: `cloneprofile`'s copy uses the static `Prefs::_PROFILE_BLACKLIST` (exposed as `prefs::PROFILE_BLACKLIST`), applied only when cloning from the default profile (`old_profile = 0`); from a named profile, all prefs copy verbatim. `remprofiles` protects the active profile and relies on the `ttrss_user_prefs2.profile → ttrss_settings_profiles.id` FK cascade to drop overrides; `activateprofile` sets the session `profile` key (read by `Session::profile` / the profile-aware `prefs` resolution). A shared `util::ctype_digit` (PHP `ctype_digit`: non-empty, all ASCII digits) backs `cloneprofile`'s input guard.
@@ -1012,9 +1029,10 @@ Port each handler class, method-by-method, against golden files (read methods la
 - **M4 status (2026-09-16, pref UI `index` page):** the `Pref_Prefs` **`index`** tab is ported — a new `server::pref_ui` module + `templates/prefs_index.html.jinja` (jinja, per the large-markup rule). It renders the `AccordionContainer` (Personal data / Authentication [lazy `index_auth`], Preferences [inlined], Plugins [form shell inlined, list still lazy]) and the full `index_prefs` list: all six sections walked from `pref_item_map`, profile-blacklisted prefs hidden under a named profile, `<hr/>` separators omitted there, and every control type (`select_hash`/`select_tag` for translations/timezones/themes/intervals/ts-languages, the `SimpleTextarea` for `BLACKLISTED_TAGS`, `NumberSpinner`/`input` for the int/text age+format prefs, `ValidationTextBox` for the rest, plus the `USER_CSS_THEME`/`DIGEST_ENABLE`/`SSL_CERT_SERIAL` button clusters). Data sources are oracle-matched: the `USER_TIMEZONE` list is now a verbatim snapshot of PHP `DateTimeZone::listIdentifiers(ALL_WITH_BC)` (599 ids incl. `Factory`, exact order — `chrono_tz::TZ_VARIANTS` differed) in `server::pref_timezones`; translations + themes + intervals + ts-languages verified against the frozen PHP. New `controls::icon`/`input_tag`/`number_spinner_tag` helpers + `prefs::SSL_CERT_SERIAL`. Verified by Rust-only DB tests in `tests/pref_index.rs` (structure: panes/sections/labels/control-types/plugins-pane; profile: notice + blacklisted-hiding + no separators). Omissions (documented): the local-themes dir glob, the SSL cert-serial lookup (Register disabled), and the lazy `index_auth`/plugin-list content (M7). Dispatch: `"index" => DispatchOutput::Html(pref_ui::index(...))` (SPA `innerHTML` injection, like `editfeeds`).
 - **M4 status (2026-09-16, pref UI `index_auth` pane):** the `Pref_Prefs` **`index_auth`** pane (the lazy Personal/Authentication tab) is ported — a Dojo `TabContainer` with four panes, built in `server::pref_ui` as Rust strings (like `plugins_pane`, given the branchy auth-module + OTP conditionals): **Personal data** (`changePersonalData`: `full_name` + `email` from the `ttrss_users` row), **Password** (`changepassword`: the `IAuthModule2` form — `auth_internal` implements it), **App passwords** (the `appPasswordList` holder + generate/remove buttons), and **Authenticator (OTP)** (enabled → disable form; disabled → QR + formatted base32 secret + `otpenable` form; non-internal → notice). New `server::otp` module ports `UserHelper::is_otp_enabled` / `get_otp_secret` (the `schema_version ≥ 143` path: lazily generates + persists a 10-byte hex secret, `sha1(salt)`-derived when enabled) and `Pref_Prefs::_get_otp_qrcode_img` / `format_otp_secret` — base32 via the maintained `base32` crate (`Alphabet::Rfc4648 { padding: false }` == PHP `Base32::encodeUpperUnpadded`, RFC 4648 vectors verified), the `otpauth://totp/…` URL via `urlencoding` (PHP `urlencode`), and the QR PNG data URI via `qrcode` + `png` (a functionally-equivalent scannable PNG, not byte-identical to chillerlan). New `controls::format_notice` / `format_warning` (mirror `controls_compat.php`). Verified by Rust-only DB tests in `tests/pref_index_auth.rs` (structure: TabContainer + 4 panes + every field/button/label; OTP enabled vs disabled branch; the generated 20-hex-char secret is persisted and its base32 form is in the pane) + 3 `otp.rs` unit tests. New deps: `qrcode`, `image`, `png`, `base32`, `urlencoding`. Dispatch: `"index_auth" => DispatchOutput::Html(pref_ui::index_auth(...))` (SPA `innerHTML` injection).
 - **M4 status (2026-09-16, `index_auth` write handlers + `customizeCSS` + `FORBID_PASSWORD_CHANGES`):** the four form submits the `index_auth` panes post are now ported — `changePersonalData` (update `full_name` + `email`), `changepassword` (the `Config::FORBID_PASSWORD_CHANGES` guard → "Access forbidden."; the 5 validation checks — clean-altered / same-as-old / blank-old / blank-new / confirm-mismatch — then `Auth_Internal::change_password`, refreshing the session `pwd_hash` so `validate_session` stays valid), `otpenable` (`check_password` + `UserHelper::enable_otp`: the TOTP code must match the current secret), `otpdisable` (`check_password` + `disable_otp`, clearing the secret on schema ≥ 143). `auth.rs` gains `check_password` (verify with the stored algorithm + upgrade an out-of-date hash to SSHA-512) and `change_password` (fresh salt + SSHA-512 hash); `otp.rs` refactors the secret core into a shared `otp_state` and adds `enable_otp`/`disable_otp`; `controls::format_error` (the `alert-danger` variant) joins `format_notice`/`format_warning`; `Config` gains `forbid_password_changes` (`TTRSS_FORBID_PASSWORD_CHANGES`, T_BOOL, default false). Plus the `customizeCSS` read (the active-profile `USER_STYLESHEET` pref, `<br/>` → `\n`, as `{"value": …}` JSON) — new `prefs::USER_STYLESHEET` const. Omitted (NOTEd): the password-change / e-mail-change / OTP-change e-mail notifications — PHP sends them via the system MTA / `mail()`, which the Rust port does not replicate. Verified by Rust-only DB tests in `tests/auth_writes.rs` (8 cases: personal-data save, password-change success + 5 validation errors + wrong-old + forbidden-guard, OTP enable wrong-pw/wrong-code/success, OTP disable wrong-pw + clear-on-disable, customizeCSS `<br/>` conversion). Additive to the oracle corpus (none of the methods is in it); 738 server tests pass, clippy clean.
-- **M4 status (2026-09-16, `Feeds::subscribeToFeed`):** the "Add a feed" dialog data is ported — `cat_select` (the user's feed categories via the existing oracle-matched `select_feeds_cats("cat")`) + `intervals.update` (the default-annotated `$update_intervals` from backend.php, a JSON object — PHP's non-sequential integer keys `0,-1,15,…` serialize as an object, and the frontend's `select_hash` re-sorts the integer-like keys numerically, so the serde `Map` key order is functionally irrelevant). The `$update_intervals` map is factored into a shared `feeds::update_intervals_with_default` (the `0`/"Default interval" label gets ` (…DEFAULT_UPDATE_INTERVAL…)` appended via the existing `update_interval_label`), now also used by `editfeed` (refactored, behavior-preserving — `feed_edit` still passes). CSRF-gated (only `Feeds::index` is `csrf_ignore`). Verified by `tests/feed_edit.rs::test_subscribe_to_feed` (the `<select name="cat">` + Technology/Science & Nature/Uncategorized options; `intervals.update` is an object with the default-annotated "Default interval (30 minutes)" + the 8 standard labels). Additive to the oracle corpus; 775 server+core tests pass, clippy clean.
+- **M4 status (2026-09-16, `Feeds::subscribeToFeed`):** the "Add a feed" dialog data is ported — `cat_select` (the user's feed categories via the existing oracle-matched `select_feeds_cats("cat")`) + `intervals.update` (the default-annotated `$update_intervals` from backend.php, a JSON object — PHP's non-sequential integer keys `0,-1,15,…` serialize as an object, and the frontend's `select_hash` re-sorts the integer-like keys numerically, so the serde `Map` key order is functionally irrelevant). The `$update_intervals` map is factored into a shared `feeds::update_intervals_with_default` (the `0`/"Default interval" label gets `(…DEFAULT_UPDATE_INTERVAL…)` appended via the existing `update_interval_label`), now also used by `editfeed` (refactored, behavior-preserving — `feed_edit` still passes). CSRF-gated (only `Feeds::index` is `csrf_ignore`). Verified by `tests/feed_edit.rs::test_subscribe_to_feed` (the `<select name="cat">` + Technology/Science & Nature/Uncategorized options; `intervals.update` is an object with the default-annotated "Default interval (30 minutes)" + the 8 standard labels). Additive to the oracle corpus; 775 server+core tests pass, clippy clean.
 - **M4 status (2026-09-16, `UrlHelper::validate` + `Feeds::opensite`):** a new `server::urlhelper` module ports `UrlHelper::validate` and its collaborators (a lenient PHP-`parse_url` → `ParsedUrl`, `build_url`, a `filter_var(FILTER_VALIDATE_URL)` stand-in, `idn_to_ascii` via the `idna` crate's `domain_to_ascii` [UTS46 non-transitional == `IDNA_NONTRANSITIONAL_TO_ASCII`+`INTL_IDNA_VARIANT_UTS46`], and the SSRF guard `has_disallowed_ip` + `canonicalize_ipv4_literal` [dotted octal/hex/decimal IPv4 → dotted-quad] with the exact `FILTER_FLAG_NO_RES_RANGE`/`NO_PRIV_RANGE` ranges). Recorded from the real `ghcr.io/tt-rss/tt-rss` image (which has `intl`, unlike the `php:8.5-cli` recorder image) via `oracle/recorders/url_validate.php` into a **60-case** differential fixture (`tests/fixtures/url_validate.json`): protocol-relative fix, IDNA→punycode, IPv4/IPv6 + octal/hex literals, port bounds, the extended SSRF branch (standard-ports-only + loopback/link-local/reserved reject; private allowed on 80/443), path-encoding for the filter-only URL, `clean()`/strip_tags, and `localhost`. `Feeds::opensite` (the "Open site" menu item, a POST the frontend submits with `csrf_token`) is ported: 302 `Location` to `UrlHelper::validate(site_url, false)`, else 404 "Feed not found or has an empty site URL." — returned as `DispatchOutput::Raw` (like `Article::redirect`), CSRF-gated (only `Feeds::index` is `csrf_ignore`). New dep: `idna`. Verified by `tests/url_validate.rs` (all 60 cases) + `tests/feed_edit.rs::test_opensite` (302 to the fixture feed's site URL; 404 for missing / other-user / empty / invalid site URL). Additive to the oracle corpus. `Feeds::add` (the network fetch + RSS/Atom parse + DB insert) is **moved to M6** (the engine) — it needs the full `FeedParser`/`UrlHelper::fetch` subsystem. 777 server+core tests pass, clippy clean.
 - **M4 status (2026-09-16, `RPC` config verbs — **M4 complete**):** the four remaining small `RPC` config verbs the SPA calls are ported (in `server::settings`, dispatched in `rpc.rs`): `setpref` (the generic pref setter — `prefs::set` now takes a `strip_tags` flag matching the PHP signature; off only for `USER_STYLESHEET`), `togglepref` (flips a bool pref via `!resolve(…)` and echoes the resolved typed value), `setWidescreen` (`WIDESCREEN_MODE`), and `log` (the client-JS error reporter → `tracing::error!` under a `client-js` target + `{"message":"HOST_ERROR_LOGGED"}`). New `prefs::Pref::to_json` + `WIDESCREEN_MODE` const. Verified by `tests/rpc_config_verbs.rs` (7 cases). With these the M4 config surface is **complete**; the last feed-adjacent item, `Feeds::add` (subscribe), is **moved to M6** (the engine) — its return codes 0–8 depend on the M6 `UrlHelper::fetch`/`FeedParser`. 784 server+core tests pass, clippy clean.
+
 ### Phase 5 — External API + syndication (→ M2 reads, M5 writes)
 
 - `api/index.php` port: JSON envelope `{seq,status,content}`, method routing, `login`/`logout`/`isLoggedIn`/`getConfig` (incl. `daemon_is_running` lockfile check), all ~20 API methods, `Sec-Fetch-Mode` browser opt-in gating, per-user `ENABLE_API_ACCESS`.
@@ -1026,6 +1044,7 @@ Port each handler class, method-by-method, against golden files (read methods la
 - **M5 status (2026-09-16, batch-add-feeds write surface + case-insensitive dispatch):** the `Pref_Feeds` **batch-add** write surface is ported in `feeds.rs`: `batchSubscribe` (the batch-subscribe dialog data — `enable_cats` as an int, `1`/`0`, per the PHP `(int)` cast, + `cat_select` via the existing oracle-matched `select_feeds_cats`) and `batchAddFeeds` (each line of the posted `feeds` list is `trim`-med and `UrlHelper::validate`-d, then — in a per-feed transaction — skipped if the user already has that `feed_url` else inserted as a `[Unknown]` feed with the posted `cat`/`login`/`pass`, `update_method = 0`, `auth_pass_encrypted = false`; read-only users are a no-op). It is a pure DB insert: the new feeds are picked up by the daemon on its next update, so it does **not** need the M6 `Feeds::add` fetch/parse engine. Alongside it, a **root-cause fix to the dispatcher** (`rpc.rs`): PHP `backend.php` does `$method = strtolower($method)`, so method dispatch is case-insensitive — the port now lowercases the method at the entry point and matches lowercased arms (previously it matched the raw mixed-case method, which silently 404'd the frontend's lowercase `inactivefeeds`/`renamecat` invocations — a latent bug the camelCase oracle corpus never exercised). All `dispatch`/`rpc_handler` method arms are now lowercase; the `op` (handler) names stay case-sensitive (PHP `class_exists($op)` is). Verified by `tests/feed_crud.rs` (6 new cases: `batchAddFeeds` insert/skip-existing/invalid-skipped/read-only no-op, `batchSubscribe` int `enable_cats` + `cat_select`, and an end-to-end **case-insensitive dispatch** test through `rpc::handler` proving `inactivefeeds`/`inactiveFeeds`/`getFeedTree`/`batchaddfeeds`/`batchsubscribe`/camelCase `markSelected` all route, not `E_UNKNOWN_METHOD`). Additive to the oracle corpus. 859 workspace tests pass, clippy clean.
 
 ### Phase 6 — CLI, daemon, mail, scheduler (→ M5 mail, M6 daemon/scheduler, M8 CLI parity)
+
 - `clap` port of `update.php` (all subcommands incl. `opml-export/import`, `user-*`, `gen-search-idx` (Postgres FTS backfill via `html2text`), `gen-encryption-key`, `plugins-list`, `debug-feed`, `force-*`, `cleanup-tags`, `send-digests`, `update-schema`).
 - Daemon: tokio worker pool replacing fork model (same lockfile names, spawn interval, feed batch limit, per-task stagger, child runtime cap via task timeout), single-process `--daemon` mode.
 - Scheduler: `croner`-based, `ttrss_scheduled_tasks` persistence, all housekeeping tasks (orphan purge, cache expire, disable failed feeds, icon cleanup, login-limit log, error-log expire, lock-file expire, digests).
@@ -1055,12 +1074,13 @@ A parking lot for small, known, not-now items (not milestone blockers):
 - **`html_to_text` for `tsvector_combined` (shareToPublished).** The full-text column is populated with an approximated `html_to_text` (a kuchikiki traversal dropping `script`/`style`/`head` + collapsing whitespace), not PHP's full `Html2Text::convert`. Low priority to revisit: the column only feeds `to_tsvector` full-text search, so exact text parity isn't required. Revisit if full-text-search parity vs PHP matters.
 - **`getFeedIcon` response headers simplified.** The port emits only `Content-Type` + `Content-Length`, skipping `DiskCache::send`'s conditional-request caching headers (304 / If-Modified-Since, ETag, Last-Modified, Content-Disposition, `CACHE_MAX_DAYS` expiry). Low priority to revisit: the corpus doesn't exercise `getFeedIcon` and these are caching optimizations, not behavior. Revisit if conditional-request / caching semantics for favicons are wanted.
 - **`getFeedIcon` MIME detection + no content-type gate.** The content-type is detected from magic bytes (PNG/JPEG/GIF/WebP, defaulting to `image/png`) rather than `finfo`, and the port does not replicate PHP's SVG-blocklist / non-image 400 gate. Low priority to revisit: the feed-icons cache only holds favicons. Revisit if a hostile / non-image file could land in the cache.
+
 ---
 
 ## 4. Risks & Mitigations
 
 | Risk | Severity | Mitigation |
-|---|---|---|
+| --- | --- | --- |
 | **Community PHP plugin ecosystem dies** (plugins can't run under Rust) | High (product) | Rust plugin API + port popular plugins; document break; *optionally* keep a PHP sidecar later for exotic plugins (out of scope v1) |
 | JSON shape drift in `backend.php` (PHP loose types, null vs "", array vs scalar) | High (frontend breaks silently) | Golden-file diff harness from day P3; loose-type module with property tests; Selenium smoke each phase |
 | Feed-parser long tail (weird encodings, broken XML, nonstandard namespaces) | Medium | Port fixture corpus from `tests_functional`; keep PHP parser as oracle in differential tests |
