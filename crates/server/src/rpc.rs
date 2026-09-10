@@ -442,7 +442,14 @@ async fn dispatch(
             _ => DispatchOutput::Json(unknown_method("Pref_Prefs", method)),
         },
         "Pref_System" => match method {
+            "index" => DispatchOutput::Html(system::index(state, sess, extra).await),
             "getscheduledtasks" => DispatchOutput::Html(system::getscheduledtasks(state, sess).await),
+            "clearLog" => {
+                system::clear_log(state).await;
+                DispatchOutput::Json(json!({ "status": "OK" }))
+            }
+            "sendTestEmail" => DispatchOutput::Json(system::send_test_email()),
+            "getphpinfo" => DispatchOutput::Html(system::get_php_info(state)),
             _ => DispatchOutput::Json(unknown_method("Pref_System", method)),
         },
         "Pref_Users" => match method {
@@ -538,6 +545,8 @@ fn csrf_ignored(op: &str, method: &str) -> bool {
         || (op == "OPML" && method == "export")
         // `Pref_Filters::csrf_ignore` = ["index", "getfiltertree"].
         || (op == "Pref_Filters" && matches!(method, "index" | "getfiltertree"))
+        // `Pref_System::csrf_ignore` = ["index"].
+        || (op == "Pref_System" && method == "index")
 }
 
 /// `Handler_Protected` handlers (all the ones ported so far) require a user.
