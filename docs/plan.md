@@ -717,7 +717,7 @@ before them:
 | Feed-parser / RSS-utils (fetch/parse/hash/dedup/filters/enclosures) | `FeedParser` + `RSSUtils` ports | **M6** |
 | DiskCache / Scheduler / counter-cache maintenance | DiskCache port + `daemon` tokio workers | **M6** |
 | PluginHost hooks (the `HOOK_*` no-ops left in rows 9–14) | Rust plugin API + first-party plugins | **M7** |
-| External-API write ops + admin (`Pref_Users`, system, OTP/QR) | write/admin handlers (API meta + DB-only writes ✅ 2026-09-16; `updateFeed`/`subscribeToFeed` → M6, `shareToPublished`/`getFeedIcon` → their own increments, admin not yet started) | **M5** (in progress) |
+| External-API write ops + admin (`Pref_Users`, system, OTP/QR) | write/admin handlers (API meta + DB-only writes ✅ 2026-09-16; `Pref_Users` admin slice ✅ 2026-09-16; `updateFeed`/`subscribeToFeed` → M6, `shareToPublished`/`getFeedIcon` → next increments, system/log + password-recovery not yet started) | **M5** (in progress) |
 | Config CRUD (feed CRUD + categories + icons + OPML, filters, access keys) ✅ | M4 mutation handlers | **M4** (complete 2026-09-16; feed subscribe/create → M6) |
 **M2 close-out test parity (2026-09-16):** porting the `backend.php` read handlers
 surfaced two more PHP suites for already-ported modules, now replicated:

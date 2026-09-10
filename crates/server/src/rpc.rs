@@ -242,6 +242,15 @@ async fn dispatch(
         return DispatchOutput::Json(errors("E_UNAUTHORIZED"));
     }
 
+    // `Handler_Administrative::before` (extends `Handler_Protected`): the
+    // admin handlers (`Pref_Users`, `Pref_System`) additionally need
+    // `access_level >= ACCESS_LEVEL_ADMIN`.
+    if is_administrative(op)
+        && data.access_level().unwrap_or(0) < ttrss_core::user::ACCESS_LEVEL_ADMIN as i64
+    {
+        return DispatchOutput::Json(errors("E_UNAUTHORIZED"));
+    }
+
     match op {
         "RPC" => match method {
             "hotkeyHelp" => DispatchOutput::Html(crate::hotkeys::hotkey_help()),
@@ -439,6 +448,17 @@ async fn dispatch(
         "Pref_Users" => match method {
             "index" => DispatchOutput::Html(users::index(state, sess, extra).await),
             "userdetails" => DispatchOutput::Html(users::user_details(state, sess, extra).await),
+            "edit" => match users::edit(state, sess, extra).await {
+                Some(v) => DispatchOutput::Json(v),
+                None => DispatchOutput::TextHtml(String::new()),
+            },
+            "editSave" => DispatchOutput::TextHtml(users::edit_save(state, sess, extra).await),
+            "remove" => {
+                users::remove(state, sess, extra).await;
+                DispatchOutput::TextHtml(String::new())
+            },
+            "add" => DispatchOutput::TextHtml(users::add(state, sess, extra).await),
+            "resetPass" => DispatchOutput::TextHtml(users::reset_pass(state, sess, extra).await),
             _ => DispatchOutput::Json(unknown_method("Pref_Users", method)),
         },
         "OPML" => match method {
@@ -523,6 +543,11 @@ fn csrf_ignored(op: &str, method: &str) -> bool {
 /// `Handler_Protected` handlers (all the ones ported so far) require a user.
 fn is_protected(op: &str) -> bool {
     matches!(op, "RPC" | "Feeds" | "Pref_Feeds" | "Article" | "Pref_Labels" | "Pref_Filters" | "Pref_Users" | "Pref_System" | "Pref_Prefs" | "OPML")
+}
+
+/// `Handler_Administrative` handlers require an admin-level session.
+fn is_administrative(op: &str) -> bool {
+    matches!(op, "Pref_Users" | "Pref_System")
 }
 
 /// `RPC::sanityCheck`.

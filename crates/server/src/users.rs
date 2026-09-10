@@ -11,8 +11,10 @@ use sqlx::Row;
 
 use crate::session::Sess;
 use crate::time::{make_local_datetime, TzCtx};
-use crate::util::htmlspecialchars;
+use crate::util::{checkbox, clean_int, clean_str, htmlspecialchars, make_password, param_int_array};
 use crate::AppState;
+use serde_json::{json, Map, Value};
+use ttrss_core::user;
 
 /// `UserHelper::ACCESS_LEVEL_*` → display name (the `$access_level_names` map
 /// built in `backend.php`).
@@ -239,4 +241,197 @@ pub async fn user_details(
     }
     out.push_str("</ul>");
     out
+}
+
+/// `$access_level_names` (built in `backend.php`) as a JSON object. PHP
+/// `json_encode` of the non-sequential int-keyed array yields an object with
+/// string keys (order preserved, but functionally a lookup map).
+fn access_level_names_json() -> Value {
+    json!({
+        "-2": "Disabled",
+        "-1": "Read Only",
+        "0": "User",
+        "5": "Power User",
+        "10": "Administrator",
+    })
+}
+
+/// `UserHelper::find_user_by_login`: the user id matching `$login` case-
+/// insensitively (or `None`).
+async fn find_user_by_login(pool: &sqlx::PgPool, login: &str) -> Option<i32> {
+    sqlx::query_scalar("SELECT id FROM ttrss_users WHERE LOWER(login) = LOWER($1) LIMIT 1")
+        .bind(login)
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten()
+}
+
+/// `UserHelper::reset_password` — set user `$uid`'s password to `$new_password`
+/// (or a fresh random one) and return the message. `$format_output` is `false`
+/// on the admin paths (a plain `print`, not `print_notice`).
+async fn reset_password(pool: &sqlx::PgPool, uid: i32, new_password: &str) -> String {
+    let row: Option<String> = sqlx::query_scalar("SELECT login FROM ttrss_users WHERE id = $1")
+        .bind(uid)
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten();
+    let Some(login) = row else {
+        return "User not found".to_string();
+    };
+    let new_salt = user::get_salt();
+    let tmp_pwd = if new_password.is_empty() {
+        make_password(12)
+    } else {
+        new_password.to_string()
+    };
+    let pwd_hash = user::hash_password(&tmp_pwd, &new_salt, user::ALGO_SSHA512).unwrap_or_default();
+    let _ = sqlx::query("UPDATE ttrss_users SET pwd_hash = $1, salt = $2 WHERE id = $3")
+        .bind(&pwd_hash)
+        .bind(&new_salt)
+        .bind(uid)
+        .execute(pool)
+        .await;
+    format!(
+        "Changed password of user <strong>{login}</strong> to <strong>{tmp_pwd}</strong>"
+    )
+}
+
+/// `Pref_Users::edit` — the per-user edit dialog data (or `None` if absent).
+pub async fn edit(
+    state: &AppState,
+    _sess: &Sess,
+    extra: &Map<String, Value>,
+) -> Option<Value> {
+    let pool = state.db.pool();
+    let id = clean_int(extra.get("id")) as i32;
+    let row: Option<(i32, String, i32, String, String, bool)> = sqlx::query_as(
+        "SELECT id, login, access_level, email, full_name, otp_enabled \
+         FROM ttrss_users WHERE id = $1",
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten();
+    let (id, login, access_level, email, full_name, otp_enabled) = row?;
+    Some(json!({
+        "user": {
+            "id": id,
+            "login": login,
+            "access_level": access_level,
+            "email": email,
+            "full_name": full_name,
+            "otp_enabled": otp_enabled,
+        },
+        "access_level_names": access_level_names_json(),
+    }))
+}
+
+/// `Pref_Users::editSave` — update a user's login/access level/email/OTP and,
+/// if a password was posted, reset it. Returns the password-reset message
+/// (empty when no reset happened).
+pub async fn edit_save(state: &AppState, _sess: &Sess, extra: &Map<String, Value>) -> String {
+    let pool = state.db.pool();
+    let id = clean_int(extra.get("id")) as i32;
+    let password = clean_str(extra.get("password").and_then(Value::as_str).unwrap_or(""));
+    let user_exists: Option<i32> =
+        sqlx::query_scalar("SELECT id FROM ttrss_users WHERE id = $1")
+            .bind(id)
+            .fetch_optional(pool)
+            .await
+            .ok()
+            .flatten();
+    if user_exists.is_some() {
+        let mut login = clean_str(extra.get("login").and_then(Value::as_str).unwrap_or(""));
+        if id == 1 {
+            login = "admin".into();
+        }
+        if login.is_empty() {
+            return String::new();
+        }
+        let access_level = clean_int(extra.get("access_level")) as i32;
+        let email = clean_str(extra.get("email").and_then(Value::as_str).unwrap_or(""));
+        let otp_enabled = checkbox(extra, "otp_enabled");
+        // `schema_version >= 143 && !otp_enabled` → force a fresh OTP secret.
+        let otp_secret_clause = if otp_enabled { "" } else { ", otp_secret = NULL" };
+        let _ = sqlx::query(&format!(
+            "UPDATE ttrss_users SET login = $1, access_level = $2, email = $3, \
+             otp_enabled = $4{otp_secret_clause} WHERE id = $5"
+        ))
+        .bind(login.to_lowercase())
+        .bind(access_level)
+        .bind(email)
+        .bind(otp_enabled)
+        .bind(id)
+        .execute(pool)
+        .await;
+    }
+    if password.is_empty() {
+        return String::new();
+    }
+    reset_password(pool, id, &password).await
+}
+
+/// `Pref_Users::remove` — delete the given users (never the current user or
+/// admin id 1). Related rows cascade via their `owner_uid`/`feed_id` FKs.
+pub async fn remove(state: &AppState, sess: &Sess, extra: &Map<String, Value>) {
+    let pool = state.db.pool();
+    let uid = sess.data().uid().unwrap_or(0);
+    for id in param_int_array(extra, "ids") {
+        if id as i64 != uid && id != 1 {
+            let _ = sqlx::query("DELETE FROM ttrss_tags WHERE owner_uid = $1")
+                .bind(id as i64)
+                .execute(pool)
+                .await;
+            let _ = sqlx::query("DELETE FROM ttrss_feeds WHERE owner_uid = $1")
+                .bind(id as i64)
+                .execute(pool)
+                .await;
+            let _ = sqlx::query("DELETE FROM ttrss_users WHERE id = $1")
+                .bind(id as i64)
+                .execute(pool)
+                .await;
+        }
+    }
+}
+
+/// `Pref_Users::add` — create a new user with a random password; returns the
+/// result message.
+pub async fn add(state: &AppState, _sess: &Sess, extra: &Map<String, Value>) -> String {
+    let pool = state.db.pool();
+    let login = clean_str(extra.get("login").and_then(Value::as_str).unwrap_or(""));
+    if login.is_empty() {
+        return String::new();
+    }
+    // `UserHelper::find_user_by_login`: `LOWER(login) = LOWER(?)`.
+    if find_user_by_login(pool, &login).await.is_some() {
+        return format!("User {login} already exists.");
+    }
+    let new_password = make_password(12);
+    let salt = user::get_salt();
+    let pwd_hash = user::hash_password(&new_password, &salt, user::ALGO_SSHA512).unwrap_or_default();
+    let _ = sqlx::query(
+        "INSERT INTO ttrss_users (login, pwd_hash, salt, access_level, created) \
+         VALUES ($1, $2, $3, 0, NOW())",
+    )
+    .bind(login.to_lowercase())
+    .bind(&pwd_hash)
+    .bind(&salt)
+    .execute(pool)
+    .await;
+    // Re-check (the PHP re-runs `find_user_by_login` to confirm the insert).
+    if find_user_by_login(pool, &login).await.is_some() {
+        format!("Added user {login} with password {new_password}")
+    } else {
+        format!("Could not create user {login}")
+    }
+}
+
+/// `Pref_Users::resetPass` — reset a user's password to a random one.
+pub async fn reset_pass(state: &AppState, _sess: &Sess, extra: &Map<String, Value>) -> String {
+    let pool = state.db.pool();
+    let id = clean_int(extra.get("id")) as i32;
+    reset_password(pool, id, "").await
 }
