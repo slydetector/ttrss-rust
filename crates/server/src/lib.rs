@@ -20,6 +20,7 @@ pub mod hotkeys;
 pub mod labels;
 pub mod mime;
 pub mod opml;
+pub mod otp;
 pub mod prefs;
 pub mod plugins;
 pub mod pref_ui;

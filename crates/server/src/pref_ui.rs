@@ -16,6 +16,8 @@ use serde_json::{json, Value};
 
 use crate::controls;
 use crate::prefs;
+use crate::otp;
+use crate::settings;
 use crate::session::Sess;
 use crate::util;
 use crate::AppState;
@@ -601,6 +603,320 @@ pub async fn index(state: &AppState, sess: &Sess) -> Result<String, sqlx::Error>
         )
         .map_err(sqlx::Error::config)?;
     Ok(rendered)
+}
+/// `Pref_Prefs::index_auth`: the Personal/Authentication tab — a Dojo
+/// `TabContainer` with the "Personal data", "Password", "App passwords" and
+/// "Authenticator (OTP)" panes. The SPA injects this via `innerHTML`, so the
+/// fidelity bar is structure + visible text (per AGENTS.md). The panes are
+/// built in Rust (as in [`plugins_pane`]) because of the branchy auth-module
+/// and OTP conditionals.
+pub async fn index_auth(state: &AppState, sess: &Sess) -> Result<String, sqlx::Error> {
+    let pool = state.db.pool();
+    let data = sess.data();
+    let uid = data.uid().unwrap_or(0);
+    let auth_module = data.get_str("auth_module").unwrap_or("auth_internal");
+    // Only `auth_internal` is supported out of the gate; it implements
+    // `IAuthModule2`, so the Password pane shows the change-password form.
+    let auth_internal = auth_module == "auth_internal";
+    let login = data.name().unwrap_or("").to_string();
+
+    // `ttrss_users` row (personal-data fields).
+    let user: Option<(Option<String>, Option<String>)> =
+        sqlx::query_as("SELECT full_name, email FROM ttrss_users WHERE id = $1")
+            .bind(uid)
+            .fetch_optional(pool)
+            .await?;
+    let full_name = user.as_ref().and_then(|r| r.0.clone()).unwrap_or_default();
+    let email = user.as_ref().and_then(|r| r.1.clone()).unwrap_or_default();
+
+    // Authenticator (OTP) pane state.
+    let otp_enabled = otp::is_otp_enabled(pool, uid).await?;
+    let (otp_secret_fmt, otp_qrcode) = if auth_internal && !otp_enabled {
+        let secret = otp::get_otp_secret(pool, uid, false).await?.unwrap_or_default();
+        let otpurl = format!(
+            "otpauth://totp/{}?secret={}&issuer={}",
+            urlencoding::encode(&login),
+            urlencoding::encode(&secret),
+            urlencoding::encode("Tiny Tiny RSS")
+        );
+        (
+            Some(otp::format_otp_secret(&secret)),
+            otp::otp_qrcode_data_uri(&otpurl),
+        )
+    } else {
+        (None, None)
+    };
+
+    let app_passwords = if auth_internal {
+        Some(settings::app_password_list(state, sess).await?)
+    } else {
+        None
+    };
+
+    let password_pane = if auth_internal {
+        index_auth_password()
+    } else {
+        controls::format_notice(&format!(
+            "Authentication module used for this session (<b>{}</b>) does not provide an ability to set passwords.",
+            auth_module
+        ))
+    };
+    let app_passwords_pane = match app_passwords {
+        Some(list) => index_auth_app_passwords(&list),
+        None => controls::format_warning(
+            "App passwords are only available if <b>auth_internal<b> plugin is enabled.",
+        ),
+    };
+    let otp_pane = index_auth_2fa(
+        auth_internal,
+        otp_enabled,
+        otp_secret_fmt.as_deref(),
+        otp_qrcode.as_deref(),
+    );
+
+    Ok(format!(
+        r#"<div dojoType='dijit.layout.TabContainer'>
+    <div dojoType='dijit.layout.ContentPane' title="Personal data">
+        {personal}
+    </div>
+    <div dojoType='dijit.layout.ContentPane' title="Password">
+        {password}
+    </div>
+    <div dojoType='dijit.layout.ContentPane' title="App passwords">
+        {app_passwords}
+    </div>
+    <div dojoType='dijit.layout.ContentPane' title="Authenticator (OTP)">
+        {otp}
+    </div>
+</div>"#,
+        personal = index_auth_personal(&full_name, &email),
+        password = password_pane,
+        app_passwords = app_passwords_pane,
+        otp = otp_pane,
+    ))
+}
+
+/// The Dojo `onSubmit` AJAX handlers the PHP embeds in each form
+/// (`<script type="dojo/method">`), kept verbatim for front-end fidelity.
+const SCRIPT_PERSONAL: &str = r#"<script type="dojo/method" event="onSubmit" args="evt">
+    evt.preventDefault();
+    if (this.validate()) {
+        Notify.progress('Saving data...', true);
+        xhr.post("backend.php", this.getValues(), (reply) => {
+            Notify.info(reply);
+        })
+    }
+</script>"#;
+
+const SCRIPT_PASSWORD: &str = r#"<script type="dojo/method" event="onSubmit" args="evt">
+    evt.preventDefault();
+    if (this.validate()) {
+        Notify.progress('Saving data...', true);
+        xhr.post("backend.php", this.getValues(), (reply) => {
+            Notify.close();
+            if (reply.indexOf('ERROR: ') == 0) {
+                document.getElementById('pwd_change_infobox').innerHTML =
+                reply.replace('ERROR: ', '');
+            } else {
+                document.getElementById('pwd_change_infobox').innerHTML =
+                reply.replace('ERROR: ', '');
+                const warn = document.getElementById('default_pass_warning');
+                if (warn) Element.hide(warn);
+            }
+            Element.show('pwd_change_infobox');
+        })
+    }
+</script>"#;
+
+const SCRIPT_OTP_DISABLE: &str = r#"<script type="dojo/method" event="onSubmit" args="evt">
+    evt.preventDefault();
+    if (this.validate()) {
+        Notify.progress('Saving data...', true);
+        xhr.post("backend.php", this.getValues(), (reply) => {
+            Notify.close();
+            if (reply.indexOf('ERROR: ') == 0) {
+                Notify.error(reply.replace('ERROR: ', ''));
+            } else {
+                window.location.reload();
+            }
+        })
+    }
+</script>"#;
+
+const SCRIPT_OTP_ENABLE: &str = r#"<script type="dojo/method" event="onSubmit" args="evt">
+    evt.preventDefault();
+    if (this.validate()) {
+        Notify.progress('Saving data...', true);
+        xhr.post("backend.php", this.getValues(), (reply) => {
+            Notify.close();
+            if (reply.indexOf('ERROR:') == 0) {
+                Notify.error(reply.replace('ERROR:', ''));
+            } else {
+                window.location.reload();
+            }
+        })
+    }
+</script>"#;
+
+/// `Pref_Prefs::index_auth_personal`.
+fn index_auth_personal(full_name: &str, email: &str) -> String {
+    format!(
+        r#"<form dojoType='dijit.form.Form'>
+    {op}
+    {method}
+    {script}
+    <fieldset>
+        <label>Full name:</label>
+        <input dojoType='dijit.form.ValidationTextBox' name='full_name' required='1' value="{fn}">
+    </fieldset>
+    <fieldset>
+        <label>Email:</label>
+        <input dojoType='dijit.form.ValidationTextBox' name='email' required='1' value="{em}">
+    </fieldset>
+    <hr/>
+    {save}
+</form>"#,
+        op = controls::hidden_tag("op", "Pref_Prefs"),
+        method = controls::hidden_tag("method", "changePersonalData"),
+        script = SCRIPT_PERSONAL,
+        fn = util::htmlspecialchars(full_name),
+        em = util::htmlspecialchars(email),
+        save = controls::button_tag(
+            &format!("{} Save", controls::icon("save")),
+            "submit",
+            &[("class", "alt-primary".into())],
+        ),
+    )
+}
+
+/// `Pref_Prefs::index_auth_password` (the `IAuthModule2` / `auth_internal` branch).
+fn index_auth_password() -> String {
+    format!(
+        r#"<div style='display : none' id='pwd_change_infobox'></div>
+<form dojoType='dijit.form.Form'>
+    {op}
+    {method}
+    {script}
+    <fieldset>
+        <label>Old password:</label>
+        <input dojoType='dijit.form.ValidationTextBox' type='password' required='1' name='old_password'>
+    </fieldset>
+    <fieldset>
+        <label>New password:</label>
+        <input dojoType='dijit.form.ValidationTextBox' type='password' regexp='^[^<>]+' required='1' name='new_password'>
+    </fieldset>
+    <fieldset>
+        <label>Confirm password:</label>
+        <input dojoType='dijit.form.ValidationTextBox' type='password' regexp='^[^<>]+' required='1' name='confirm_password'>
+    </fieldset>
+    <hr/>
+    {btn}
+</form>"#,
+        op = controls::hidden_tag("op", "Pref_Prefs"),
+        method = controls::hidden_tag("method", "changepassword"),
+        script = SCRIPT_PASSWORD,
+        btn = controls::button_tag(
+            &format!("{} Change password", controls::icon("security")),
+            "submit",
+            &[("class", "alt-primary".into())],
+        ),
+    )
+}
+
+/// `Pref_Prefs::index_auth_app_passwords`.
+fn index_auth_app_passwords(app_passwords_html: &str) -> String {
+    format!(
+        r#"{notice}
+<div id='app_passwords_holder'>
+    {list}
+</div>
+<hr>
+<button style='float : left' class='alt-primary' dojoType='dijit.form.Button' onclick="Helpers.AppPasswords.generate()">{add}
+    Generate password</button>
+<button style='float : left' class='alt-danger' dojoType='dijit.form.Button' onclick="Helpers.AppPasswords.removeSelected()">{del}
+    Remove selected</button>"#,
+        notice = controls::format_notice("Separate passwords used for API clients. Required if you enable OTP."),
+        list = app_passwords_html,
+        add = controls::icon("add"),
+        del = controls::icon("delete"),
+    )
+}
+
+/// `Pref_Prefs::index_auth_2fa`.
+fn index_auth_2fa(
+    auth_internal: bool,
+    otp_enabled: bool,
+    otp_secret_fmt: Option<&str>,
+    otp_qrcode: Option<&str>,
+) -> String {
+    if !auth_internal {
+        return controls::format_notice(
+            "OTP is only available when using <b>auth_internal</b> authentication module.",
+        );
+    }
+    if otp_enabled {
+        return format!(
+            r#"{warning}
+<form dojoType='dijit.form.Form'>
+    {op}
+    {method}
+    {script}
+    <fieldset>
+        <label>Your password:</label>
+        <input dojoType='dijit.form.ValidationTextBox' type='password' required='1' name='password'>
+    </fieldset>
+    <hr/>
+    {btn}
+</form>"#,
+            warning = controls::format_warning(
+                "One time passwords are currently enabled. Enter your current password below to disable.",
+            ),
+            op = controls::hidden_tag("op", "Pref_Prefs"),
+            method = controls::hidden_tag("method", "otpdisable"),
+            script = SCRIPT_OTP_DISABLE,
+            btn = controls::button_tag(
+                &format!("{} Disable OTP", controls::icon("lock_open")),
+                "submit",
+                &[("class", "alt-danger".into())],
+            ),
+        );
+    }
+    format!(
+        r#"<img src='{qrcode}' style='width: 25%'>
+{notice}
+<form dojoType='dijit.form.Form'>
+    {op}
+    {method}
+    <fieldset>
+        <label>OTP secret:</label>
+        <code>{secret}</code>
+    </fieldset>
+    {script}
+    <fieldset>
+        <label>Your password:</label>
+        <input dojoType='dijit.form.ValidationTextBox' type='password' required='1' name='password'>
+    </fieldset>
+    <fieldset>
+        <label>Verification code:</label>
+        <input dojoType='dijit.form.ValidationTextBox' autocomplete='off' required='1' name='otp'>
+    </fieldset>
+    <hr/>
+    {btn}
+</form>"#,
+        qrcode = otp_qrcode.unwrap_or(""),
+        notice = controls::format_notice(
+            "You will need to generate app passwords for API clients if you enable OTP.",
+        ),
+        op = controls::hidden_tag("op", "Pref_Prefs"),
+        method = controls::hidden_tag("method", "otpenable"),
+        script = SCRIPT_OTP_ENABLE,
+        secret = otp_secret_fmt.unwrap_or(""),
+        btn = controls::button_tag(
+            &format!("{} Enable OTP", controls::icon("lock")),
+            "submit",
+            &[("class", "alt-primary".into())],
+        ),
+    )
 }
 
 fn index_env() -> &'static Environment<'static> {

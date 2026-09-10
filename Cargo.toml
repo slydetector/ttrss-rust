@@ -11,6 +11,7 @@ license = "GPL-3.0-or-later"
 anyhow = "1"
 axum = { version = "0.7", features = ["macros", "multipart"] }
 base64 = "0.22"
+base32 = "0.5"
 chrono = { version = "0.4", features = ["serde", "clock"] }
 ctor = "1"
 flate2 = "1.1"
@@ -38,6 +39,10 @@ serde_urlencoded = "0.7"
 sha1 = "0.10"
 sha2 = "0.10"
 quick-xml = { version = "0.42", features = ["serialize"] }
+qrcode = { version = "0.14", default-features = false, features = ["image"] }
+image = { version = "0.25", default-features = false }
+png = "0.18"
+urlencoding = "2"
 sqlx = { version = "0.7", default-features = false, features = ["runtime-tokio-rustls", "postgres", "chrono", "migrate", "macros"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time", "signal", "fs"] }
 toml = "0.8"

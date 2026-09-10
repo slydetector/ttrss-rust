@@ -126,6 +126,16 @@ pub fn icon(icon: &str) -> String {
     format!("<i class=\"material-icons\">{}</i>", icon)
 }
 
+/// PHP `format_notice($msg)` (`tt-rss/include/controls_compat.php`).
+pub fn format_notice(msg: &str) -> String {
+    format!("<div class=\"alert alert-info\" id=\"\">{}</div>", msg)
+}
+
+/// PHP `format_warning($msg)` (`tt-rss/include/controls_compat.php`).
+pub fn format_warning(msg: &str) -> String {
+    format!("<div class=\"alert\" id=\"\">{}</div>", msg)
+}
+
 /// PHP `Controls::input_tag($name, $value, $type = "text", $attributes = [], $id = "")`.
 pub fn input_tag(
     name: &str,

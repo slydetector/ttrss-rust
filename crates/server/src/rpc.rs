@@ -375,6 +375,10 @@ async fn dispatch(
         "Pref_Prefs" => match method {
             "getProfiles" => DispatchOutput::Json(settings::get_profiles(state, sess).await),
             "index" => DispatchOutput::Html(pref_ui::index(state, sess).await.unwrap_or_default()),
+            "index_auth" => {
+                let html = pref_ui::index_auth(state, sess).await.unwrap_or_default();
+                DispatchOutput::Html(html)
+            }
             "addprofile" => {
                 let _ = settings::add_profile(state, sess, extra).await;
                 DispatchOutput::TextHtml(String::new())
