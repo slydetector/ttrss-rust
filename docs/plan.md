@@ -1050,6 +1050,9 @@ Port each handler class, method-by-method, against golden files (read methods la
 A parking lot for small, known, not-now items (not milestone blockers):
 
 - **Dynamic timezone list.** The `USER_TIMEZONE` select currently uses a hardcoded snapshot of PHP `DateTimeZone::listIdentifiers(ALL_WITH_BC)` (599 ids, `server::pref_timezones`). If the tzdata ever changes, or we want to avoid the snapshot, regenerate/compute the list dynamically to match PHP exactly — including the `Factory` id and the exact PHP ordering (which `chrono_tz::TZ_VARIANTS` does not reproduce: it omits `Factory` and orders some zones differently).
+- **`html_to_text` for `tsvector_combined` (shareToPublished).** The full-text column is populated with an approximated `html_to_text` (a kuchikiki traversal dropping `script`/`style`/`head` + collapsing whitespace), not PHP's full `Html2Text::convert`. Low priority to revisit: the column only feeds `to_tsvector` full-text search, so exact text parity isn't required. Revisit if full-text-search parity vs PHP matters.
+- **`getFeedIcon` response headers simplified.** The port emits only `Content-Type` + `Content-Length`, skipping `DiskCache::send`'s conditional-request caching headers (304 / If-Modified-Since, ETag, Last-Modified, Content-Disposition, `CACHE_MAX_DAYS` expiry). Low priority to revisit: the corpus doesn't exercise `getFeedIcon` and these are caching optimizations, not behavior. Revisit if conditional-request / caching semantics for favicons are wanted.
+- **`getFeedIcon` MIME detection + no content-type gate.** The content-type is detected from magic bytes (PNG/JPEG/GIF/WebP, defaulting to `image/png`) rather than `finfo`, and the port does not replicate PHP's SVG-blocklist / non-image 400 gate. Low priority to revisit: the feed-icons cache only holds favicons. Revisit if a hostile / non-image file could land in the cache.
 ---
 
 ## 4. Risks & Mitigations
