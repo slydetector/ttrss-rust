@@ -18,6 +18,7 @@ use std::sync::OnceLock;
 use kuchikiki::traits::TendrilSink;
 use kuchikiki::{parse_html, NodeRef};
 use serde_json::{json, Map, Value};
+use sha1::Digest as _;
 use sqlx::Row;
 use ttrss_core::db::Db;
 use ttrss_core::phpser::Value as PValue;
@@ -449,6 +450,164 @@ fn first_source_src(root: &NodeRef) -> Option<String> {
         }
     }
     None
+}
+
+/// `Html2Text::convert` (approximated): the visible text of an HTML fragment,
+/// with `<script>`/`<style>`/`<head>` subtrees dropped and whitespace
+/// collapsed. Used for the `tsvector_combined` full-text column.
+fn html_to_text(content: &str) -> String {
+    let doc = parse_html().one(content);
+    let mut out = String::new();
+    let mut stack = vec![doc];
+    while let Some(node) = stack.pop() {
+        if let Some(el) = node.as_element() {
+            let tag = el.name.local.to_string().to_ascii_lowercase();
+            if matches!(tag.as_str(), "script" | "style" | "noscript" | "template" | "head") {
+                continue;
+            }
+        }
+        if let Some(text) = node.as_text() {
+            out.push_str(text.borrow().as_str());
+        }
+        let children: Vec<NodeRef> = node.children().collect();
+        for child in children.into_iter().rev() {
+            stack.push(child);
+        }
+    }
+    out.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// `INSERT INTO ttrss_user_entries (…published=true, unread=false,
+/// last_published=NOW(), last_read=NOW())` for a shared article.
+async fn insert_shared_user_entry(tx: &mut sqlx::PgConnection, ref_id: i32, owner_uid: i64) {
+    let _ = sqlx::query(
+        "INSERT INTO ttrss_user_entries (ref_id, uuid, feed_id, orig_feed_id, owner_uid, \
+         published, tag_cache, label_cache, last_read, note, unread, last_published) \
+         VALUES ($1, '', NULL, NULL, $2, true, '', '', NOW(), '', false, NOW())",
+    )
+    .bind(ref_id)
+    .bind(owner_uid)
+    .execute(tx)
+    .await;
+}
+
+/// `Article::_create_published_article` — create or update a shared article
+/// for `$owner_uid` and mark it published. Returns true on success (requires a
+/// valid URL and a non-empty title-or-url).
+pub async fn create_published_article(
+    pool: &sqlx::PgPool,
+    title: &str,
+    url: &str,
+    content: &str,
+    labels_str: &str,
+    owner_uid: i64,
+) -> bool {
+    // `sha1("ttshared:" . $url . $owner_uid)` → `SHA1:<hex>` (owner_uid in the
+    // GUID prevents a global clash).
+    let guid = format!(
+        "SHA1:{:x}",
+        sha1::Sha1::digest(format!("ttshared:{}{}", url, owner_uid).as_bytes())
+    );
+    let content_hash = format!("{:x}", sha1::Sha1::digest(content.as_bytes()));
+    let labels: Vec<String> = if labels_str.is_empty() {
+        Vec::new()
+    } else {
+        labels_str.split(',').map(|s| s.to_string()).collect()
+    };
+
+    let mut title = title.to_string();
+    if title.is_empty() {
+        if url.is_empty() {
+            return false;
+        }
+        title = url.to_string();
+    }
+    if !crate::urlhelper::filter_validate_url(url) {
+        return false;
+    }
+
+    let mut tx = pool.begin().await.expect("begin tx");
+    // Only check for our user's data (others may have shared it differently).
+    let existing: Option<i32> = sqlx::query_scalar(
+        "SELECT e.id FROM ttrss_entries e, ttrss_user_entries ue \
+         WHERE e.guid = $1 AND ue.ref_id = e.id AND ue.owner_uid = $2 LIMIT 1",
+    )
+    .bind(&guid)
+    .bind(owner_uid)
+    .fetch_optional(&mut *tx)
+    .await
+    .ok()
+    .flatten();
+
+    let mut rc = false;
+    if let Some(ref_id) = existing {
+        let _ = sqlx::query("UPDATE ttrss_entries SET content = $1, content_hash = $2 WHERE id = $3")
+            .bind(content)
+            .bind(&content_hash)
+            .bind(ref_id)
+            .execute(&mut *tx)
+            .await;
+        let _ = sqlx::query("UPDATE ttrss_entries SET tsvector_combined = to_tsvector($1) WHERE id = $2")
+            .bind(html_to_text(content))
+            .bind(ref_id)
+            .execute(&mut *tx)
+            .await;
+        let int_id: Option<i32> = sqlx::query_scalar(
+            "SELECT int_id FROM ttrss_user_entries WHERE ref_id = $1 AND owner_uid = $2 LIMIT 1",
+        )
+        .bind(ref_id)
+        .bind(owner_uid)
+        .fetch_optional(&mut *tx)
+        .await
+        .ok()
+        .flatten();
+        if let Some(int_id) = int_id {
+            let _ = sqlx::query(
+                "UPDATE ttrss_user_entries SET published = true, last_published = NOW() \
+                 WHERE int_id = $1 AND owner_uid = $2",
+            )
+            .bind(int_id)
+            .bind(owner_uid)
+            .execute(&mut *tx)
+            .await;
+        } else {
+            insert_shared_user_entry(&mut tx, ref_id, owner_uid).await;
+        }
+        for label in &labels {
+            crate::labels::add_article(pool, ref_id, label.trim(), owner_uid).await;
+        }
+        rc = true;
+    } else {
+        let ref_id: Option<i32> = sqlx::query_scalar(
+            "INSERT INTO ttrss_entries \
+             (title, guid, link, updated, content, content_hash, date_entered, date_updated) \
+             VALUES ($1, $2, $3, NOW(), $4, $5, NOW(), NOW()) RETURNING id",
+        )
+        .bind(&title)
+        .bind(&guid)
+        .bind(url)
+        .bind(content)
+        .bind(&content_hash)
+        .fetch_optional(&mut *tx)
+        .await
+        .ok()
+        .flatten();
+        if let Some(ref_id) = ref_id {
+            let _ = sqlx::query("UPDATE ttrss_entries SET tsvector_combined = to_tsvector($1) WHERE id = $2")
+                .bind(html_to_text(content))
+                .bind(ref_id)
+                .execute(&mut *tx)
+                .await;
+            insert_shared_user_entry(&mut tx, ref_id, owner_uid).await;
+            for label in &labels {
+                crate::labels::add_article(pool, ref_id, label.trim(), owner_uid).await;
+            }
+            rc = true;
+        }
+    }
+
+    let _ = tx.commit().await;
+    rc
 }
 
 /// `Article::_format_enclosures` result: the `formatted` / `entries` pair

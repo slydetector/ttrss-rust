@@ -155,7 +155,7 @@ fn build_url(t: &ParsedUrl) -> String {
 /// `validate`'s own scheme/host checks): a well-formed `scheme://authority`, a
 /// valid host (domain, dotted IPv4, or bracketed IPv6), and a numeric port in
 /// 0..=65535.
-fn filter_validate_url(url: &str) -> bool {
+pub(crate) fn filter_validate_url(url: &str) -> bool {
     let idx = match scheme_colon(url) {
         Some(i) => i,
         None => return false,

@@ -134,6 +134,7 @@ pub async fn before_and_dispatch(
         "unsubscribefeed" => unsubscribe_feed(state, sess, body).await,
         "updatearticle" => update_article(state, sess, body).await,
         "setarticlelabel" => set_article_label(state, sess, body).await,
+        "sharetopublished" => share_to_published(state, sess, body).await,
         other => (
             STATUS_ERR,
             json!({ "error": E_UNKNOWN_METHOD, "method": other }),
@@ -1035,4 +1036,37 @@ pub async fn set_article_label(state: &AppState, sess: &Sess, body: &Map<String,
         }
     }
     (STATUS_OK, json!({ "status": "OK", "updated": num_updated }))
+}
+
+/// `API::shareToPublished` — create or update a published article for the
+/// given title/url/content and mark it published for the current user.
+pub async fn share_to_published(
+    state: &AppState,
+    sess: &Sess,
+    body: &Map<String, Value>,
+) -> (i64, Value) {
+    let uid = sess.data().uid().unwrap_or(0);
+    let title = clean_str(body.get("title").and_then(Value::as_str).unwrap_or(""));
+    let url = clean_str(body.get("url").and_then(Value::as_str).unwrap_or(""));
+    let sanitize = param_bool_default(body, "sanitize", true);
+    let content_raw = body.get("content").and_then(Value::as_str).unwrap_or("");
+    let content = if sanitize {
+        clean_str(content_raw)
+    } else {
+        content_raw.to_string()
+    };
+    let ok = crate::article::create_published_article(
+        state.db.pool(),
+        &title,
+        &url,
+        &content,
+        "",
+        uid,
+    )
+    .await;
+    if ok {
+        (STATUS_OK, json!({ "status": "OK" }))
+    } else {
+        (STATUS_ERR, json!({ "error": E_OPERATION_FAILED }))
+    }
 }

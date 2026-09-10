@@ -468,3 +468,134 @@ async fn test_set_label_missing(
     assert_eq!(content["updated"], 0);
 }
 
+#[sqlx::test(fixtures(
+    "../../testing/fixtures/schema.sql",
+    "../../testing/fixtures/baseline.sql"
+))]
+async fn test_share_to_published_ok(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
+    let (state, sess) = setup(pool, options).await;
+    let pool = state.db.pool();
+    let (status, content) = api::share_to_published(&state, &sess, &request(&[
+        ("title", json!("My shared post")),
+        ("url", json!("https://example.com/article-1")),
+        ("content", json!("<p>Hello <b>world</b></p>")),
+    ]))
+    .await;
+    assert_eq!(status, 0);
+    assert_eq!(content["status"], "OK");
+
+    // A new entry + a published user entry were created.
+    let row: Option<(i32, String, bool)> = sqlx::query_as(
+        "SELECT e.id, e.guid, ue.published FROM ttrss_entries e \
+         JOIN ttrss_user_entries ue ON ue.ref_id = e.id AND ue.owner_uid = 1 \
+         WHERE e.link = 'https://example.com/article-1'",
+    )
+    .fetch_optional(pool)
+    .await
+    .expect("entry query");
+    let (id, guid, published) = row.expect("entry created");
+    assert!(guid.starts_with("SHA1:"), "guid is SHA1:");
+    assert!(published, "the shared article is marked published");
+
+    // The tsvector was populated (searchable text).
+    let ts: Option<String> = sqlx::query_scalar(
+        "SELECT tsvector_combined::text FROM ttrss_entries WHERE id = $1",
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await
+    .expect("ts query");
+    assert!(ts.expect("tsvector set").contains("world"), "tsvector holds the text");
+}
+
+#[sqlx::test(fixtures(
+    "../../testing/fixtures/schema.sql",
+    "../../testing/fixtures/baseline.sql"
+))]
+async fn test_share_to_published_invalid_url(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
+    let (state, sess) = setup(pool, options).await;
+    let (status, content) = api::share_to_published(&state, &sess, &request(&[
+        ("title", json!("Nope")),
+        ("url", json!("not a url")),
+        ("content", json!("body")),
+    ]))
+    .await;
+    assert_eq!(status, 1);
+    assert_eq!(content["error"], "E_OPERATION_FAILED");
+}
+
+#[sqlx::test(fixtures(
+    "../../testing/fixtures/schema.sql",
+    "../../testing/fixtures/baseline.sql"
+))]
+async fn test_share_to_published_no_title_or_url(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
+    let (state, sess) = setup(pool, options).await;
+    let (status, content) = api::share_to_published(&state, &sess, &request(&[
+        ("title", json!("")),
+        ("url", json!("")),
+        ("content", json!("body")),
+    ]))
+    .await;
+    assert_eq!(status, 1);
+    assert_eq!(content["error"], "E_OPERATION_FAILED");
+}
+
+#[sqlx::test(fixtures(
+    "../../testing/fixtures/schema.sql",
+    "../../testing/fixtures/baseline.sql"
+))]
+async fn test_share_to_published_updates_existing(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
+    let (state, sess) = setup(pool, options).await;
+    let pool = state.db.pool();
+
+    // Share the same URL twice (different content).
+    for content in ["<p>first</p>", "<p>second body</p>"] {
+        let (status, _) = api::share_to_published(&state, &sess, &request(&[
+            ("title", json!("Post")),
+            ("url", json!("https://example.com/same")),
+            ("content", json!(content)),
+        ]))
+        .await;
+        assert_eq!(status, 0);
+    }
+
+    // Exactly one entry + one user entry (the second share updates, not
+    // duplicates).
+    let entry_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM ttrss_entries WHERE link = 'https://example.com/same'",
+    )
+    .fetch_one(pool)
+    .await
+    .expect("count");
+    assert_eq!(entry_count, 1, "no duplicate entry");
+    let ue_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM ttrss_user_entries ue \
+         JOIN ttrss_entries e ON e.id = ue.ref_id \
+         WHERE e.link = 'https://example.com/same' AND ue.owner_uid = 1",
+    )
+    .fetch_one(pool)
+    .await
+    .expect("ue count");
+    assert_eq!(ue_count, 1, "no duplicate user entry");
+    // The content was updated to the second share (cleaned: tags stripped).
+    let stored: String = sqlx::query_scalar(
+        "SELECT content FROM ttrss_entries WHERE link = 'https://example.com/same'",
+    )
+    .fetch_one(pool)
+    .await
+    .expect("content");
+    assert_eq!(stored, "second body", "content is clean()ed (strip_tags + trim)");
+}
+
