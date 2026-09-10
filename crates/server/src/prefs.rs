@@ -11,6 +11,7 @@
 use sqlx::Row;
 use ttrss_core::config::sql_bool_to_bool;
 use ttrss_core::db::Db;
+use serde_json::{json, Value};
 
 /// Pref-name constants (mirror `Prefs::*` in classes/Prefs.php).
 pub const ENABLE_FEED_CATS: &str = "ENABLE_FEED_CATS";
@@ -33,6 +34,7 @@ pub const USER_STYLESHEET: &str = "USER_STYLESHEET";
 pub const USER_LANGUAGE: &str = "USER_LANGUAGE";
 pub const BLACKLISTED_TAGS: &str = "BLACKLISTED_TAGS";
 pub const SSL_CERT_SERIAL: &str = "SSL_CERT_SERIAL";
+pub const WIDESCREEN_MODE: &str = "WIDESCREEN_MODE";
 /// PHP `Config::T_*` type hints.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Type {
@@ -70,6 +72,15 @@ impl Pref {
             Pref::Str(s) => s,
             Pref::Int(i) => i.to_string().leak(),
             Pref::Bool(b) => b.to_string().leak(),
+        }
+    }
+    /// `json_encode(Prefs::get(...))` — the typed value as JSON (bool / int /
+    /// string per the pref's `Config::T_*` hint).
+    pub fn to_json(&self) -> Value {
+        match self {
+            Pref::Bool(b) => json!(*b),
+            Pref::Int(i) => json!(*i),
+            Pref::Str(s) => json!(s.as_str()),
         }
     }
 }
@@ -266,12 +277,19 @@ pub fn resolve(name: &str, rows: &[(String, Option<i32>, String)], profile: Opti
     }
 }
 
-/// `Prefs::set` (`_set`): strip_tags + trim, cast to the pref's type hint,
+/// `Prefs::set` (`_set`): optional strip_tags + trim, cast to the pref's type hint,
 /// no-op when the value already equals the effective value, else upsert the
 /// override row. Returns `false` (no write) for unknown pref names and for
 /// profile-blacklisted prefs with a profile, matching the PHP `user_error`
 /// / early-return paths.
-pub async fn set(db: &Db, name: &str, value: &str, owner_uid: i64, profile: Option<i32>) -> bool {
+pub async fn set(
+    db: &Db,
+    name: &str,
+    value: &str,
+    owner_uid: i64,
+    profile: Option<i32>,
+    strip_tags: bool,
+) -> bool {
     // PHP: `if (!$profile_id) $profile_id = null;`
     let profile = if profile == Some(0) { None } else { profile };
     if profile.is_some() && PROFILE_BLACKLIST.contains(&name) {
@@ -281,7 +299,11 @@ pub async fn set(db: &Db, name: &str, value: &str, owner_uid: i64, profile: Opti
         // PHP: `user_error("Attempt to set invalid preference key …")`.
         return false;
     };
-    let value = cast(crate::util::strip_tags(value).trim(), def.ty);
+    let value = if strip_tags {
+        cast(crate::util::strip_tags(value).trim(), def.ty)
+    } else {
+        cast(value, def.ty)
+    };
 
     // The `_get` the no-op check compares against: the (uid, profile)
     // override if present, else the PHP default.

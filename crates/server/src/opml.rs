@@ -475,7 +475,7 @@ async fn opml_import_preference(db: &Db, uid: i64, node: &XmlNode) {
         None => return,
     };
     let pref_value = attr(node, "value").unwrap_or("");
-    crate::prefs::set(db, pref_name, pref_value, uid, None).await;
+    crate::prefs::set(db, pref_name, pref_value, uid, None, true).await;
 }
 
 /// `OPML::opml_import_label` — create a label from `label-name` / `label-fg-color`

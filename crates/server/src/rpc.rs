@@ -491,6 +491,11 @@ async fn rpc_handler(
         "publ" => crate::article::publ(state, sess, extra).await,
         "delete" => crate::article::delete(state, sess, extra).await,
         "catchupFeed" => crate::feeds::catchup_feed(state, sess, extra).await,
+        // M4 config verbs (the frontend quick-toggles + client error reporter).
+        "setpref" => crate::settings::set_pref(state, sess, extra).await,
+        "togglepref" => crate::settings::toggle_pref(state, sess, extra).await,
+        "setWidescreen" => crate::settings::set_widescreen(state, sess, extra).await,
+        "log" => crate::settings::client_log(state, sess, extra).await,
         other => unknown_method("RPC", other),
     }
 }

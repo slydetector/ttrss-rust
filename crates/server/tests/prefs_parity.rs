@@ -75,7 +75,7 @@ async fn test_set_inserts_new_row_into_db(
     let before = get_raw_pref(&db, "PURGE_OLD_DAYS", uid, None).await;
     assert!(before.is_none(), "No row should exist before set()");
 
-    let result = prefs::set(&db, "PURGE_OLD_DAYS", &value.to_string(), uid, None).await;
+    let result = prefs::set(&db, "PURGE_OLD_DAYS", &value.to_string(), uid, None, true).await;
 
     assert!(result, "set() should return true on success");
     assert_eq!(
@@ -100,11 +100,11 @@ async fn test_set_updates_existing_row(
     let value1 = 99;
     let value2 = 200;
 
-    prefs::set(&db, "PURGE_OLD_DAYS", &value1.to_string(), uid, None).await;
+    prefs::set(&db, "PURGE_OLD_DAYS", &value1.to_string(), uid, None, true).await;
     let first_row = get_raw_pref(&db, "PURGE_OLD_DAYS", uid, None).await;
     assert_eq!(first_row.as_deref(), Some("99"));
 
-    prefs::set(&db, "PURGE_OLD_DAYS", &value2.to_string(), uid, None).await;
+    prefs::set(&db, "PURGE_OLD_DAYS", &value2.to_string(), uid, None, true).await;
     assert_eq!(
         get_raw_pref(&db, "PURGE_OLD_DAYS", uid, None).await.as_deref(),
         Some("200"),
@@ -128,7 +128,7 @@ async fn test_set_stores_bool_as_string_in_db(
     // PHP passes the booleans `false`/`true`; the Rust port takes the string
     // form PHP coerces them to before casting ("" / "1").
     // ENABLE_FEED_CATS defaults to true, so set false first to force a DB row.
-    prefs::set(&db, "ENABLE_FEED_CATS", "", uid, None).await;
+    prefs::set(&db, "ENABLE_FEED_CATS", "", uid, None, true).await;
     assert_eq!(
         get_raw_pref(&db, "ENABLE_FEED_CATS", uid, None).await.as_deref(),
         Some(""),
@@ -136,7 +136,7 @@ async fn test_set_stores_bool_as_string_in_db(
     );
 
     // Now set true — this is a change from the DB value.
-    prefs::set(&db, "ENABLE_FEED_CATS", "1", uid, None).await;
+    prefs::set(&db, "ENABLE_FEED_CATS", "1", uid, None, true).await;
     assert_eq!(
         get_raw_pref(&db, "ENABLE_FEED_CATS", uid, None).await.as_deref(),
         Some("1"),
@@ -158,7 +158,7 @@ async fn test_set_stores_string_in_db(
     let uid = create_test_user(&db, "test_string_db").await;
     let value = "Y-m-d H:i";
 
-    prefs::set(&db, "SHORT_DATE_FORMAT", value, uid, None).await;
+    prefs::set(&db, "SHORT_DATE_FORMAT", value, uid, None, true).await;
     assert_eq!(
         get_raw_pref(&db, "SHORT_DATE_FORMAT", uid, None).await.as_deref(),
         Some(value)
@@ -179,7 +179,7 @@ async fn test_set_strips_tags_from_string_values(
     let uid = create_test_user(&db, "test_strip_tags").await;
     let malicious = "<script>alert('xss')</script>M d, G:i";
 
-    prefs::set(&db, "SHORT_DATE_FORMAT", malicious, uid, None).await;
+    prefs::set(&db, "SHORT_DATE_FORMAT", malicious, uid, None, true).await;
 
     // strip_tags removes the tags, trim removes surrounding whitespace.
     let rows = prefs::load_rows(&db, uid, None).await;
@@ -204,7 +204,7 @@ async fn test_set_returns_true_without_db_change_when_value_unchanged(
     let value = 60; // This is the default
 
     // Setting the default value should still return true.
-    let result = prefs::set(&db, "PURGE_OLD_DAYS", &value.to_string(), uid, None).await;
+    let result = prefs::set(&db, "PURGE_OLD_DAYS", &value.to_string(), uid, None, true).await;
 
     assert!(
         result,
@@ -298,7 +298,7 @@ async fn test_set_profile_blacklisted_pref_returns_false(
     let profile_id = 100;
 
     // PURGE_OLD_DAYS is in _PROFILE_BLACKLIST.
-    let result = prefs::set(&db, "PURGE_OLD_DAYS", "999", uid, Some(profile_id)).await;
+    let result = prefs::set(&db, "PURGE_OLD_DAYS", "999", uid, Some(profile_id), true).await;
 
     assert!(!result, "set() should return false for blacklisted pref with profile");
     assert!(
@@ -323,7 +323,7 @@ async fn test_set_non_blacklisted_pref_works_with_profile(
     assert!(profile_id > 0, "create_profile should succeed");
     // REVERSE_HEADLINES is not in the blacklist.
 
-    let result = prefs::set(&db, "REVERSE_HEADLINES", "1", uid, Some(profile_id as i32)).await;
+    let result = prefs::set(&db, "REVERSE_HEADLINES", "1", uid, Some(profile_id as i32), true).await;
 
     assert!(result, "set() should succeed for non-blacklisted pref with profile");
     assert_eq!(
@@ -348,9 +348,9 @@ async fn test_reset_clears_all_user_prefs(
     let uid = create_test_user(&db, "test_reset").await;
 
     // Set some prefs.
-    prefs::set(&db, "PURGE_OLD_DAYS", "99", uid, None).await;
-    prefs::set(&db, "REVERSE_HEADLINES", "1", uid, None).await;
-    prefs::set(&db, "USER_TIMEZONE", "America/New_York", uid, None).await;
+    prefs::set(&db, "PURGE_OLD_DAYS", "99", uid, None, true).await;
+    prefs::set(&db, "REVERSE_HEADLINES", "1", uid, None, true).await;
+    prefs::set(&db, "USER_TIMEZONE", "America/New_York", uid, None, true).await;
 
     // Verify they exist.
     let count_before: i64 = sqlx::query_scalar(
@@ -394,7 +394,7 @@ async fn test_reset_does_not_delete_migrated_flag(
     let uid = create_test_user(&db, "test_reset_mig").await;
 
     // First, simulate migration by setting _PREFS_MIGRATED.
-    prefs::set(&db, "_PREFS_MIGRATED", "1", uid, None).await;
+    prefs::set(&db, "_PREFS_MIGRATED", "1", uid, None, true).await;
 
     prefs::reset(&db, uid, None).await;
 
@@ -423,7 +423,7 @@ async fn test_set_returns_false_for_invalid_pref_name(
 
     // PHP set() triggers user_error() for invalid pref names (suppressed in
     // the PHP test); the Rust port simply returns false.
-    let result = prefs::set(&db, "INVALID_PREF_NAME", "value", uid, None).await;
+    let result = prefs::set(&db, "INVALID_PREF_NAME", "value", uid, None, true).await;
 
     assert!(!result, "set() should return false for an invalid pref name");
 }
@@ -442,8 +442,8 @@ async fn test_multiple_users_have_isolated_prefs(
     let uid1 = create_test_user(&db, "test_iso_1").await;
     let uid2 = create_test_user(&db, "test_iso_2").await;
 
-    prefs::set(&db, "PURGE_OLD_DAYS", "100", uid1, None).await;
-    prefs::set(&db, "PURGE_OLD_DAYS", "200", uid2, None).await;
+    prefs::set(&db, "PURGE_OLD_DAYS", "100", uid1, None, true).await;
+    prefs::set(&db, "PURGE_OLD_DAYS", "200", uid2, None, true).await;
 
     let rows1 = prefs::load_rows(&db, uid1, None).await;
     let rows2 = prefs::load_rows(&db, uid2, None).await;

@@ -126,8 +126,8 @@ pub async fn view(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> 
     }
 
     // `Prefs::set` for the two view prefs (the PHP side effect, Feeds.php).
-    prefs::set(&state.db, "_DEFAULT_VIEW_MODE", &view_mode, uid, profile).await;
-    prefs::set(&state.db, "_DEFAULT_VIEW_ORDER_BY", &order_by, uid, profile).await;
+    prefs::set(&state.db, "_DEFAULT_VIEW_MODE", &view_mode, uid, profile, true).await;
+    prefs::set(&state.db, "_DEFAULT_VIEW_ORDER_BY", &order_by, uid, profile, true).await;
 
     // Bump the login timestamp if it's over an hour old.
     if let Some(last_login_update) = data.get_int("last_login_update") {

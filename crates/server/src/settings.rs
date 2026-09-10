@@ -405,7 +405,7 @@ pub async fn saveconfig(state: &AppState, sess: &Sess, extra: &Map<String, Value
         }
 
         if prefs::default_for(name).is_some() {
-            let _ = prefs::set(&state.db, name, &value_str, uid, profile).await;
+            let _ = prefs::set(&state.db, name, &value_str, uid, profile, true).await;
         }
     }
 
@@ -547,6 +547,71 @@ pub async fn customize_css(state: &AppState, sess: &Sess) -> Value {
 /// A string form field, or `""` when absent (PHP's `$_POST[name]` reads).
 fn str_extra(extra: &Map<String, Value>, key: &str) -> String {
     extra.get(key).and_then(Value::as_str).unwrap_or("").to_string()
+}
+
+/// A raw request value as a string: strings as-is, other JSON values via their
+/// JSON representation (PHP's `$_REQUEST[name]` is always a string).
+fn raw_extra(extra: &Map<String, Value>, key: &str) -> String {
+    match extra.get(key) {
+        Some(Value::String(s)) => s.clone(),
+        Some(other) => other.to_string(),
+        None => String::new(),
+    }
+}
+
+/// `RPC::setpref` — the generic frontend preference setter. `strip_tags` is off
+/// only for `USER_STYLESHEET` (its CSS value may contain `<`/`>`).
+pub async fn set_pref(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Value {
+    let uid = sess.data().uid().unwrap_or(0);
+    let profile = sess.data().profile().map(|p| p as i32);
+    let key = util::clean_str(&str_extra(extra, "key"));
+    let value = raw_extra(extra, "value");
+    let _ =
+        prefs::set(&state.db, &key, &value, uid, profile, key != prefs::USER_STYLESHEET).await;
+    json!({ "param": key, "value": value })
+}
+
+/// `RPC::togglepref` — flip a (bool) pref and echo back the new value.
+pub async fn toggle_pref(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Value {
+    let uid = sess.data().uid().unwrap_or(0);
+    let profile = sess.data().profile().map(|p| p as i32);
+    let key = util::clean_str(&str_extra(extra, "key"));
+    let rows = prefs::load_rows(&state.db, uid, profile).await;
+    let negated = !prefs::resolve(&key, &rows, profile).as_bool();
+    let _ = prefs::set(&state.db, &key, if negated { "1" } else { "" }, uid, profile, true).await;
+    let rows = prefs::load_rows(&state.db, uid, profile).await;
+    json!({ "param": key, "value": prefs::resolve(&key, &rows, profile).to_json() })
+}
+
+/// `RPC::setWidescreen` — set the `WIDESCREEN_MODE` pref.
+pub async fn set_widescreen(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Value {
+    let uid = sess.data().uid().unwrap_or(0);
+    let profile = sess.data().profile().map(|p| p as i32);
+    let wide = util::clean_int(extra.get("wide"));
+    let _ =
+        prefs::set(&state.db, prefs::WIDESCREEN_MODE, &wide.to_string(), uid, profile, true).await;
+    json!({ "wide": wide })
+}
+
+/// `RPC::log` — the client-JS error reporter: record a client-side error and
+/// ack it. Echoes nothing (JSON `null`) when `msg` is empty.
+pub async fn client_log(_state: &AppState, _sess: &Sess, extra: &Map<String, Value>) -> Value {
+    let msg = util::clean_str(&str_extra(extra, "msg"));
+    if msg.is_empty() {
+        return Value::Null;
+    }
+    let file = util::basename(&util::clean_str(&str_extra(extra, "file")));
+    let line = util::clean_int(extra.get("line"));
+    let context = util::clean_str(&str_extra(extra, "context"));
+    tracing::error!(
+        target: "client-js",
+        error = %msg,
+        file = %file,
+        line = line,
+        context = %context,
+        "client JS error"
+    );
+    json!({ "message": "HOST_ERROR_LOGGED" })
 }
 
 
