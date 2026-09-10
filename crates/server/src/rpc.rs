@@ -58,6 +58,10 @@ pub async fn handler(
         .filter(|s| !s.is_empty())
         .or_else(|| form.method.clone())
         .unwrap_or_else(|| "index".into());
+    // `backend.php`: `$method = strtolower($method)` — method names are matched
+    // case-insensitively (PHP resolves `call` / `method_exists` case-insensitively),
+    // so the dispatcher matches on the lowercased form.
+    let method = method.to_ascii_lowercase();
     let csrf = form.csrf_token.clone().unwrap_or_default();
     let extra = form.extra.clone();
 
@@ -253,15 +257,15 @@ async fn dispatch(
 
     match op {
         "RPC" => match method {
-            "hotkeyHelp" => DispatchOutput::Html(crate::hotkeys::hotkey_help()),
+            "hotkeyhelp" => DispatchOutput::Html(crate::hotkeys::hotkey_help()),
             _ => DispatchOutput::Json(rpc_handler(state, sess, method, extra).await),
         },
         "Feeds" => match method {
             "view" => DispatchOutput::Json(crate::headlines::view(state, sess, extra).await),
             "search" => DispatchOutput::Json(crate::headlines::search(state, sess, extra).await),
             "updatedebugger" => DispatchOutput::TextHtml(crate::feeds::updatedebugger(state, sess, extra, csrf).await),
-            "catchupAll" => DispatchOutput::Json(crate::feeds::catchup_all(state, sess).await),
-            "subscribeToFeed" => DispatchOutput::Json(crate::feeds::subscribe_to_feed(state, sess).await),
+            "catchupall" => DispatchOutput::Json(crate::feeds::catchup_all(state, sess).await),
+            "subscribetofeed" => DispatchOutput::Json(crate::feeds::subscribe_to_feed(state, sess).await),
             "opensite" => {
                 let (status, location, body) = crate::feeds::opensite(state, sess, extra).await;
                 DispatchOutput::Raw(status, location, body)
@@ -270,24 +274,26 @@ async fn dispatch(
         },
         "Pref_Feeds" => match method {
             "getfeedtree" => DispatchOutput::Json(feeds::getfeedtree(state, sess, extra).await),
-            "feedsWithErrors" => DispatchOutput::Json(feeds::feeds_with_errors(state, sess).await),
-            "inactiveFeeds" => DispatchOutput::Json(feeds::inactive_feeds(state, sess).await),
-            "editSave" => DispatchOutput::Json(feeds::edit_save(state, sess, extra).await),
-            "batchEditSave" => DispatchOutput::Json(feeds::batch_edit_save(state, sess, extra).await),
+            "feedswitherrors" => DispatchOutput::Json(feeds::feeds_with_errors(state, sess).await),
+            "inactivefeeds" => DispatchOutput::Json(feeds::inactive_feeds(state, sess).await),
+            "editsave" => DispatchOutput::Json(feeds::edit_save(state, sess, extra).await),
+            "batcheditsave" => DispatchOutput::Json(feeds::batch_edit_save(state, sess, extra).await),
             "remove" => DispatchOutput::Json(feeds::remove_feeds(state, sess, extra).await),
-            "addCat" => DispatchOutput::Json(feeds::add_cat(state, sess, extra).await),
-            "renameCat" => DispatchOutput::Json(feeds::rename_cat(state, sess, extra).await),
-            "removeCat" => DispatchOutput::Json(feeds::remove_cat(state, sess, extra).await),
+            "addcat" => DispatchOutput::Json(feeds::add_cat(state, sess, extra).await),
+            "renamecat" => DispatchOutput::Json(feeds::rename_cat(state, sess, extra).await),
+            "removecat" => DispatchOutput::Json(feeds::remove_cat(state, sess, extra).await),
             "catsortreset" => DispatchOutput::Json(feeds::catsortreset(state, sess, extra).await),
             "feedsortreset" => DispatchOutput::Json(feeds::feedsortreset(state, sess, extra).await),
             "savefeedorder" => DispatchOutput::Json(feeds::savefeedorder(state, sess, extra).await),
-            "removeIcon" => DispatchOutput::Json(feeds::remove_icon(state, sess, extra).await),
-            "uploadIcon" => DispatchOutput::Json(feeds::upload_icon(state, sess, extra, file).await),
-            "clearKeys" => DispatchOutput::Json(feeds::clear_keys(state, sess, extra).await),
-            "regenFeedKey" => DispatchOutput::Json(feeds::regen_feed_key(state, sess, extra).await),
-            "getSharedURL" => DispatchOutput::Json(feeds::get_shared_url(state, sess, extra).await),
+            "removeicon" => DispatchOutput::Json(feeds::remove_icon(state, sess, extra).await),
+            "uploadicon" => DispatchOutput::Json(feeds::upload_icon(state, sess, extra, file).await),
+            "clearkeys" => DispatchOutput::Json(feeds::clear_keys(state, sess, extra).await),
+            "regenfeedkey" => DispatchOutput::Json(feeds::regen_feed_key(state, sess, extra).await),
+            "getsharedurl" => DispatchOutput::Json(feeds::get_shared_url(state, sess, extra).await),
             "editfeed" => DispatchOutput::Json(feeds::editfeed(state, sess, extra).await),
             "editfeeds" => DispatchOutput::Html(feeds::editfeeds(state, sess, extra).await),
+            "batchsubscribe" => DispatchOutput::Json(feeds::batch_subscribe(state, sess).await),
+            "batchaddfeeds" => DispatchOutput::Json(feeds::batch_add_feeds(state, sess, extra).await),
             _ => DispatchOutput::Json(unknown_method("Pref_Feeds", method)),
         },
         "Article" => match method {
@@ -299,7 +305,7 @@ async fn dispatch(
                 )
                 .await,
             ),
-            "printArticleTags" => DispatchOutput::Json(
+            "printarticletags" => DispatchOutput::Json(
                 article::print_article_tags(
                     state.db.pool(),
                     data.uid().unwrap_or(0),
@@ -307,9 +313,9 @@ async fn dispatch(
                 )
                 .await,
             ),
-            "setScore" => DispatchOutput::Json(article::set_score(state, sess, extra).await),
-            "setArticleTags" => DispatchOutput::Json(article::set_article_tags(state, sess, extra).await),
-            "completeTags" => DispatchOutput::Json(article::complete_tags(state, sess, extra).await),
+            "setscore" => DispatchOutput::Json(article::set_score(state, sess, extra).await),
+            "setarticletags" => DispatchOutput::Json(article::set_article_tags(state, sess, extra).await),
+            "completetags" => DispatchOutput::Json(article::complete_tags(state, sess, extra).await),
             "assigntolabel" => DispatchOutput::Json(article::label_ops(state, sess, extra, true).await),
             "removefromlabel" => DispatchOutput::Json(article::label_ops(state, sess, extra, false).await),
             "redirect" => {
@@ -356,7 +362,7 @@ async fn dispatch(
                 DispatchOutput::TextHtml(filters::print_action_name(state, sess, extra).await)
             }
             "editrule" => DispatchOutput::Json(filters::editrule(state, sess, extra).await),
-            "editSave" => {
+            "editsave" => {
                 let _ = filters::edit_save(state, sess, extra).await;
                 DispatchOutput::TextHtml(String::new())
             }
@@ -387,7 +393,7 @@ async fn dispatch(
             _ => DispatchOutput::Json(unknown_method("Pref_Filters", method)),
         },
         "Pref_Prefs" => match method {
-            "getProfiles" => DispatchOutput::Json(settings::get_profiles(state, sess).await),
+            "getprofiles" => DispatchOutput::Json(settings::get_profiles(state, sess).await),
             "index" => DispatchOutput::Html(pref_ui::index(state, sess).await.unwrap_or_default()),
             "index_auth" => {
                 let html = pref_ui::index_auth(state, sess).await.unwrap_or_default();
@@ -413,22 +419,22 @@ async fn dispatch(
                 let _ = settings::save_profile(state, sess, extra).await;
                 DispatchOutput::TextHtml(String::new())
             }
-            "generateAppPassword" => {
+            "generateapppassword" => {
                 let html = settings::generate_app_password(state, sess, extra)
                     .await
                     .unwrap_or_default();
                 DispatchOutput::Html(html)
             }
-            "deleteAppPasswords" => {
+            "deleteapppasswords" => {
                 let html = settings::delete_app_passwords(state, sess, extra)
                     .await
                     .unwrap_or_default();
                 DispatchOutput::Html(html)
             }
-            "previewDigest" => DispatchOutput::Json(settings::preview_digest(state, sess).await),
+            "previewdigest" => DispatchOutput::Json(settings::preview_digest(state, sess).await),
             "saveconfig" => DispatchOutput::TextHtml(settings::saveconfig(state, sess, extra).await),
             "resetconfig" => DispatchOutput::TextHtml(settings::resetconfig(state, sess).await),
-            "changePersonalData" => {
+            "changepersonaldata" => {
                 DispatchOutput::TextHtml(settings::change_personal_data(state, sess, extra).await)
             }
             "changepassword" => {
@@ -436,19 +442,19 @@ async fn dispatch(
             }
             "otpenable" => DispatchOutput::TextHtml(settings::otp_enable(state, sess, extra).await),
             "otpdisable" => DispatchOutput::TextHtml(settings::otp_disable(state, sess, extra).await),
-            "customizeCSS" => DispatchOutput::Json(settings::customize_css(state, sess).await),
-            "getPluginsList" => DispatchOutput::Json(plugins::get_plugins_list(state, sess).await),
-            "getAvailablePlugins" => DispatchOutput::Json(plugins::get_available_plugins(sess)),
+            "customizecss" => DispatchOutput::Json(settings::customize_css(state, sess).await),
+            "getpluginslist" => DispatchOutput::Json(plugins::get_plugins_list(state, sess).await),
+            "getavailableplugins" => DispatchOutput::Json(plugins::get_available_plugins(sess)),
             _ => DispatchOutput::Json(unknown_method("Pref_Prefs", method)),
         },
         "Pref_System" => match method {
             "index" => DispatchOutput::Html(system::index(state, sess, extra).await),
             "getscheduledtasks" => DispatchOutput::Html(system::getscheduledtasks(state, sess).await),
-            "clearLog" => {
+            "clearlog" => {
                 system::clear_log(state).await;
                 DispatchOutput::Json(json!({ "status": "OK" }))
             }
-            "sendTestEmail" => DispatchOutput::Json(system::send_test_email()),
+            "sendtestemail" => DispatchOutput::Json(system::send_test_email()),
             "getphpinfo" => DispatchOutput::Html(system::get_php_info(state)),
             _ => DispatchOutput::Json(unknown_method("Pref_System", method)),
         },
@@ -459,13 +465,13 @@ async fn dispatch(
                 Some(v) => DispatchOutput::Json(v),
                 None => DispatchOutput::TextHtml(String::new()),
             },
-            "editSave" => DispatchOutput::TextHtml(users::edit_save(state, sess, extra).await),
+            "editsave" => DispatchOutput::TextHtml(users::edit_save(state, sess, extra).await),
             "remove" => {
                 users::remove(state, sess, extra).await;
                 DispatchOutput::TextHtml(String::new())
             },
             "add" => DispatchOutput::TextHtml(users::add(state, sess, extra).await),
-            "resetPass" => DispatchOutput::TextHtml(users::reset_pass(state, sess, extra).await),
+            "resetpass" => DispatchOutput::TextHtml(users::reset_pass(state, sess, extra).await),
             _ => DispatchOutput::Json(unknown_method("Pref_Users", method)),
         },
         "OPML" => match method {
@@ -499,7 +505,7 @@ async fn rpc_handler(
     extra: &Map<String, Value>,
 ) -> Value {
     match method {
-        "sanityCheck" => sanity_check(state, sess, extra).await,
+        "sanitycheck" => sanity_check(state, sess, extra).await,
         // TODO: stub (M2 close-out). PHP's `checkforupdates` polls
         // `tt-rss.org/tt-rss/version.json` for new *PHP* releases (vs the
         // local git checkout) and git-checks installed plugins for updates;
@@ -508,20 +514,20 @@ async fn rpc_handler(
         // `rpc_check_for_updates` is a known intentional mismatch until the
         // oracle side is adjusted.
         "checkforupdates" => json!({ "changeset": [], "plugins": [] }),
-        "getRuntimeInfo" => json!({ "runtime-info": make_runtime_info(state, sess).await }),
-        "getAllCounters" => crate::counters::get_all_counters(state, sess, extra).await,
+        "getruntimeinfo" => json!({ "runtime-info": make_runtime_info(state, sess).await }),
+        "getallcounters" => crate::counters::get_all_counters(state, sess, extra).await,
         // M3 mutations (article state).
-        "catchupSelected" => crate::article::catchup_selected(state, sess, extra).await,
-        "markSelected" => crate::article::mark_selected(state, sess, extra).await,
-        "publishSelected" => crate::article::publish_selected(state, sess, extra).await,
+        "catchupselected" => crate::article::catchup_selected(state, sess, extra).await,
+        "markselected" => crate::article::mark_selected(state, sess, extra).await,
+        "publishselected" => crate::article::publish_selected(state, sess, extra).await,
         "mark" => crate::article::mark(state, sess, extra).await,
         "publ" => crate::article::publ(state, sess, extra).await,
         "delete" => crate::article::delete(state, sess, extra).await,
-        "catchupFeed" => crate::feeds::catchup_feed(state, sess, extra).await,
+        "catchupfeed" => crate::feeds::catchup_feed(state, sess, extra).await,
         // M4 config verbs (the frontend quick-toggles + client error reporter).
         "setpref" => crate::settings::set_pref(state, sess, extra).await,
         "togglepref" => crate::settings::toggle_pref(state, sess, extra).await,
-        "setWidescreen" => crate::settings::set_widescreen(state, sess, extra).await,
+        "setwidescreen" => crate::settings::set_widescreen(state, sess, extra).await,
         "log" => crate::settings::client_log(state, sess, extra).await,
         other => unknown_method("RPC", other),
     }

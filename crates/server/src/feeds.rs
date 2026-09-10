@@ -660,6 +660,81 @@ pub async fn subscribe_to_feed(state: &AppState, sess: &Sess) -> Value {
     })
 }
 
+/// `Pref_Feeds::batchSubscribe` — the data the batch-subscribe dialog needs:
+/// the `ENABLE_FEED_CATS` pref (as an int, `1`/`0`, per the PHP `(int)` cast) +
+/// the category `<select>`.
+pub async fn batch_subscribe(state: &AppState, sess: &Sess) -> Value {
+    let uid = sess.data().uid().unwrap_or(0);
+    let profile = sess.data().profile().map(|p| p as i32);
+    let pool = state.db.pool();
+    let pref_rows = prefs::load_rows(&state.db, uid, None).await;
+    let enable_cats = prefs::resolve(prefs::ENABLE_FEED_CATS, &pref_rows, profile).as_bool();
+    let cat_select = select_feeds_cats(pool, uid, "cat", None, "").await;
+    json!({
+        "enable_cats": enable_cats as i64,
+        "cat_select": cat_select,
+    })
+}
+
+/// `Pref_Feeds::batchAddFeeds` — insert the posted feed URLs (one per line) as
+/// `[Unknown]` feeds for the user, skipping any the user already subscribes to
+/// and any that fail `UrlHelper::validate`. Read-only users are a no-op (the
+/// PHP early-returns with no error code). This is a pure DB insert: the new
+/// feeds are picked up by the daemon on its next update (it does *not* fetch +
+/// parse now — that is the M6 `Feeds::add` engine).
+pub async fn batch_add_feeds(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Value {
+    let uid = sess.data().uid().unwrap_or(0);
+    let pool = state.db.pool();
+
+    // `access_level == ACCESS_LEVEL_READONLY` → no-op (the PHP early-returns).
+    if sess.data().access_level().unwrap_or(0) == ttrss_core::user::ACCESS_LEVEL_READONLY as i64 {
+        return Value::Null;
+    }
+
+    let cat_id = util::clean_int(extra.get("cat")) as i32;
+    // `$cat_id ?: null` — an empty/`0` category means uncategorized (NULL).
+    let cat_id_sql: Option<i32> = (cat_id != 0).then_some(cat_id);
+    let feeds_raw = util::clean_str(extra.get("feeds").and_then(|v| v.as_str()).unwrap_or(""));
+    let login = util::clean_str(extra.get("login").and_then(|v| v.as_str()).unwrap_or(""));
+    let pass = util::clean_str(extra.get("pass").and_then(|v| v.as_str()).unwrap_or(""));
+
+    for feed in feeds_raw.split('\n') {
+        let feed = feed.trim();
+        let Some(valid) = crate::urlhelper::validate(feed, false) else {
+            continue;
+        };
+        if let Ok(mut tx) = pool.begin().await {
+            // Skip feeds this user already has (matched on the validated URL).
+            let existing: Option<i32> = sqlx::query_scalar(
+                "SELECT id FROM ttrss_feeds WHERE feed_url = $1 AND owner_uid = $2",
+            )
+            .bind(&valid)
+            .bind(uid)
+            .fetch_optional(&mut *tx)
+            .await
+            .ok()
+            .flatten();
+            if existing.is_none() {
+                let _ = sqlx::query(
+                    "INSERT INTO ttrss_feeds
+                        (owner_uid, feed_url, title, cat_id, auth_login, auth_pass, update_method, auth_pass_encrypted)
+                     VALUES ($1, $2, '[Unknown]', $3, $4, $5, 0, false)",
+                )
+                .bind(uid)
+                .bind(&valid)
+                .bind(cat_id_sql)
+                .bind(&login)
+                .bind(&pass)
+                .execute(&mut *tx)
+                .await;
+            }
+            let _ = tx.commit().await;
+        }
+    }
+
+    Value::Null
+}
+
 /// `Feeds::updatedebugger` — the standalone feed-update debug page
 /// (`Content-Type: text/html`). Reproduced verbatim from the PHP template;
 /// the cache-bust timestamp and the csrf token normalize away in the diff.

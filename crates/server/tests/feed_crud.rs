@@ -16,6 +16,9 @@ use ttrss_core::phpser::Value as PValue;
 use ttrss_core::session::Session;
 use ttrss_server::session::Sess;
 use ttrss_server::AppState;
+use axum::body::to_bytes;
+use axum::extract::{Extension, State};
+use axum::http::{header, Method};
 
 /// A test-only config (the handlers only need `db` + `feed_icon_dir`).
 fn test_config() -> Config {
@@ -896,4 +899,258 @@ async fn test_upload_icon(
     assert_eq!(res4.get("rc").and_then(|v| v.as_str()), Some("E_ICON_UPLOAD_FAILED"));
 
     let _ = std::fs::remove_dir_all(&icon_dir);
+}
+
+// ---------------------------------------------------------------------------
+// batchSubscribe / batchAddFeeds (the batch-add-feeds write surface)
+// ---------------------------------------------------------------------------
+
+/// `batchAddFeeds`: each line of the posted feed list becomes a `[Unknown]`
+/// feed for the user (posted cat/login/pass, `update_method = 0`, pass stored
+/// unencrypted).
+#[sqlx::test(fixtures(
+    "../../testing/fixtures/schema.sql",
+    "../../testing/fixtures/baseline.sql",
+    "../../testing/fixtures/seed.sql",
+))]
+async fn test_batch_add_feeds(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
+    use sqlx::Row as _;
+    let (state, sess) = setup(pool, options).await;
+    let db = &state.db;
+    ttrss_server::feeds::batch_add_feeds(
+        &state,
+        &sess,
+        &request(&[
+            ("cat", json!(1)),
+            (
+                "feeds",
+                json!("http://example.com/feed1\nhttp://example.com/feed2\nhttps://example.org/rss"),
+            ),
+            ("login", json!("user")),
+            ("pass", json!("secret")),
+        ]),
+    )
+    .await;
+
+    let count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM ttrss_feeds WHERE owner_uid = 1 AND title = '[Unknown]'",
+    )
+    .fetch_one(db.pool())
+    .await
+    .unwrap();
+    assert_eq!(count, 3, "three [Unknown] feeds inserted");
+
+    let row = sqlx::query(
+        "SELECT title, cat_id, auth_login, auth_pass, update_method, auth_pass_encrypted \
+         FROM ttrss_feeds WHERE feed_url = 'http://example.com/feed1'",
+    )
+    .fetch_one(db.pool())
+    .await
+    .unwrap();
+    assert_eq!(row.get::<String, _>(0), "[Unknown]");
+    assert_eq!(row.get::<Option<i32>, _>(1), Some(1));
+    assert_eq!(row.get::<Option<String>, _>(2), Some("user".to_string()));
+    assert_eq!(row.get::<Option<String>, _>(3), Some("secret".to_string()));
+    assert_eq!(row.get::<i32, _>(4), 0);
+    assert!(!row.get::<bool, _>(5), "auth_pass is stored unencrypted");
+}
+
+/// `batchAddFeeds`: a feed URL the user already has is not re-inserted (only
+/// the new one is added).
+#[sqlx::test(fixtures(
+    "../../testing/fixtures/schema.sql",
+    "../../testing/fixtures/baseline.sql",
+    "../../testing/fixtures/seed.sql",
+))]
+async fn test_batch_add_feeds_skip_existing(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
+    let (state, sess) = setup(pool, options).await;
+    let db = &state.db;
+    let before: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM ttrss_feeds WHERE owner_uid = 1")
+        .fetch_one(db.pool())
+        .await
+        .unwrap();
+    // `https://hnrss.org/frontpage` is feed 1 (exists); the other is new.
+    ttrss_server::feeds::batch_add_feeds(
+        &state,
+        &sess,
+        &request(&[("feeds", json!("https://hnrss.org/frontpage\nhttp://example.com/new"))]),
+    )
+    .await;
+    let after: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM ttrss_feeds WHERE owner_uid = 1")
+        .fetch_one(db.pool())
+        .await
+        .unwrap();
+    assert_eq!(after, before + 1, "existing feed skipped, only the new one added");
+    let dup: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM ttrss_feeds WHERE feed_url = 'https://hnrss.org/frontpage'",
+    )
+    .fetch_one(db.pool())
+    .await
+    .unwrap();
+    assert_eq!(dup, 1, "no duplicate of the existing feed");
+}
+
+/// `batchAddFeeds`: invalid / non-http lines are skipped by `UrlHelper::validate`.
+#[sqlx::test(fixtures(
+    "../../testing/fixtures/schema.sql",
+    "../../testing/fixtures/baseline.sql",
+    "../../testing/fixtures/seed.sql",
+))]
+async fn test_batch_add_feeds_invalid_skipped(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
+    let (state, sess) = setup(pool, options).await;
+    let db = &state.db;
+    ttrss_server::feeds::batch_add_feeds(
+        &state,
+        &sess,
+        &request(&[(
+            "feeds",
+            json!("http://example.com/valid\nnot a url\nftp://example.com/feed"),
+        )]),
+    )
+    .await;
+    let count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM ttrss_feeds WHERE owner_uid = 1 AND title = '[Unknown]'",
+    )
+    .fetch_one(db.pool())
+    .await
+    .unwrap();
+    assert_eq!(count, 1, "only the valid http feed is inserted");
+}
+
+/// `batchAddFeeds`: a read-only user is a no-op (no feeds added).
+#[sqlx::test(fixtures(
+    "../../testing/fixtures/schema.sql",
+    "../../testing/fixtures/baseline.sql",
+    "../../testing/fixtures/seed.sql",
+))]
+async fn test_batch_add_feeds_readonly_noop(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
+    let (state, sess) = setup(pool, options).await;
+    sess.with_mut(|s| s.set("access_level", PValue::Int(-1)));
+    let db = &state.db;
+    let before: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM ttrss_feeds WHERE owner_uid = 1")
+        .fetch_one(db.pool())
+        .await
+        .unwrap();
+    ttrss_server::feeds::batch_add_feeds(
+        &state,
+        &sess,
+        &request(&[("feeds", json!("http://example.com/x"))]),
+    )
+    .await;
+    let after: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM ttrss_feeds WHERE owner_uid = 1")
+        .fetch_one(db.pool())
+        .await
+        .unwrap();
+    assert_eq!(after, before, "read-only user adds nothing");
+}
+
+/// `batchSubscribe`: returns `enable_cats` as an **int** (`1`/`0`, per the PHP
+/// `(int)` cast) + the category `<select>`.
+#[sqlx::test(fixtures(
+    "../../testing/fixtures/schema.sql",
+    "../../testing/fixtures/baseline.sql",
+    "../../testing/fixtures/seed.sql",
+))]
+async fn test_batch_subscribe(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
+    let (state, sess) = setup(pool, options).await;
+    let v = ttrss_server::feeds::batch_subscribe(&state, &sess).await;
+    // The PHP `(int)` cast — an int, not a JSON boolean.
+    let enable = v.get("enable_cats").and_then(|x| x.as_i64());
+    assert!(enable == Some(0) || enable == Some(1), "enable_cats is 0/1: {v}");
+    let cat_select = v.get("cat_select").and_then(|x| x.as_str()).unwrap_or("");
+    assert!(cat_select.contains("<select"), "cat_select is a select: {cat_select}");
+    assert!(cat_select.contains("Uncategorized"), "uncategorized option: {cat_select}");
+}
+
+/// The dispatcher matches methods **case-insensitively** (PHP `backend.php`
+/// lowercases `$method`, so `call`/`method_exists` resolve case-insensitively).
+/// Verified through the public `rpc::handler`: the frontend's lowercase
+/// `inactivefeeds`/`batchaddfeeds`/`batchsubscribe`, a corpus-style camelCase
+/// `markSelected`, and a mixed-case `getFeedTree` all route to a real handler
+/// (not `E_UNKNOWN_METHOD`).
+#[sqlx::test(fixtures(
+    "../../testing/fixtures/schema.sql",
+    "../../testing/fixtures/baseline.sql",
+))]
+async fn test_dispatch_case_insensitive(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
+    let db: Db = common::make_db(pool, options).await.expect("test db");
+    let state = AppState {
+        config: test_config(),
+        db,
+    };
+
+    // A session for `uid = 1` (admin) with the stored pwd hash + a valid csrf
+    // token, so `validate_session` + the CSRF gate pass and routing is the test.
+    fn sess() -> Sess {
+        let mut d = Session::new();
+        d.set("uid", PValue::Int(1));
+        d.set("access_level", PValue::Int(10));
+        d.set(
+            "pwd_hash",
+            PValue::Bytes(b"SHA1:5baa61e4c9b93f3f0682250b6cf8331b7ee68fd8".to_vec()),
+        );
+        d.set("auth_module", PValue::Bytes(b"auth_internal".to_vec()));
+        d.set("name", PValue::Bytes(b"admin".to_vec()));
+        d.set("csrf_token", PValue::Bytes(b"tok".to_vec()));
+        let s = Sess::new("test-sid".to_string());
+        s.replace("test-sid".to_string(), d);
+        s
+    }
+
+    fn req(body: &str) -> axum::http::Request<axum::body::Body> {
+        axum::http::Request::builder()
+            .method(Method::POST)
+            .uri("/backend.php")
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body(axum::body::Body::from(body.to_string()))
+            .unwrap()
+    }
+
+    async fn call(state: &AppState, body: &str) -> Value {
+        let res =
+            ttrss_server::rpc::handler(State(state.clone()), Extension(sess()), req(body)).await;
+        let bytes = to_bytes(res.into_body(), 10 * 1024 * 1024).await.expect("body");
+        serde_json::from_str(&String::from_utf8_lossy(&bytes)).expect("json")
+    }
+
+    // `batchsubscribe` (lowercased from the frontend's `batchSubscribe`) returns
+    // the dialog data — proving the route AND the handler ran (needs a valid
+    // session).
+    let v = call(&state, "op=Pref_Feeds&method=batchsubscribe&csrf_token=tok").await;
+    assert!(v.get("enable_cats").is_some(), "batchsubscribe dialog data: {v}");
+
+    // These must route (not `E_UNKNOWN_METHOD`), across cases the frontend/corpus
+    // actually send.
+    for body in [
+        "op=Pref_Feeds&method=inactivefeeds&csrf_token=tok",
+        "op=Pref_Feeds&method=inactiveFeeds&csrf_token=tok",
+        "op=Pref_Feeds&method=getFeedTree&csrf_token=tok",
+        "op=Pref_Feeds&method=batchaddfeeds&csrf_token=tok&feeds=http://example.com/rt",
+        "op=RPC&method=markSelected&csrf_token=tok",
+    ] {
+        let v = call(&state, body).await;
+        assert_ne!(
+            v["error"]["code"].as_str(),
+            Some("E_UNKNOWN_METHOD"),
+            "routed for {body:?}: {v}"
+        );
+    }
 }
