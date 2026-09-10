@@ -53,16 +53,11 @@ pub async fn is_otp_enabled(db: &PgPool, uid: i64) -> Result<bool, sqlx::Error> 
     Ok(row.map(|r| r.0).unwrap_or(false))
 }
 
-/// `UserHelper::get_otp_secret` (the `schema_version >= 143` path).
-///
-/// Returns the base32 secret, generating and persisting a new one when the
-/// `otp_secret` column is empty (matching PHP's lazy migration). Returns `None`
-/// when OTP is enabled and `show_if_enabled` is false.
-pub async fn get_otp_secret(
-    db: &PgPool,
-    uid: i64,
-    show_if_enabled: bool,
-) -> Result<Option<String>, sqlx::Error> {
+/// The raw (hex) OTP secret for a user, generating + persisting a fresh one
+/// when the column is empty — the shared core of `get_otp_secret` and
+/// `enable_otp` (the `schema_version >= 143` path). Returns `None` when the
+/// user does not exist, else `(otp_enabled, raw_secret)`.
+async fn otp_state(db: &PgPool, uid: i64) -> Result<Option<(bool, String)>, sqlx::Error> {
     let row: Option<(bool, Option<String>, String)> =
         sqlx::query_as("SELECT otp_enabled, otp_secret, salt FROM ttrss_users WHERE id = $1")
             .bind(uid)
@@ -90,12 +85,60 @@ pub async fn get_otp_secret(
     } else {
         otp_secret.unwrap()
     };
+    Ok(Some((otp_enabled, secret)))
+}
 
+/// `UserHelper::get_otp_secret`: the base32 secret, generating + persisting a
+/// new one when the column is empty. Returned only when OTP is disabled or
+/// `show_if_enabled`; `None` when enabled and not shown (or no user).
+pub async fn get_otp_secret(
+    db: &PgPool,
+    uid: i64,
+    show_if_enabled: bool,
+) -> Result<Option<String>, sqlx::Error> {
+    let Some((otp_enabled, secret)) = otp_state(db, uid).await? else {
+        return Ok(None);
+    };
     if !otp_enabled || show_if_enabled {
         Ok(Some(base32_upper_unpadded(secret.as_bytes())))
     } else {
         Ok(None)
     }
+}
+
+/// `UserHelper::enable_otp`: verify the 6-digit code against the current
+/// secret (`TOTP::now()`, no ±1 window) and, on a match, set `otp_enabled =
+/// true`. Returns false when the code is wrong or the user is missing.
+pub async fn enable_otp(db: &PgPool, uid: i64, otp_code: &str, t_secs: u64) -> Result<bool, sqlx::Error> {
+    let Some((_otp_enabled, secret)) = otp_state(db, uid).await? else {
+        return Ok(false);
+    };
+    if !ttrss_core::user::check_otp(secret.as_bytes(), otp_code, t_secs) {
+        return Ok(false);
+    }
+    sqlx::query("UPDATE ttrss_users SET otp_enabled = true WHERE id = $1")
+        .bind(uid)
+        .execute(db)
+        .await?;
+    Ok(true)
+}
+
+/// `UserHelper::disable_otp`: set `otp_enabled = false` and clear the secret
+/// (schema >= 143) so a fresh one is generated on the next enable. Returns
+/// false when the user does not exist.
+pub async fn disable_otp(db: &PgPool, uid: i64) -> Result<bool, sqlx::Error> {
+    let exists: Option<bool> = sqlx::query_scalar("SELECT otp_enabled FROM ttrss_users WHERE id = $1")
+        .bind(uid)
+        .fetch_optional(db)
+        .await?;
+    if exists.is_none() {
+        return Ok(false);
+    }
+    sqlx::query("UPDATE ttrss_users SET otp_enabled = false, otp_secret = NULL WHERE id = $1")
+        .bind(uid)
+        .execute(db)
+        .await?;
+    Ok(true)
 }
 
 #[cfg(test)]

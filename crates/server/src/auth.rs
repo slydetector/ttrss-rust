@@ -180,6 +180,70 @@ async fn stamp_last_attempt(pool: &sqlx::PgPool, id: i32) -> Result<(), sqlx::Er
         .map(|_| ())
 }
 
+/// `Auth_Internal::check_password` (service = ""): verify `password` against
+/// the stored hash (using the stored algorithm) and, on a match with an
+/// out-of-date algorithm, upgrade the stored hash to SSHA-512. Returns true on
+/// a match. Assumes `auth_internal` (the only auth module loaded out of the
+/// gate).
+pub async fn check_password(pool: &sqlx::PgPool, uid: i32, password: &str) -> bool {
+    let row = sqlx::query("SELECT pwd_hash, salt FROM ttrss_users WHERE id = $1")
+        .bind(uid)
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten();
+    let Some(row) = row else {
+        return false;
+    };
+    let pwd_hash: String = row.get(0);
+    let salt: String = row.get(1);
+    if !ttrss_core::user::verify_password(&pwd_hash, password, &salt) {
+        return false;
+    }
+    if let Some((algo, _)) = pwd_hash.split_once(':') {
+        if algo != ttrss_core::user::ALGO_SSHA512 {
+            if let Some(new_hash) =
+                ttrss_core::user::hash_password(password, &salt, ttrss_core::user::ALGO_SSHA512)
+            {
+                let _ = sqlx::query("UPDATE ttrss_users SET pwd_hash = $1 WHERE id = $2")
+                    .bind(&new_hash)
+                    .bind(uid)
+                    .execute(pool)
+                    .await;
+            }
+        }
+    }
+    true
+}
+
+/// `Auth_Internal::change_password`: verify the old password, then set a fresh
+/// salt + SSHA-512 hash. Returns the new hash on success (so the caller can
+/// refresh the session) or `None` if the old password is wrong.
+///
+/// NOTE(port): the "password change notification" e-mail is omitted (no SMTP in
+/// the Rust port), and `Config::FORBID_PASSWORD_CHANGES` (default false) is not
+/// ported.
+pub async fn change_password(
+    pool: &sqlx::PgPool,
+    uid: i32,
+    old_password: &str,
+    new_password: &str,
+) -> Option<String> {
+    if !check_password(pool, uid, old_password).await {
+        return None;
+    }
+    let new_salt = ttrss_core::user::get_salt();
+    let new_hash =
+        ttrss_core::user::hash_password(new_password, &new_salt, ttrss_core::user::ALGO_SSHA512)?;
+    let _ = sqlx::query("UPDATE ttrss_users SET salt = $1, pwd_hash = $2 WHERE id = $3")
+        .bind(&new_salt)
+        .bind(&new_hash)
+        .bind(uid)
+        .execute(pool)
+        .await;
+    Some(new_hash)
+}
+
 /// The session-setup half of `UserHelper::authenticate`'s success path: the
 /// post-login `$_SESSION` contents plus a **fresh** session id (PHP calls
 /// `session_regenerate_id(true)` here, so the pre-login id is never reused).

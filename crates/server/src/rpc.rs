@@ -414,6 +414,15 @@ async fn dispatch(
             "previewDigest" => DispatchOutput::Json(settings::preview_digest(state, sess).await),
             "saveconfig" => DispatchOutput::TextHtml(settings::saveconfig(state, sess, extra).await),
             "resetconfig" => DispatchOutput::TextHtml(settings::resetconfig(state, sess).await),
+            "changePersonalData" => {
+                DispatchOutput::TextHtml(settings::change_personal_data(state, sess, extra).await)
+            }
+            "changepassword" => {
+                DispatchOutput::TextHtml(settings::changepassword(state, sess, extra).await)
+            }
+            "otpenable" => DispatchOutput::TextHtml(settings::otp_enable(state, sess, extra).await),
+            "otpdisable" => DispatchOutput::TextHtml(settings::otp_disable(state, sess, extra).await),
+            "customizeCSS" => DispatchOutput::Json(settings::customize_css(state, sess).await),
             "getPluginsList" => DispatchOutput::Json(plugins::get_plugins_list(state, sess).await),
             "getAvailablePlugins" => DispatchOutput::Json(plugins::get_available_plugins(sess)),
             _ => DispatchOutput::Json(unknown_method("Pref_Prefs", method)),

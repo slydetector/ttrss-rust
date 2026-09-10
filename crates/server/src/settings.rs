@@ -6,6 +6,9 @@ use serde_json::{json, Map, Value};
 use sqlx::Row;
 use ttrss_core::phpser::Value as PValue;
 
+use crate::auth;
+use crate::controls;
+use crate::otp;
 use crate::prefs;
 use crate::session::Sess;
 use crate::time::{make_local_datetime, TzCtx};
@@ -420,6 +423,125 @@ pub async fn resetconfig(state: &AppState, sess: &Sess) -> String {
     let profile = sess.data().profile().map(|p| p as i32);
     prefs::reset(&state.db, uid, profile).await;
     "PREFS_NEED_RELOAD".to_string()
+}
+
+/// `Pref_Prefs::changePersonalData`: update the user's full name + e-mail.
+///
+/// NOTE(port): the "e-mail address change notification" e-mail is omitted (no
+/// SMTP in the Rust port).
+pub async fn change_personal_data(
+    state: &AppState,
+    sess: &Sess,
+    extra: &Map<String, Value>,
+) -> String {
+    let pool = state.db.pool();
+    let uid = sess.data().uid().unwrap_or(0);
+    let exists: Option<String> =
+        sqlx::query_scalar("SELECT login FROM ttrss_users WHERE id = $1")
+            .bind(uid)
+            .fetch_optional(pool)
+            .await
+            .ok()
+            .flatten();
+    if exists.is_some() {
+        let new_full = util::clean_str(&str_extra(extra, "full_name"));
+        let new_email = util::clean_str(&str_extra(extra, "email"));
+        let _ = sqlx::query("UPDATE ttrss_users SET full_name = $1, email = $2 WHERE id = $3")
+            .bind(&new_full)
+            .bind(&new_email)
+            .bind(uid)
+            .execute(pool)
+            .await;
+    }
+    "Your personal data has been saved.".to_string()
+}
+
+/// `Pref_Prefs::changepassword`: validate the new password (cleaned, must
+/// differ from the old, non-blank, confirm matches) then change it via the
+/// auth module. Assumes `auth_internal` (the only module loaded out of the
+/// gate).
+pub async fn changepassword(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> String {
+    let pool = state.db.pool();
+    let uid = sess.data().uid().unwrap_or(0) as i32;
+
+    let old_pw = util::clean_str(&str_extra(extra, "old_password"));
+    let new_unclean = str_extra(extra, "new_password");
+    let new_pw = util::clean_str(&new_unclean);
+    let con_pw = util::clean_str(&str_extra(extra, "confirm_password"));
+
+    let err = |m: &str| format!("ERROR: {}", controls::format_error(m));
+    // `clean()` altered the raw password (tags / surrounding whitespace).
+    if new_unclean != new_pw {
+        return err("New password contains disallowed characters.");
+    }
+    if old_pw == new_pw {
+        return err("New password must be different from the old one.");
+    }
+    if old_pw.is_empty() {
+        return err("Old password cannot be blank.");
+    }
+    if new_pw.is_empty() {
+        return err("New password cannot be blank.");
+    }
+    if new_pw != con_pw {
+        return err("Entered passwords do not match.");
+    }
+
+    match auth::change_password(pool, uid, &old_pw, &new_pw).await {
+        Some(new_hash) => {
+            // Keep the session valid across the change (`validate_session`
+            // compares the stored hash to `$_SESSION["pwd_hash"]`).
+            sess.with_mut(|s| s.set("pwd_hash", PValue::Bytes(new_hash.into_bytes())));
+            controls::format_notice("Password has been changed.")
+        }
+        None => controls::format_notice("ERROR: Old password is incorrect."),
+    }
+}
+
+/// `Pref_Prefs::otpenable`: verify the password + one-time code, then enable
+/// OTP. Assumes `auth_internal`.
+pub async fn otp_enable(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> String {
+    let pool = state.db.pool();
+    let uid = sess.data().uid().unwrap_or(0);
+    let password = util::clean_str(&str_extra(extra, "password"));
+    let otp_code = util::clean_str(&str_extra(extra, "otp"));
+    if auth::check_password(pool, uid as i32, &password).await {
+        match otp::enable_otp(pool, uid, &otp_code, util::now_unix() as u64).await {
+            Ok(true) => "OK".to_string(),
+            _ => "ERROR:Incorrect one time password".to_string(),
+        }
+    } else {
+        "ERROR:Incorrect password".to_string()
+    }
+}
+
+/// `Pref_Prefs::otpdisable`: verify the password, then disable OTP. Assumes
+/// `auth_internal`.
+pub async fn otp_disable(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> String {
+    let pool = state.db.pool();
+    let uid = sess.data().uid().unwrap_or(0);
+    let password = util::clean_str(&str_extra(extra, "password"));
+    if auth::check_password(pool, uid as i32, &password).await {
+        let _ = otp::disable_otp(pool, uid).await;
+        "OK".to_string()
+    } else {
+        "ERROR: Incorrect password".to_string()
+    }
+}
+
+/// `Pref_Prefs::customizeCSS`: the user's custom stylesheet for the active
+/// profile, with `<br/>` converted to newlines.
+pub async fn customize_css(state: &AppState, sess: &Sess) -> Value {
+    let uid = sess.data().uid().unwrap_or(0);
+    let profile = sess.data().profile().map(|p| p as i32);
+    let rows = prefs::load_rows(&state.db, uid, profile).await;
+    let value = prefs::resolve(prefs::USER_STYLESHEET, &rows, profile).as_str().to_string();
+    json!({ "value": value.replace("<br/>", "\n") })
+}
+
+/// A string form field, or `""` when absent (PHP's `$_POST[name]` reads).
+fn str_extra(extra: &Map<String, Value>, key: &str) -> String {
+    extra.get(key).and_then(Value::as_str).unwrap_or("").to_string()
 }
 
 
