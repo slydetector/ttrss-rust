@@ -1040,6 +1040,11 @@ Port each handler class, method-by-method, against golden files (read methods la
 - Docker image(s) mirroring `supahgreg/tt-rss` + web-nginx pair; systemd units; docs (config reference, migration guide, plugin API guide).
 - **Exit criteria**: drop-in replacement for an existing deployment (point both at same DB, switch nginx upstream).
 
+### Deferred (low priority)
+
+A parking lot for small, known, not-now items (not milestone blockers):
+
+- **Dynamic timezone list.** The `USER_TIMEZONE` select currently uses a hardcoded snapshot of PHP `DateTimeZone::listIdentifiers(ALL_WITH_BC)` (599 ids, `server::pref_timezones`). If the tzdata ever changes, or we want to avoid the snapshot, regenerate/compute the list dynamically to match PHP exactly — including the `Factory` id and the exact PHP ordering (which `chrono_tz::TZ_VARIANTS` does not reproduce: it omits `Factory` and orders some zones differently).
 ---
 
 ## 4. Risks & Mitigations
