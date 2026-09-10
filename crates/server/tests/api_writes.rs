@@ -599,3 +599,117 @@ async fn test_share_to_published_updates_existing(
     assert_eq!(stored, "second body", "content is clean()ed (strip_tags + trim)");
 }
 
+/// A unique temp dir for feed icons, recreated clean. (M6 normally populates
+/// `feed_icon_dir` with fetched favicons; here we write the icon file directly
+/// to exercise `getFeedIcon`.)
+fn icon_dir(tag: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!("ttrss-feed-icon-{tag}"));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("create icon dir");
+    dir
+}
+
+/// A uid-1 `AppState` + `Sess` whose `feed_icon_dir` points at `dir`.
+async fn setup_icon(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+    dir: std::path::PathBuf,
+) -> (AppState, Sess) {
+    let db: Db = common::make_db(pool, options).await.expect("test db");
+    let mut config = test_config();
+    config.feed_icon_dir = dir;
+    let state = AppState { config, db };
+    let mut data = Session::new();
+    data.set("uid", PValue::Int(1));
+    let sess = Sess::new("icon-sid".to_string());
+    sess.replace("icon-sid".to_string(), data);
+    (state, sess)
+}
+
+/// Read an axum `Response` body to bytes (for the raw / JSON response).
+async fn response_bytes(res: axum::response::Response) -> Vec<u8> {
+    axum::body::to_bytes(res.into_body(), 4096).await.expect("read body").to_vec()
+}
+
+/// `getFeedIcon` with no session → the `NOT_LOGGED_IN` JSON envelope.
+#[sqlx::test(fixtures(
+    "../../testing/fixtures/schema.sql",
+    "../../testing/fixtures/baseline.sql",
+    "../../testing/fixtures/seed.sql",
+))]
+async fn test_get_feed_icon_not_logged_in(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
+    let (state, _) = setup(pool, options).await;
+    let sess = Sess::new("anon".to_string());
+    sess.replace("anon".to_string(), Session::new());
+    let body = request(&[("id", json!(55))]);
+    let res = api::get_feed_icon(&state, &sess, &body, 1).await;
+    let env: Value = serde_json::from_slice(&response_bytes(res).await).unwrap();
+    assert_eq!(env["status"], 1);
+    assert_eq!(env["content"]["error"], "NOT_LOGGED_IN");
+}
+
+/// `getFeedIcon` for a feed with no cached icon → the `E_NOT_FOUND` envelope.
+#[sqlx::test(fixtures(
+    "../../testing/fixtures/schema.sql",
+    "../../testing/fixtures/baseline.sql",
+    "../../testing/fixtures/seed.sql",
+))]
+async fn test_get_feed_icon_not_found(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
+    let (state, sess) = setup(pool, options).await;
+    enable_api(&state.db).await;
+    let body = request(&[("id", json!(55))]);
+    let res = api::get_feed_icon(&state, &sess, &body, 1).await;
+    let env: Value = serde_json::from_slice(&response_bytes(res).await).unwrap();
+    assert_eq!(env["status"], 1);
+    assert_eq!(env["content"]["error"], "E_NOT_FOUND");
+}
+
+/// `getFeedIcon` for a feed with a cached PNG icon → 200 + `image/png` + bytes.
+#[sqlx::test(fixtures(
+    "../../testing/fixtures/schema.sql",
+    "../../testing/fixtures/baseline.sql",
+    "../../testing/fixtures/seed.sql",
+))]
+async fn test_get_feed_icon_found_png(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
+    let dir = icon_dir("png");
+    let png = vec![0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 1, 2, 3];
+    std::fs::write(dir.join("55"), &png).expect("write icon");
+    let (state, sess) = setup_icon(pool, options, dir).await;
+    enable_api(&state.db).await;
+    let body = request(&[("id", json!(55))]);
+    let res = api::get_feed_icon(&state, &sess, &body, 1).await;
+    assert_eq!(res.status(), 200);
+    assert_eq!(res.headers().get(axum::http::header::CONTENT_TYPE).unwrap(), "image/png");
+    assert_eq!(response_bytes(res).await, png);
+}
+
+/// `getFeedIcon` content-type detection: a JPEG icon → `image/jpeg`.
+#[sqlx::test(fixtures(
+    "../../testing/fixtures/schema.sql",
+    "../../testing/fixtures/baseline.sql",
+    "../../testing/fixtures/seed.sql",
+))]
+async fn test_get_feed_icon_found_jpeg(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
+    let dir = icon_dir("jpeg");
+    let jpeg = vec![0xFF, 0xD8, 0xFF, 0xE0, 1, 2, 3];
+    std::fs::write(dir.join("7"), &jpeg).expect("write icon");
+    let (state, sess) = setup_icon(pool, options, dir).await;
+    enable_api(&state.db).await;
+    let body = request(&[("id", json!(7))]);
+    let res = api::get_feed_icon(&state, &sess, &body, 1).await;
+    assert_eq!(res.headers().get(axum::http::header::CONTENT_TYPE).unwrap(), "image/jpeg");
+    assert_eq!(response_bytes(res).await, jpeg);
+}
+

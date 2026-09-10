@@ -42,6 +42,7 @@ const E_LOGIN_ERROR: &str = "LOGIN_ERROR";
 const E_INCORRECT_USAGE: &str = "INCORRECT_USAGE";
 const E_UNKNOWN_METHOD: &str = "UNKNOWN_METHOD";
 const E_OPERATION_FAILED: &str = "E_OPERATION_FAILED";
+const E_NOT_FOUND: &str = "E_NOT_FOUND";
 /// `Auth_Base::AUTH_SERVICE_API` — the app-password service token.
 const AUTH_SERVICE_API: &str = "_api";
 
@@ -78,6 +79,11 @@ pub async fn handler(state: State<AppState>, sess: Extension<Sess>, req: Request
         .to_ascii_lowercase();
     let seq = clean_int(body.get("seq"));
 
+    // `getFeedIcon` is the one API method that returns raw bytes (a cached
+    // favicon image), not the JSON envelope — route it to a raw response.
+    if op == "getfeedicon" {
+        return get_feed_icon(&state, &sess, &body, seq).await;
+    }
     let (status, content) = before_and_dispatch(&state, &sess, &op, &body).await;
 
     let mut res = envelope(seq, status, content);
@@ -89,6 +95,23 @@ pub async fn handler(state: State<AppState>, sess: Extension<Sess>, req: Request
     res
 }
 
+/// The `API::before()` gate: verify the session is authenticated and the
+/// external API is enabled. Returns `Ok(())` when the call may proceed, else
+/// the `(status, content)` error envelope to return.
+async fn api_auth(state: &AppState, sess: &Sess, op: &str) -> Result<(), (i64, Value)> {
+    let uid = sess.data().uid();
+    if let Some(u) = uid {
+        let rows = prefs::load_rows(&state.db, u, None).await;
+        if op != "logout" && !prefs::resolve("ENABLE_API_ACCESS", &rows, None).as_bool() {
+            return Err((STATUS_ERR, json!({ "error": E_API_DISABLED })));
+        }
+        Ok(())
+    } else if matches!(op, "login" | "isloggedin") {
+        Ok(())
+    } else {
+        Err((STATUS_ERR, json!({ "error": E_NOT_LOGGED_IN })))
+    }
+}
 /// The `API::before()` gate + method dispatch, folded into one pass so the
 /// `seq`/`status`/`content` triple is built in a single place.
 pub async fn before_and_dispatch(
@@ -100,16 +123,8 @@ pub async fn before_and_dispatch(
     let data = sess.data();
     let uid = data.uid();
 
-    if let Some(u) = uid {
-        // `Sec-Fetch-Mode` browser opt-in gate.
-        // (The Rust harness sends no such header; kept for fidelity.)
-        let rows = prefs::load_rows(&state.db, u, None).await;
-        if op != "logout" && !prefs::resolve("ENABLE_API_ACCESS", &rows, None).as_bool() {
-            return (STATUS_ERR, json!({ "error": E_API_DISABLED }));
-        }
-    } else if !matches!(op, "login" | "isloggedin") {
-        // Not logged in: only `login` / `isloggedin` may proceed.
-        return (STATUS_ERR, json!({ "error": E_NOT_LOGGED_IN }));
+    if let Err((status, content)) = api_auth(state, sess, op).await {
+        return (status, content);
     }
 
     match op {
@@ -343,6 +358,50 @@ fn pref_json(p: &prefs::Pref) -> Value {
         prefs::Pref::Bool(b) => json!(*b),
         prefs::Pref::Int(i) => json!(*i),
         prefs::Pref::Str(s) => json!(s.to_string()),
+    }
+}
+
+/// `API::getFeedIcon` — serve a cached feed favicon (raw image bytes, not a
+/// JSON envelope) for the given feed ID, or the `E_NOT_FOUND` envelope. This is
+/// the one API method that returns raw bytes: the favicon is fetched and cached
+/// by the feed engine (M6), so it's absent in the test environment.
+pub async fn get_feed_icon(state: &AppState, sess: &Sess, body: &Map<String, Value>, seq: i64) -> Response {
+    // The `before()` gate still applies (auth).
+    if let Err((status, content)) = api_auth(state, sess, "getfeedicon").await {
+        return envelope(seq, status, content).into_response();
+    }
+
+    let id = clean_int(body.get("id"));
+    let path = state.config.feed_icon_dir.join(id.to_string());
+    match tokio::fs::read(&path).await {
+        Ok(bytes) if !bytes.is_empty() => {
+            let len = bytes.len();
+            let mime = detect_image_mime(&bytes);
+            let mut res = axum::http::Response::new(Body::from(bytes));
+            *res.status_mut() = StatusCode::OK;
+            res.headers_mut()
+                .insert(header::CONTENT_TYPE, axum::http::HeaderValue::from_static(mime));
+            res.headers_mut().insert(header::CONTENT_LENGTH, axum::http::HeaderValue::from(len));
+            res.into_response()
+        }
+        _ => envelope(seq, STATUS_ERR, json!({ "error": E_NOT_FOUND })).into_response(),
+    }
+}
+
+/// Detect an image MIME type from magic bytes (the feed-icons cache stores
+/// favicons by feed ID with no extension, so the type comes from the content —
+/// an approximation of `DiskCache::get_mime_type`'s `finfo`).
+fn detect_image_mime(bytes: &[u8]) -> &'static str {
+    if bytes.len() >= 4 && &bytes[0..4] == b"\x89PNG" {
+        "image/png"
+    } else if bytes.len() >= 3 && bytes[0] == 0xFF && bytes[1] == 0xD8 && bytes[2] == 0xFF {
+        "image/jpeg"
+    } else if bytes.len() >= 4 && &bytes[0..4] == b"GIF8" {
+        "image/gif"
+    } else if bytes.len() >= 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+        "image/webp"
+    } else {
+        "image/png"
     }
 }
 
