@@ -147,7 +147,7 @@ Restructured per `research-report.md` (strangler-fig / vertical-slice / golden-m
 | **M3** | Mutations I: article state | mark/publish/star/unread, catchup (feed/cat/all), notes, scores, labels, tags; harness checks responses **and** resulting DB state vs PHP |
 | **M4** | Mutations II: configuration | prefs/profiles, feed CRUD (create/subscribe → M6) + categories + icons + ordering + OPML, filter CRUD + execution, label CRUD, access keys |
 | **M5** | External API completeness + admin | Full level-23 API; user admin (`Pref_Users`), system (log, test email), password recovery (OTP/QR shipped in M4) |
-| **M6** | The engine: updates | `tt-rust update` + `daemon` (tokio workers): fetch/parse/hash/dedup/filters/enclosures/favicons, counter-cache maintenance, failed-feed disabling, cron housekeeping, digest emails; **`Feeds::add` (feed subscribe, moved from M4)**; updater run on golden dataset diffed vs PHP updater |
+| **M6** | The engine: updates | Fetch/parse/hash/dedup/filters/enclosures/favicons, counter-cache maintenance, failed-feed disabling, cron housekeeping, digest emails; **`Feeds::add` (feed subscribe, moved from M4)**. **Hosted in the server's tokio runtime (single process, not a separate daemon); `tt-rust update` CLI retained for one-shot/standalone** — see `docs/unified-architecture.md`. Verified via ported PHP piece tests + a batch smoke test (golden update-run diff dropped). |
 | **M7** | Plugin system + first-party plugins | Rust plugin API; port auth_internal/remote, nsfw, note, af_* (incl. psql_trgm), share, bookmarklets, cache_starred_images, hotkeys; plugin storage + per-user enablement portable; plugin installer deferred (listing only) |
 | **M8** | CLI/daemon parity + migrations | All `update.php` subcommands, lockfile semantics, `--update-schema` reusing exact `.sql` files, exit codes |
 | **M9** | Hardening & performance | Fuzz (sanitizer/parser/URL), security matrix, perf vs PHP baseline (target: faster), Docker images, docs, cutover runbook |
@@ -992,7 +992,7 @@ detailed content reference consulted as each milestone is started; the delivery
 - `RSSUtils` update pipeline: fetch → parse → dedup by hash/GUID → `ttrss_entries`/`ttrss_user_entries` upserts → filter evaluation (rules → actions: score/labels/tags/hide) → enclosures + favicon caching (DiskCache port) → counter cache updates → error logging → failed-feed disabling.
 - `Feeds` core: subscribe (incl. OPML/HTML feed-link discovery), categories (tree), catchup, purge, counters (`Counters` + cache tables), virtual feed definitions, access keys.
 - `Article` core: tags, labels, score, notes, enclosures, flavor/OG images, catchup-by-id, orphan purge.
-- **Exit criteria**: golden-file parity of an update run (feed XML fixtures → resulting DB rows) vs PHP; sanitizer corpus passes; counter math parity tests (feed/cat/label/virtual).
+- **Exit criteria**: sanitizer corpus passes; counter math parity tests (feed/cat/label/virtual); ported PHP unit/functional tests for the deterministic pieces (parser, hash, GUID, dedup, filter); a lightweight batch smoke test (fixture feed batch → aggregate/cross-feed invariants). *(The original "golden-file parity of an update run" full-DB diff is **dropped** — write-heavy, low signal-to-noise; see `docs/unified-architecture.md` §1.)*
 
 ### Phase 3 — Web server foundation (→ M1)
 
