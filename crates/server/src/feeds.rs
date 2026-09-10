@@ -397,7 +397,7 @@ pub async fn feed_title(pool: &sqlx::PgPool, id: i64, owner_uid: i64) -> String 
 /// scope to the search results (plugin `HOOK_SEARCH` is M7 territory — the
 /// `_search_to_sql` fallback is used directly).
 #[allow(clippy::too_many_arguments)]
-async fn catchup_scope(
+pub async fn catchup_scope(
     pool: &sqlx::PgPool,
     owner_uid: i64,
     profile: Option<i32>,
@@ -1249,7 +1249,7 @@ pub async fn remove_feeds(state: &AppState, sess: &Sess, extra: &Map<String, Val
 }
 
 /// `Feeds::remove_feed` — delete a feed (positive id) or a label (negative id).
-async fn remove_feed(state: &AppState, id: i32, uid: i64) {
+pub async fn remove_feed(state: &AppState, id: i32, uid: i64) {
     let pool = state.db.pool();
     if id > 0 {
         let mut tx = pool.begin().await.expect("begin");

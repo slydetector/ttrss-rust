@@ -15,6 +15,11 @@ use url::Url;
 /// `Config::SCHEMA_VERSION` — the latest known DB schema version.
 pub const SCHEMA_VERSION: i64 = 151;
 
+/// `Config::get_version()` — the tt-rss version string for this checkout (the
+/// frozen reference's `Ym-commit`, e.g. `26.08-2f7d831f`). The PHP computes it
+/// from git/CI at runtime; the port pins the frozen reference's value.
+pub const VERSION: &str = "26.08-2f7d831f";
+
 /// tt-rss configuration (the fields the M1 server needs).
 #[derive(Debug, Clone)]
 pub struct Config {

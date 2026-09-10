@@ -30,7 +30,7 @@ use crate::labels;
 use crate::prefs;
 use crate::sanitizer;
 use crate::session::{self, Sess};
-use crate::util::{clean_int, clean_str, param_to_bool, php_int_cast, strip_tags, truncate_string};
+use crate::util::{clean_int, clean_str, param_int_array, param_to_bool, php_int_cast, strip_tags, truncate_string};
 use crate::AppState;
 
 const API_LEVEL: i64 = 23;
@@ -41,6 +41,7 @@ const E_NOT_LOGGED_IN: &str = "NOT_LOGGED_IN";
 const E_LOGIN_ERROR: &str = "LOGIN_ERROR";
 const E_INCORRECT_USAGE: &str = "INCORRECT_USAGE";
 const E_UNKNOWN_METHOD: &str = "UNKNOWN_METHOD";
+const E_OPERATION_FAILED: &str = "E_OPERATION_FAILED";
 /// `Auth_Base::AUTH_SERVICE_API` — the app-password service token.
 const AUTH_SERVICE_API: &str = "_api";
 
@@ -90,7 +91,7 @@ pub async fn handler(state: State<AppState>, sess: Extension<Sess>, req: Request
 
 /// The `API::before()` gate + method dispatch, folded into one pass so the
 /// `seq`/`status`/`content` triple is built in a single place.
-async fn before_and_dispatch(
+pub async fn before_and_dispatch(
     state: &AppState,
     sess: &Sess,
     op: &str,
@@ -127,6 +128,12 @@ async fn before_and_dispatch(
         "getheadlines" => get_headlines(state, sess, body).await,
         "getarticle" => get_article(state, uid, body).await,
         "getpref" => get_pref(state, sess, body).await,
+        "getversion" => (STATUS_OK, json!({ "version": ttrss_core::config::VERSION })),
+        "getapilevel" => (STATUS_OK, json!({ "level": API_LEVEL })),
+        "catchupfeed" => catchup_feed(state, sess, body).await,
+        "unsubscribefeed" => unsubscribe_feed(state, sess, body).await,
+        "updatearticle" => update_article(state, sess, body).await,
+        "setarticlelabel" => set_article_label(state, sess, body).await,
         other => (
             STATUS_ERR,
             json!({ "error": E_UNKNOWN_METHOD, "method": other }),
@@ -853,4 +860,179 @@ async fn get_article(state: &AppState, uid: Option<i64>, body: &Map<String, Valu
         out.push(Value::Object(m));
     }
     (STATUS_OK, Value::Array(out))
+}
+
+// ── Writes (M5) ─────────────────────────────────────────────────────────────
+
+/// `API::catchupFeed` — mark a feed / category / everything read.
+pub async fn catchup_feed(state: &AppState, sess: &Sess, body: &Map<String, Value>) -> (i64, Value) {
+    let data = sess.data();
+    let uid = data.uid().unwrap_or(0);
+    let profile = data.profile().map(|p| p as i32);
+    let pool = state.db.pool();
+    let rows = prefs::load_rows(&state.db, uid, profile).await;
+    let clean_param = |k: &str| {
+        clean_str(body.get(k).and_then(|v| v.as_str()).unwrap_or(""))
+    };
+    let feed_id = clean_param("feed_id");
+    let is_cat = body
+        .get("is_cat")
+        .is_some_and(|v| param_to_bool(Some(v)));
+    let mode = clean_param("mode");
+    // `if (!in_array($mode, ["all","1day","1week","2week"])) $mode = "all";`
+    let mode = if matches!(mode.as_str(), "all" | "1day" | "1week" | "2week") {
+        mode
+    } else {
+        "all".to_string()
+    };
+    let search_query = clean_param("search_query");
+    let search_lang = clean_param("search_lang");
+    crate::feeds::catchup_scope(
+        pool, uid, profile, &rows, &feed_id, is_cat, &mode, &search_query, &search_lang,
+    )
+    .await;
+    (STATUS_OK, json!({ "status": "OK" }))
+}
+
+/// `API::unsubscribeFeed` — remove the session user's feed, or `E_OPERATION_FAILED`.
+pub async fn unsubscribe_feed(state: &AppState, sess: &Sess, body: &Map<String, Value>) -> (i64, Value) {
+    let uid = sess.data().uid().unwrap_or(0);
+    let pool = state.db.pool();
+    let feed_id = clean_int(body.get("feed_id")) as i32;
+    let exists = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM ttrss_feeds WHERE id = $1 AND owner_uid = $2",
+    )
+    .bind(feed_id)
+    .bind(uid)
+    .fetch_one(pool)
+    .await
+    .unwrap_or(0);
+    if exists > 0 {
+        crate::feeds::remove_feed(state, feed_id, uid).await;
+        (STATUS_OK, json!({ "status": "OK" }))
+    } else {
+        (STATUS_ERR, json!({ "error": E_OPERATION_FAILED }))
+    }
+}
+
+/// `API::updateArticle` — batch-update a set of articles' marked / published /
+/// unread / note / score. The value is a controlled SQL literal (a boolean,
+/// `NOT <field>`, a `quote($data)` string, or an int), matching the PHP's
+/// string-interpolated `SET <field> = <set_to>`.
+pub async fn update_article(state: &AppState, sess: &Sess, body: &Map<String, Value>) -> (i64, Value) {
+    let uid = sess.data().uid().unwrap_or(0);
+    let pool = state.db.pool();
+    let article_ids = param_int_array(body, "article_ids");
+    if article_ids.is_empty() {
+        return (STATUS_ERR, json!({ "error": E_INCORRECT_USAGE }));
+    }
+    let mode = clean_int(body.get("mode"));
+    let data = clean_str(body.get("data").and_then(Value::as_str).unwrap_or(""));
+    let field_raw = clean_int(body.get("field"));
+
+    // (field column, extra timestamp clause, value). `set_to` is falsy when the
+    // mode is not 0/1/2 for marked/published/unread, or the score is 0 → PHP
+    // `if ($field && $set_to)` → `E_INCORRECT_USAGE`.
+    let (field, additional, val) = match field_raw {
+        0 => ("marked", ",last_marked = NOW()", mode_val(mode, "marked")),
+        1 => ("published", ",last_published = NOW()", mode_val(mode, "published")),
+        2 => ("unread", ",last_read = NOW()", mode_val(mode, "unread")),
+        3 => ("note", "", ArticleVal::Note),
+        4 => {
+            let score = clean_int(body.get("data"));
+            if score == 0 {
+                return (STATUS_ERR, json!({ "error": E_INCORRECT_USAGE }));
+            }
+            ("score", "", ArticleVal::Score(score))
+        }
+        _ => return (STATUS_ERR, json!({ "error": E_INCORRECT_USAGE })),
+    };
+    if matches!(val, ArticleVal::Falsy) {
+        return (STATUS_ERR, json!({ "error": E_INCORRECT_USAGE }));
+    }
+    let has_param = matches!(val, ArticleVal::Note | ArticleVal::Score(_));
+
+    let k = article_ids.len();
+    let qmarks: Vec<String> = (1..=k).map(|i| format!("${i}")).collect();
+    let uid_param = if has_param { k + 2 } else { k + 1 };
+    let value_sql = match &val {
+        ArticleVal::Lit(lit) => lit.clone(),
+        ArticleVal::Note | ArticleVal::Score(_) => format!("${}", k + 1),
+        ArticleVal::Falsy => unreachable!("checked above"),
+    };
+    let sql = format!(
+        "UPDATE ttrss_user_entries SET {field} = {value_sql}{additional} \
+         WHERE ref_id IN ({}) AND owner_uid = ${uid_param}",
+        qmarks.join(", ")
+    );
+
+    let mut q = sqlx::query(&sql);
+    for id in &article_ids {
+        q = q.bind(*id);
+    }
+    if let ArticleVal::Note = val {
+        q = q.bind(&data);
+    } else if let ArticleVal::Score(s) = val {
+        q = q.bind(s);
+    }
+    q = q.bind(uid);
+
+    // NOTE: the `marked`/`published` plugin hooks (HOOK_ARTICLES_*_TOGGLED) are
+    // no-ops without plugins (M7).
+    let num_updated = q
+        .execute(pool)
+        .await
+        .map(|r| r.rows_affected() as i64)
+        .unwrap_or(0);
+    (STATUS_OK, json!({ "status": "OK", "updated": num_updated }))
+}
+
+/// The `marked`/`published`/`unread` value for a mode: `false`/`true`/
+/// `NOT <field>`, or `Falsy` (PHP `$set_to = null`) for other modes.
+fn mode_val(mode: i64, field: &str) -> ArticleVal {
+    match mode {
+        0 => ArticleVal::Lit("false".to_string()),
+        1 => ArticleVal::Lit("true".to_string()),
+        2 => ArticleVal::Lit(format!("NOT {field}")),
+        _ => ArticleVal::Falsy,
+    }
+}
+
+/// The SQL value for an `updateArticle` field (a controlled literal or param).
+enum ArticleVal {
+    /// A SQL literal fragment (`false` / `true` / `NOT <field>`).
+    Lit(String),
+    /// The `note` column: a text param (PHP `quote($data)` — always truthy).
+    Note,
+    /// The `score` column: an int param (truthy iff != 0).
+    Score(i64),
+    /// PHP `$set_to = null` → falsy → `E_INCORRECT_USAGE`.
+    Falsy,
+}
+
+/// `API::setArticleLabel` — assign or remove a label from a set of articles.
+pub async fn set_article_label(state: &AppState, sess: &Sess, body: &Map<String, Value>) -> (i64, Value) {
+    let uid = sess.data().uid().unwrap_or(0);
+    let pool = state.db.pool();
+    let article_ids = param_int_array(body, "article_ids");
+    let label_id = clean_int(body.get("label_id")) as i32;
+    let assign = param_to_bool(body.get("assign"));
+    let label = crate::labels::find_caption(
+        pool,
+        crate::labels::feed_to_label_id(label_id as i64) as i32,
+        uid,
+    )
+    .await;
+    let mut num_updated = 0i64;
+    if !label.is_empty() {
+        for &id in &article_ids {
+            if assign {
+                crate::labels::add_article(pool, id, &label, uid).await;
+            } else {
+                crate::labels::remove_article(pool, id, &label, uid).await;
+            }
+            num_updated += 1;
+        }
+    }
+    (STATUS_OK, json!({ "status": "OK", "updated": num_updated }))
 }
