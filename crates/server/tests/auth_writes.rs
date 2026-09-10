@@ -27,6 +27,7 @@ fn test_config() -> Config {
         self_url: "http://127.0.0.1:8280/tt-rss/".into(),
         encryption_key: None,
         single_user_mode: false,
+        forbid_password_changes: false,
         plugins: "auth_internal".into(),
         listen: "127.0.0.1:8281".parse().unwrap(),
         feed_icon_dir: std::path::PathBuf::from("no-such-test-icon-dir"),
@@ -160,6 +161,27 @@ async fn test_changepassword_wrong_old_password(
     ]);
     let out = ttrss_server::settings::changepassword(&state, &sess, &extra).await;
     assert!(out.contains("Old password is incorrect."), "got: {out}");
+}
+
+#[sqlx::test(fixtures(
+    "../../testing/fixtures/schema.sql",
+    "../../testing/fixtures/baseline.sql"
+))]
+async fn test_changepassword_forbidden(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
+    let (mut state, sess) = setup(pool, options).await;
+    state.config.forbid_password_changes = true;
+    let extra = form(&[
+        ("old_password", "password"),
+        ("new_password", "newpass"),
+        ("confirm_password", "newpass"),
+    ]);
+    let out = ttrss_server::settings::changepassword(&state, &sess, &extra).await;
+    assert!(out.starts_with("ERROR: "), "got: {out}");
+    assert!(out.contains("Access forbidden."), "got: {out}");
+    assert!(out.contains("alert-danger"), "got: {out}");
 }
 
 #[sqlx::test(fixtures(

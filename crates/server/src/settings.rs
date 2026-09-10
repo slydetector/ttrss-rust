@@ -464,6 +464,11 @@ pub async fn changepassword(state: &AppState, sess: &Sess, extra: &Map<String, V
     let pool = state.db.pool();
     let uid = sess.data().uid().unwrap_or(0) as i32;
 
+    // `Config::FORBID_PASSWORD_CHANGES`: refuse password changes entirely.
+    if state.config.forbid_password_changes {
+        return format!("ERROR: {}", controls::format_error("Access forbidden."));
+    }
+
     let old_pw = util::clean_str(&str_extra(extra, "old_password"));
     let new_unclean = str_extra(extra, "new_password");
     let new_pw = util::clean_str(&new_unclean);

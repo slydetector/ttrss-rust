@@ -42,6 +42,7 @@ fn test_config() -> Config {
         self_url: "http://127.0.0.1:8280/tt-rss/".into(),
         encryption_key: None,
         single_user_mode: false,
+        forbid_password_changes: false,
         plugins: "auth_internal".into(),
         listen: "127.0.0.1:8282".parse().unwrap(),
         docroot: std::path::PathBuf::from("tt-rss"),

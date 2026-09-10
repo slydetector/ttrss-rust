@@ -33,6 +33,7 @@ fn test_config() -> Config {
         self_url: "http://127.0.0.1:8280/tt-rss/".into(),
         encryption_key: None,
         single_user_mode: false,
+        forbid_password_changes: false,
         plugins: "auth_internal".into(),
         listen: "127.0.0.1:8281".parse().unwrap(),
         docroot: std::path::PathBuf::from("tt-rss"),
@@ -497,4 +498,42 @@ async fn test_editfeeds_category_options(
         options.iter().any(|(t, _, s)| t == "Uncategorized" && *s),
         "Uncategorized selected: {options:?}"
     );
+}
+
+/// `Feeds::subscribeToFeed` — the "Add a feed" dialog data: the category
+/// `<select>` (named `cat`, the user's feed categories + "Uncategorized") and
+/// the update-interval options (the default-annotated `$update_intervals`, a
+/// JSON object). The frontend's `select_hash` re-sorts the interval keys, so
+/// only the data (not the object key order) matters.
+#[sqlx::test(fixtures(
+    "../../testing/fixtures/schema.sql",
+    "../../testing/fixtures/baseline.sql",
+    "../../testing/fixtures/seed.sql",
+))]
+async fn test_subscribe_to_feed(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
+    let (state, sess) = setup(pool, options).await;
+
+    let result = ttrss_server::feeds::subscribe_to_feed(&state, &sess).await;
+
+    // The category `<select>` — named "cat", listing the user's categories and
+    // an "Uncategorized" option (selected, since default_id is None).
+    let cat_select = result["cat_select"].as_str().expect("cat_select is a string");
+    assert!(cat_select.contains("<select name=\"cat\""), "{cat_select}");
+    assert!(cat_select.contains("value='1'>Technology</option>"), "{cat_select}");
+    assert!(cat_select.contains("value='2'>Science &amp; Nature</option>"), "{cat_select}");
+    assert!(cat_select.contains("value=\"0\">Uncategorized</option>"), "{cat_select}");
+
+    // The update-interval options — a JSON object (key => label), with the
+    // "Default interval" entry annotated with the DEFAULT_UPDATE_INTERVAL label
+    // (no pref set in the fixtures → the default 30 → "30 minutes").
+    let update = &result["intervals"]["update"];
+    assert!(update.is_object(), "intervals.update is an object: {update}");
+    assert_eq!(update["0"].as_str().unwrap(), "Default interval (30 minutes)");
+    assert_eq!(update["-1"].as_str().unwrap(), "Disable updates");
+    assert_eq!(update["15"].as_str().unwrap(), "15 minutes");
+    assert_eq!(update["60"].as_str().unwrap(), "Hourly");
+    assert_eq!(update["10080"].as_str().unwrap(), "Weekly");
 }

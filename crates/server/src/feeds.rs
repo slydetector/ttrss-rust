@@ -605,6 +605,27 @@ pub async fn catchup_all(state: &AppState, sess: &Sess) -> Value {
     json!({ "message": "UPDATE_COUNTERS" })
 }
 
+/// `Feeds::subscribeToFeed` — the data for the "Add a feed" dialog: the
+/// category `<select>` (`cat`) and the update-interval options (the default-
+/// annotated `$update_intervals`). Pure read. PHP emits `intervals.update` as a
+/// JSON object; the frontend's `select_hash` re-sorts the integer-like keys
+/// numerically, so the object key order is functionally irrelevant here.
+pub async fn subscribe_to_feed(state: &AppState, sess: &Sess) -> Value {
+    let uid = sess.data().uid().unwrap_or(0);
+    let pool = state.db.pool();
+    let pref_rows = prefs::load_rows(&state.db, uid, None).await;
+    let default_update = prefs::resolve(prefs::DEFAULT_UPDATE_INTERVAL, &pref_rows, None).as_int();
+
+    let cat_select = select_feeds_cats(pool, uid, "cat", None, "").await;
+
+    json!({
+        "cat_select": cat_select,
+        "intervals": {
+            "update": update_intervals_with_default(default_update),
+        },
+    })
+}
+
 /// `Feeds::updatedebugger` — the standalone feed-update debug page
 /// (`Content-Type: text/html`). Reproduced verbatim from the PHP template;
 /// the cache-bust timestamp and the csrf token normalize away in the diff.
@@ -1961,32 +1982,8 @@ pub async fn editfeed(state: &AppState, sess: &Sess, extra: &Map<String, Value>)
     }
 
     // update intervals (key => label), with the "Default interval" option annotated.
-    let mut update: Map<String, Value> = Map::new();
-    for (k, v) in [
-        ("0", "Default interval"),
-        ("-1", "Disable updates"),
-        ("15", "15 minutes"),
-        ("30", "30 minutes"),
-        ("60", "Hourly"),
-        ("240", "4 hours"),
-        ("720", "12 hours"),
-        ("1440", "Daily"),
-        ("10080", "Weekly"),
-    ] {
-        update.insert(k.to_string(), Value::String(v.to_string()));
-    }
     let default_update = prefs::resolve("DEFAULT_UPDATE_INTERVAL", &pref_rows, None).as_int();
-    // Match the PHP: the label is looked up by the default interval value, and
-    // a non-standard value (not a dropdown key) yields an empty suffix.
-    let default_update_label = update
-        .get(&default_update.to_string())
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_string();
-    update.insert(
-        "0".to_string(),
-        Value::String(format!("Default interval ({default_update_label})")),
-    );
+    let update = update_intervals_with_default(default_update);
 
     // purge intervals.
     let purge: Value = if state.config.force_article_purge == 0 {
@@ -2213,6 +2210,35 @@ fn update_interval_label(value: i64) -> String {
         10080 => "Weekly".to_string(),
         _ => String::new(),
     }
+}
+
+/// PHP `$update_intervals` (backend.php) as a JSON object (key => label), with
+/// the `0` ("Default interval") label annotated with the user's
+/// `DEFAULT_UPDATE_INTERVAL` — PHP `subscribeToFeed` / `editfeeds`'
+/// `$local_update_intervals[0] .= sprintf(" (%s)", $update_intervals[DEFAULT_UPDATE_INTERVAL])`.
+fn update_intervals_with_default(default_interval: i64) -> Map<String, Value> {
+    let mut update: Map<String, Value> = Map::new();
+    for (k, v) in [
+        ("0", "Default interval"),
+        ("-1", "Disable updates"),
+        ("15", "15 minutes"),
+        ("30", "30 minutes"),
+        ("60", "Hourly"),
+        ("240", "4 hours"),
+        ("720", "12 hours"),
+        ("1440", "Daily"),
+        ("10080", "Weekly"),
+    ] {
+        update.insert(k.to_string(), Value::String(v.to_string()));
+    }
+    update.insert(
+        "0".to_string(),
+        Value::String(format!(
+            "Default interval ({})",
+            update_interval_label(default_interval)
+        )),
+    );
+    update
 }
 
 /// The minijinja environment holding `editfeeds` (parsed once).

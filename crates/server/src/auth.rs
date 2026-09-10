@@ -220,9 +220,10 @@ pub async fn check_password(pool: &sqlx::PgPool, uid: i32, password: &str) -> bo
 /// salt + SSHA-512 hash. Returns the new hash on success (so the caller can
 /// refresh the session) or `None` if the old password is wrong.
 ///
-/// NOTE(port): the "password change notification" e-mail is omitted (no SMTP in
-/// the Rust port), and `Config::FORBID_PASSWORD_CHANGES` (default false) is not
-/// ported.
+/// NOTE(port): the "password change notification" e-mail is omitted (PHP
+/// sends it via the system MTA / `mail()`, which the Rust port does not
+/// replicate). The `Config::FORBID_PASSWORD_CHANGES` guard lives in the
+/// `changepassword` handler.
 pub async fn change_password(
     pool: &sqlx::PgPool,
     uid: i32,
