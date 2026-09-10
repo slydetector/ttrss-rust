@@ -78,14 +78,7 @@ struct Row {
 
 /// The read state of every owner-1 entry, ordered by ref id.
 async fn entry_rows(db: &Db) -> Vec<Row> {
-    let rows: Vec<(
-        i32,
-        i32,
-        bool,
-        bool,
-        bool,
-        bool,
-    )> = sqlx::query_as(
+    let rows: Vec<(i32, i32, bool, bool, bool, bool)> = sqlx::query_as(
         "SELECT ref_id, feed_id, unread, marked, published, \
          (last_read IS NOT NULL) \
          FROM ttrss_user_entries WHERE owner_uid = 1 ORDER BY ref_id",
@@ -93,8 +86,7 @@ async fn entry_rows(db: &Db) -> Vec<Row> {
     .fetch_all(db.pool())
     .await
     .expect("entry rows");
-    rows
-        .into_iter()
+    rows.into_iter()
         .map(
             |(ref_id, feed_id, unread, marked, published, last_read_set)| Row {
                 ref_id,
@@ -121,9 +113,7 @@ fn assert_catchup(before: &[Row], after: &[Row], in_scope: impl Fn(&Row) -> bool
             assert_eq!(
                 a.last_read_set, b.unread,
                 "ref {}: last_read set = {}, was unread = {}",
-                a.ref_id,
-                a.last_read_set,
-                b.unread
+                a.ref_id, a.last_read_set, b.unread
             );
         } else {
             assert_eq!(
@@ -153,7 +143,8 @@ async fn test_catchup_single_feed(
     // `RPC::catchupFeed` with `feed_id = 1`: the single-feed arm of
     // `Feeds::_catchup` — only that feed's UNREAD entries are marked read.
     let result =
-        ttrss_server::feeds::catchup_feed(&state, &sess, &request(&[("feed_id", json!("1"))])).await;
+        ttrss_server::feeds::catchup_feed(&state, &sess, &request(&[("feed_id", json!("1"))]))
+            .await;
     assert!(
         result.get("counters").is_some(),
         "expected a counters reply, got {result}"
@@ -178,10 +169,11 @@ async fn test_catchup_category(
 
     // `is_cat` + `feed_id = 1`: the category arm — category 1 contains
     // feeds 1, 2, 3 (feed 4 is in category 2).
-    let result = ttrss_server::feeds::catchup_feed(&state, &sess, &request(&[
-        ("feed_id", json!("1")),
-        ("is_cat", json!("1")),
-    ]))
+    let result = ttrss_server::feeds::catchup_feed(
+        &state,
+        &sess,
+        &request(&[("feed_id", json!("1")), ("is_cat", json!("1"))]),
+    )
     .await;
     assert!(result.get("counters").is_some(), "got {result}");
 
@@ -204,7 +196,8 @@ async fn test_catchup_all(
 
     // `feed_id = -4` (FEED_ALL): every owner-1 entry is in scope.
     let result =
-        ttrss_server::feeds::catchup_feed(&state, &sess, &request(&[("feed_id", json!("-4"))])).await;
+        ttrss_server::feeds::catchup_feed(&state, &sess, &request(&[("feed_id", json!("-4"))]))
+            .await;
     assert!(result.get("counters").is_some(), "got {result}");
 
     let after = entry_rows(db).await;
@@ -235,7 +228,8 @@ async fn test_catchup_starred(
     // `feed_id = -1` (FEED_STARRED): the Starred view — only starred entries
     // are marked read.
     let result =
-        ttrss_server::feeds::catchup_feed(&state, &sess, &request(&[("feed_id", json!("-1"))])).await;
+        ttrss_server::feeds::catchup_feed(&state, &sess, &request(&[("feed_id", json!("-1"))]))
+            .await;
     assert!(result.get("counters").is_some(), "got {result}");
 
     let after = entry_rows(db).await;
@@ -265,7 +259,8 @@ async fn test_catchup_published(
 
     // `feed_id = -2` (FEED_PUBLISHED): the Published view.
     let result =
-        ttrss_server::feeds::catchup_feed(&state, &sess, &request(&[("feed_id", json!("-2"))])).await;
+        ttrss_server::feeds::catchup_feed(&state, &sess, &request(&[("feed_id", json!("-2"))]))
+            .await;
     assert!(result.get("counters").is_some(), "got {result}");
 
     let after = entry_rows(db).await;
@@ -293,17 +288,17 @@ async fn test_catchup_label(
     .execute(db.pool())
     .await
     .expect("setup: label 1 on refs 4, 7, 8");
-    let labeled: Vec<i32> = sqlx::query_scalar(
-        "SELECT article_id FROM ttrss_user_labels2 WHERE label_id = 1",
-    )
-    .fetch_all(db.pool())
-    .await
-    .expect("labeled refs");
+    let labeled: Vec<i32> =
+        sqlx::query_scalar("SELECT article_id FROM ttrss_user_labels2 WHERE label_id = 1")
+            .fetch_all(db.pool())
+            .await
+            .expect("labeled refs");
     let before = entry_rows(db).await;
 
     // `feed_id = -1026` = `LABEL_BASE_INDEX - 1 - 1`: label 1's virtual feed.
     let result =
-        ttrss_server::feeds::catchup_feed(&state, &sess, &request(&[("feed_id", json!("-1026"))])).await;
+        ttrss_server::feeds::catchup_feed(&state, &sess, &request(&[("feed_id", json!("-1026"))]))
+            .await;
     assert!(result.get("counters").is_some(), "got {result}");
 
     let after = entry_rows(db).await;
@@ -323,26 +318,24 @@ async fn test_catchup_cat_labels(
     let db = &state.db;
 
     // Entries belonging to >= 1 label, across two different labels.
-    sqlx::query(
-        "INSERT INTO ttrss_user_labels2 (label_id, article_id) VALUES (1, 4), (2, 7)",
-    )
-    .execute(db.pool())
-    .await
-    .expect("setup: label assignments");
-    let labeled: Vec<i32> = sqlx::query_scalar(
-        "SELECT DISTINCT article_id FROM ttrss_user_labels2",
-    )
-    .fetch_all(db.pool())
-    .await
-    .expect("labeled refs");
+    sqlx::query("INSERT INTO ttrss_user_labels2 (label_id, article_id) VALUES (1, 4), (2, 7)")
+        .execute(db.pool())
+        .await
+        .expect("setup: label assignments");
+    let labeled: Vec<i32> =
+        sqlx::query_scalar("SELECT DISTINCT article_id FROM ttrss_user_labels2")
+            .fetch_all(db.pool())
+            .await
+            .expect("labeled refs");
     let before = entry_rows(db).await;
 
     // `is_cat` + `feed_id = -2` (CATEGORY_LABELS): the Labels category —
     // every entry in any label is in scope.
-    let result = ttrss_server::feeds::catchup_feed(&state, &sess, &request(&[
-        ("feed_id", json!("-2")),
-        ("is_cat", json!("1")),
-    ]))
+    let result = ttrss_server::feeds::catchup_feed(
+        &state,
+        &sess,
+        &request(&[("feed_id", json!("-2")), ("is_cat", json!("1"))]),
+    )
     .await;
     assert!(result.get("counters").is_some(), "got {result}");
 
@@ -364,18 +357,14 @@ async fn test_catchup_tag(
 
     // Tag the unread ref 4 and the already-read ref 8 (the seed has no tag
     // rows); the arm joins `ttrss_tags.post_int_id` to `int_id`.
-    let int_4: i32 = sqlx::query_scalar(
-        "SELECT int_id FROM ttrss_user_entries WHERE ref_id = 4",
-    )
-    .fetch_one(db.pool())
-    .await
-    .expect("int_id of ref 4");
-    let int_8: i32 = sqlx::query_scalar(
-        "SELECT int_id FROM ttrss_user_entries WHERE ref_id = 8",
-    )
-    .fetch_one(db.pool())
-    .await
-    .expect("int_id of ref 8");
+    let int_4: i32 = sqlx::query_scalar("SELECT int_id FROM ttrss_user_entries WHERE ref_id = 4")
+        .fetch_one(db.pool())
+        .await
+        .expect("int_id of ref 4");
+    let int_8: i32 = sqlx::query_scalar("SELECT int_id FROM ttrss_user_entries WHERE ref_id = 8")
+        .fetch_one(db.pool())
+        .await
+        .expect("int_id of ref 8");
     for int_id in [int_4, int_8] {
         sqlx::query(
             "INSERT INTO ttrss_tags (tag_name, owner_uid, post_int_id) \
@@ -398,7 +387,8 @@ async fn test_catchup_tag(
 
     // Non-numeric `feed_id`: the tag arm.
     let result =
-        ttrss_server::feeds::catchup_feed(&state, &sess, &request(&[("feed_id", json!("rust"))])).await;
+        ttrss_server::feeds::catchup_feed(&state, &sess, &request(&[("feed_id", json!("rust"))]))
+            .await;
     assert!(result.get("counters").is_some(), "got {result}");
 
     let after = entry_rows(db).await;
@@ -447,10 +437,11 @@ async fn test_catchup_uncategorized(
     let before = entry_rows(db).await;
 
     // `is_cat` + `feed_id = 0` (CATEGORY_UNCATEGORIZED): `cat_id IS NULL`.
-    let result = ttrss_server::feeds::catchup_feed(&state, &sess, &request(&[
-        ("feed_id", json!("0")),
-        ("is_cat", json!("1")),
-    ]))
+    let result = ttrss_server::feeds::catchup_feed(
+        &state,
+        &sess,
+        &request(&[("feed_id", json!("0")), ("is_cat", json!("1"))]),
+    )
     .await;
     assert!(result.get("counters").is_some(), "got {result}");
 
@@ -523,14 +514,31 @@ async fn test_catchup_fresh(
     // All fixture entries are months old, so add two fresh (NOW()) unread
     // entries: one with the default score 0 (in scope) and one with score -1
     // (excluded by the `score >= 0` filter).
-    add_entry(db, 13, "uuid-ue-013", "tag:example.com,2026:fresh-001", "NOW()", None).await;
-    add_entry(db, 14, "uuid-ue-014", "tag:example.com,2026:fresh-002", "NOW()", Some(-1)).await;
+    add_entry(
+        db,
+        13,
+        "uuid-ue-013",
+        "tag:example.com,2026:fresh-001",
+        "NOW()",
+        None,
+    )
+    .await;
+    add_entry(
+        db,
+        14,
+        "uuid-ue-014",
+        "tag:example.com,2026:fresh-002",
+        "NOW()",
+        Some(-1),
+    )
+    .await;
     let before = entry_rows(db).await;
 
     // `feed_id = -3` (FEED_FRESH): the Fresh view — entries entered within
     // the last `FRESH_ARTICLE_MAX_AGE` hours (default 24) with score >= 0.
     let result =
-        ttrss_server::feeds::catchup_feed(&state, &sess, &request(&[("feed_id", json!("-3"))])).await;
+        ttrss_server::feeds::catchup_feed(&state, &sess, &request(&[("feed_id", json!("-3"))]))
+            .await;
     assert!(result.get("counters").is_some(), "got {result}");
 
     let after = entry_rows(db).await;
@@ -551,7 +559,15 @@ async fn test_catchup_mode_1day(
 
     // A NOW() entry (inside the 1-day window) and a 3-day-old entry (outside
     // it); every fixture entry is months old (outside it).
-    add_entry(db, 13, "uuid-ue-013", "tag:example.com,2026:fresh-001", "NOW()", None).await;
+    add_entry(
+        db,
+        13,
+        "uuid-ue-013",
+        "tag:example.com,2026:fresh-001",
+        "NOW()",
+        None,
+    )
+    .await;
     add_entry(
         db,
         15,
@@ -565,10 +581,11 @@ async fn test_catchup_mode_1day(
 
     // `mode = 1day` adds `date_entered < NOW() - INTERVAL '1 day'`: only
     // entries OLDER than the window are caught (the "clear the backlog" case).
-    let result = ttrss_server::feeds::catchup_feed(&state, &sess, &request(&[
-        ("feed_id", json!("-4")),
-        ("mode", json!("1day")),
-    ]))
+    let result = ttrss_server::feeds::catchup_feed(
+        &state,
+        &sess,
+        &request(&[("feed_id", json!("-4")), ("mode", json!("1day"))]),
+    )
     .await;
     assert!(result.get("counters").is_some(), "got {result}");
 
@@ -590,7 +607,15 @@ async fn test_catchup_mode_1week(
 
     // Same shape as the 1day test: the 3-day-old entry is now INSIDE the
     // 1-week window, so only the months-old fixture entries are caught.
-    add_entry(db, 13, "uuid-ue-013", "tag:example.com,2026:fresh-001", "NOW()", None).await;
+    add_entry(
+        db,
+        13,
+        "uuid-ue-013",
+        "tag:example.com,2026:fresh-001",
+        "NOW()",
+        None,
+    )
+    .await;
     add_entry(
         db,
         15,
@@ -603,10 +628,11 @@ async fn test_catchup_mode_1week(
     let before = entry_rows(db).await;
 
     // `mode = 1week`: `date_entered < NOW() - INTERVAL '1 week'`.
-    let result = ttrss_server::feeds::catchup_feed(&state, &sess, &request(&[
-        ("feed_id", json!("-4")),
-        ("mode", json!("1week")),
-    ]))
+    let result = ttrss_server::feeds::catchup_feed(
+        &state,
+        &sess,
+        &request(&[("feed_id", json!("-4")), ("mode", json!("1week"))]),
+    )
     .await;
     assert!(result.get("counters").is_some(), "got {result}");
 

@@ -94,14 +94,19 @@ struct Entry {
 }
 
 async fn entries(db: &Db) -> Vec<Entry> {
-    let rows: Vec<(i32, bool, bool)> =
-        sqlx::query_as("SELECT ref_id, unread, (last_read IS NOT NULL)
-                        FROM ttrss_user_entries WHERE owner_uid = 1 ORDER BY ref_id")
-            .fetch_all(db.pool())
-            .await
-            .expect("entries");
+    let rows: Vec<(i32, bool, bool)> = sqlx::query_as(
+        "SELECT ref_id, unread, (last_read IS NOT NULL)
+                        FROM ttrss_user_entries WHERE owner_uid = 1 ORDER BY ref_id",
+    )
+    .fetch_all(db.pool())
+    .await
+    .expect("entries");
     rows.into_iter()
-        .map(|(ref_id, unread, last_read_set)| Entry { ref_id, unread, last_read_set })
+        .map(|(ref_id, unread, last_read_set)| Entry {
+            ref_id,
+            unread,
+            last_read_set,
+        })
         .collect()
 }
 #[sqlx::test(fixtures(
@@ -133,7 +138,10 @@ async fn headline_fts_filters_rows(
         vec![4, 5]
     );
     // "postgres" does not match "postgresql" (article 2, feed 1).
-    assert_eq!(head_ids(&db, "1", "postgres", lang).await, Vec::<i32>::new());
+    assert_eq!(
+        head_ids(&db, "1", "postgres", lang).await,
+        Vec::<i32>::new()
+    );
 }
 
 #[sqlx::test(fixtures(

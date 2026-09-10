@@ -20,17 +20,19 @@ use serde_json::{json, Map, Value};
 use sqlx::Row;
 use ttrss_core::user;
 
+use crate::article;
 use crate::auth;
 use crate::cats::{CAT_LABELS, CAT_SPECIAL, CAT_UNCATEGORIZED};
 use crate::counters;
 use crate::feeds;
-use crate::article;
 use crate::headlines;
 use crate::labels;
 use crate::prefs;
 use crate::sanitizer;
 use crate::session::{self, Sess};
-use crate::util::{clean_int, clean_str, param_int_array, param_to_bool, php_int_cast, strip_tags, truncate_string};
+use crate::util::{
+    clean_int, clean_str, param_int_array, param_to_bool, php_int_cast, strip_tags, truncate_string,
+};
 use crate::AppState;
 
 const API_LEVEL: i64 = 23;
@@ -135,10 +137,7 @@ pub async fn before_and_dispatch(
             sess.destroy();
             (STATUS_OK, json!({ "status": "OK" }))
         }
-        "isloggedin" => (
-            STATUS_OK,
-            json!({ "status": data.uid().is_some() }),
-        ),
+        "isloggedin" => (STATUS_OK, json!({ "status": data.uid().is_some() })),
         "getconfig" => (STATUS_OK, get_config(state, uid).await),
         "getunread" => get_unread(state, uid, body).await,
         "getcounters" => get_counters(state, sess, body).await,
@@ -235,7 +234,8 @@ async fn login(state: &AppState, sess: &Sess, body: &Map<String, Value>) -> (i64
         .bind(uid)
         .execute(pool)
         .await;
-    let (new_id, data) = auth::build_login_session(uid, &u_login, access_level, &pwd_hash, false, false);
+    let (new_id, data) =
+        auth::build_login_session(uid, &u_login, access_level, &pwd_hash, false, false);
     sess.replace(new_id.clone(), data);
 
     (
@@ -280,13 +280,12 @@ async fn verify_app_password(pool: &sqlx::PgPool, login: &str, password: &str) -
 async fn get_config(state: &AppState, uid: Option<i64>) -> Value {
     let uid = uid.unwrap_or(0);
     let pool = state.db.pool();
-    let num_feeds = sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*) FROM ttrss_feeds WHERE owner_uid = $1",
-    )
-    .bind(uid)
-    .fetch_one(pool)
-    .await
-    .unwrap_or(0);
+    let num_feeds =
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM ttrss_feeds WHERE owner_uid = $1")
+            .bind(uid)
+            .fetch_one(pool)
+            .await
+            .unwrap_or(0);
     // `_get_custom_sort_types` (no plugin sort hooks) → `[]`; `daemon_is_running`
     // is a file lock (no daemon in this deployment) → false.
     json!({
@@ -371,7 +370,12 @@ fn pref_json(p: &prefs::Pref) -> Value {
 /// JSON envelope) for the given feed ID, or the `E_NOT_FOUND` envelope. This is
 /// the one API method that returns raw bytes: the favicon is fetched and cached
 /// by the feed engine (M6), so it's absent in the test environment.
-pub async fn get_feed_icon(state: &AppState, sess: &Sess, body: &Map<String, Value>, seq: i64) -> Response {
+pub async fn get_feed_icon(
+    state: &AppState,
+    sess: &Sess,
+    body: &Map<String, Value>,
+    seq: i64,
+) -> Response {
     // The `before()` gate still applies (auth).
     if let Err((status, content)) = api_auth(state, sess, "getfeedicon").await {
         return envelope(seq, status, content).into_response();
@@ -385,9 +389,12 @@ pub async fn get_feed_icon(state: &AppState, sess: &Sess, body: &Map<String, Val
             let mime = detect_image_mime(&bytes);
             let mut res = axum::http::Response::new(Body::from(bytes));
             *res.status_mut() = StatusCode::OK;
+            res.headers_mut().insert(
+                header::CONTENT_TYPE,
+                axum::http::HeaderValue::from_static(mime),
+            );
             res.headers_mut()
-                .insert(header::CONTENT_TYPE, axum::http::HeaderValue::from_static(mime));
-            res.headers_mut().insert(header::CONTENT_LENGTH, axum::http::HeaderValue::from(len));
+                .insert(header::CONTENT_LENGTH, axum::http::HeaderValue::from(len));
             res.into_response()
         }
         _ => envelope(seq, STATUS_ERR, json!({ "error": E_NOT_FOUND })).into_response(),
@@ -427,7 +434,11 @@ async fn get_feeds(state: &AppState, uid: Option<i64>, body: &Map<String, Value>
                  WHERE ue.feed_id = f.id AND ue.owner_uid = $2 AND ue.unread) AS num_unread
          FROM ttrss_feeds f WHERE f.cat_id = $1 AND f.owner_uid = $2",
     )
-    .bind(if cat_id == 0 { None } else { Some(cat_id as i32) })
+    .bind(if cat_id == 0 {
+        None
+    } else {
+        Some(cat_id as i32)
+    })
     .bind(uid)
     .fetch_all(pool)
     .await
@@ -438,13 +449,19 @@ async fn get_feeds(state: &AppState, uid: Option<i64>, body: &Map<String, Value>
             Map::from_iter([
                 ("id".into(), json!(r.get::<i32, _>("id"))),
                 ("title".into(), Value::from(r.get::<String, _>("title"))),
-                ("site_url".into(), Value::from(r.get::<String, _>("site_url"))),
+                (
+                    "site_url".into(),
+                    Value::from(r.get::<String, _>("site_url")),
+                ),
                 ("rss_url".into(), Value::from(r.get::<String, _>("rss_url"))),
                 (
                     "image_url".into(),
                     Value::from(r.get::<Option<String>, _>("image_url")),
                 ),
-                ("language".into(), Value::from(r.get::<String, _>("language"))),
+                (
+                    "language".into(),
+                    Value::from(r.get::<String, _>("language")),
+                ),
                 (
                     "category_id".into(),
                     Value::from(r.get::<Option<i32>, _>("category_id")),
@@ -454,10 +471,17 @@ async fn get_feeds(state: &AppState, uid: Option<i64>, body: &Map<String, Value>
             ])
         })
         .collect::<Vec<_>>();
-    (STATUS_OK, Value::Array(rv.into_iter().map(Value::Object).collect()))
+    (
+        STATUS_OK,
+        Value::Array(rv.into_iter().map(Value::Object).collect()),
+    )
 }
 
-async fn get_categories(state: &AppState, uid: Option<i64>, body: &Map<String, Value>) -> (i64, Value) {
+async fn get_categories(
+    state: &AppState,
+    uid: Option<i64>,
+    body: &Map<String, Value>,
+) -> (i64, Value) {
     let uid = uid.unwrap_or(0);
     let pool = state.db.pool();
     let unread_only = param_to_bool(body.get("unread_only"));
@@ -520,7 +544,6 @@ async fn get_categories(state: &AppState, uid: Option<i64>, body: &Map<String, V
     (STATUS_OK, Value::Array(cats))
 }
 
-
 fn cat_title(cat_id: i64) -> &'static str {
     match cat_id {
         CAT_UNCATEGORIZED => "Uncategorized",
@@ -571,23 +594,39 @@ async fn get_labels(state: &AppState, uid: Option<i64>, body: &Map<String, Value
     } else {
         Vec::new()
     };
-    let rv = labels::get_all(pool, uid).await.iter().map(|l| {
-        let lid = l.get("id").and_then(Value::as_i64).unwrap_or(0);
-        let checked = article_labels.iter().any(|al| {
-            al.get(0)
-                .and_then(Value::as_i64)
-                .map(|f| labels::feed_to_label_id(f) == lid)
-                .unwrap_or(false)
-        });
-        Map::from_iter([
-            ("id".into(), json!(labels::label_to_feed_id(lid))),
-            ("caption".into(), l.get("caption").cloned().unwrap_or_default()),
-            ("fg_color".into(), l.get("fg_color").cloned().unwrap_or_default()),
-            ("bg_color".into(), l.get("bg_color").cloned().unwrap_or_default()),
-            ("checked".into(), json!(checked)),
-        ])
-    }).collect::<Vec<_>>();
-    (STATUS_OK, Value::Array(rv.into_iter().map(Value::Object).collect()))
+    let rv = labels::get_all(pool, uid)
+        .await
+        .iter()
+        .map(|l| {
+            let lid = l.get("id").and_then(Value::as_i64).unwrap_or(0);
+            let checked = article_labels.iter().any(|al| {
+                al.get(0)
+                    .and_then(Value::as_i64)
+                    .map(|f| labels::feed_to_label_id(f) == lid)
+                    .unwrap_or(false)
+            });
+            Map::from_iter([
+                ("id".into(), json!(labels::label_to_feed_id(lid))),
+                (
+                    "caption".into(),
+                    l.get("caption").cloned().unwrap_or_default(),
+                ),
+                (
+                    "fg_color".into(),
+                    l.get("fg_color").cloned().unwrap_or_default(),
+                ),
+                (
+                    "bg_color".into(),
+                    l.get("bg_color").cloned().unwrap_or_default(),
+                ),
+                ("checked".into(), json!(checked)),
+            ])
+        })
+        .collect::<Vec<_>>();
+    (
+        STATUS_OK,
+        Value::Array(rv.into_iter().map(Value::Object).collect()),
+    )
 }
 
 async fn get_headlines(state: &AppState, sess: &Sess, body: &Map<String, Value>) -> (i64, Value) {
@@ -602,7 +641,11 @@ async fn get_headlines(state: &AppState, sess: &Sess, body: &Map<String, Value>)
         return (STATUS_ERR, json!({ "error": E_INCORRECT_USAGE }));
     }
     let limit = clean_int(body.get("limit"));
-    let limit = if limit == 0 || limit >= 200 { 200 } else { limit };
+    let limit = if limit == 0 || limit >= 200 {
+        200
+    } else {
+        limit
+    };
     let offset = clean_int(body.get("skip"));
     let is_cat = param_to_bool(body.get("is_cat"));
     let show_excerpt = param_to_bool(body.get("show_excerpt"));
@@ -619,8 +662,9 @@ async fn get_headlines(state: &AppState, sess: &Sess, body: &Map<String, Value>)
     let excerpt_length = clean_int(body.get("excerpt_length"));
     let include_header = param_to_bool(body.get("include_header"));
 
-    let (override_order, skip_first_id_check) =
-        headlines::order_to_override_query(&clean_str(body.get("order_by").and_then(Value::as_str).unwrap_or("")));
+    let (override_order, skip_first_id_check) = headlines::order_to_override_query(&clean_str(
+        body.get("order_by").and_then(Value::as_str).unwrap_or(""),
+    ));
 
     let params = headlines::HeadlinesParams {
         feed: feed_id.clone(),
@@ -640,9 +684,19 @@ async fn get_headlines(state: &AppState, sess: &Sess, body: &Map<String, Value>)
     let mut out: Vec<Value> = Vec::new();
     for r in &q.article_rows {
         let row = api_headline_row(
-            r, &q.feed_title, uid, is_cat, q.is_vfeed, show_excerpt, show_content,
-            sanitize_content, include_attachments, excerpt_length, state,
-        ).await;
+            r,
+            &q.feed_title,
+            uid,
+            is_cat,
+            q.is_vfeed,
+            show_excerpt,
+            show_content,
+            sanitize_content,
+            include_attachments,
+            excerpt_length,
+            state,
+        )
+        .await;
         out.push(row);
     }
 
@@ -726,7 +780,10 @@ async fn api_headline_row(
     let tags: Vec<Value> = if tag_cache.is_empty() {
         Vec::new()
     } else {
-        tag_cache.split(',').map(|s| Value::from(s.to_string())).collect()
+        tag_cache
+            .split(',')
+            .map(|s| Value::from(s.to_string()))
+            .collect()
     };
 
     let mut m = serde_json::Map::new();
@@ -742,11 +799,23 @@ async fn api_headline_row(
     m.insert("is_updated".into(), json!(is_updated));
     m.insert("title".into(), Value::from(title));
     m.insert("link".into(), Value::from(link));
-    m.insert("feed_id".into(), json!(if line_feed_id == 0 { 0 } else { line_feed_id }));
+    m.insert(
+        "feed_id".into(),
+        json!(if line_feed_id == 0 { 0 } else { line_feed_id }),
+    );
     m.insert("tags".into(), Value::Array(tags));
 
     if include_attachments {
-        m.insert("attachments".into(), Value::Array(article::get_enclosures(pool, id).await.into_iter().map(Value::Object).collect()));
+        m.insert(
+            "attachments".into(),
+            Value::Array(
+                article::get_enclosures(pool, id)
+                    .await
+                    .into_iter()
+                    .map(Value::Object)
+                    .collect(),
+            ),
+        );
     }
     if show_excerpt {
         let excerpt = truncate_string(&strip_tags(&content), excerpt_length as usize, "&hellip;");
@@ -781,15 +850,24 @@ async fn api_headline_row(
 
     let num_comments: i32 = r.get(H_NUM_COMMENTS);
     m.insert("comments_count".into(), json!(num_comments));
-    m.insert("comments_link".into(), Value::from(r.get::<String, _>(H_COMMENTS)));
+    m.insert(
+        "comments_link".into(),
+        Value::from(r.get::<String, _>(H_COMMENTS)),
+    );
     let always_enc: Option<bool> = r.get(H_ALWAYS_ENC);
-    m.insert("always_display_attachments".into(), json!(always_enc.unwrap_or(false)));
+    m.insert(
+        "always_display_attachments".into(),
+        json!(always_enc.unwrap_or(false)),
+    );
     m.insert("author".into(), Value::from(author));
     m.insert("score".into(), json!(score));
-    m.insert("note".into(), match note {
-        Some(n) if !n.is_empty() => Value::from(n),
-        _ => Value::Null,
-    });
+    m.insert(
+        "note".into(),
+        match note {
+            Some(n) if !n.is_empty() => Value::from(n),
+            _ => Value::Null,
+        },
+    );
     m.insert("lang".into(), Value::from(lang));
     m.insert("site_url".into(), Value::from(site_url));
 
@@ -807,39 +885,51 @@ async fn api_labels(label_cache: &str, pool: &sqlx::PgPool, uid: i64, id: i32) -
     // Non-empty cache: decode; invalid/empty/no-labels → `[]` (PHP `_get_labels`
     // returns immediately on a non-empty cache, never re-queries the tables).
     match serde_json::from_str::<Value>(cache) {
-        Ok(v) if !labels::php_empty_value(&v) && v.get("no-labels").and_then(Value::as_i64) != Some(1) => v,
+        Ok(v)
+            if !labels::php_empty_value(&v)
+                && v.get("no-labels").and_then(Value::as_i64) != Some(1) =>
+        {
+            v
+        }
         _ => Value::Array(Vec::new()),
     }
 }
 
-async fn get_article(state: &AppState, uid: Option<i64>, body: &Map<String, Value>) -> (i64, Value) {
+async fn get_article(
+    state: &AppState,
+    uid: Option<i64>,
+    body: &Map<String, Value>,
+) -> (i64, Value) {
     let uid = uid.unwrap_or(0);
     let pool = state.db.pool();
-    let article_ids: Vec<i32> = body.get("article_id").map(|v| {
-        if let Some(arr) = v.as_array() {
-            arr.iter()
-                .filter_map(|x| {
-                    x.as_i64()
-                        .or_else(|| x.as_str().and_then(|s| s.trim().parse::<i64>().ok()))
-                })
-                .filter(|&x| x > 0)
-                .map(|x| x as i32)
-                .collect()
-        } else if let Some(n) = v.as_i64() {
-            if n > 0 {
-                vec![n as i32]
+    let article_ids: Vec<i32> = body
+        .get("article_id")
+        .map(|v| {
+            if let Some(arr) = v.as_array() {
+                arr.iter()
+                    .filter_map(|x| {
+                        x.as_i64()
+                            .or_else(|| x.as_str().and_then(|s| s.trim().parse::<i64>().ok()))
+                    })
+                    .filter(|&x| x > 0)
+                    .map(|x| x as i32)
+                    .collect()
+            } else if let Some(n) = v.as_i64() {
+                if n > 0 {
+                    vec![n as i32]
+                } else {
+                    Vec::new()
+                }
+            } else if let Some(s) = v.as_str() {
+                s.split(',')
+                    .filter_map(|p| p.trim().parse::<i32>().ok())
+                    .filter(|&x| x > 0)
+                    .collect()
             } else {
                 Vec::new()
             }
-        } else if let Some(s) = v.as_str() {
-            s.split(',')
-                .filter_map(|p| p.trim().parse::<i32>().ok())
-                .filter(|&x| x > 0)
-                .collect()
-        } else {
-            Vec::new()
-        }
-    }).unwrap_or_default();
+        })
+        .unwrap_or_default();
 
     if article_ids.is_empty() {
         return (STATUS_ERR, json!({ "error": E_INCORRECT_USAGE }));
@@ -879,7 +969,10 @@ async fn get_article(state: &AppState, uid: Option<i64>, body: &Map<String, Valu
         m.insert("guid".into(), Value::from(r.get::<String, _>(1)));
         m.insert("title".into(), Value::from(r.get::<String, _>(2)));
         m.insert("link".into(), Value::from(r.get::<String, _>(3)));
-        m.insert("labels".into(), article::get_labels(pool, uid, id, None).await.into());
+        m.insert(
+            "labels".into(),
+            article::get_labels(pool, uid, id, None).await.into(),
+        );
         let unread: bool = r.get(10);
         let marked: bool = r.get(9);
         let published: bool = r.get(11);
@@ -890,22 +983,36 @@ async fn get_article(state: &AppState, uid: Option<i64>, body: &Map<String, Valu
         m.insert("author".into(), Value::from(r.get::<String, _>(4)));
         m.insert(
             "updated".into(),
-            json!(updated.map(|d| (d.and_utc().timestamp() / 60) * 60).unwrap_or(0)),
+            json!(updated
+                .map(|d| (d.and_utc().timestamp() / 60) * 60)
+                .unwrap_or(0)),
         );
         let feed_id: i32 = r.get(8);
         m.insert("feed_id".into(), json!(feed_id));
         m.insert(
             "attachments".into(),
-            Value::Array(article::get_enclosures(pool, id).await.into_iter().map(Value::Object).collect()),
+            Value::Array(
+                article::get_enclosures(pool, id)
+                    .await
+                    .into_iter()
+                    .map(Value::Object)
+                    .collect(),
+            ),
         );
         let score: i32 = r.get(12);
         m.insert("score".into(), json!(score));
-        m.insert("feed_title".into(), Value::from(r.get::<Option<String>, _>(15).unwrap_or_default()));
+        m.insert(
+            "feed_title".into(),
+            Value::from(r.get::<Option<String>, _>(15).unwrap_or_default()),
+        );
         let note: Option<String> = r.get(13);
-        m.insert("note".into(), match note {
-            Some(n) if !n.is_empty() => Value::from(n),
-            _ => Value::Null,
-        });
+        m.insert(
+            "note".into(),
+            match note {
+                Some(n) if !n.is_empty() => Value::from(n),
+                _ => Value::Null,
+            },
+        );
         m.insert("lang".into(), Value::from(r.get::<String, _>(6)));
 
         let content_out = if sanitize_content {
@@ -931,19 +1038,19 @@ async fn get_article(state: &AppState, uid: Option<i64>, body: &Map<String, Valu
 // ── Writes (M5) ─────────────────────────────────────────────────────────────
 
 /// `API::catchupFeed` — mark a feed / category / everything read.
-pub async fn catchup_feed(state: &AppState, sess: &Sess, body: &Map<String, Value>) -> (i64, Value) {
+pub async fn catchup_feed(
+    state: &AppState,
+    sess: &Sess,
+    body: &Map<String, Value>,
+) -> (i64, Value) {
     let data = sess.data();
     let uid = data.uid().unwrap_or(0);
     let profile = data.profile().map(|p| p as i32);
     let pool = state.db.pool();
     let rows = prefs::load_rows(&state.db, uid, profile).await;
-    let clean_param = |k: &str| {
-        clean_str(body.get(k).and_then(|v| v.as_str()).unwrap_or(""))
-    };
+    let clean_param = |k: &str| clean_str(body.get(k).and_then(|v| v.as_str()).unwrap_or(""));
     let feed_id = clean_param("feed_id");
-    let is_cat = body
-        .get("is_cat")
-        .is_some_and(|v| param_to_bool(Some(v)));
+    let is_cat = body.get("is_cat").is_some_and(|v| param_to_bool(Some(v)));
     let mode = clean_param("mode");
     // `if (!in_array($mode, ["all","1day","1week","2week"])) $mode = "all";`
     let mode = if matches!(mode.as_str(), "all" | "1day" | "1week" | "2week") {
@@ -954,14 +1061,26 @@ pub async fn catchup_feed(state: &AppState, sess: &Sess, body: &Map<String, Valu
     let search_query = clean_param("search_query");
     let search_lang = clean_param("search_lang");
     crate::feeds::catchup_scope(
-        pool, uid, profile, &rows, &feed_id, is_cat, &mode, &search_query, &search_lang,
+        pool,
+        uid,
+        profile,
+        &rows,
+        &feed_id,
+        is_cat,
+        &mode,
+        &search_query,
+        &search_lang,
     )
     .await;
     (STATUS_OK, json!({ "status": "OK" }))
 }
 
 /// `API::unsubscribeFeed` — remove the session user's feed, or `E_OPERATION_FAILED`.
-pub async fn unsubscribe_feed(state: &AppState, sess: &Sess, body: &Map<String, Value>) -> (i64, Value) {
+pub async fn unsubscribe_feed(
+    state: &AppState,
+    sess: &Sess,
+    body: &Map<String, Value>,
+) -> (i64, Value) {
     let uid = sess.data().uid().unwrap_or(0);
     let pool = state.db.pool();
     let feed_id = clean_int(body.get("feed_id")) as i32;
@@ -985,7 +1104,11 @@ pub async fn unsubscribe_feed(state: &AppState, sess: &Sess, body: &Map<String, 
 /// unread / note / score. The value is a controlled SQL literal (a boolean,
 /// `NOT <field>`, a `quote($data)` string, or an int), matching the PHP's
 /// string-interpolated `SET <field> = <set_to>`.
-pub async fn update_article(state: &AppState, sess: &Sess, body: &Map<String, Value>) -> (i64, Value) {
+pub async fn update_article(
+    state: &AppState,
+    sess: &Sess,
+    body: &Map<String, Value>,
+) -> (i64, Value) {
     let uid = sess.data().uid().unwrap_or(0);
     let pool = state.db.pool();
     let article_ids = param_int_array(body, "article_ids");
@@ -1001,7 +1124,11 @@ pub async fn update_article(state: &AppState, sess: &Sess, body: &Map<String, Va
     // `if ($field && $set_to)` → `E_INCORRECT_USAGE`.
     let (field, additional, val) = match field_raw {
         0 => ("marked", ",last_marked = NOW()", mode_val(mode, "marked")),
-        1 => ("published", ",last_published = NOW()", mode_val(mode, "published")),
+        1 => (
+            "published",
+            ",last_published = NOW()",
+            mode_val(mode, "published"),
+        ),
         2 => ("unread", ",last_read = NOW()", mode_val(mode, "unread")),
         3 => ("note", "", ArticleVal::Note),
         4 => {
@@ -1077,7 +1204,11 @@ enum ArticleVal {
 }
 
 /// `API::setArticleLabel` — assign or remove a label from a set of articles.
-pub async fn set_article_label(state: &AppState, sess: &Sess, body: &Map<String, Value>) -> (i64, Value) {
+pub async fn set_article_label(
+    state: &AppState,
+    sess: &Sess,
+    body: &Map<String, Value>,
+) -> (i64, Value) {
     let uid = sess.data().uid().unwrap_or(0);
     let pool = state.db.pool();
     let article_ids = param_int_array(body, "article_ids");
@@ -1120,15 +1251,9 @@ pub async fn share_to_published(
     } else {
         content_raw.to_string()
     };
-    let ok = crate::article::create_published_article(
-        state.db.pool(),
-        &title,
-        &url,
-        &content,
-        "",
-        uid,
-    )
-    .await;
+    let ok =
+        crate::article::create_published_article(state.db.pool(), &title, &url, &content, "", uid)
+            .await;
     if ok {
         (STATUS_OK, json!({ "status": "OK" }))
     } else {

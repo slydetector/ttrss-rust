@@ -23,8 +23,8 @@ use ttrss_core::phpser::Value;
 
 use crate::render;
 use crate::session;
-use crate::util;
 use crate::users;
+use crate::util;
 use crate::AppState;
 
 /// The public `op=forgotpass` HTML shell.
@@ -129,14 +129,20 @@ fn initial_form(sess: &session::Sess) -> String {
     out.push_str("<form method='POST' action='public.php'>");
     out.push_str("<input type='hidden' name='method' value='do'>");
     out.push_str("<input type='hidden' name='op' value='forgotpass'>");
-    out.push_str(&format!("<input type='hidden' name='csrf_token' value='{csrf}'>"));
+    out.push_str(&format!(
+        "<input type='hidden' name='csrf_token' value='{csrf}'>"
+    ));
     out.push_str("<fieldset>");
     out.push_str("<label>Login:</label>");
-    out.push_str("<input dojoType='dijit.form.TextBox' type='text' name='login' value='' required>");
+    out.push_str(
+        "<input dojoType='dijit.form.TextBox' type='text' name='login' value='' required>",
+    );
     out.push_str("</fieldset>");
     out.push_str("<fieldset>");
     out.push_str("<label>Email:</label>");
-    out.push_str("<input dojoType='dijit.form.TextBox' type='email' name='email' value='' required>");
+    out.push_str(
+        "<input dojoType='dijit.form.TextBox' type='email' name='email' value='' required>",
+    );
     out.push_str("</fieldset>");
     out.push_str("<fieldset>");
     out.push_str(&format!("<label>How much is {v1} + {v2}:</label>"));
@@ -191,15 +197,14 @@ async fn do_reset(
     });
 
     let email = email.as_deref().unwrap_or("");
-    let user: Option<(i32,)> = sqlx::query_as(
-        "SELECT id FROM ttrss_users WHERE LOWER(login) = LOWER($1) AND email = $2",
-    )
-    .bind(&login)
-    .bind(email)
-    .fetch_optional(pool)
-    .await
-    .ok()
-    .flatten();
+    let user: Option<(i32,)> =
+        sqlx::query_as("SELECT id FROM ttrss_users WHERE LOWER(login) = LOWER($1) AND email = $2")
+            .bind(&login)
+            .bind(email)
+            .fetch_optional(pool)
+            .await
+            .ok()
+            .flatten();
 
     match user {
         Some((uid,)) => {

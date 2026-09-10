@@ -35,7 +35,9 @@ fn test_config() -> Config {
         feed_icon_dir: std::path::PathBuf::from("no-such-test-icon-dir"),
         max_favicon_file_size: 1024 * 1024,
         force_article_purge: 0,
-        docroot: std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..").join("tt-rss"),
+        docroot: std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join("tt-rss"),
     }
 }
 
@@ -66,10 +68,15 @@ fn normalize(s: &str) -> String {
     "../../testing/fixtures/schema.sql",
     "../../testing/fixtures/baseline.sql"
 ))]
-async fn test_index_structure(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options: sqlx::postgres::PgConnectOptions) {
+async fn test_index_structure(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
     let (state, sess) = setup(pool, options).await;
 
-    let html = ttrss_server::pref_ui::index(&state, &sess).await.expect("render");
+    let html = ttrss_server::pref_ui::index(&state, &sess)
+        .await
+        .expect("render");
     let n = normalize(&html);
 
     // The accordion + the three panes (titles + the lazy loaders).
@@ -86,8 +93,18 @@ async fn test_index_structure(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, opt
     assert!(n.contains("name=\"method\"value=\"saveconfig\""));
 
     // All six sections (in order) are present.
-    for section in ["General", "Feeds", "Articles", "Digest", "Advanced", "Debugging"] {
-        assert!(n.contains(&format!("<h2>{section}</h2>")), "missing section {section}");
+    for section in [
+        "General",
+        "Feeds",
+        "Articles",
+        "Digest",
+        "Advanced",
+        "Debugging",
+    ] {
+        assert!(
+            n.contains(&format!("<h2>{section}</h2>")),
+            "missing section {section}"
+        );
     }
 
     // Representative field labels (the `short_desc`s) are present.
@@ -128,7 +145,10 @@ async fn test_index_structure(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, opt
     "../../testing/fixtures/schema.sql",
     "../../testing/fixtures/baseline.sql"
 ))]
-async fn test_index_profile_hides_blacklisted(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options: sqlx::postgres::PgConnectOptions) {
+async fn test_index_profile_hides_blacklisted(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
     let (state, sess) = setup(pool, options).await;
     let db = state.db.pool();
 
@@ -145,7 +165,9 @@ async fn test_index_profile_hides_blacklisted(pool: sqlx::pool::PoolOptions<sqlx
         sess.replace("test-sid".to_string(), data);
     }
 
-    let html = ttrss_server::pref_ui::index(&state, &sess).await.expect("render");
+    let html = ttrss_server::pref_ui::index(&state, &sess)
+        .await
+        .expect("render");
     let n = normalize(&html);
 
     // The profile notice is shown.

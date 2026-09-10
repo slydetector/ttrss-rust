@@ -14,9 +14,9 @@
 //! `TIME ZONE 0`, `datestyle = 'ISO, european'`, …) so test connections
 //! behave exactly like the server's and the PHP reference's.
 
-use std::time::Duration;
 use sqlx::pool::PoolOptions;
 use sqlx::postgres::{PgConnectOptions, PgConnection, Postgres};
+use std::time::Duration;
 use ttrss_core::db::{Db, SESSION_SETUP};
 
 #[ctor::ctor(unsafe)]
@@ -27,10 +27,7 @@ fn init_test_pg() {
 /// Wrap the pool options injected by `#[sqlx::test]` in a core [`Db`],
 /// applying the PHP per-connection session setup to every acquired
 /// connection.
-pub async fn make_db(
-    pool: PoolOptions<Postgres>,
-    options: PgConnectOptions,
-) -> anyhow::Result<Db> {
+pub async fn make_db(pool: PoolOptions<Postgres>, options: PgConnectOptions) -> anyhow::Result<Db> {
     // sqlx 0.7 keeps a per-connection statement cache keyed by SQL text
     // (default capacity 100): re-Parsing the same text with different
     // parameter type OIDs silently reuses the old prepared statement and

@@ -112,10 +112,11 @@ async fn test_publ_publish_article(
     assert!(last_published.is_none());
 
     // Call publ to publish the article
-    let result = ttrss_server::article::publ(&state, &sess, &request(&[
-        ("pub", json!("1")),
-        ("id", json!("1")),
-    ]))
+    let result = ttrss_server::article::publ(
+        &state,
+        &sess,
+        &request(&[("pub", json!("1")), ("id", json!("1"))]),
+    )
     .await;
 
     assert_eq!("UPDATE_COUNTERS", message(&result));
@@ -141,10 +142,11 @@ async fn test_publ_unpublish_article(
     let ref_id = 3i32; // seed.sql entry with ref_id=3, initially marked=true
 
     // First publish it
-    let _ = ttrss_server::article::publ(&state, &sess, &request(&[
-        ("pub", json!("1")),
-        ("id", json!("3")),
-    ]))
+    let _ = ttrss_server::article::publ(
+        &state,
+        &sess,
+        &request(&[("pub", json!("1")), ("id", json!("3"))]),
+    )
     .await;
 
     let (published, last_published) = published_state(db, ref_id).await;
@@ -152,10 +154,11 @@ async fn test_publ_unpublish_article(
     assert!(last_published.is_some());
 
     // Now unpublish it
-    let result = ttrss_server::article::publ(&state, &sess, &request(&[
-        ("pub", json!("0")),
-        ("id", json!("3")),
-    ]))
+    let result = ttrss_server::article::publ(
+        &state,
+        &sess,
+        &request(&[("pub", json!("0")), ("id", json!("3"))]),
+    )
     .await;
 
     assert_eq!("UPDATE_COUNTERS", message(&result));
@@ -186,10 +189,11 @@ async fn test_mark_star_article(
     assert!(last_marked.is_none());
 
     // Call mark to star the article
-    let result = ttrss_server::article::mark(&state, &sess, &request(&[
-        ("mark", json!("1")),
-        ("id", json!("6")),
-    ]))
+    let result = ttrss_server::article::mark(
+        &state,
+        &sess,
+        &request(&[("mark", json!("1")), ("id", json!("6"))]),
+    )
     .await;
 
     assert_eq!("UPDATE_COUNTERS", message(&result));
@@ -215,10 +219,11 @@ async fn test_mark_unstar_article(
     let ref_id = 7i32; // seed.sql entry with ref_id=7, initially marked=false
 
     // First star it
-    let _ = ttrss_server::article::mark(&state, &sess, &request(&[
-        ("mark", json!("1")),
-        ("id", json!("7")),
-    ]))
+    let _ = ttrss_server::article::mark(
+        &state,
+        &sess,
+        &request(&[("mark", json!("1")), ("id", json!("7"))]),
+    )
     .await;
 
     let (marked, last_marked) = marked_state(db, ref_id).await;
@@ -226,10 +231,11 @@ async fn test_mark_unstar_article(
     assert!(last_marked.is_some());
 
     // Now un-star it
-    let result = ttrss_server::article::mark(&state, &sess, &request(&[
-        ("mark", json!("0")),
-        ("id", json!("7")),
-    ]))
+    let result = ttrss_server::article::mark(
+        &state,
+        &sess,
+        &request(&[("mark", json!("0")), ("id", json!("7"))]),
+    )
     .await;
 
     assert_eq!("UPDATE_COUNTERS", message(&result));
@@ -255,10 +261,11 @@ async fn test_publ_updates_last_published_timestamp(
     let ref_id = 5i32;
 
     // First publish
-    let _ = ttrss_server::article::publ(&state, &sess, &request(&[
-        ("pub", json!("1")),
-        ("id", json!("5")),
-    ]))
+    let _ = ttrss_server::article::publ(
+        &state,
+        &sess,
+        &request(&[("pub", json!("1")), ("id", json!("5"))]),
+    )
     .await;
 
     let (_, first_published) = published_state(db, ref_id).await;
@@ -271,10 +278,11 @@ async fn test_publ_updates_last_published_timestamp(
     let mut _hold = db.pool().acquire().await.expect("hold connection");
     tokio::time::sleep(std::time::Duration::from_millis(1010)).await;
 
-    let _ = ttrss_server::article::publ(&state, &sess, &request(&[
-        ("pub", json!("1")),
-        ("id", json!("5")),
-    ]))
+    let _ = ttrss_server::article::publ(
+        &state,
+        &sess,
+        &request(&[("pub", json!("1")), ("id", json!("5"))]),
+    )
     .await;
 
     let (_, second_published) = published_state(db, ref_id).await;
@@ -311,7 +319,8 @@ async fn test_delete_removes_articles(
     assert_eq!(2, count);
 
     // Delete articles with ref_id 4 and 5
-    let result = ttrss_server::article::delete(&state, &sess, &request(&[("ids", json!("4,5"))])).await;
+    let result =
+        ttrss_server::article::delete(&state, &sess, &request(&[("ids", json!("4,5"))])).await;
 
     assert_eq!("UPDATE_COUNTERS", message(&result));
 
@@ -344,10 +353,11 @@ async fn test_markSelected_mark_as_read(
     assert!(!marked);
 
     // Mark as read via markSelected (cmode=0 = mark as read)
-    let result = ttrss_server::article::mark_selected(&state, &sess, &request(&[
-        ("ids", json!([9])),
-        ("cmode", json!(0)),
-    ]))
+    let result = ttrss_server::article::mark_selected(
+        &state,
+        &sess,
+        &request(&[("ids", json!([9])), ("cmode", json!(0))]),
+    )
     .await;
 
     assert_eq!("UPDATE_COUNTERS", message(&result));
@@ -372,20 +382,22 @@ async fn test_markSelected_mark_as_unread(
     let db = &state.db;
 
     // First mark as read
-    let _ = ttrss_server::article::mark_selected(&state, &sess, &request(&[
-        ("ids", json!([10])),
-        ("cmode", json!(0)),
-    ]))
+    let _ = ttrss_server::article::mark_selected(
+        &state,
+        &sess,
+        &request(&[("ids", json!([10])), ("cmode", json!(0))]),
+    )
     .await;
 
     let (marked, _) = marked_state(db, 10).await;
     assert!(!marked);
 
     // Now mark as unread (cmode=1)
-    let result = ttrss_server::article::mark_selected(&state, &sess, &request(&[
-        ("ids", json!([10])),
-        ("cmode", json!(1)),
-    ]))
+    let result = ttrss_server::article::mark_selected(
+        &state,
+        &sess,
+        &request(&[("ids", json!([10])), ("cmode", json!(1))]),
+    )
     .await;
 
     assert_eq!("UPDATE_COUNTERS", message(&result));
@@ -413,10 +425,11 @@ async fn test_publishSelected_publish_articles(
     assert!(!published);
 
     // Publish via publishSelected (cmode=1 = mark as unread => published=true)
-    let result = ttrss_server::article::publish_selected(&state, &sess, &request(&[
-        ("ids", json!([11])),
-        ("cmode", json!(1)),
-    ]))
+    let result = ttrss_server::article::publish_selected(
+        &state,
+        &sess,
+        &request(&[("ids", json!([11])), ("cmode", json!(1))]),
+    )
     .await;
 
     assert_eq!("UPDATE_COUNTERS", message(&result));
@@ -440,20 +453,22 @@ async fn test_publishSelected_unpublish_articles(
     let db = &state.db;
 
     // First publish the article
-    let _ = ttrss_server::article::publish_selected(&state, &sess, &request(&[
-        ("ids", json!([11])),
-        ("cmode", json!(1)),
-    ]))
+    let _ = ttrss_server::article::publish_selected(
+        &state,
+        &sess,
+        &request(&[("ids", json!([11])), ("cmode", json!(1))]),
+    )
     .await;
 
     let (published, _) = published_state(db, 11).await;
     assert!(published);
 
     // Now unpublish (cmode=0 = mark as read => published=false)
-    let result = ttrss_server::article::publish_selected(&state, &sess, &request(&[
-        ("ids", json!([11])),
-        ("cmode", json!(0)),
-    ]))
+    let result = ttrss_server::article::publish_selected(
+        &state,
+        &sess,
+        &request(&[("ids", json!([11])), ("cmode", json!(0))]),
+    )
     .await;
 
     assert_eq!("UPDATE_COUNTERS", message(&result));

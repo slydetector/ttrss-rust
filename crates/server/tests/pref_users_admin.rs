@@ -5,6 +5,9 @@
 //! `admin`, access_level 10).
 mod common;
 
+use axum::body::to_bytes;
+use axum::extract::{Extension, State};
+use axum::http::{header, Method};
 use serde_json::{Map, Value};
 use ttrss_core::config::Config;
 use ttrss_core::db::Db;
@@ -13,9 +16,6 @@ use ttrss_core::session::Session;
 use ttrss_server::session::Sess;
 use ttrss_server::users;
 use ttrss_server::AppState;
-use axum::body::to_bytes;
-use axum::extract::{Extension, State};
-use axum::http::{header, Method};
 
 /// A test-only config (the handlers only need `db` + `config`).
 fn test_config() -> Config {
@@ -82,7 +82,10 @@ async fn seed_plain_user(pool: &sqlx::PgPool, login: &str) -> i32 {
     "../../testing/fixtures/schema.sql",
     "../../testing/fixtures/baseline.sql"
 ))]
-async fn test_edit(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options: sqlx::postgres::PgConnectOptions) {
+async fn test_edit(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
     let (state, sess) = setup(pool, options).await;
 
     // Admin (uid 1) exists → the edit dialog data.
@@ -97,7 +100,9 @@ async fn test_edit(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options: sqlx:
     assert_eq!(v["access_level_names"]["0"], "User");
 
     // A missing user → `None`.
-    assert!(users::edit(&state, &sess, &form(&[("id", "99999")])).await.is_none());
+    assert!(users::edit(&state, &sess, &form(&[("id", "99999")]))
+        .await
+        .is_none());
 }
 
 /// Read a user's mutable fields back (login, access_level, email, otp).
@@ -120,7 +125,10 @@ async fn read_user(
     "../../testing/fixtures/schema.sql",
     "../../testing/fixtures/baseline.sql"
 ))]
-async fn test_edit_save_update(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options: sqlx::postgres::PgConnectOptions) {
+async fn test_edit_save_update(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
     let (state, sess) = setup(pool, options).await;
     let pool = state.db.pool();
     let id = seed_plain_user(pool, "TestUser").await;
@@ -149,7 +157,10 @@ async fn test_edit_save_update(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, op
     "../../testing/fixtures/schema.sql",
     "../../testing/fixtures/baseline.sql"
 ))]
-async fn test_edit_save_admin_forced_admin_login(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options: sqlx::postgres::PgConnectOptions) {
+async fn test_edit_save_admin_forced_admin_login(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
     let (state, sess) = setup(pool, options).await;
     let pool = state.db.pool();
 
@@ -157,7 +168,12 @@ async fn test_edit_save_admin_forced_admin_login(pool: sqlx::pool::PoolOptions<s
     users::edit_save(
         &state,
         &sess,
-        &form(&[("id", "1"), ("login", "SuperRenamed"), ("access_level", "10"), ("email", "a@b.c")]),
+        &form(&[
+            ("id", "1"),
+            ("login", "SuperRenamed"),
+            ("access_level", "10"),
+            ("email", "a@b.c"),
+        ]),
     )
     .await;
     let (login, ..) = read_user(pool, 1).await.expect("admin present");
@@ -168,7 +184,10 @@ async fn test_edit_save_admin_forced_admin_login(pool: sqlx::pool::PoolOptions<s
     "../../testing/fixtures/schema.sql",
     "../../testing/fixtures/baseline.sql"
 ))]
-async fn test_edit_save_empty_login_early_return(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options: sqlx::postgres::PgConnectOptions) {
+async fn test_edit_save_empty_login_early_return(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
     let (state, sess) = setup(pool, options).await;
     let pool = state.db.pool();
     let id = seed_plain_user(pool, "keepme").await;
@@ -198,7 +217,10 @@ async fn test_edit_save_empty_login_early_return(pool: sqlx::pool::PoolOptions<s
     "../../testing/fixtures/schema.sql",
     "../../testing/fixtures/baseline.sql"
 ))]
-async fn test_edit_save_password_reset(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options: sqlx::postgres::PgConnectOptions) {
+async fn test_edit_save_password_reset(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
     let (state, sess) = setup(pool, options).await;
     let pool = state.db.pool();
     let id = seed_plain_user(pool, "pwreset").await;
@@ -237,14 +259,19 @@ async fn test_edit_save_password_reset(pool: sqlx::pool::PoolOptions<sqlx::Postg
         .fetch_one(pool)
         .await
         .expect("salt");
-    assert!(ttrss_core::user::verify_password(&new_hash, "hunter2", &salt));
+    assert!(ttrss_core::user::verify_password(
+        &new_hash, "hunter2", &salt
+    ));
 }
 
 #[sqlx::test(fixtures(
     "../../testing/fixtures/schema.sql",
     "../../testing/fixtures/baseline.sql"
 ))]
-async fn test_remove(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options: sqlx::postgres::PgConnectOptions) {
+async fn test_remove(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
     let (state, sess) = setup(pool, options).await;
     let pool = state.db.pool();
     let victim = seed_plain_user(pool, "victim").await;
@@ -265,15 +292,23 @@ async fn test_remove(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options: sql
     "../../testing/fixtures/schema.sql",
     "../../testing/fixtures/baseline.sql"
 ))]
-async fn test_add(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options: sqlx::postgres::PgConnectOptions) {
+async fn test_add(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
     let (state, sess) = setup(pool, options).await;
     let pool = state.db.pool();
 
     // A new user is created with a random password.
     let out = users::add(&state, &sess, &form(&[("login", "NewGuy")])).await;
-    assert!(out.starts_with("Added user NewGuy with password "), "got: {out}");
+    assert!(
+        out.starts_with("Added user NewGuy with password "),
+        "got: {out}"
+    );
     // The password (the 12 chars after the prefix) is distinct-character.
-    let pw = out.strip_prefix("Added user NewGuy with password ").expect("prefix");
+    let pw = out
+        .strip_prefix("Added user NewGuy with password ")
+        .expect("prefix");
     assert_eq!(pw.len(), 12, "default password length is 12");
     // The user now exists, lowercased.
     let id: i32 = sqlx::query_scalar("SELECT id FROM ttrss_users WHERE LOWER(login) = 'newguy'")
@@ -297,11 +332,17 @@ async fn test_add(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options: sqlx::
     "../../testing/fixtures/schema.sql",
     "../../testing/fixtures/baseline.sql"
 ))]
-async fn test_reset_pass(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options: sqlx::postgres::PgConnectOptions) {
+async fn test_reset_pass(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
     let (state, sess) = setup(pool, options).await;
     // Reset an existing user's password to a random one.
     let out = users::reset_pass(&state, &sess, &form(&[("id", "1")])).await;
-    assert!(out.starts_with("Changed password of user <strong>admin</strong> to <strong>"), "got: {out}");
+    assert!(
+        out.starts_with("Changed password of user <strong>admin</strong> to <strong>"),
+        "got: {out}"
+    );
     assert!(out.ends_with("</strong>"));
 
     // A missing user → "User not found".
@@ -316,7 +357,10 @@ async fn test_reset_pass(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options:
     "../../testing/fixtures/schema.sql",
     "../../testing/fixtures/baseline.sql"
 ))]
-async fn test_admin_gate_denies_non_admin(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options: sqlx::postgres::PgConnectOptions) {
+async fn test_admin_gate_denies_non_admin(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
     let (state, _sess) = setup(pool, options).await;
 
     // A session for `uid = 1` (admin in the DB) carrying the admin's stored
@@ -348,19 +392,36 @@ async fn test_admin_gate_denies_non_admin(pool: sqlx::pool::PoolOptions<sqlx::Po
     }
 
     async fn call(state: &AppState, sess: Sess, body: &str) -> String {
-        let res = ttrss_server::rpc::handler(State(state.clone()), Extension(sess), req(body)).await;
-        let bytes = to_bytes(res.into_body(), 10 * 1024 * 1024).await.expect("body");
+        let res =
+            ttrss_server::rpc::handler(State(state.clone()), Extension(sess), req(body)).await;
+        let bytes = to_bytes(res.into_body(), 10 * 1024 * 1024)
+            .await
+            .expect("body");
         String::from_utf8_lossy(&bytes).into_owned()
     }
 
     // Non-admin (access_level 0) → the gate rejects with E_UNAUTHORIZED.
-    let s = call(&state, sess_with_level(0), "op=Pref_Users&method=add&csrf_token=tok&login=gateuser")
-        .await;
+    let s = call(
+        &state,
+        sess_with_level(0),
+        "op=Pref_Users&method=add&csrf_token=tok&login=gateuser",
+    )
+    .await;
     let v: Value = serde_json::from_str(&s).expect("json");
-    assert_eq!(v["error"]["code"], "E_UNAUTHORIZED", "non-admin rejected: {s}");
+    assert_eq!(
+        v["error"]["code"], "E_UNAUTHORIZED",
+        "non-admin rejected: {s}"
+    );
 
     // Admin (access_level 10) → the gate passes and the user is created.
-    let s = call(&state, sess_with_level(10), "op=Pref_Users&method=add&csrf_token=tok&login=gateuser")
-        .await;
-    assert!(s.contains("Added user gateuser with password"), "admin proceeds: {s}");
+    let s = call(
+        &state,
+        sess_with_level(10),
+        "op=Pref_Users&method=add&csrf_token=tok&login=gateuser",
+    )
+    .await;
+    assert!(
+        s.contains("Added user gateuser with password"),
+        "admin proceeds: {s}"
+    );
 }

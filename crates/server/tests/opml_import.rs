@@ -36,7 +36,10 @@ fn test_config() -> Config {
     }
 }
 
-async fn make_state(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options: sqlx::postgres::PgConnectOptions) -> AppState {
+async fn make_state(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) -> AppState {
     let db: Db = common::make_db(pool, options).await.expect("test db");
     AppState {
         config: test_config(),
@@ -66,7 +69,10 @@ async fn count(pool: &sqlx::PgPool, sql: &str) -> i64 {
     "../../testing/fixtures/baseline.sql",
     "../../testing/fixtures/seed.sql",
 ))]
-async fn test_import_creates_category_and_feed(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options: sqlx::postgres::PgConnectOptions) {
+async fn test_import_creates_category_and_feed(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
     let state = make_state(pool, options).await;
     let sess = sess_for(1);
     let opml = r#"<?xml version="1.0" encoding="utf-8"?>
@@ -82,11 +88,12 @@ async fn test_import_creates_category_and_feed(pool: sqlx::pool::PoolOptions<sql
     assert!(result.get("rc").is_some(), "import ok: {result}");
 
     // The category is created.
-    let cat: Option<i32> =
-        sqlx::query_scalar("SELECT id FROM ttrss_feed_categories WHERE owner_uid = 1 AND title = 'New Cat'")
-            .fetch_optional(state.db.pool())
-            .await
-            .expect("cat query");
+    let cat: Option<i32> = sqlx::query_scalar(
+        "SELECT id FROM ttrss_feed_categories WHERE owner_uid = 1 AND title = 'New Cat'",
+    )
+    .fetch_optional(state.db.pool())
+    .await
+    .expect("cat query");
     let cat = cat.expect("New Cat created");
 
     // The feed is created, in the new category, with the imported settings.
@@ -107,7 +114,10 @@ async fn test_import_creates_category_and_feed(pool: sqlx::pool::PoolOptions<sql
     "../../testing/fixtures/baseline.sql",
     "../../testing/fixtures/seed.sql",
 ))]
-async fn test_import_dedupes_feeds(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options: sqlx::postgres::PgConnectOptions) {
+async fn test_import_dedupes_feeds(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
     let state = make_state(pool, options).await;
     let sess = sess_for(1);
     let opml = r#"<opml version="1.0"><body>
@@ -122,7 +132,11 @@ async fn test_import_dedupes_feeds(pool: sqlx::pool::PoolOptions<sqlx::Postgres>
     // Import again: the feed (by url) and the category (by title) are both deduped.
     let _ = ttrss_server::opml::import(&state, &sess, Some(opml.as_bytes())).await;
     let second = count(state.db.pool(), "SELECT count(*) FROM ttrss_feeds WHERE feed_url = 'https://example.com/dup' AND owner_uid = 1").await;
-    let cats = count(state.db.pool(), "SELECT count(*) FROM ttrss_feed_categories WHERE title = 'Dup Cat' AND owner_uid = 1").await;
+    let cats = count(
+        state.db.pool(),
+        "SELECT count(*) FROM ttrss_feed_categories WHERE title = 'Dup Cat' AND owner_uid = 1",
+    )
+    .await;
     assert_eq!(second, 1, "no duplicate feed");
     assert_eq!(cats, 1, "no duplicate category");
 }
@@ -132,7 +146,10 @@ async fn test_import_dedupes_feeds(pool: sqlx::pool::PoolOptions<sqlx::Postgres>
     "../../testing/fixtures/baseline.sql",
     "../../testing/fixtures/seed.sql",
 ))]
-async fn test_import_top_level_feed_uncategorized(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options: sqlx::postgres::PgConnectOptions) {
+async fn test_import_top_level_feed_uncategorized(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
     let state = make_state(pool, options).await;
     let sess = sess_for(1);
     // A top-level feed (not inside a category) goes to the "Imported feeds"
@@ -145,7 +162,11 @@ async fn test_import_top_level_feed_uncategorized(pool: sqlx::pool::PoolOptions<
         .fetch_optional(state.db.pool())
         .await
         .expect("query");
-    assert_eq!(cat, Some(None), "top-level feed is uncategorized when no 'Imported feeds' cat");
+    assert_eq!(
+        cat,
+        Some(None),
+        "top-level feed is uncategorized when no 'Imported feeds' cat"
+    );
 }
 
 #[sqlx::test(fixtures(
@@ -153,18 +174,25 @@ async fn test_import_top_level_feed_uncategorized(pool: sqlx::pool::PoolOptions<
     "../../testing/fixtures/baseline.sql",
     "../../testing/fixtures/seed.sql",
 ))]
-async fn test_import_top_level_feed_uses_imported_cat(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options: sqlx::postgres::PgConnectOptions) {
+async fn test_import_top_level_feed_uses_imported_cat(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
     let state = make_state(pool, options).await;
     let sess = sess_for(1);
     // Pre-create the "Imported feeds" category: a top-level feed now lands in it.
-    sqlx::query("INSERT INTO ttrss_feed_categories (owner_uid, title) VALUES (1, 'Imported feeds')")
-        .execute(state.db.pool())
-        .await
-        .expect("insert Imported feeds");
-    let imported_cat: i32 = sqlx::query_scalar("SELECT id FROM ttrss_feed_categories WHERE owner_uid = 1 AND title = 'Imported feeds'")
-        .fetch_one(state.db.pool())
-        .await
-        .expect("cat id");
+    sqlx::query(
+        "INSERT INTO ttrss_feed_categories (owner_uid, title) VALUES (1, 'Imported feeds')",
+    )
+    .execute(state.db.pool())
+    .await
+    .expect("insert Imported feeds");
+    let imported_cat: i32 = sqlx::query_scalar(
+        "SELECT id FROM ttrss_feed_categories WHERE owner_uid = 1 AND title = 'Imported feeds'",
+    )
+    .fetch_one(state.db.pool())
+    .await
+    .expect("cat id");
     let opml = r#"<opml version="1.0"><body>
       <outline type="rss" text="Top Feed" xmlUrl="https://example.com/top"/>
     </body></opml>"#;
@@ -173,7 +201,11 @@ async fn test_import_top_level_feed_uses_imported_cat(pool: sqlx::pool::PoolOpti
         .fetch_optional(state.db.pool())
         .await
         .expect("query");
-    assert_eq!(cat, Some(Some(imported_cat)), "top-level feed lands in 'Imported feeds'");
+    assert_eq!(
+        cat,
+        Some(Some(imported_cat)),
+        "top-level feed lands in 'Imported feeds'"
+    );
 }
 
 #[sqlx::test(fixtures(
@@ -181,7 +213,10 @@ async fn test_import_top_level_feed_uses_imported_cat(pool: sqlx::pool::PoolOpti
     "../../testing/fixtures/baseline.sql",
     "../../testing/fixtures/seed.sql",
 ))]
-async fn test_import_unknown_feed_title(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options: sqlx::postgres::PgConnectOptions) {
+async fn test_import_unknown_feed_title(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
     let state = make_state(pool, options).await;
     let sess = sess_for(1);
     // No text/title → the feed title defaults to "[Unknown]".
@@ -193,7 +228,11 @@ async fn test_import_unknown_feed_title(pool: sqlx::pool::PoolOptions<sqlx::Post
         .fetch_optional(state.db.pool())
         .await
         .expect("query");
-    assert_eq!(title, Some("[Unknown]".to_string()), "untitled feed defaults to [Unknown]");
+    assert_eq!(
+        title,
+        Some("[Unknown]".to_string()),
+        "untitled feed defaults to [Unknown]"
+    );
 }
 
 #[sqlx::test(fixtures(
@@ -201,12 +240,21 @@ async fn test_import_unknown_feed_title(pool: sqlx::pool::PoolOptions<sqlx::Post
     "../../testing/fixtures/baseline.sql",
     "../../testing/fixtures/seed.sql",
 ))]
-async fn test_import_parse_error_returns_error(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options: sqlx::postgres::PgConnectOptions) {
+async fn test_import_parse_error_returns_error(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
     let state = make_state(pool, options).await;
     let sess = sess_for(1);
     let result = ttrss_server::opml::import(&state, &sess, Some(b"this is not xml <<<")).await;
-    assert!(result.get("error").is_some(), "parse error reported: {result}");
-    assert!(result.get("error").is_some(), "parse error reported: {result}");
+    assert!(
+        result.get("error").is_some(),
+        "parse error reported: {result}"
+    );
+    assert!(
+        result.get("error").is_some(),
+        "parse error reported: {result}"
+    );
 }
 
 #[sqlx::test(fixtures(
@@ -214,7 +262,10 @@ async fn test_import_parse_error_returns_error(pool: sqlx::pool::PoolOptions<sql
     "../../testing/fixtures/baseline.sql",
     "../../testing/fixtures/seed.sql",
 ))]
-async fn test_import_labels(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options: sqlx::postgres::PgConnectOptions) {
+async fn test_import_labels(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
     let state = make_state(pool, options).await;
     let sess = sess_for(1);
     let opml = r##"<opml version="1.0"><body>
@@ -234,7 +285,11 @@ async fn test_import_labels(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, optio
     let (fg, bg) = row.expect("My Label created");
     assert_eq!(fg, "#ff0000");
     assert_eq!(bg, "#00ff00");
-    let second = count(state.db.pool(), "SELECT count(*) FROM ttrss_labels2 WHERE owner_uid = 1 AND caption = 'Second Label'").await;
+    let second = count(
+        state.db.pool(),
+        "SELECT count(*) FROM ttrss_labels2 WHERE owner_uid = 1 AND caption = 'Second Label'",
+    )
+    .await;
     assert_eq!(second, 1, "Second Label created (default colors)");
 }
 
@@ -243,7 +298,10 @@ async fn test_import_labels(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, optio
     "../../testing/fixtures/baseline.sql",
     "../../testing/fixtures/seed.sql",
 ))]
-async fn test_import_labels_dedup(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options: sqlx::postgres::PgConnectOptions) {
+async fn test_import_labels_dedup(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
     let state = make_state(pool, options).await;
     let sess = sess_for(1);
     let opml = r#"<opml version="1.0"><body>
@@ -253,7 +311,11 @@ async fn test_import_labels_dedup(pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
     </body></opml>"#;
     let _ = ttrss_server::opml::import(&state, &sess, Some(opml.as_bytes())).await;
     let _ = ttrss_server::opml::import(&state, &sess, Some(opml.as_bytes())).await;
-    let n = count(state.db.pool(), "SELECT count(*) FROM ttrss_labels2 WHERE owner_uid = 1 AND caption = 'Dup Label'").await;
+    let n = count(
+        state.db.pool(),
+        "SELECT count(*) FROM ttrss_labels2 WHERE owner_uid = 1 AND caption = 'Dup Label'",
+    )
+    .await;
     assert_eq!(n, 1, "label deduped by caption");
 }
 
@@ -262,7 +324,10 @@ async fn test_import_labels_dedup(pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
     "../../testing/fixtures/baseline.sql",
     "../../testing/fixtures/seed.sql",
 ))]
-async fn test_import_prefs(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options: sqlx::postgres::PgConnectOptions) {
+async fn test_import_prefs(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
     let state = make_state(pool, options).await;
     let sess = sess_for(1);
     let opml = r#"<opml version="1.0"><body>
@@ -290,7 +355,10 @@ async fn test_import_prefs(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, option
     "../../testing/fixtures/baseline.sql",
     "../../testing/fixtures/seed.sql",
 ))]
-async fn test_import_filter(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options: sqlx::postgres::PgConnectOptions) {
+async fn test_import_filter(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
     let state = make_state(pool, options).await;
     let sess = sess_for(1);
     let opml = r#"<opml version="1.0"><body>
@@ -320,10 +388,12 @@ async fn test_import_filter(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, optio
     assert_eq!(feed_id, Some(1), "rule bound to Hacker News feed");
     assert_eq!(ftype, 1);
 
-    let action: i64 = sqlx::query_scalar("SELECT count(*) FROM ttrss_filters2_actions WHERE filter_id = $1 AND action_id = 1")
-        .bind(filter_id)
-        .fetch_one(state.db.pool())
-        .await
-        .expect("action query");
+    let action: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM ttrss_filters2_actions WHERE filter_id = $1 AND action_id = 1",
+    )
+    .bind(filter_id)
+    .fetch_one(state.db.pool())
+    .await
+    .expect("action query");
     assert_eq!(action, 1, "action created");
 }

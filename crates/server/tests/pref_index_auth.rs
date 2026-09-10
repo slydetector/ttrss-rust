@@ -71,7 +71,10 @@ fn normalize(s: &str) -> String {
     "../../testing/fixtures/schema.sql",
     "../../testing/fixtures/baseline.sql"
 ))]
-async fn test_index_auth_structure(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options: sqlx::postgres::PgConnectOptions) {
+async fn test_index_auth_structure(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
     let (state, sess) = setup(pool, options).await;
     let db = state.db.pool();
 
@@ -88,7 +91,10 @@ async fn test_index_auth_structure(pool: sqlx::pool::PoolOptions<sqlx::Postgres>
         "Apppasswords",
         "Authenticator(OTP)",
     ] {
-        assert!(n.contains(&format!("title=\"{title}\"")), "missing pane {title}");
+        assert!(
+            n.contains(&format!("title=\"{title}\"")),
+            "missing pane {title}"
+        );
     }
 
     // Personal data pane: form + fields + Save.
@@ -123,22 +129,27 @@ async fn test_index_auth_structure(pool: sqlx::pool::PoolOptions<sqlx::Postgres>
 
     // The generated secret is persisted (10 random bytes = 20 hex chars) and
     // the pane shows its base32 form (unpadded) in the `<code>`.
-    let secret_hex: String =
-        sqlx::query_scalar("SELECT otp_secret FROM ttrss_users WHERE id = 1")
-            .fetch_one(db)
-            .await
-            .expect("otp_secret");
+    let secret_hex: String = sqlx::query_scalar("SELECT otp_secret FROM ttrss_users WHERE id = 1")
+        .fetch_one(db)
+        .await
+        .expect("otp_secret");
     assert_eq!(secret_hex.len(), 20, "unexpected otp_secret: {secret_hex}");
     assert!(secret_hex.chars().all(|c| c.is_ascii_hexdigit()));
     let b32 = ttrss_server::otp::base32_upper_unpadded(secret_hex.as_bytes());
-    assert!(n.contains(&format!("<code>{b32}</code>")), "missing formatted secret");
+    assert!(
+        n.contains(&format!("<code>{b32}</code>")),
+        "missing formatted secret"
+    );
 }
 
 #[sqlx::test(fixtures(
     "../../testing/fixtures/schema.sql",
     "../../testing/fixtures/baseline.sql"
 ))]
-async fn test_index_auth_otp_enabled(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options: sqlx::postgres::PgConnectOptions) {
+async fn test_index_auth_otp_enabled(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
     let (state, sess) = setup(pool, options).await;
     let db = state.db.pool();
 

@@ -85,10 +85,12 @@ async fn label_row(db: &Db, id: i32) -> Option<Map<String, Value>> {
 
 /// The owner-1 label cache values (all `label_cache` columns), ordered.
 async fn label_caches(db: &Db) -> Vec<String> {
-    sqlx::query_scalar("SELECT label_cache FROM ttrss_user_entries WHERE owner_uid = 1 ORDER BY int_id")
-        .fetch_all(db.pool())
-        .await
-        .expect("label caches")
+    sqlx::query_scalar(
+        "SELECT label_cache FROM ttrss_user_entries WHERE owner_uid = 1 ORDER BY int_id",
+    )
+    .fetch_all(db.pool())
+    .await
+    .expect("label caches")
 }
 
 /// The count of "Assign label" filter actions (action_id = 7) with a given
@@ -130,7 +132,11 @@ async fn test_edit(
     data.set("uid", PValue::Int(999));
     let sess2 = Sess::new("other-sid".to_string());
     sess2.replace("other-sid".to_string(), data);
-    assert!(ttrss_server::labels::edit(&state, &sess2, &request(&[("id", json!(1))])).await.is_none());
+    assert!(
+        ttrss_server::labels::edit(&state, &sess2, &request(&[("id", json!(1))]))
+            .await
+            .is_none()
+    );
 }
 
 /// `Pref_Labels::edit`: a nonexistent id returns `None` (PHP prints nothing).
@@ -144,7 +150,11 @@ async fn test_edit_not_found(
     options: sqlx::postgres::PgConnectOptions,
 ) {
     let (state, sess) = setup(pool, options).await;
-    assert!(ttrss_server::labels::edit(&state, &sess, &request(&[("id", json!(9999))])).await.is_none());
+    assert!(
+        ttrss_server::labels::edit(&state, &sess, &request(&[("id", json!(9999))]))
+            .await
+            .is_none()
+    );
 }
 
 /// `Pref_Labels::add`: creates the label and returns `Created label <b>..</b>`;
@@ -161,18 +171,26 @@ async fn test_add_label(
     let (state, sess) = setup(pool, options).await;
     let db = &state.db;
 
-    let out = ttrss_server::labels::add_label(&state, &sess, &request(&[("caption", json!("My Label"))]))
-        .await
-        .expect("add");
+    let out =
+        ttrss_server::labels::add_label(&state, &sess, &request(&[("caption", json!("My Label"))]))
+            .await
+            .expect("add");
     assert_eq!(out, "Created label <b>My Label</b>");
-    assert_eq!(ttrss_server::labels::find_id(db.pool(), "My Label", 1).await, 3);
+    assert_eq!(
+        ttrss_server::labels::find_id(db.pool(), "My Label", 1).await,
+        3
+    );
 
     // A duplicate caption is not created (case-insensitive) and returns empty.
-    let out = ttrss_server::labels::add_label(&state, &sess, &request(&[("caption", json!("my label"))]))
-        .await
-        .expect("add dup");
+    let out =
+        ttrss_server::labels::add_label(&state, &sess, &request(&[("caption", json!("my label"))]))
+            .await
+            .expect("add dup");
     assert_eq!(out, "");
-    assert_eq!(ttrss_server::labels::find_id(db.pool(), "my label", 1).await, 3);
+    assert_eq!(
+        ttrss_server::labels::find_id(db.pool(), "my label", 1).await,
+        3
+    );
 
     // An empty caption creates nothing.
     let out = ttrss_server::labels::add_label(&state, &sess, &request(&[("caption", json!(""))]))
@@ -203,7 +221,10 @@ async fn test_add_label_output_suppress(
     .await
     .expect("add");
     assert_eq!(out, "");
-    assert_eq!(ttrss_server::labels::find_id(db.pool(), "Quiet Label", 1).await, 3);
+    assert_eq!(
+        ttrss_server::labels::find_id(db.pool(), "Quiet Label", 1).await,
+        3
+    );
 }
 
 /// `Pref_Labels::remove`: removes the label, its access key, and clears the
@@ -228,10 +249,11 @@ async fn test_remove_labels(
         .await
         .expect("insert key");
     // A non-empty label cache on an owner-1 entry (to verify it is cleared).
-    let entries: i64 = sqlx::query_scalar("SELECT count(*) FROM ttrss_user_entries WHERE owner_uid = 1")
-        .fetch_one(pool)
-        .await
-        .expect("count");
+    let entries: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM ttrss_user_entries WHERE owner_uid = 1")
+            .fetch_one(pool)
+            .await
+            .expect("count");
     assert!(entries > 0, "expected owner-1 entries in the seed");
     sqlx::query("UPDATE ttrss_user_entries SET label_cache = '[1]' WHERE owner_uid = 1")
         .execute(pool)
@@ -297,7 +319,10 @@ async fn test_save_rename(
     assert_eq!(out, "Renamed Label");
 
     // The label is renamed.
-    assert_eq!(label_row(db, 1).await.expect("label 1")["caption"], "Renamed Label");
+    assert_eq!(
+        label_row(db, 1).await.expect("label 1")["caption"],
+        "Renamed Label"
+    );
     // The filter action reference is rewritten (old caption gone, new present).
     assert_eq!(label_action_count(db, "test-label-1").await, 0);
     assert_eq!(label_action_count(db, "Renamed Label").await, 1);
@@ -325,7 +350,10 @@ async fn test_save_collision(
     .await
     .expect("save");
     assert_eq!(out, "test-label-1");
-    assert_eq!(label_row(db, 1).await.expect("label 1")["caption"], "test-label-1");
+    assert_eq!(
+        label_row(db, 1).await.expect("label 1")["caption"],
+        "test-label-1"
+    );
 }
 
 /// `Pref_Labels::save`: a nonexistent label is a no-op (returns empty).

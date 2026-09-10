@@ -124,18 +124,34 @@ async fn test_log_viewer_severity(
 
     // Default severity (512 = Warnings): both rows.
     let default_html = system::index(&state, &sess, &Map::new()).await;
-    assert_eq!(count_log_rows(&default_html), 2, "default (Warnings) shows both");
+    assert_eq!(
+        count_log_rows(&default_html),
+        2,
+        "default (Warnings) shows both"
+    );
 
     // Severity 256 (Errors): only the E_USER_ERROR row.
-    let errors_html =
-        system::index(&state, &sess, &Map::from_iter([("severity".into(), json!(256))])).await;
-    assert_eq!(count_log_rows(&errors_html), 1, "Errors shows only errno 256");
+    let errors_html = system::index(
+        &state,
+        &sess,
+        &Map::from_iter([("severity".into(), json!(256))]),
+    )
+    .await;
+    assert_eq!(
+        count_log_rows(&errors_html),
+        1,
+        "Errors shows only errno 256"
+    );
     assert!(errors_html.contains("a user error"));
     assert!(!errors_html.contains("a warning"));
 
     // Severity 1024 (Everything): both rows.
-    let all_html =
-        system::index(&state, &sess, &Map::from_iter([("severity".into(), json!(1024))])).await;
+    let all_html = system::index(
+        &state,
+        &sess,
+        &Map::from_iter([("severity".into(), json!(1024))]),
+    )
+    .await;
     assert_eq!(count_log_rows(&all_html), 2, "Everything shows both");
 }
 
@@ -187,8 +203,14 @@ async fn test_get_php_info(
 ) {
     let (state, _) = setup(pool, options).await;
     let html = system::get_php_info(&state);
-    assert!(html.contains(ttrss_core::config::VERSION), "shows the version");
-    assert!(html.contains("http://127.0.0.1:8280/tt-rss/"), "shows self_url");
+    assert!(
+        html.contains(ttrss_core::config::VERSION),
+        "shows the version"
+    );
+    assert!(
+        html.contains("http://127.0.0.1:8280/tt-rss/"),
+        "shows self_url"
+    );
     assert!(html.contains("postgres"), "shows the db name");
     // The password (`postgres`) appears as the db name too, so assert the
     // encryption key is absent by the omission of its (None) — nothing to leak.

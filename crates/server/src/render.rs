@@ -158,8 +158,7 @@ mod tests {
     fn test_config() -> Config {
         // Anchor the doc root at the real tt-rss checkout (two levels up from
         // this crate).
-        let docroot =
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tt-rss");
+        let docroot = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tt-rss");
         Config {
             db_host: "127.0.0.1".into(),
             db_port: 5432,
@@ -226,9 +225,8 @@ mod tests {
         // test_get_scripts_timestamp_nonzero_when_js_exists
         let has_js = std::fs::read_dir(docroot.join("js"))
             .map(|rd| {
-                rd.flatten().any(|e| {
-                    e.path().extension().and_then(|s| s.to_str()) == Some("js")
-                })
+                rd.flatten()
+                    .any(|e| e.path().extension().and_then(|s| s.to_str()) == Some("js"))
             })
             .unwrap_or(false);
         if has_js {

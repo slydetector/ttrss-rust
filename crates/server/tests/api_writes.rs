@@ -143,8 +143,7 @@ async fn test_logout(
     enable_api(&state.db).await;
     assert_eq!(sess.data().uid(), Some(1));
 
-    let (status, content) =
-        api::before_and_dispatch(&state, &sess, "logout", &request(&[])).await;
+    let (status, content) = api::before_and_dispatch(&state, &sess, "logout", &request(&[])).await;
     assert_eq!(status, 0);
     assert_eq!(content["status"], "OK");
     assert_eq!(sess.data().uid(), None, "session should be destroyed");
@@ -164,8 +163,7 @@ async fn test_logout_not_logged_in(
     let (state, _sess) = setup(pool, options).await;
     let anon = Sess::new("anon-sid".to_string()); // no `uid`
 
-    let (status, content) =
-        api::before_and_dispatch(&state, &anon, "logout", &request(&[])).await;
+    let (status, content) = api::before_and_dispatch(&state, &anon, "logout", &request(&[])).await;
     assert_eq!(status, 0);
     assert_eq!(content["status"], "OK");
 }
@@ -182,7 +180,8 @@ async fn test_catchup_feed_ok(
 ) {
     let (state, sess) = setup(pool, options).await;
     // refs 1,2 are feed 1 and unread; ref 3 is feed 1 and already read.
-    let (status, content) = api::catchup_feed(&state, &sess, &request(&[("feed_id", json!("1"))])).await;
+    let (status, content) =
+        api::catchup_feed(&state, &sess, &request(&[("feed_id", json!("1"))])).await;
     assert_eq!(status, 0);
     assert_eq!(content["status"], "OK");
     let unread: i64 = sqlx::query_scalar(
@@ -205,11 +204,15 @@ async fn test_update_marked(
     options: sqlx::postgres::PgConnectOptions,
 ) {
     let (state, sess) = setup(pool, options).await;
-    let (status, content) = api::update_article(&state, &sess, &request(&[
-        ("article_ids", json!([1, 2])),
-        ("mode", json!(1)),
-        ("field", json!(0)),
-    ]))
+    let (status, content) = api::update_article(
+        &state,
+        &sess,
+        &request(&[
+            ("article_ids", json!([1, 2])),
+            ("mode", json!(1)),
+            ("field", json!(0)),
+        ]),
+    )
     .await;
     assert_eq!(status, 0);
     assert_eq!(content["updated"], 2);
@@ -236,11 +239,15 @@ async fn test_update_unread_mode0(
     options: sqlx::postgres::PgConnectOptions,
 ) {
     let (state, sess) = setup(pool, options).await;
-    let (status, content) = api::update_article(&state, &sess, &request(&[
-        ("article_ids", json!([1, 4])),
-        ("mode", json!(0)),
-        ("field", json!(2)),
-    ]))
+    let (status, content) = api::update_article(
+        &state,
+        &sess,
+        &request(&[
+            ("article_ids", json!([1, 4])),
+            ("mode", json!(0)),
+            ("field", json!(2)),
+        ]),
+    )
     .await;
     assert_eq!(status, 0);
     assert_eq!(content["updated"], 2);
@@ -273,11 +280,15 @@ async fn test_update_toggle(
         .execute(state.db.pool())
         .await
         .unwrap();
-    let (status, content) = api::update_article(&state, &sess, &request(&[
-        ("article_ids", json!([1, 4])),
-        ("mode", json!(2)),
-        ("field", json!(0)),
-    ]))
+    let (status, content) = api::update_article(
+        &state,
+        &sess,
+        &request(&[
+            ("article_ids", json!([1, 4])),
+            ("mode", json!(2)),
+            ("field", json!(0)),
+        ]),
+    )
     .await;
     assert_eq!(status, 0);
     assert_eq!(content["updated"], 2);
@@ -308,11 +319,15 @@ async fn test_update_note(
     options: sqlx::postgres::PgConnectOptions,
 ) {
     let (state, sess) = setup(pool, options).await;
-    let (status, content) = api::update_article(&state, &sess, &request(&[
-        ("article_ids", json!([1])),
-        ("field", json!(3)),
-        ("data", json!("hello & goodbye")),  // `clean()` strips tags; no tags here
-    ]))
+    let (status, content) = api::update_article(
+        &state,
+        &sess,
+        &request(&[
+            ("article_ids", json!([1])),
+            ("field", json!(3)),
+            ("data", json!("hello & goodbye")), // `clean()` strips tags; no tags here
+        ]),
+    )
     .await;
     assert_eq!(status, 0);
     assert_eq!(content["updated"], 1);
@@ -336,11 +351,15 @@ async fn test_update_score(
     options: sqlx::postgres::PgConnectOptions,
 ) {
     let (state, sess) = setup(pool, options).await;
-    let (status, content) = api::update_article(&state, &sess, &request(&[
-        ("article_ids", json!([1, 2])),
-        ("field", json!(4)),
-        ("data", json!("5")),
-    ]))
+    let (status, content) = api::update_article(
+        &state,
+        &sess,
+        &request(&[
+            ("article_ids", json!([1, 2])),
+            ("field", json!(4)),
+            ("data", json!("5")),
+        ]),
+    )
     .await;
     assert_eq!(status, 0);
     assert_eq!(content["updated"], 2);
@@ -355,11 +374,15 @@ async fn test_update_score(
         assert_eq!(score, 5, "ref {r} score != 5");
     }
     // `score` 0 is falsy (`if ($field && $set_to)`) → `INCORRECT_USAGE`.
-    let (status, content) = api::update_article(&state, &sess, &request(&[
-        ("article_ids", json!([1])),
-        ("field", json!(4)),
-        ("data", json!("0")),
-    ]))
+    let (status, content) = api::update_article(
+        &state,
+        &sess,
+        &request(&[
+            ("article_ids", json!([1])),
+            ("field", json!(4)),
+            ("data", json!("0")),
+        ]),
+    )
     .await;
     assert_eq!(status, 1);
     assert_eq!(content["error"], "INCORRECT_USAGE");
@@ -376,7 +399,12 @@ async fn test_update_incorrect_usage_empty(
     options: sqlx::postgres::PgConnectOptions,
 ) {
     let (state, sess) = setup(pool, options).await;
-    let (status, content) = api::update_article(&state, &sess, &request(&[("field", json!(0)), ("mode", json!(1))])).await;
+    let (status, content) = api::update_article(
+        &state,
+        &sess,
+        &request(&[("field", json!(0)), ("mode", json!(1))]),
+    )
+    .await;
     assert_eq!(status, 1);
     assert_eq!(content["error"], "INCORRECT_USAGE");
 }
@@ -392,11 +420,15 @@ async fn test_update_incorrect_usage_badmode(
     options: sqlx::postgres::PgConnectOptions,
 ) {
     let (state, sess) = setup(pool, options).await;
-    let (status, content) = api::update_article(&state, &sess, &request(&[
-        ("article_ids", json!([1])),
-        ("field", json!(0)),
-        ("mode", json!(3)),
-    ]))
+    let (status, content) = api::update_article(
+        &state,
+        &sess,
+        &request(&[
+            ("article_ids", json!([1])),
+            ("field", json!(0)),
+            ("mode", json!(3)),
+        ]),
+    )
     .await;
     assert_eq!(status, 1);
     assert_eq!(content["error"], "INCORRECT_USAGE");
@@ -413,18 +445,18 @@ async fn test_unsubscribe_ok(
     options: sqlx::postgres::PgConnectOptions,
 ) {
     let (state, sess) = setup(pool, options).await;
-    let (status, content) = api::unsubscribe_feed(&state, &sess, &request(&[("feed_id", json!(1))])).await;
+    let (status, content) =
+        api::unsubscribe_feed(&state, &sess, &request(&[("feed_id", json!(1))])).await;
     assert_eq!(status, 0);
     assert_eq!(content["status"], "OK");
-    let count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM ttrss_feeds WHERE id = 1",
-    )
-    .fetch_one(state.db.pool())
-    .await
-    .unwrap();
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM ttrss_feeds WHERE id = 1")
+        .fetch_one(state.db.pool())
+        .await
+        .unwrap();
     assert_eq!(count, 0, "feed 1 not removed");
     // Missing feed → `E_OPERATION_FAILED`.
-    let (status, content) = api::unsubscribe_feed(&state, &sess, &request(&[("feed_id", json!(999))])).await;
+    let (status, content) =
+        api::unsubscribe_feed(&state, &sess, &request(&[("feed_id", json!(999))])).await;
     assert_eq!(status, 1);
     assert_eq!(content["error"], "E_OPERATION_FAILED");
 }
@@ -440,11 +472,15 @@ async fn test_set_label_assign(
     options: sqlx::postgres::PgConnectOptions,
 ) {
     let (state, sess) = setup(pool, options).await;
-    let (status, content) = api::set_article_label(&state, &sess, &request(&[
-        ("article_ids", json!([1, 2])),
-        ("label_id", json!(1026)),
-        ("assign", json!(true)),
-    ]))
+    let (status, content) = api::set_article_label(
+        &state,
+        &sess,
+        &request(&[
+            ("article_ids", json!([1, 2])),
+            ("label_id", json!(1026)),
+            ("assign", json!(true)),
+        ]),
+    )
     .await;
     assert_eq!(status, 0);
     assert_eq!(content["updated"], 2);
@@ -473,11 +509,15 @@ async fn test_set_label_remove(
         .execute(state.db.pool())
         .await
         .unwrap();
-    let (status, content) = api::set_article_label(&state, &sess, &request(&[
-        ("article_ids", json!([1])),
-        ("label_id", json!(1026)),
-        ("assign", json!(false)),
-    ]))
+    let (status, content) = api::set_article_label(
+        &state,
+        &sess,
+        &request(&[
+            ("article_ids", json!([1])),
+            ("label_id", json!(1026)),
+            ("assign", json!(false)),
+        ]),
+    )
     .await;
     assert_eq!(status, 0);
     assert_eq!(content["updated"], 1);
@@ -501,11 +541,15 @@ async fn test_set_label_missing(
     options: sqlx::postgres::PgConnectOptions,
 ) {
     let (state, sess) = setup(pool, options).await;
-    let (status, content) = api::set_article_label(&state, &sess, &request(&[
-        ("article_ids", json!([1])),
-        ("label_id", json!(99999)),
-        ("assign", json!(true)),
-    ]))
+    let (status, content) = api::set_article_label(
+        &state,
+        &sess,
+        &request(&[
+            ("article_ids", json!([1])),
+            ("label_id", json!(99999)),
+            ("assign", json!(true)),
+        ]),
+    )
     .await;
     assert_eq!(status, 0);
     assert_eq!(content["updated"], 0);
@@ -521,11 +565,15 @@ async fn test_share_to_published_ok(
 ) {
     let (state, sess) = setup(pool, options).await;
     let pool = state.db.pool();
-    let (status, content) = api::share_to_published(&state, &sess, &request(&[
-        ("title", json!("My shared post")),
-        ("url", json!("https://example.com/article-1")),
-        ("content", json!("<p>Hello <b>world</b></p>")),
-    ]))
+    let (status, content) = api::share_to_published(
+        &state,
+        &sess,
+        &request(&[
+            ("title", json!("My shared post")),
+            ("url", json!("https://example.com/article-1")),
+            ("content", json!("<p>Hello <b>world</b></p>")),
+        ]),
+    )
     .await;
     assert_eq!(status, 0);
     assert_eq!(content["status"], "OK");
@@ -544,14 +592,16 @@ async fn test_share_to_published_ok(
     assert!(published, "the shared article is marked published");
 
     // The tsvector was populated (searchable text).
-    let ts: Option<String> = sqlx::query_scalar(
-        "SELECT tsvector_combined::text FROM ttrss_entries WHERE id = $1",
-    )
-    .bind(id)
-    .fetch_optional(pool)
-    .await
-    .expect("ts query");
-    assert!(ts.expect("tsvector set").contains("world"), "tsvector holds the text");
+    let ts: Option<String> =
+        sqlx::query_scalar("SELECT tsvector_combined::text FROM ttrss_entries WHERE id = $1")
+            .bind(id)
+            .fetch_optional(pool)
+            .await
+            .expect("ts query");
+    assert!(
+        ts.expect("tsvector set").contains("world"),
+        "tsvector holds the text"
+    );
 }
 
 #[sqlx::test(fixtures(
@@ -563,11 +613,15 @@ async fn test_share_to_published_invalid_url(
     options: sqlx::postgres::PgConnectOptions,
 ) {
     let (state, sess) = setup(pool, options).await;
-    let (status, content) = api::share_to_published(&state, &sess, &request(&[
-        ("title", json!("Nope")),
-        ("url", json!("not a url")),
-        ("content", json!("body")),
-    ]))
+    let (status, content) = api::share_to_published(
+        &state,
+        &sess,
+        &request(&[
+            ("title", json!("Nope")),
+            ("url", json!("not a url")),
+            ("content", json!("body")),
+        ]),
+    )
     .await;
     assert_eq!(status, 1);
     assert_eq!(content["error"], "E_OPERATION_FAILED");
@@ -582,11 +636,15 @@ async fn test_share_to_published_no_title_or_url(
     options: sqlx::postgres::PgConnectOptions,
 ) {
     let (state, sess) = setup(pool, options).await;
-    let (status, content) = api::share_to_published(&state, &sess, &request(&[
-        ("title", json!("")),
-        ("url", json!("")),
-        ("content", json!("body")),
-    ]))
+    let (status, content) = api::share_to_published(
+        &state,
+        &sess,
+        &request(&[
+            ("title", json!("")),
+            ("url", json!("")),
+            ("content", json!("body")),
+        ]),
+    )
     .await;
     assert_eq!(status, 1);
     assert_eq!(content["error"], "E_OPERATION_FAILED");
@@ -605,11 +663,15 @@ async fn test_share_to_published_updates_existing(
 
     // Share the same URL twice (different content).
     for content in ["<p>first</p>", "<p>second body</p>"] {
-        let (status, _) = api::share_to_published(&state, &sess, &request(&[
-            ("title", json!("Post")),
-            ("url", json!("https://example.com/same")),
-            ("content", json!(content)),
-        ]))
+        let (status, _) = api::share_to_published(
+            &state,
+            &sess,
+            &request(&[
+                ("title", json!("Post")),
+                ("url", json!("https://example.com/same")),
+                ("content", json!(content)),
+            ]),
+        )
         .await;
         assert_eq!(status, 0);
     }
@@ -639,7 +701,10 @@ async fn test_share_to_published_updates_existing(
     .fetch_one(pool)
     .await
     .expect("content");
-    assert_eq!(stored, "second body", "content is clean()ed (strip_tags + trim)");
+    assert_eq!(
+        stored, "second body",
+        "content is clean()ed (strip_tags + trim)"
+    );
 }
 
 /// A unique temp dir for feed icons, recreated clean. (M6 normally populates
@@ -671,7 +736,10 @@ async fn setup_icon(
 
 /// Read an axum `Response` body to bytes (for the raw / JSON response).
 async fn response_bytes(res: axum::response::Response) -> Vec<u8> {
-    axum::body::to_bytes(res.into_body(), 4096).await.expect("read body").to_vec()
+    axum::body::to_bytes(res.into_body(), 4096)
+        .await
+        .expect("read body")
+        .to_vec()
 }
 
 /// `getFeedIcon` with no session → the `NOT_LOGGED_IN` JSON envelope.
@@ -731,7 +799,10 @@ async fn test_get_feed_icon_found_png(
     let body = request(&[("id", json!(55))]);
     let res = api::get_feed_icon(&state, &sess, &body, 1).await;
     assert_eq!(res.status(), 200);
-    assert_eq!(res.headers().get(axum::http::header::CONTENT_TYPE).unwrap(), "image/png");
+    assert_eq!(
+        res.headers().get(axum::http::header::CONTENT_TYPE).unwrap(),
+        "image/png"
+    );
     assert_eq!(response_bytes(res).await, png);
 }
 
@@ -752,7 +823,9 @@ async fn test_get_feed_icon_found_jpeg(
     enable_api(&state.db).await;
     let body = request(&[("id", json!(7))]);
     let res = api::get_feed_icon(&state, &sess, &body, 1).await;
-    assert_eq!(res.headers().get(axum::http::header::CONTENT_TYPE).unwrap(), "image/jpeg");
+    assert_eq!(
+        res.headers().get(axum::http::header::CONTENT_TYPE).unwrap(),
+        "image/jpeg"
+    );
     assert_eq!(response_bytes(res).await, jpeg);
 }
-

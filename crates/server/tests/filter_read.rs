@@ -86,7 +86,8 @@ async fn test_edit_new_filter(
     options: sqlx::postgres::PgConnectOptions,
 ) {
     let (state, sess) = setup(pool, options).await;
-    let Some(json) = ttrss_server::filters::edit(&state, &sess, &request(&[("id", json!(0))])).await
+    let Some(json) =
+        ttrss_server::filters::edit(&state, &sess, &request(&[("id", json!(0))])).await
     else {
         panic!("expected Some for a new filter");
     };
@@ -103,7 +104,10 @@ async fn test_edit_new_filter(
     assert_eq!(json["filter_types"]["4"], "Link");
     assert_eq!(json["filter_types"]["6"], "Author");
     assert_eq!(json["filter_types"]["7"], "Article Tags");
-    assert!(json["filter_types"].get("5").is_none(), "type 5 is unsupported");
+    assert!(
+        json["filter_types"].get("5").is_none(),
+        "type 5 is unsupported"
+    );
     assert_eq!(json["action_types"]["1"], "Delete article");
     assert_eq!(json["action_types"]["4"], "Assign tags");
     assert_eq!(json["action_types"]["7"], "Assign label");
@@ -179,13 +183,20 @@ async fn test_edit_existing(
     assert_eq!(rules[0]["reg_exp"], "(?i)rust");
     assert_eq!(rules[0]["filter_type"], 1);
     assert_eq!(rules[0]["feed_id"], json!(["1"]));
-    assert!(rules[0].get("inverse").is_none(), "inverse false is omitted");
+    assert!(
+        rules[0].get("inverse").is_none(),
+        "inverse false is omitted"
+    );
     assert!(rules[0]["name"].as_str().unwrap().contains("Hacker News"));
     assert!(rules[0]["name"].as_str().unwrap().contains("Title"));
 
     assert_eq!(rules[1]["reg_exp"], "(?i)tag");
     assert_eq!(rules[1]["filter_type"], 7);
-    assert_eq!(rules[1]["feed_id"], json!(["0"]), "no feed => \"All feeds\" (0)");
+    assert_eq!(
+        rules[1]["feed_id"],
+        json!(["0"]),
+        "no feed => \"All feeds\" (0)"
+    );
     assert!(rules[1]["name"].as_str().unwrap().contains("All feeds"));
 
     let actions = json["actions"].as_array().unwrap();
@@ -219,18 +230,17 @@ async fn test_print_rule_name(
     )
     .await;
     assert!(
-        name.contains("(?i)rust on <span class='field'>Title</span> in <span class='feed'>Hacker News</span>"),
+        name.contains(
+            "(?i)rust on <span class='field'>Title</span> in <span class='feed'>Hacker News</span>"
+        ),
         "got {name}"
     );
     assert!(name.starts_with("<span class='filterRule '"), "got {name}");
 
     // A non-object JSON decodes to "invalid rule JSON".
-    let name = ttrss_server::filters::print_rule_name(
-        &state,
-        &sess,
-        &request(&[("rule", json!("123"))]),
-    )
-    .await;
+    let name =
+        ttrss_server::filters::print_rule_name(&state, &sess, &request(&[("rule", json!("123"))]))
+            .await;
     assert_eq!(name, "invalid rule JSON");
 
     // An unparseable string is "malformed rule JSON".

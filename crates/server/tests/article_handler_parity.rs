@@ -66,23 +66,19 @@ fn request(pairs: &[(&str, Value)]) -> Map<String, Value> {
 
 /// Read `score` for a ref id (owner 1).
 async fn score_of(db: &Db, ref_id: i32) -> i32 {
-    sqlx::query_scalar(
-        "SELECT score FROM ttrss_user_entries WHERE ref_id = $1 AND owner_uid = 1",
-    )
-    .bind(ref_id)
-    .fetch_one(db.pool())
-    .await
-    .expect("score")
+    sqlx::query_scalar("SELECT score FROM ttrss_user_entries WHERE ref_id = $1 AND owner_uid = 1")
+        .bind(ref_id)
+        .fetch_one(db.pool())
+        .await
+        .expect("score")
 }
 
 /// The `int_id` of ref `1` (owner 1) — the PHP helper `getIntIdForRef(1)`.
 async fn int_id_for_ref1(db: &Db) -> i32 {
-    sqlx::query_scalar(
-        "SELECT int_id FROM ttrss_user_entries WHERE ref_id = 1 AND owner_uid = 1",
-    )
-    .fetch_one(db.pool())
-    .await
-    .expect("int_id")
+    sqlx::query_scalar("SELECT int_id FROM ttrss_user_entries WHERE ref_id = 1 AND owner_uid = 1")
+        .fetch_one(db.pool())
+        .await
+        .expect("int_id")
 }
 
 /// `ttrss_tags` row count for ref 1's int_id (the PHP assertions' query).
@@ -110,10 +106,11 @@ async fn test_set_score_single_article(
     let (state, sess) = setup(pool, options).await;
     let db = &state.db;
 
-    let result = ttrss_server::article::set_score(&state, &sess, &request(&[
-        ("ids", json!([1])),
-        ("score", json!(5)),
-    ]))
+    let result = ttrss_server::article::set_score(
+        &state,
+        &sess,
+        &request(&[("ids", json!([1])), ("score", json!(5))]),
+    )
     .await;
     assert_eq!(result.get("score").and_then(Value::as_i64), Some(5));
 
@@ -133,10 +130,11 @@ async fn test_set_score_multiple_articles(
     let (state, sess) = setup(pool, options).await;
     let db = &state.db;
 
-    let result = ttrss_server::article::set_score(&state, &sess, &request(&[
-        ("ids", json!([1, 2, 3])),
-        ("score", json!(10)),
-    ]))
+    let result = ttrss_server::article::set_score(
+        &state,
+        &sess,
+        &request(&[("ids", json!([1, 2, 3])), ("score", json!(10))]),
+    )
     .await;
     assert_eq!(result.get("score").and_then(Value::as_i64), Some(10));
 
@@ -158,10 +156,11 @@ async fn test_set_score_zero(
     let (state, sess) = setup(pool, options).await;
     let db = &state.db;
 
-    let result = ttrss_server::article::set_score(&state, &sess, &request(&[
-        ("ids", json!([1])),
-        ("score", json!(0)),
-    ]))
+    let result = ttrss_server::article::set_score(
+        &state,
+        &sess,
+        &request(&[("ids", json!([1])), ("score", json!(0))]),
+    )
     .await;
     assert_eq!(result.get("score").and_then(Value::as_i64), Some(0));
 
@@ -182,10 +181,11 @@ async fn test_set_article_tags_new_tags(
 ) {
     let (state, sess) = setup(pool, options).await;
 
-    let result = ttrss_server::article::set_article_tags(&state, &sess, &request(&[
-        ("id", json!(1)),
-        ("tags_str", json!("new-tag-1,new-tag-2")),
-    ]))
+    let result = ttrss_server::article::set_article_tags(
+        &state,
+        &sess,
+        &request(&[("id", json!(1)), ("tags_str", json!("new-tag-1,new-tag-2"))]),
+    )
     .await;
     assert_eq!(
         result.get("tags").and_then(Value::as_array),
@@ -207,10 +207,11 @@ async fn test_set_article_tags_replaces_existing(
     let db = &state.db;
 
     // Article 1 starts with tag_cache 'rust|open-source'
-    let result = ttrss_server::article::set_article_tags(&state, &sess, &request(&[
-        ("id", json!(1)),
-        ("tags_str", json!("replaced-tag")),
-    ]))
+    let result = ttrss_server::article::set_article_tags(
+        &state,
+        &sess,
+        &request(&[("id", json!(1)), ("tags_str", json!("replaced-tag"))]),
+    )
     .await;
     assert_eq!(
         result.get("tags").and_then(Value::as_array),
@@ -234,10 +235,11 @@ async fn test_set_article_tags_clears_all(
     let (state, sess) = setup(pool, options).await;
     let db = &state.db;
 
-    let result = ttrss_server::article::set_article_tags(&state, &sess, &request(&[
-        ("id", json!(1)),
-        ("tags_str", json!("")),
-    ]))
+    let result = ttrss_server::article::set_article_tags(
+        &state,
+        &sess,
+        &request(&[("id", json!(1)), ("tags_str", json!(""))]),
+    )
     .await;
     assert_eq!(result.get("tags").and_then(Value::as_array), Some(&vec![]));
 
@@ -256,10 +258,11 @@ async fn test_set_article_tags_trims_whitespace(
 ) {
     let (state, sess) = setup(pool, options).await;
 
-    let result = ttrss_server::article::set_article_tags(&state, &sess, &request(&[
-        ("id", json!(1)),
-        ("tags_str", json!("  tag-a  ,  tag-b  ")),
-    ]))
+    let result = ttrss_server::article::set_article_tags(
+        &state,
+        &sess,
+        &request(&[("id", json!(1)), ("tags_str", json!("  tag-a  ,  tag-b  "))]),
+    )
     .await;
     // FeedItem_Common::normalize_categories handles trimming
     let tags = result.get("tags").and_then(Value::as_array).unwrap();
@@ -281,8 +284,7 @@ async fn test_print_article_tags_existing(
 ) {
     let (state, _sess) = setup(pool, options).await;
 
-    let result =
-        ttrss_server::article::print_article_tags(state.db.pool(), 1, 1).await;
+    let result = ttrss_server::article::print_article_tags(state.db.pool(), 1, 1).await;
     assert!(result.get("tags").is_some());
     assert_eq!(result.get("id").and_then(Value::as_i64), Some(1));
 }
@@ -300,8 +302,7 @@ async fn test_print_article_tags_empty(
     let (state, _sess) = setup(pool, options).await;
 
     // Article 11 has tag_cache 'quantum|computing' from seed
-    let result =
-        ttrss_server::article::print_article_tags(state.db.pool(), 1, 11).await;
+    let result = ttrss_server::article::print_article_tags(state.db.pool(), 1, 11).await;
     assert!(result.get("tags").is_some());
 }
 
@@ -321,14 +322,12 @@ async fn test_complete_tags_returns_matching_tags(
     let db = &state.db;
 
     let int_id = int_id_for_ref1(db).await;
-    sqlx::query(
-        "INSERT INTO ttrss_tags (tag_name, owner_uid, post_int_id) VALUES ($1, 1, $2)",
-    )
-    .bind("testing-complete")
-    .bind(int_id)
-    .execute(db.pool())
-    .await
-    .expect("insert tag");
+    sqlx::query("INSERT INTO ttrss_tags (tag_name, owner_uid, post_int_id) VALUES ($1, 1, $2)")
+        .bind("testing-complete")
+        .bind(int_id)
+        .execute(db.pool())
+        .await
+        .expect("insert tag");
 
     let result =
         ttrss_server::article::complete_tags(&state, &sess, &request(&[("search", json!("test"))]))
@@ -372,14 +371,12 @@ async fn test_complete_tags_case_sensitive(
     let db = &state.db;
 
     let int_id = int_id_for_ref1(db).await;
-    sqlx::query(
-        "INSERT INTO ttrss_tags (tag_name, owner_uid, post_int_id) VALUES ($1, 1, $2)",
-    )
-    .bind("TagUppercase")
-    .bind(int_id)
-    .execute(db.pool())
-    .await
-    .expect("insert tag");
+    sqlx::query("INSERT INTO ttrss_tags (tag_name, owner_uid, post_int_id) VALUES ($1, 1, $2)")
+        .bind("TagUppercase")
+        .bind(int_id)
+        .execute(db.pool())
+        .await
+        .expect("insert tag");
 
     let result =
         ttrss_server::article::complete_tags(&state, &sess, &request(&[("search", json!("T"))]))
@@ -402,10 +399,12 @@ async fn test_assign_to_label(
 ) {
     let (state, sess) = setup(pool, options).await;
 
-    let result = ttrss_server::article::label_ops(&state, &sess, &request(&[
-        ("ids", json!([1])),
-        ("lid", json!(1)),
-    ]), true)
+    let result = ttrss_server::article::label_ops(
+        &state,
+        &sess,
+        &request(&[("ids", json!([1])), ("lid", json!(1))]),
+        true,
+    )
     .await;
     assert!(result.get("labels-for").is_some());
     assert_eq!(
@@ -433,10 +432,12 @@ async fn test_remove_from_label(
         .await
         .expect("assign label");
 
-    let result = ttrss_server::article::label_ops(&state, &sess, &request(&[
-        ("ids", json!([1])),
-        ("lid", json!(1)),
-    ]), false)
+    let result = ttrss_server::article::label_ops(
+        &state,
+        &sess,
+        &request(&[("ids", json!([1])), ("lid", json!(1))]),
+        false,
+    )
     .await;
     assert!(result.get("labels-for").is_some());
 }
@@ -455,8 +456,7 @@ async fn test_get_metadata_by_id(
 ) {
     let (state, _sess) = setup(pool, options).await;
 
-    let result =
-        ttrss_server::article::metadata_by_id(state.db.pool(), 1, 1).await;
+    let result = ttrss_server::article::metadata_by_id(state.db.pool(), 1, 1).await;
     assert_eq!(
         result.get("link").and_then(Value::as_str),
         Some("https://news.ycombinator.com/item?id=40001")
@@ -479,8 +479,7 @@ async fn test_get_metadata_by_id_nonexistent(
 ) {
     let (state, _sess) = setup(pool, options).await;
 
-    let result =
-        ttrss_server::article::metadata_by_id(state.db.pool(), 1, 99999).await;
+    let result = ttrss_server::article::metadata_by_id(state.db.pool(), 1, 99999).await;
     assert_eq!(result.as_array(), Some(&vec![]));
 }
 
@@ -503,6 +502,9 @@ async fn test_redirect_valid_article(
     // Handler redirects with Response::redirect()->send() which sends a 302
     // The response body is empty for redirects
     assert_eq!(status.as_u16(), 302);
-    assert_eq!(location.as_deref(), Some("https://news.ycombinator.com/item?id=40001"));
+    assert_eq!(
+        location.as_deref(),
+        Some("https://news.ycombinator.com/item?id=40001")
+    );
     assert!(body.is_empty());
 }

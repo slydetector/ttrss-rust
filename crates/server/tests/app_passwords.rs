@@ -72,9 +72,7 @@ fn extract_strong(html: &str) -> String {
 }
 
 /// The stored app-password rows for uid 1 (id, title, service, pwd_hash, last_used).
-async fn fetch(
-    db: &Pool,
-) -> Vec<(i32, String, String, String, Option<String>)> {
+async fn fetch(db: &Pool) -> Vec<(i32, String, String, String, Option<String>)> {
     let rows = sqlx::query(
         "SELECT id, title, service, pwd_hash, last_used::text AS last_used \
          FROM ttrss_app_passwords WHERE owner_uid = 1 ORDER BY title",
@@ -99,7 +97,10 @@ async fn fetch(
     "../../testing/fixtures/schema.sql",
     "../../testing/fixtures/baseline.sql"
 ))]
-async fn test_generate_app_password(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options: sqlx::postgres::PgConnectOptions) {
+async fn test_generate_app_password(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
     let (state, sess) = setup(pool, options).await;
     let db = state.db.pool();
 
@@ -124,7 +125,12 @@ async fn test_generate_app_password(pool: sqlx::pool::PoolOptions<sqlx::Postgres
     let pw = extract_strong(&resp);
     assert_eq!(pw.len(), 16, "got: {pw}");
     // All 16 chars are distinct.
-    assert_eq!(pw.chars().collect::<std::collections::HashSet<char>>().len(), 16);
+    assert_eq!(
+        pw.chars()
+            .collect::<std::collections::HashSet<char>>()
+            .len(),
+        16
+    );
     assert!(ttrss_core::user::verify_app_password(pwd_hash, &pw));
 
     // The response is the warning div + the refreshed list.
@@ -140,7 +146,10 @@ async fn test_generate_app_password(pool: sqlx::pool::PoolOptions<sqlx::Postgres
     "../../testing/fixtures/schema.sql",
     "../../testing/fixtures/baseline.sql"
 ))]
-async fn test_generate_app_password_unique_chars(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options: sqlx::postgres::PgConnectOptions) {
+async fn test_generate_app_password_unique_chars(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
     let (state, sess) = setup(pool, options).await;
     let db = state.db.pool();
 
@@ -168,7 +177,10 @@ async fn test_generate_app_password_unique_chars(pool: sqlx::pool::PoolOptions<s
     "../../testing/fixtures/schema.sql",
     "../../testing/fixtures/baseline.sql"
 ))]
-async fn test_delete_app_passwords(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options: sqlx::postgres::PgConnectOptions) {
+async fn test_delete_app_passwords(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
     let (state, sess) = setup(pool, options).await;
     let db = state.db.pool();
 
@@ -202,14 +214,20 @@ async fn test_delete_app_passwords(pool: sqlx::pool::PoolOptions<sqlx::Postgres>
     // The refreshed list shows only the surviving row (one data row, no `>B<`).
     assert!(resp.contains("app-password-list"));
     assert_eq!(resp.matches("<tr data-row-id=").count(), 1);
-    assert!(!resp.contains(">B<"), "deleted title should not be in the list");
+    assert!(
+        !resp.contains(">B<"),
+        "deleted title should not be in the list"
+    );
 }
 
 #[sqlx::test(fixtures(
     "../../testing/fixtures/schema.sql",
     "../../testing/fixtures/baseline.sql"
 ))]
-async fn test_delete_app_passwords_foreign_noop(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options: sqlx::postgres::PgConnectOptions) {
+async fn test_delete_app_passwords_foreign_noop(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
     let (state, sess) = setup(pool, options).await;
     let db = state.db.pool();
 
@@ -241,12 +259,11 @@ async fn test_delete_app_passwords_foreign_noop(pool: sqlx::pool::PoolOptions<sq
     )
     .await
     .unwrap();
-    let count: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM ttrss_app_passwords WHERE id = $1")
-            .bind(my_id)
-            .fetch_one(db)
-            .await
-            .unwrap();
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM ttrss_app_passwords WHERE id = $1")
+        .bind(my_id)
+        .fetch_one(db)
+        .await
+        .unwrap();
     assert_eq!(count, 1, "foreign row must survive");
 }
 
@@ -254,7 +271,10 @@ async fn test_delete_app_passwords_foreign_noop(pool: sqlx::pool::PoolOptions<sq
     "../../testing/fixtures/schema.sql",
     "../../testing/fixtures/baseline.sql"
 ))]
-async fn test_delete_app_passwords_empty_ids_noop(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options: sqlx::postgres::PgConnectOptions) {
+async fn test_delete_app_passwords_empty_ids_noop(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
     let (state, sess) = setup(pool, options).await;
     let db = state.db.pool();
 
@@ -278,7 +298,10 @@ async fn test_delete_app_passwords_empty_ids_noop(pool: sqlx::pool::PoolOptions<
     "../../testing/fixtures/schema.sql",
     "../../testing/fixtures/baseline.sql"
 ))]
-async fn test_app_password_list_escapes_title(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options: sqlx::postgres::PgConnectOptions) {
+async fn test_app_password_list_escapes_title(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
     let (state, sess) = setup(pool, options).await;
     let db = state.db.pool();
 

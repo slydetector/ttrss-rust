@@ -17,24 +17,22 @@ use axum::{
     Router,
 };
 use serde::Deserialize;
+use tokio::fs;
 use ttrss_core::config::Config;
 use ttrss_core::db::Db;
 use ttrss_core::phpser::Value;
 use ttrss_core::session as core_session;
 use ttrss_server::util::now_unix;
-use tokio::fs;
 use ttrss_server::{
-    nocache_headers, with_trailing_slash, AppState, api, auth, diskcache, forgotpass, mime, render,
-    rpc, session,
-    syndication,
+    api, auth, diskcache, forgotpass, mime, nocache_headers, render, rpc, session, syndication,
+    with_trailing_slash, AppState,
 };
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info".into()),
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
         .init();
 
@@ -268,7 +266,9 @@ fn clean_int(v: Option<&str>) -> i64 {
     let end = s
         .find(|c: char| !c.is_ascii_digit() && c != '-' && c != '+')
         .unwrap_or(s.len());
-    s.get(..end).and_then(|p| p.parse::<i64>().ok()).unwrap_or(0)
+    s.get(..end)
+        .and_then(|p| p.parse::<i64>().ok())
+        .unwrap_or(0)
 }
 
 #[derive(Deserialize)]
@@ -328,7 +328,9 @@ async fn logout_flow(state: &AppState, sess: session::Sess, form: &PublicForm) -
         let mut res = axum::http::Response::builder()
             .status(StatusCode::OK)
             .header(header::CONTENT_TYPE, "application/json")
-            .body(Body::from(r#"{"error":{"code":"E_UNAUTHORIZED","params":[]}}"#))
+            .body(Body::from(
+                r#"{"error":{"code":"E_UNAUTHORIZED","params":[]}}"#,
+            ))
             .expect("valid response");
         if sess.had_cookie() {
             nocache_headers(res.headers_mut());
@@ -399,12 +401,20 @@ async fn login_flow(
 ) -> Response {
     let login = form.login.as_deref().unwrap_or("").to_string();
     let password = form.password.as_deref().unwrap_or("").to_string();
-    let otp = form.otp.as_deref().and_then(|s| s.trim().parse::<i64>().ok());
+    let otp = form
+        .otp
+        .as_deref()
+        .and_then(|s| s.trim().parse::<i64>().ok());
     let return_url = query.return_url.as_deref().unwrap_or("");
     let self_url = state.config.self_url_rtrim();
 
     match auth::authenticate(&state.db, &login, &password, otp).await {
-        auth::AuthOutcome::Success { id, login, access_level, pwd_hash } => {
+        auth::AuthOutcome::Success {
+            id,
+            login,
+            access_level,
+            pwd_hash,
+        } => {
             let (new_id, data) = auth::build_login_session(
                 id,
                 &login,
@@ -513,16 +523,16 @@ fn checkbox(s: Option<&str>) -> bool {
 /// byte-for-byte with the oracle's static-file headers — correct Content-Type
 /// (from the nginx `mime.types`), `Cache-Control: no-cache`, and no
 /// `Accept-Ranges` (nginx omits it on the gzip/chunked path real clients hit).
-async fn static_handler(
-    State(state): State<AppState>,
-    req: Request,
-) -> axum::response::Response {
+async fn static_handler(State(state): State<AppState>, req: Request) -> axum::response::Response {
     let base = state.config.base_path();
     let uri_path = req.uri().path();
     let rel = if base.is_empty() {
         uri_path.to_string()
     } else {
-        uri_path.strip_prefix(base.as_str()).unwrap_or(uri_path).to_string()
+        uri_path
+            .strip_prefix(base.as_str())
+            .unwrap_or(uri_path)
+            .to_string()
     };
     let rel = rel.trim_start_matches('/');
     let candidate = state.config.docroot.join(rel);
@@ -573,14 +583,38 @@ mod tests {
             ("https://example.com", "https://sub.example.com", false),
             ("https://example.com", "invalid-url", false),
             // path prefix matches
-            ("https://example.com/tt-rss", "https://example.com/tt-rss", true),
-            ("https://example.com/tt-rss", "https://example.com/tt-rss/", true),
-            ("https://example.com/tt-rss", "https://example.com/tt-rss/api/feeds", true),
-            ("https://example.com/apps/rss", "https://example.com/apps/rss/index.php", true),
+            (
+                "https://example.com/tt-rss",
+                "https://example.com/tt-rss",
+                true,
+            ),
+            (
+                "https://example.com/tt-rss",
+                "https://example.com/tt-rss/",
+                true,
+            ),
+            (
+                "https://example.com/tt-rss",
+                "https://example.com/tt-rss/api/feeds",
+                true,
+            ),
+            (
+                "https://example.com/apps/rss",
+                "https://example.com/apps/rss/index.php",
+                true,
+            ),
             // path prefix mismatches
             ("https://example.com/tt-rss", "https://example.com", false),
-            ("https://example.com/tt-rss", "https://example.com/tt-rss-malicious", false),
-            ("https://example.com/tt-rss", "https://example.com/other-path", false),
+            (
+                "https://example.com/tt-rss",
+                "https://example.com/tt-rss-malicious",
+                false,
+            ),
+            (
+                "https://example.com/tt-rss",
+                "https://example.com/other-path",
+                false,
+            ),
         ];
         for (self_url, url, expected) in cases {
             assert_eq!(

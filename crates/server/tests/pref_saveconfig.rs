@@ -98,7 +98,10 @@ async fn last_digest_sent(db: &Pool) -> Option<chrono::NaiveDateTime> {
     "../../testing/fixtures/schema.sql",
     "../../testing/fixtures/baseline.sql"
 ))]
-async fn test_saveconfig_sets_prefs(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options: sqlx::postgres::PgConnectOptions) {
+async fn test_saveconfig_sets_prefs(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
     let (state, sess) = setup(pool, options).await;
     let db = state.db.pool();
 
@@ -113,7 +116,10 @@ async fn test_saveconfig_sets_prefs(pool: sqlx::pool::PoolOptions<sqlx::Postgres
     .await;
 
     // A changed Bool pref is stored as its string form (false -> "").
-    assert_eq!(pref_value(db, "COMBINED_DISPLAY_MODE").await.as_deref(), Some(""));
+    assert_eq!(
+        pref_value(db, "COMBINED_DISPLAY_MODE").await.as_deref(),
+        Some("")
+    );
     // A Str pref is stored verbatim.
     assert_eq!(
         pref_value(db, "USER_STYLESHEET").await.as_deref(),
@@ -126,7 +132,10 @@ async fn test_saveconfig_sets_prefs(pool: sqlx::pool::PoolOptions<sqlx::Postgres
     "../../testing/fixtures/schema.sql",
     "../../testing/fixtures/baseline.sql"
 ))]
-async fn test_saveconfig_boolean_default(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options: sqlx::postgres::PgConnectOptions) {
+async fn test_saveconfig_boolean_default(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
     let (state, sess) = setup(pool, options).await;
     let db = state.db.pool();
 
@@ -136,7 +145,10 @@ async fn test_saveconfig_boolean_default(pool: sqlx::pool::PoolOptions<sqlx::Pos
         &state,
         &sess,
         &request(&[
-            ("boolean_prefs", json!("SHOW_CONTENT_PREVIEW,HIDE_READ_FEEDS")),
+            (
+                "boolean_prefs",
+                json!("SHOW_CONTENT_PREVIEW,HIDE_READ_FEEDS"),
+            ),
             ("USER_STYLESHEET", json!("x")),
         ]),
     )
@@ -155,7 +167,10 @@ async fn test_saveconfig_boolean_default(pool: sqlx::pool::PoolOptions<sqlx::Pos
     "../../testing/fixtures/schema.sql",
     "../../testing/fixtures/baseline.sql"
 ))]
-async fn test_saveconfig_ignores_invalid_pref(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options: sqlx::postgres::PgConnectOptions) {
+async fn test_saveconfig_ignores_invalid_pref(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
     let (state, sess) = setup(pool, options).await;
     let db = state.db.pool();
 
@@ -163,19 +178,28 @@ async fn test_saveconfig_ignores_invalid_pref(pool: sqlx::pool::PoolOptions<sqlx
     let _ = ttrss_server::settings::saveconfig(
         &state,
         &sess,
-        &request(&[("NOT_A_PREF", json!("value")), ("USER_STYLESHEET", json!("a"))]),
+        &request(&[
+            ("NOT_A_PREF", json!("value")),
+            ("USER_STYLESHEET", json!("a")),
+        ]),
     )
     .await;
 
     assert_eq!(pref_value(db, "NOT_A_PREF").await, None);
-    assert_eq!(pref_value(db, "USER_STYLESHEET").await.as_deref(), Some("a"));
+    assert_eq!(
+        pref_value(db, "USER_STYLESHEET").await.as_deref(),
+        Some("a")
+    );
 }
 
 #[sqlx::test(fixtures(
     "../../testing/fixtures/schema.sql",
     "../../testing/fixtures/baseline.sql"
 ))]
-async fn test_saveconfig_blacklisted_tags_normalized(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options: sqlx::postgres::PgConnectOptions) {
+async fn test_saveconfig_blacklisted_tags_normalized(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
     let (state, sess) = setup(pool, options).await;
     let db = state.db.pool();
 
@@ -198,7 +222,10 @@ async fn test_saveconfig_blacklisted_tags_normalized(pool: sqlx::pool::PoolOptio
     "../../testing/fixtures/schema.sql",
     "../../testing/fixtures/baseline.sql"
 ))]
-async fn test_saveconfig_need_reload_on_theme_change(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options: sqlx::postgres::PgConnectOptions) {
+async fn test_saveconfig_need_reload_on_theme_change(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
     let (state, sess) = setup(pool, options).await;
     let db = state.db.pool();
 
@@ -211,14 +238,20 @@ async fn test_saveconfig_need_reload_on_theme_change(pool: sqlx::pool::PoolOptio
     .await;
 
     assert_eq!(msg, "PREFS_NEED_RELOAD");
-    assert_eq!(pref_value(db, "USER_CSS_THEME").await.as_deref(), Some("dark"));
+    assert_eq!(
+        pref_value(db, "USER_CSS_THEME").await.as_deref(),
+        Some("dark")
+    );
 }
 
 #[sqlx::test(fixtures(
     "../../testing/fixtures/schema.sql",
     "../../testing/fixtures/baseline.sql"
 ))]
-async fn test_saveconfig_no_reload_unchanged(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options: sqlx::postgres::PgConnectOptions) {
+async fn test_saveconfig_no_reload_unchanged(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
     let (state, sess) = setup(pool, options).await;
 
     // Saving an unchanged `USER_CSS_THEME` (still the default "") does not
@@ -237,7 +270,10 @@ async fn test_saveconfig_no_reload_unchanged(pool: sqlx::pool::PoolOptions<sqlx:
     "../../testing/fixtures/schema.sql",
     "../../testing/fixtures/baseline.sql"
 ))]
-async fn test_saveconfig_digest_time_resets(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options: sqlx::postgres::PgConnectOptions) {
+async fn test_saveconfig_digest_time_resets(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
     let (state, sess) = setup(pool, options).await;
     let db = state.db.pool();
 
@@ -267,7 +303,10 @@ async fn test_saveconfig_digest_time_resets(pool: sqlx::pool::PoolOptions<sqlx::
     "../../testing/fixtures/schema.sql",
     "../../testing/fixtures/baseline.sql"
 ))]
-async fn test_resetconfig_discards_overrides(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options: sqlx::postgres::PgConnectOptions) {
+async fn test_resetconfig_discards_overrides(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
     let (state, sess) = setup(pool, options).await;
     let db = state.db.pool();
 
@@ -275,7 +314,10 @@ async fn test_resetconfig_discards_overrides(pool: sqlx::pool::PoolOptions<sqlx:
     let _ = ttrss_server::settings::saveconfig(
         &state,
         &sess,
-        &request(&[("SHOW_CONTENT_PREVIEW", json!("false")), ("USER_STYLESHEET", json!("x"))]),
+        &request(&[
+            ("SHOW_CONTENT_PREVIEW", json!("false")),
+            ("USER_STYLESHEET", json!("x")),
+        ]),
     )
     .await;
     sqlx::query(
@@ -293,5 +335,8 @@ async fn test_resetconfig_discards_overrides(pool: sqlx::pool::PoolOptions<sqlx:
     // The overrides are gone; `_PREFS_MIGRATED` survives.
     assert_eq!(pref_value(db, "SHOW_CONTENT_PREVIEW").await, None);
     assert_eq!(pref_value(db, "USER_STYLESHEET").await, None);
-    assert_eq!(pref_value(db, "_PREFS_MIGRATED").await.as_deref(), Some("1"));
+    assert_eq!(
+        pref_value(db, "_PREFS_MIGRATED").await.as_deref(),
+        Some("1")
+    );
 }

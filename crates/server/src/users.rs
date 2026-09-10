@@ -11,7 +11,9 @@ use sqlx::Row;
 
 use crate::session::Sess;
 use crate::time::{make_local_datetime, TzCtx};
-use crate::util::{checkbox, clean_int, clean_str, htmlspecialchars, make_password, param_int_array};
+use crate::util::{
+    checkbox, clean_int, clean_str, htmlspecialchars, make_password, param_int_array,
+};
 use crate::AppState;
 use serde_json::{json, Map, Value};
 use ttrss_core::user;
@@ -293,17 +295,11 @@ pub(crate) async fn reset_password(pool: &sqlx::PgPool, uid: i32, new_password: 
         .bind(uid)
         .execute(pool)
         .await;
-    format!(
-        "Changed password of user <strong>{login}</strong> to <strong>{tmp_pwd}</strong>"
-    )
+    format!("Changed password of user <strong>{login}</strong> to <strong>{tmp_pwd}</strong>")
 }
 
 /// `Pref_Users::edit` — the per-user edit dialog data (or `None` if absent).
-pub async fn edit(
-    state: &AppState,
-    _sess: &Sess,
-    extra: &Map<String, Value>,
-) -> Option<Value> {
+pub async fn edit(state: &AppState, _sess: &Sess, extra: &Map<String, Value>) -> Option<Value> {
     let pool = state.db.pool();
     let id = clean_int(extra.get("id")) as i32;
     let row: Option<(i32, String, i32, String, String, bool)> = sqlx::query_as(
@@ -336,13 +332,12 @@ pub async fn edit_save(state: &AppState, _sess: &Sess, extra: &Map<String, Value
     let pool = state.db.pool();
     let id = clean_int(extra.get("id")) as i32;
     let password = clean_str(extra.get("password").and_then(Value::as_str).unwrap_or(""));
-    let user_exists: Option<i32> =
-        sqlx::query_scalar("SELECT id FROM ttrss_users WHERE id = $1")
-            .bind(id)
-            .fetch_optional(pool)
-            .await
-            .ok()
-            .flatten();
+    let user_exists: Option<i32> = sqlx::query_scalar("SELECT id FROM ttrss_users WHERE id = $1")
+        .bind(id)
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten();
     if user_exists.is_some() {
         let mut login = clean_str(extra.get("login").and_then(Value::as_str).unwrap_or(""));
         if id == 1 {
@@ -355,7 +350,11 @@ pub async fn edit_save(state: &AppState, _sess: &Sess, extra: &Map<String, Value
         let email = clean_str(extra.get("email").and_then(Value::as_str).unwrap_or(""));
         let otp_enabled = checkbox(extra, "otp_enabled");
         // `schema_version >= 143 && !otp_enabled` → force a fresh OTP secret.
-        let otp_secret_clause = if otp_enabled { "" } else { ", otp_secret = NULL" };
+        let otp_secret_clause = if otp_enabled {
+            ""
+        } else {
+            ", otp_secret = NULL"
+        };
         let _ = sqlx::query(&format!(
             "UPDATE ttrss_users SET login = $1, access_level = $2, email = $3, \
              otp_enabled = $4{otp_secret_clause} WHERE id = $5"
@@ -411,7 +410,8 @@ pub async fn add(state: &AppState, _sess: &Sess, extra: &Map<String, Value>) -> 
     }
     let new_password = make_password(12);
     let salt = user::get_salt();
-    let pwd_hash = user::hash_password(&new_password, &salt, user::ALGO_SSHA512).unwrap_or_default();
+    let pwd_hash =
+        user::hash_password(&new_password, &salt, user::ALGO_SSHA512).unwrap_or_default();
     let _ = sqlx::query(
         "INSERT INTO ttrss_users (login, pwd_hash, salt, access_level, created) \
          VALUES ($1, $2, $3, 0, NOW())",

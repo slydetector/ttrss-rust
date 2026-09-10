@@ -35,7 +35,10 @@ fn test_config() -> Config {
     }
 }
 
-async fn make_state(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options: sqlx::postgres::PgConnectOptions) -> AppState {
+async fn make_state(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) -> AppState {
     let db: Db = common::make_db(pool, options).await.expect("test db");
     AppState {
         config: test_config(),
@@ -50,18 +53,30 @@ async fn make_state(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options: sqlx
     "../../testing/fixtures/baseline.sql",
     "../../testing/fixtures/seed.sql",
 ))]
-async fn test_export_feed_tree(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options: sqlx::postgres::PgConnectOptions) {
+async fn test_export_feed_tree(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
     let state = make_state(pool, options).await;
     let opml = ttrss_server::opml::build_opml(state.db.pool(), 1, false).await;
 
     // Envelope.
-    assert!(opml.starts_with("<?xml version=\"1.0\" encoding=\"utf-8\"?>"), "xml decl: {opml}");
+    assert!(
+        opml.starts_with("<?xml version=\"1.0\" encoding=\"utf-8\"?>"),
+        "xml decl: {opml}"
+    );
     assert!(opml.contains("<opml version=\"1.0\">"));
     assert!(opml.contains("<title>Tiny Tiny RSS Feed Export</title>"));
 
     // Both categories, at depth 2 (4-space indent), `&` escaped.
-    assert!(opml.contains("    <outline text=\"Technology\">"), "Technology cat: {opml}");
-    assert!(opml.contains("    <outline text=\"Science &amp; Nature\">"), "Science cat: {opml}");
+    assert!(
+        opml.contains("    <outline text=\"Technology\">"),
+        "Technology cat: {opml}"
+    );
+    assert!(
+        opml.contains("    <outline text=\"Science &amp; Nature\">"),
+        "Science cat: {opml}"
+    );
 
     // All four feeds, nested at depth 3 (6-space indent) with xmlUrl + htmlUrl.
     assert!(opml.contains("      <outline type=\"rss\" text=\"Hacker News\" xmlUrl=\"https://hnrss.org/frontpage\" htmlUrl=\"https://news.ycombinator.com\"/>"), "HN feed: {opml}");
@@ -81,12 +96,18 @@ async fn test_export_feed_tree(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, op
     "../../testing/fixtures/baseline.sql",
     "../../testing/fixtures/seed.sql",
 ))]
-async fn test_export_include_settings(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options: sqlx::postgres::PgConnectOptions) {
+async fn test_export_include_settings(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
     let state = make_state(pool, options).await;
     let opml = ttrss_server::opml::build_opml(state.db.pool(), 1, true).await;
 
     // Category sort order.
-    assert!(opml.contains("    <outline text=\"Technology\" ttrssSortOrder=\"0\">"), "cat sort: {opml}");
+    assert!(
+        opml.contains("    <outline text=\"Technology\" ttrssSortOrder=\"0\">"),
+        "cat sort: {opml}"
+    );
 
     // Feed ttrss* attrs (Hacker News has update_interval=30, order_id=0, purge=0).
     assert!(
@@ -94,7 +115,10 @@ async fn test_export_include_settings(pool: sqlx::pool::PoolOptions<sqlx::Postgr
         "HN ttrss: {opml}"
     );
     // MIT Tech Review has update_interval=120.
-    assert!(opml.contains("ttrssUpdateInterval=\"120\""), "MIT ttrss: {opml}");
+    assert!(
+        opml.contains("ttrssUpdateInterval=\"120\""),
+        "MIT ttrss: {opml}"
+    );
 }
 
 /// The `export` handler returns the OPML as a download (content-type + filename).
@@ -103,7 +127,10 @@ async fn test_export_include_settings(pool: sqlx::pool::PoolOptions<sqlx::Postgr
     "../../testing/fixtures/baseline.sql",
     "../../testing/fixtures/seed.sql",
 ))]
-async fn test_export_handler(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options: sqlx::postgres::PgConnectOptions) {
+async fn test_export_handler(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
     let state = make_state(pool, options).await;
     let mut data = ttrss_core::session::Session::new();
     data.set("uid", ttrss_core::phpser::Value::Int(1));
@@ -117,7 +144,10 @@ async fn test_export_handler(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, opti
     assert_eq!(status, axum::http::StatusCode::OK);
     assert_eq!(ct, "application/xml+opml");
     let disp = disp.expect("content-disposition");
-    assert!(disp.starts_with("attachment; filename=tt-rss_admin_"), "disposition: {disp}");
+    assert!(
+        disp.starts_with("attachment; filename=tt-rss_admin_"),
+        "disposition: {disp}"
+    );
     assert!(disp.ends_with(".opml"), "disposition: {disp}");
     assert!(body.contains("<opml version=\"1.0\">"), "body: {body}");
     assert!(body.contains("text=\"Hacker News\""), "body: {body}");
@@ -134,7 +164,10 @@ async fn test_export_handler(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, opti
     "../../testing/fixtures/baseline.sql",
     "../../testing/fixtures/seed.sql",
 ))]
-async fn test_export_retains_empty_category(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options: sqlx::postgres::PgConnectOptions) {
+async fn test_export_retains_empty_category(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
     let state = make_state(pool, options).await;
     // Add an empty category (no feeds, no sub-cats).
     sqlx::query("INSERT INTO ttrss_feed_categories (owner_uid, title) VALUES (1, 'Empty Cat')")
@@ -144,7 +177,10 @@ async fn test_export_retains_empty_category(pool: sqlx::pool::PoolOptions<sqlx::
 
     let opml = ttrss_server::opml::build_opml(state.db.pool(), 1, false).await;
     // The empty category is emitted as a self-closing outline (no children).
-    assert!(opml.contains("    <outline text=\"Empty Cat\"/>"), "empty category retained: {opml}");
+    assert!(
+        opml.contains("    <outline text=\"Empty Cat\"/>"),
+        "empty category retained: {opml}"
+    );
     // The real categories remain.
     assert!(opml.contains("text=\"Technology\""));
     assert!(opml.contains("text=\"Science &amp; Nature\""));

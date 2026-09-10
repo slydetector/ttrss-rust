@@ -73,7 +73,10 @@ fn form(pairs: &[(&str, &str)]) -> Map<String, Value> {
     "../../testing/fixtures/schema.sql",
     "../../testing/fixtures/baseline.sql"
 ))]
-async fn test_change_personal_data(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options: sqlx::postgres::PgConnectOptions) {
+async fn test_change_personal_data(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
     let (state, sess) = setup(pool, options).await;
     let db = state.db.pool();
 
@@ -94,7 +97,10 @@ async fn test_change_personal_data(pool: sqlx::pool::PoolOptions<sqlx::Postgres>
     "../../testing/fixtures/schema.sql",
     "../../testing/fixtures/baseline.sql"
 ))]
-async fn test_changepassword_success(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options: sqlx::postgres::PgConnectOptions) {
+async fn test_changepassword_success(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
     let (state, sess) = setup(pool, options).await;
     let db = state.db.pool();
 
@@ -105,7 +111,10 @@ async fn test_changepassword_success(pool: sqlx::pool::PoolOptions<sqlx::Postgre
     ]);
     let out = ttrss_server::settings::changepassword(&state, &sess, &extra).await;
     assert!(out.contains("Password has been changed."), "got: {out}");
-    assert!(out.contains("alert-info"), "success should be a notice, got: {out}");
+    assert!(
+        out.contains("alert-info"),
+        "success should be a notice, got: {out}"
+    );
 
     // The stored hash now verifies the new password (with the fresh salt),
     // and the session's cached `pwd_hash` was refreshed.
@@ -132,17 +141,58 @@ async fn test_changepassword_validation_errors(
     // Each pair is (form fields, expected message substring). The baseline
     // password is irrelevant — validation short-circuits before verification.
     let cases: &[(&[(&str, &str)], &str)] = &[
-        (&[("old_password", "a"), ("new_password", "<b>x</b>"), ("confirm_password", "<b>x</b>")], "New password contains disallowed characters."),
-        (&[("old_password", "abc"), ("new_password", "abc"), ("confirm_password", "abc")], "New password must be different from the old one."),
-        (&[("old_password", ""), ("new_password", "xyz"), ("confirm_password", "xyz")], "Old password cannot be blank."),
-        (&[("old_password", "abc"), ("new_password", ""), ("confirm_password", "")], "New password cannot be blank."),
-        (&[("old_password", "abc"), ("new_password", "xyz"), ("confirm_password", "other")], "Entered passwords do not match."),
+        (
+            &[
+                ("old_password", "a"),
+                ("new_password", "<b>x</b>"),
+                ("confirm_password", "<b>x</b>"),
+            ],
+            "New password contains disallowed characters.",
+        ),
+        (
+            &[
+                ("old_password", "abc"),
+                ("new_password", "abc"),
+                ("confirm_password", "abc"),
+            ],
+            "New password must be different from the old one.",
+        ),
+        (
+            &[
+                ("old_password", ""),
+                ("new_password", "xyz"),
+                ("confirm_password", "xyz"),
+            ],
+            "Old password cannot be blank.",
+        ),
+        (
+            &[
+                ("old_password", "abc"),
+                ("new_password", ""),
+                ("confirm_password", ""),
+            ],
+            "New password cannot be blank.",
+        ),
+        (
+            &[
+                ("old_password", "abc"),
+                ("new_password", "xyz"),
+                ("confirm_password", "other"),
+            ],
+            "Entered passwords do not match.",
+        ),
     ];
     for (fields, expect) in cases {
         let out = ttrss_server::settings::changepassword(&state, &sess, &form(fields)).await;
         assert!(out.contains(expect), "expected {expect:?} in: {out}");
-        assert!(out.contains("alert-danger"), "error should be alert-danger, got: {out}");
-        assert!(out.starts_with("ERROR: "), "should be prefixed with ERROR:, got: {out}");
+        assert!(
+            out.contains("alert-danger"),
+            "error should be alert-danger, got: {out}"
+        );
+        assert!(
+            out.starts_with("ERROR: "),
+            "should be prefixed with ERROR:, got: {out}"
+        );
     }
 }
 
@@ -189,7 +239,10 @@ async fn test_changepassword_forbidden(
     "../../testing/fixtures/schema.sql",
     "../../testing/fixtures/baseline.sql"
 ))]
-async fn test_otp_enable(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options: sqlx::postgres::PgConnectOptions) {
+async fn test_otp_enable(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
     let (state, sess) = setup(pool, options).await;
     let db = state.db.pool();
 
@@ -200,7 +253,10 @@ async fn test_otp_enable(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options:
         .execute(db)
         .await
         .unwrap();
-    let code = user::totp_at(known_secret.as_bytes(), ttrss_server::util::now_unix() as u64);
+    let code = user::totp_at(
+        known_secret.as_bytes(),
+        ttrss_server::util::now_unix() as u64,
+    );
 
     // Wrong password.
     let out = ttrss_server::settings::otp_enable(
@@ -228,11 +284,10 @@ async fn test_otp_enable(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options:
     )
     .await;
     assert_eq!(out, "OK");
-    let enabled: bool =
-        sqlx::query_scalar("SELECT otp_enabled FROM ttrss_users WHERE id = 1")
-            .fetch_one(db)
-            .await
-            .unwrap();
+    let enabled: bool = sqlx::query_scalar("SELECT otp_enabled FROM ttrss_users WHERE id = 1")
+        .fetch_one(db)
+        .await
+        .unwrap();
     assert!(enabled);
 }
 
@@ -240,23 +295,21 @@ async fn test_otp_enable(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options:
     "../../testing/fixtures/schema.sql",
     "../../testing/fixtures/baseline.sql"
 ))]
-async fn test_otp_disable(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options: sqlx::postgres::PgConnectOptions) {
+async fn test_otp_disable(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
     let (state, sess) = setup(pool, options).await;
     let db = state.db.pool();
 
     // Wrong password first.
-    let out = ttrss_server::settings::otp_disable(
-        &state,
-        &sess,
-        &form(&[("password", "wrong")]),
-    )
-    .await;
+    let out =
+        ttrss_server::settings::otp_disable(&state, &sess, &form(&[("password", "wrong")])).await;
     assert_eq!(out, "ERROR: Incorrect password");
-    let still: bool =
-        sqlx::query_scalar("SELECT otp_enabled FROM ttrss_users WHERE id = 1")
-            .fetch_one(db)
-            .await
-            .unwrap();
+    let still: bool = sqlx::query_scalar("SELECT otp_enabled FROM ttrss_users WHERE id = 1")
+        .fetch_one(db)
+        .await
+        .unwrap();
     assert!(!still);
 
     // Enable, then disable with the correct password.
@@ -264,12 +317,9 @@ async fn test_otp_disable(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options
         .execute(db)
         .await
         .unwrap();
-    let out = ttrss_server::settings::otp_disable(
-        &state,
-        &sess,
-        &form(&[("password", "password")]),
-    )
-    .await;
+    let out =
+        ttrss_server::settings::otp_disable(&state, &sess, &form(&[("password", "password")]))
+            .await;
     assert_eq!(out, "OK");
     let (enabled, secret): (bool, Option<String>) =
         sqlx::query_as("SELECT otp_enabled, otp_secret FROM ttrss_users WHERE id = 1")
@@ -277,14 +327,20 @@ async fn test_otp_disable(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options
             .await
             .unwrap();
     assert!(!enabled);
-    assert!(secret.is_none(), "secret should be cleared on disable (schema >= 143)");
+    assert!(
+        secret.is_none(),
+        "secret should be cleared on disable (schema >= 143)"
+    );
 }
 
 #[sqlx::test(fixtures(
     "../../testing/fixtures/schema.sql",
     "../../testing/fixtures/baseline.sql"
 ))]
-async fn test_customize_css(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options: sqlx::postgres::PgConnectOptions) {
+async fn test_customize_css(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
     let (state, sess) = setup(pool, options).await;
     let db = state.db.pool();
 

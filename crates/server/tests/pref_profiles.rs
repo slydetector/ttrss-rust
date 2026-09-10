@@ -98,11 +98,13 @@ async fn profile_count(db: &Pool) -> i64 {
 
 /// Count uid 1's pref overrides for a named profile.
 async fn pref_count(db: &Pool, profile: i32) -> i64 {
-    sqlx::query_scalar("SELECT count(*) FROM ttrss_user_prefs2 WHERE owner_uid = 1 AND profile = $1")
-        .bind(profile)
-        .fetch_one(db)
-        .await
-        .unwrap()
+    sqlx::query_scalar(
+        "SELECT count(*) FROM ttrss_user_prefs2 WHERE owner_uid = 1 AND profile = $1",
+    )
+    .bind(profile)
+    .fetch_one(db)
+    .await
+    .unwrap()
 }
 
 /// Fetch a named profile's override value for a pref (None if absent).
@@ -145,22 +147,31 @@ async fn insert_user(db: &Pool, id: i32, login: &str) {
     "../../testing/fixtures/schema.sql",
     "../../testing/fixtures/baseline.sql"
 ))]
-async fn test_add_profile(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options: sqlx::postgres::PgConnectOptions) {
+async fn test_add_profile(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
     let (state, sess) = setup(pool, options).await;
     let db = state.db.pool();
 
     assert_eq!(profile_count(db).await, 0);
 
     // Create a profile.
-    ttrss_server::settings::add_profile(&state, &sess, &request(&[("title", json!("Work"))])).await.unwrap();
+    ttrss_server::settings::add_profile(&state, &sess, &request(&[("title", json!("Work"))]))
+        .await
+        .unwrap();
     assert_eq!(profile_count(db).await, 1);
 
     // Idempotent: adding the same title again does not create a duplicate.
-    ttrss_server::settings::add_profile(&state, &sess, &request(&[("title", json!("Work"))])).await.unwrap();
+    ttrss_server::settings::add_profile(&state, &sess, &request(&[("title", json!("Work"))]))
+        .await
+        .unwrap();
     assert_eq!(profile_count(db).await, 1);
 
     // A distinct title creates a second profile.
-    ttrss_server::settings::add_profile(&state, &sess, &request(&[("title", json!("Home"))])).await.unwrap();
+    ttrss_server::settings::add_profile(&state, &sess, &request(&[("title", json!("Home"))]))
+        .await
+        .unwrap();
     assert_eq!(profile_count(db).await, 2);
 }
 
@@ -168,11 +179,16 @@ async fn test_add_profile(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options
     "../../testing/fixtures/schema.sql",
     "../../testing/fixtures/baseline.sql"
 ))]
-async fn test_add_profile_empty_title(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options: sqlx::postgres::PgConnectOptions) {
+async fn test_add_profile_empty_title(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
     let (state, sess) = setup(pool, options).await;
     let db = state.db.pool();
     // A whitespace-only (cleaned-to-empty) title is a no-op.
-    ttrss_server::settings::add_profile(&state, &sess, &request(&[("title", json!("   "))])).await.unwrap();
+    ttrss_server::settings::add_profile(&state, &sess, &request(&[("title", json!("   "))]))
+        .await
+        .unwrap();
     assert_eq!(profile_count(db).await, 0);
 }
 
@@ -180,13 +196,22 @@ async fn test_add_profile_empty_title(pool: sqlx::pool::PoolOptions<sqlx::Postgr
     "../../testing/fixtures/schema.sql",
     "../../testing/fixtures/baseline.sql"
 ))]
-async fn test_save_profile(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options: sqlx::postgres::PgConnectOptions) {
+async fn test_save_profile(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
     let (state, sess) = setup(pool, options).await;
     let db = state.db.pool();
     let id = insert_profile(db, "Old").await;
 
     // Rename the owned profile.
-    ttrss_server::settings::save_profile(&state, &sess, &request(&[("id", json!(id)), ("value", json!("New"))])).await.unwrap();
+    ttrss_server::settings::save_profile(
+        &state,
+        &sess,
+        &request(&[("id", json!(id)), ("value", json!("New"))]),
+    )
+    .await
+    .unwrap();
     assert_eq!(profile_title(db, id).await.as_deref(), Some("New"));
 
     // A non-owned id is a no-op (the foreign profile keeps its title).
@@ -197,15 +222,27 @@ async fn test_save_profile(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, option
         .execute(db)
         .await
         .unwrap();
-    ttrss_server::settings::save_profile(&state, &sess, &request(&[("id", json!(foreign_id)), ("value", json!("Hacked"))])).await.unwrap();
-    assert_eq!(profile_title(db, foreign_id).await.as_deref(), Some("Foreign"));
+    ttrss_server::settings::save_profile(
+        &state,
+        &sess,
+        &request(&[("id", json!(foreign_id)), ("value", json!("Hacked"))]),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        profile_title(db, foreign_id).await.as_deref(),
+        Some("Foreign")
+    );
 }
 
 #[sqlx::test(fixtures(
     "../../testing/fixtures/schema.sql",
     "../../testing/fixtures/baseline.sql"
 ))]
-async fn test_remove_profiles(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options: sqlx::postgres::PgConnectOptions) {
+async fn test_remove_profiles(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
     let (state, sess) = setup(pool, options).await;
     let db = state.db.pool();
     let a = insert_profile(db, "A").await;
@@ -213,7 +250,9 @@ async fn test_remove_profiles(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, opt
     // A pref row that must cascade-delete with profile A.
     insert_pref(db, "SHOW_DESCRIPTIONS", "0", Some(a)).await;
 
-    ttrss_server::settings::remove_profiles(&state, &sess, &request(&[("ids", json!([a, b]))])).await.unwrap();
+    ttrss_server::settings::remove_profiles(&state, &sess, &request(&[("ids", json!([a, b]))]))
+        .await
+        .unwrap();
     assert_eq!(profile_count(db).await, 0);
     // The pref override cascade-deleted with its profile.
     assert!(pref_value(db, a, "SHOW_DESCRIPTIONS").await.is_none());
@@ -223,7 +262,10 @@ async fn test_remove_profiles(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, opt
     "../../testing/fixtures/schema.sql",
     "../../testing/fixtures/baseline.sql"
 ))]
-async fn test_remove_profiles_keeps_active(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options: sqlx::postgres::PgConnectOptions) {
+async fn test_remove_profiles_keeps_active(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
     let (state, sess) = setup(pool, options).await;
     let db = state.db.pool();
     let a = insert_profile(db, "A").await;
@@ -232,7 +274,9 @@ async fn test_remove_profiles_keeps_active(pool: sqlx::pool::PoolOptions<sqlx::P
     sess.with_mut(|s| s.set("profile", PValue::Int(a as i64)));
 
     // Request to remove both; A (active) must survive, B must go.
-    ttrss_server::settings::remove_profiles(&state, &sess, &request(&[("ids", json!([a, b]))])).await.unwrap();
+    ttrss_server::settings::remove_profiles(&state, &sess, &request(&[("ids", json!([a, b]))]))
+        .await
+        .unwrap();
     assert_eq!(profile_count(db).await, 1);
     assert_eq!(profile_title(db, a).await.as_deref(), Some("A"));
 }
@@ -241,7 +285,10 @@ async fn test_remove_profiles_keeps_active(pool: sqlx::pool::PoolOptions<sqlx::P
     "../../testing/fixtures/schema.sql",
     "../../testing/fixtures/baseline.sql"
 ))]
-async fn test_activate_profile(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options: sqlx::postgres::PgConnectOptions) {
+async fn test_activate_profile(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
     let (state, sess) = setup(pool, options).await;
     let db = state.db.pool();
     let id = insert_profile(db, "Work").await;
@@ -251,7 +298,8 @@ async fn test_activate_profile(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, op
     assert_eq!(sess.data().profile(), Some(id as i64));
 
     // Activate a non-existent id → cleared (default).
-    ttrss_server::settings::activate_profile(&state, &sess, &request(&[("id", json!(999999))])).await;
+    ttrss_server::settings::activate_profile(&state, &sess, &request(&[("id", json!(999999))]))
+        .await;
     assert_eq!(sess.data().profile(), None);
 
     // Activate a non-owned profile → cleared (default).
@@ -262,7 +310,8 @@ async fn test_activate_profile(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, op
         .execute(db)
         .await
         .unwrap();
-    ttrss_server::settings::activate_profile(&state, &sess, &request(&[("id", json!(foreign))])).await;
+    ttrss_server::settings::activate_profile(&state, &sess, &request(&[("id", json!(foreign))]))
+        .await;
     assert_eq!(sess.data().profile(), None);
 }
 
@@ -270,7 +319,10 @@ async fn test_activate_profile(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, op
     "../../testing/fixtures/schema.sql",
     "../../testing/fixtures/baseline.sql"
 ))]
-async fn test_clone_profile_from_default(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options: sqlx::postgres::PgConnectOptions) {
+async fn test_clone_profile_from_default(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
     let (state, sess) = setup(pool, options).await;
     let db = state.db.pool();
     // Default-profile (profile = NULL) overrides: one normal, one blacklisted.
@@ -278,7 +330,13 @@ async fn test_clone_profile_from_default(pool: sqlx::pool::PoolOptions<sqlx::Pos
     insert_pref(db, "PURGE_OLD_DAYS", "30", None).await; // blacklisted
 
     let before = profile_count(db).await;
-    ttrss_server::settings::clone_profile(&state, &sess, &request(&[("old_profile", json!("0")), ("new_title", json!("Clone"))])).await.unwrap();
+    ttrss_server::settings::clone_profile(
+        &state,
+        &sess,
+        &request(&[("old_profile", json!("0")), ("new_title", json!("Clone"))]),
+    )
+    .await
+    .unwrap();
 
     let new_id: i32 =
         sqlx::query_scalar("SELECT max(id) FROM ttrss_settings_profiles WHERE owner_uid = 1")
@@ -287,7 +345,12 @@ async fn test_clone_profile_from_default(pool: sqlx::pool::PoolOptions<sqlx::Pos
             .unwrap();
     assert_eq!(profile_count(db).await, before + 1);
     // The non-blacklisted pref copied; the blacklisted one did not.
-    assert_eq!(pref_value(db, new_id, "HEADLINES_PER_PAGE").await.as_deref(), Some("50"));
+    assert_eq!(
+        pref_value(db, new_id, "HEADLINES_PER_PAGE")
+            .await
+            .as_deref(),
+        Some("50")
+    );
     assert_eq!(pref_value(db, new_id, "PURGE_OLD_DAYS").await, None);
     assert_eq!(pref_count(db, new_id).await, 1);
 }
@@ -296,7 +359,10 @@ async fn test_clone_profile_from_default(pool: sqlx::pool::PoolOptions<sqlx::Pos
     "../../testing/fixtures/schema.sql",
     "../../testing/fixtures/baseline.sql"
 ))]
-async fn test_clone_profile_from_named(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options: sqlx::postgres::PgConnectOptions) {
+async fn test_clone_profile_from_named(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
     let (state, sess) = setup(pool, options).await;
     let db = state.db.pool();
     let src = insert_profile(db, "Source").await;
@@ -305,7 +371,16 @@ async fn test_clone_profile_from_named(pool: sqlx::pool::PoolOptions<sqlx::Postg
     insert_pref(db, "HEADLINES_PER_PAGE", "25", Some(src)).await;
     insert_pref(db, "PURGE_OLD_DAYS", "14", Some(src)).await;
 
-    ttrss_server::settings::clone_profile(&state, &sess, &request(&[("old_profile", json!(src.to_string())), ("new_title", json!("Copy"))])).await.unwrap();
+    ttrss_server::settings::clone_profile(
+        &state,
+        &sess,
+        &request(&[
+            ("old_profile", json!(src.to_string())),
+            ("new_title", json!("Copy")),
+        ]),
+    )
+    .await
+    .unwrap();
 
     let new_id: i32 = sqlx::query_scalar(
         "SELECT max(id) FROM ttrss_settings_profiles WHERE owner_uid = 1 AND id <> $1",
@@ -315,8 +390,16 @@ async fn test_clone_profile_from_named(pool: sqlx::pool::PoolOptions<sqlx::Postg
     .await
     .unwrap();
     // Both prefs copied (no blacklist applied when cloning from a named profile).
-    assert_eq!(pref_value(db, new_id, "HEADLINES_PER_PAGE").await.as_deref(), Some("25"));
-    assert_eq!(pref_value(db, new_id, "PURGE_OLD_DAYS").await.as_deref(), Some("14"));
+    assert_eq!(
+        pref_value(db, new_id, "HEADLINES_PER_PAGE")
+            .await
+            .as_deref(),
+        Some("25")
+    );
+    assert_eq!(
+        pref_value(db, new_id, "PURGE_OLD_DAYS").await.as_deref(),
+        Some("14")
+    );
     assert_eq!(pref_count(db, new_id).await, 2);
 }
 
@@ -324,19 +407,40 @@ async fn test_clone_profile_from_named(pool: sqlx::pool::PoolOptions<sqlx::Postg
     "../../testing/fixtures/schema.sql",
     "../../testing/fixtures/baseline.sql"
 ))]
-async fn test_clone_profile_bad_input(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options: sqlx::postgres::PgConnectOptions) {
+async fn test_clone_profile_bad_input(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
     let (state, sess) = setup(pool, options).await;
     let db = state.db.pool();
 
     // Non-digit old_profile → no-op (no new profile).
-    ttrss_server::settings::clone_profile(&state, &sess, &request(&[("old_profile", json!("abc")), ("new_title", json!("X"))])).await.unwrap();
+    ttrss_server::settings::clone_profile(
+        &state,
+        &sess,
+        &request(&[("old_profile", json!("abc")), ("new_title", json!("X"))]),
+    )
+    .await
+    .unwrap();
     assert_eq!(profile_count(db).await, 0);
 
     // Negative old_profile (ctype_digit false) → no-op.
-    ttrss_server::settings::clone_profile(&state, &sess, &request(&[("old_profile", json!("-1")), ("new_title", json!("X"))])).await.unwrap();
+    ttrss_server::settings::clone_profile(
+        &state,
+        &sess,
+        &request(&[("old_profile", json!("-1")), ("new_title", json!("X"))]),
+    )
+    .await
+    .unwrap();
     assert_eq!(profile_count(db).await, 0);
 
     // Empty new_title → no-op.
-    ttrss_server::settings::clone_profile(&state, &sess, &request(&[("old_profile", json!("0")), ("new_title", json!("  "))])).await.unwrap();
+    ttrss_server::settings::clone_profile(
+        &state,
+        &sess,
+        &request(&[("old_profile", json!("0")), ("new_title", json!("  "))]),
+    )
+    .await
+    .unwrap();
     assert_eq!(profile_count(db).await, 0);
 }

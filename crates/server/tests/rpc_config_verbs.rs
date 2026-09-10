@@ -124,17 +124,14 @@ async fn test_set_pref_stylesheet_keeps_tags(
     let rv = ttrss_server::settings::set_pref(
         &state,
         &sess,
-        &request(&[
-            ("key", json!("USER_STYLESHEET")),
-            ("value", json!(posted)),
-        ]),
+        &request(&[("key", json!("USER_STYLESHEET")), ("value", json!(posted))]),
     )
     .await;
-    assert_eq!(pref_value(db, "USER_STYLESHEET").await.as_deref(), Some(posted));
     assert_eq!(
-        rv,
-        json!({ "param": "USER_STYLESHEET", "value": posted })
+        pref_value(db, "USER_STYLESHEET").await.as_deref(),
+        Some(posted)
     );
+    assert_eq!(rv, json!({ "param": "USER_STYLESHEET", "value": posted }));
 }
 
 #[sqlx::test(fixtures(
@@ -159,7 +156,10 @@ async fn test_set_pref_strips_tags_other(
         ]),
     )
     .await;
-    assert_eq!(pref_value(db, "SHORT_DATE_FORMAT").await.as_deref(), Some("M d"));
+    assert_eq!(
+        pref_value(db, "SHORT_DATE_FORMAT").await.as_deref(),
+        Some("M d")
+    );
     assert_eq!(
         rv,
         json!({ "param": "SHORT_DATE_FORMAT", "value": "<b>M d</b>" })
@@ -185,7 +185,10 @@ async fn test_toggle_pref_flips_bool(
         &request(&[("key", json!("HIDE_READ_FEEDS"))]),
     )
     .await;
-    assert_eq!(pref_value(db, "HIDE_READ_FEEDS").await.as_deref(), Some("1"));
+    assert_eq!(
+        pref_value(db, "HIDE_READ_FEEDS").await.as_deref(),
+        Some("1")
+    );
     assert_eq!(rv1, json!({ "param": "HIDE_READ_FEEDS", "value": true }));
 
     // Toggling again flips it back to false.
@@ -213,7 +216,10 @@ async fn test_set_widescreen(
     let rv1 =
         ttrss_server::settings::set_widescreen(&state, &sess, &request(&[("wide", json!("1"))]))
             .await;
-    assert_eq!(pref_value(db, "WIDESCREEN_MODE").await.as_deref(), Some("1"));
+    assert_eq!(
+        pref_value(db, "WIDESCREEN_MODE").await.as_deref(),
+        Some("1")
+    );
     assert_eq!(rv1, json!({ "wide": 1 }));
 
     let rv2 =

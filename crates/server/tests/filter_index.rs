@@ -69,7 +69,10 @@ fn request(pairs: &[(&str, Value)]) -> Map<String, Value> {
     "../../testing/fixtures/schema.sql",
     "../../testing/fixtures/baseline.sql"
 ))]
-async fn test_index_structure(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options: sqlx::postgres::PgConnectOptions) {
+async fn test_index_structure(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
     let (state, sess) = setup(pool, options).await;
     let html = ttrss_server::filters::index(&state, &sess, &request(&[])).await;
 
@@ -109,15 +112,25 @@ async fn test_index_structure(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, opt
     "../../testing/fixtures/schema.sql",
     "../../testing/fixtures/baseline.sql"
 ))]
-async fn test_index_search_param(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options: sqlx::postgres::PgConnectOptions) {
+async fn test_index_search_param(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
     let (state, sess) = setup(pool, options).await;
-    let html =
-        ttrss_server::filters::index(&state, &sess, &request(&[("search", json!("rust & \"dev\""))])).await;
+    let html = ttrss_server::filters::index(
+        &state,
+        &sess,
+        &request(&[("search", json!("rust & \"dev\""))]),
+    )
+    .await;
 
     // html-escaped in the output.
     assert!(html.contains("value=\"rust &amp; &quot;dev&quot;\""));
     // stored in the session unescaped (the clean value).
-    assert_eq!(sess.data().get_str("prefs_filter_search"), Some("rust & \"dev\""));
+    assert_eq!(
+        sess.data().get_str("prefs_filter_search"),
+        Some("rust & \"dev\"")
+    );
 }
 
 /// `index` without a `search` param reads `prefs_filter_search` from the session.
@@ -125,9 +138,17 @@ async fn test_index_search_param(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, 
     "../../testing/fixtures/schema.sql",
     "../../testing/fixtures/baseline.sql"
 ))]
-async fn test_index_search_from_session(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options: sqlx::postgres::PgConnectOptions) {
+async fn test_index_search_from_session(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
     let (state, sess) = setup(pool, options).await;
-    sess.with_mut(|s| s.set("prefs_filter_search", PValue::Bytes(b"prior search".to_vec())));
+    sess.with_mut(|s| {
+        s.set(
+            "prefs_filter_search",
+            PValue::Bytes(b"prior search".to_vec()),
+        )
+    });
     let html = ttrss_server::filters::index(&state, &sess, &request(&[])).await;
     assert!(html.contains("value=\"prior search\""));
 }

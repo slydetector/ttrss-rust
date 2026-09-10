@@ -51,7 +51,9 @@ async fn setup(
 
 /// Read an axum `Response` body to a UTF-8 string.
 async fn body_of(res: Response) -> String {
-    let bytes = to_bytes(res.into_body(), usize::MAX).await.expect("body bytes");
+    let bytes = to_bytes(res.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
     String::from_utf8(bytes.to_vec()).expect("utf-8 body")
 }
 
@@ -108,15 +110,33 @@ async fn test_forgotpass_full_flow(
         .await,
     )
     .await;
-    assert!(html.contains("Password reset link will be sent"), "intro missing");
-    for field in ["name='login'", "name='email'", "name='test'", "name='csrf_token'"] {
+    assert!(
+        html.contains("Password reset link will be sent"),
+        "intro missing"
+    );
+    for field in [
+        "name='login'",
+        "name='email'",
+        "name='test'",
+        "name='csrf_token'",
+    ] {
         assert!(html.contains(field), "form field {field:?} missing");
     }
     assert!(!sess.id().is_empty(), "handler should mint a session id");
 
-    let csrf = sess.data().csrf_token().expect("csrf token set").to_string();
-    let v1 = sess.data().get_int("pwdreset:testvalue1").expect("testvalue1");
-    let v2 = sess.data().get_int("pwdreset:testvalue2").expect("testvalue2");
+    let csrf = sess
+        .data()
+        .csrf_token()
+        .expect("csrf token set")
+        .to_string();
+    let v1 = sess
+        .data()
+        .get_int("pwdreset:testvalue1")
+        .expect("testvalue1");
+    let v2 = sess
+        .data()
+        .get_int("pwdreset:testvalue2")
+        .expect("testvalue2");
 
     // Step 2a: a POST with a wrong CSRF token is rejected (and no token stored).
     let sum = (v1 + v2).to_string();
@@ -259,10 +279,7 @@ async fn test_forgotpass_forbidden(
     let db: Db = common::make_db(pool, options).await.expect("test db");
     let mut config = test_config();
     config.disable_login_form = true;
-    let state = AppState {
-        config,
-        db,
-    };
+    let state = AppState { config, db };
     let sess = Sess::new(String::new());
 
     let res = forgotpass::forgotpass(

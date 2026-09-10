@@ -15,9 +15,9 @@
 //! statements are idempotent, so re-applying them on each checkout is a no-op.
 
 use anyhow::Result;
-use std::str::FromStr;
 use sqlx::pool::PoolOptions;
 use sqlx::postgres::{PgConnectOptions, PgConnection, PgPool};
+use std::str::FromStr;
 
 use crate::config::Config;
 
@@ -126,19 +126,17 @@ mod tests {
         };
 
         // `TIME ZONE 0` should report UTC+00.
-        let row: (i64,) =
-            sqlx::query_as("select extract(timezone from now())::bigint")
-                .fetch_one(db.pool())
-                .await
-                .expect("timezone query");
+        let row: (i64,) = sqlx::query_as("select extract(timezone from now())::bigint")
+            .fetch_one(db.pool())
+            .await
+            .expect("timezone query");
         assert_eq!(row.0, 0, "session timezone should be UTC+0");
 
         // A trivial read against a real table.
-        let count: (i64,) =
-            sqlx::query_as("select count(*) from ttrss_feeds")
-                .fetch_one(db.pool())
-                .await
-                .expect("count query");
+        let count: (i64,) = sqlx::query_as("select count(*) from ttrss_feeds")
+            .fetch_one(db.pool())
+            .await
+            .expect("count query");
         assert!(count.0 >= 1, "golden DB should have feeds");
     }
 }

@@ -176,9 +176,15 @@ async fn test_filtersortreset(
     let (state, sess) = setup(pool, options).await;
     let db = &state.db;
     let id = insert_filter(db, "F1").await;
-    sqlx::query("UPDATE ttrss_filters2 SET order_id = 5 WHERE id = $1").bind(id).execute(db.pool()).await.unwrap();
+    sqlx::query("UPDATE ttrss_filters2 SET order_id = 5 WHERE id = $1")
+        .bind(id)
+        .execute(db.pool())
+        .await
+        .unwrap();
 
-    ttrss_server::filters::filtersortreset(&state, &sess).await.expect("reset");
+    ttrss_server::filters::filtersortreset(&state, &sess)
+        .await
+        .expect("reset");
     let row = filter_row(db, id).await.expect("filter");
     assert_eq!(row["order_id"], 0);
 }
@@ -213,9 +219,13 @@ async fn test_savefilterorder(
             ]
         }]
     });
-    ttrss_server::filters::savefilterorder(&state, &sess, &request(&[("payload", json!(payload.to_string()))]))
-        .await
-        .expect("save order");
+    ttrss_server::filters::savefilterorder(
+        &state,
+        &sess,
+        &request(&[("payload", json!(payload.to_string()))]),
+    )
+    .await
+    .expect("save order");
 
     assert_eq!(filter_row(db, b).await.unwrap()["order_id"], 0);
     assert_eq!(filter_row(db, c).await.unwrap()["order_id"], 1);
@@ -239,12 +249,22 @@ async fn test_remove_filters(
     let (state, sess) = setup(pool, options).await;
     let db = &state.db;
     let id = insert_filter(db, "F1").await;
-    sqlx::query("INSERT INTO ttrss_filters2_rules (filter_id, reg_exp, filter_type) VALUES ($1, 'x', 1)").bind(id).execute(db.pool()).await.unwrap();
+    sqlx::query(
+        "INSERT INTO ttrss_filters2_rules (filter_id, reg_exp, filter_type) VALUES ($1, 'x', 1)",
+    )
+    .bind(id)
+    .execute(db.pool())
+    .await
+    .unwrap();
     sqlx::query("INSERT INTO ttrss_filters2_actions (filter_id, action_id, action_param) VALUES ($1, 1, '')").bind(id).execute(db.pool()).await.unwrap();
 
-    ttrss_server::filters::remove_filters(&state, &sess, &request(&[("ids", json!(id.to_string()))]))
-        .await
-        .expect("remove");
+    ttrss_server::filters::remove_filters(
+        &state,
+        &sess,
+        &request(&[("ids", json!(id.to_string()))]),
+    )
+    .await
+    .expect("remove");
 
     assert!(filter_row(db, id).await.is_none());
     assert_eq!(rule_count(db, id).await, 0);
@@ -253,7 +273,9 @@ async fn test_remove_filters(
 
     // An empty `ids` list is a no-op.
     let keep = insert_filter(db, "Keep").await;
-    ttrss_server::filters::remove_filters(&state, &sess, &request(&[])).await.expect("noop");
+    ttrss_server::filters::remove_filters(&state, &sess, &request(&[]))
+        .await
+        .expect("noop");
     assert!(filter_row(db, keep).await.is_some());
 }
 
@@ -276,9 +298,16 @@ async fn test_edit_save(
     let db = &state.db;
     let id = insert_filter(db, "  Old Title ").await;
     // A pre-existing rule that must be replaced.
-    sqlx::query("INSERT INTO ttrss_filters2_rules (filter_id, reg_exp, filter_type) VALUES ($1, 'old', 1)").bind(id).execute(db.pool()).await.unwrap();
+    sqlx::query(
+        "INSERT INTO ttrss_filters2_rules (filter_id, reg_exp, filter_type) VALUES ($1, 'old', 1)",
+    )
+    .bind(id)
+    .execute(db.pool())
+    .await
+    .unwrap();
 
-    let rule_payload = rule_param(&[json!({"reg_exp": "  new  ", "filter_type": 1, "inverse": true})]);
+    let rule_payload =
+        rule_param(&[json!({"reg_exp": "  new  ", "filter_type": 1, "inverse": true})]);
     let req = request(&[
         ("id", json!(id.to_string())),
         ("title", json!(" New <b>Title</b> ")),
@@ -287,7 +316,9 @@ async fn test_edit_save(
         ("inverse", json!("on")),
         ("rule", rule_payload),
     ]);
-    ttrss_server::filters::edit_save(&state, &sess, &req).await.expect("save");
+    ttrss_server::filters::edit_save(&state, &sess, &req)
+        .await
+        .expect("save");
 
     let row = filter_row(db, id).await.expect("filter");
     // trim (not clean): whitespace trimmed, tags preserved.
@@ -305,16 +336,21 @@ async fn test_edit_save(
     let other_uid: i32 = sqlx::query_scalar(
         "INSERT INTO ttrss_users (login, pwd_hash) VALUES ('other', 'x') RETURNING id",
     )
-    .fetch_one(db.pool()).await.unwrap();
+    .fetch_one(db.pool())
+    .await
+    .unwrap();
     let other: i32 = sqlx::query_scalar(
         "INSERT INTO ttrss_filters2 (owner_uid, title) VALUES ($1, 'Other') RETURNING id",
     )
     .bind(other_uid)
-    .fetch_one(db.pool()).await.unwrap();
-    ttrss_server::filters::edit_save(&state, &sess, &request(&[
-        ("id", json!(other.to_string())),
-        ("title", json!("Hacked")),
-    ]))
+    .fetch_one(db.pool())
+    .await
+    .unwrap();
+    ttrss_server::filters::edit_save(
+        &state,
+        &sess,
+        &request(&[("id", json!(other.to_string())), ("title", json!("Hacked"))]),
+    )
     .await
     .expect("save other");
     assert_eq!(filter_row(db, other).await.unwrap()["title"], "Other");
@@ -343,13 +379,24 @@ async fn test_add_filter(
         ("enabled", json!("on")),
         ("match_any_rule", json!("on")),
         ("inverse", json!("")),
-        ("rule", rule_param(&[json!({"reg_exp": "hello", "filter_type": 2})])),
-        ("action", rule_param(&[json!({"action_id": 2, "action_param": ""})])),
+        (
+            "rule",
+            rule_param(&[json!({"reg_exp": "hello", "filter_type": 2})]),
+        ),
+        (
+            "action",
+            rule_param(&[json!({"action_id": 2, "action_param": ""})]),
+        ),
     ]);
-    ttrss_server::filters::add_filter(&state, &sess, &req).await.expect("add");
+    ttrss_server::filters::add_filter(&state, &sess, &req)
+        .await
+        .expect("add");
 
     assert_eq!(filter_count(db).await, before + 1);
-    let id: i32 = sqlx::query_scalar("SELECT id FROM ttrss_filters2 WHERE title = 'My Filter'").fetch_one(db.pool()).await.unwrap();
+    let id: i32 = sqlx::query_scalar("SELECT id FROM ttrss_filters2 WHERE title = 'My Filter'")
+        .fetch_one(db.pool())
+        .await
+        .unwrap();
     let row = filter_row(db, id).await.unwrap();
     assert_eq!(row["enabled"], true);
     assert_eq!(row["match_any_rule"], true);
@@ -376,10 +423,18 @@ async fn test_add_filter_score_action(
     let db = &state.db;
     let req = request(&[
         ("title", json!("Score")),
-        ("action", rule_param(&[json!({"action_id": 6, "action_param": "+5"})])),
+        (
+            "action",
+            rule_param(&[json!({"action_id": 6, "action_param": "+5"})]),
+        ),
     ]);
-    ttrss_server::filters::add_filter(&state, &sess, &req).await.expect("add");
-    let id: i32 = sqlx::query_scalar("SELECT id FROM ttrss_filters2 WHERE title = 'Score'").fetch_one(db.pool()).await.unwrap();
+    ttrss_server::filters::add_filter(&state, &sess, &req)
+        .await
+        .expect("add");
+    let id: i32 = sqlx::query_scalar("SELECT id FROM ttrss_filters2 WHERE title = 'Score'")
+        .fetch_one(db.pool())
+        .await
+        .unwrap();
     let acts = actions(db, id).await;
     assert_eq!(acts.len(), 1);
     assert_eq!(acts[0]["action_id"], 6);
@@ -400,10 +455,18 @@ async fn test_add_filter_tag_action(
     let db = &state.db;
     let req = request(&[
         ("title", json!("Tags")),
-        ("action", rule_param(&[json!({"action_id": 4, "action_param": "World, Hello, world"})])),
+        (
+            "action",
+            rule_param(&[json!({"action_id": 4, "action_param": "World, Hello, world"})]),
+        ),
     ]);
-    ttrss_server::filters::add_filter(&state, &sess, &req).await.expect("add");
-    let id: i32 = sqlx::query_scalar("SELECT id FROM ttrss_filters2 WHERE title = 'Tags'").fetch_one(db.pool()).await.unwrap();
+    ttrss_server::filters::add_filter(&state, &sess, &req)
+        .await
+        .expect("add");
+    let id: i32 = sqlx::query_scalar("SELECT id FROM ttrss_filters2 WHERE title = 'Tags'")
+        .fetch_one(db.pool())
+        .await
+        .unwrap();
     let acts = actions(db, id).await;
     assert_eq!(acts.len(), 1);
     assert_eq!(acts[0]["action_id"], 4);
@@ -431,12 +494,20 @@ async fn test_clone_filters(
     sqlx::query("INSERT INTO ttrss_filters2_rules (filter_id, reg_exp, filter_type) VALUES ($1, 'rule1', 1)").bind(src).execute(db.pool()).await.unwrap();
     sqlx::query("INSERT INTO ttrss_filters2_actions (filter_id, action_id, action_param) VALUES ($1, 2, '')").bind(src).execute(db.pool()).await.unwrap();
 
-    ttrss_server::filters::clone_filters(&state, &sess, &request(&[("ids", json!(src.to_string()))]))
-        .await
-        .expect("clone");
+    ttrss_server::filters::clone_filters(
+        &state,
+        &sess,
+        &request(&[("ids", json!(src.to_string()))]),
+    )
+    .await
+    .expect("clone");
 
     assert_eq!(filter_count(db).await, 2);
-    let clone_id: i32 = sqlx::query_scalar("SELECT id FROM ttrss_filters2 WHERE title = 'Clone of Source'").fetch_one(db.pool()).await.unwrap();
+    let clone_id: i32 =
+        sqlx::query_scalar("SELECT id FROM ttrss_filters2 WHERE title = 'Clone of Source'")
+            .fetch_one(db.pool())
+            .await
+            .unwrap();
     assert_ne!(clone_id, src);
     let row = filter_row(db, clone_id).await.unwrap();
     assert_eq!(row["enabled"], false);
@@ -449,13 +520,20 @@ async fn test_clone_filters(
 
     // A custom new_filter_title is used when exactly one filter is cloned.
     let src2 = insert_filter(db, "Source2").await;
-    ttrss_server::filters::clone_filters(&state, &sess, &request(&[
-        ("ids", json!(src2.to_string())),
-        ("new_filter_title", json!(" My Clone ")),
-    ]))
+    ttrss_server::filters::clone_filters(
+        &state,
+        &sess,
+        &request(&[
+            ("ids", json!(src2.to_string())),
+            ("new_filter_title", json!(" My Clone ")),
+        ]),
+    )
     .await
     .expect("clone2");
-    let titled: i32 = sqlx::query_scalar("SELECT id FROM ttrss_filters2 WHERE title = 'My Clone'").fetch_one(db.pool()).await.unwrap();
+    let titled: i32 = sqlx::query_scalar("SELECT id FROM ttrss_filters2 WHERE title = 'My Clone'")
+        .fetch_one(db.pool())
+        .await
+        .unwrap();
     assert_ne!(titled, src2);
 }
 
@@ -485,9 +563,13 @@ async fn test_join_filters(
     // Base has an extra (unique) rule.
     sqlx::query("INSERT INTO ttrss_filters2_rules (filter_id, reg_exp, filter_type) VALUES ($1, 'unique', 1)").bind(base).execute(db.pool()).await.unwrap();
 
-    ttrss_server::filters::join_filters(&state, &sess, &request(&[("ids", json!(format!("{base},{other}")))]))
-        .await
-        .expect("join");
+    ttrss_server::filters::join_filters(
+        &state,
+        &sess,
+        &request(&[("ids", json!(format!("{base},{other}")))]),
+    )
+    .await
+    .expect("join");
 
     // The base survives with match_any_rule set; the other is deleted.
     let row = filter_row(db, base).await.expect("base");

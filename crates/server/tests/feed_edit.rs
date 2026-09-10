@@ -9,10 +9,10 @@
 
 mod common;
 
-use kuchikiki::parse_html;
-use kuchikiki::traits::TendrilSink;
 use axum::http::StatusCode;
 use base64::Engine as _;
+use kuchikiki::parse_html;
+use kuchikiki::traits::TendrilSink;
 use serde_json::{json, Map, Value};
 use ttrss_core::config::Config;
 use ttrss_core::db::Db;
@@ -80,8 +80,7 @@ async fn test_editfeed_basic(
 ) {
     let (state, sess) = setup(pool, options).await;
 
-    let result =
-        ttrss_server::feeds::editfeed(&state, &sess, &request(&[("id", json!(1))])).await;
+    let result = ttrss_server::feeds::editfeed(&state, &sess, &request(&[("id", json!(1))])).await;
     assert!(result.is_object(), "expected object, got {result}");
 
     let feed = &result["feed"];
@@ -96,11 +95,17 @@ async fn test_editfeed_basic(
     assert_eq!(feed["auth_pass"], "", "empty auth_pass stays empty");
     // The full row is returned: all 39 columns + icon = 40 keys.
     let n_keys = feed.as_object().unwrap().len();
-    assert_eq!(n_keys, 40, "feed should have all 39 columns + icon, got {n_keys}");
+    assert_eq!(
+        n_keys, 40,
+        "feed should have all 39 columns + icon, got {n_keys}"
+    );
     // Spot-check a few internal columns the form does not display.
     assert_eq!(feed["owner_uid"], 1);
     assert_eq!(feed["update_method"], 0);
-    assert!(feed["last_updated"].is_null(), "last_updated should be null: {feed}");
+    assert!(
+        feed["last_updated"].is_null(),
+        "last_updated should be null: {feed}"
+    );
 
     // cats
     assert_eq!(result["cats"]["enabled"], true);
@@ -112,17 +117,26 @@ async fn test_editfeed_basic(
         ),
         "exact <select> tag: {select}"
     );
-    assert!(select.contains("value='1'"), "Technology option missing: {select}");
+    assert!(
+        select.contains("value='1'"),
+        "Technology option missing: {select}"
+    );
     assert!(select.contains("Technology"));
     assert!(
         select.contains("Science &amp; Nature"),
         "& must be HTML-escaped: {select}"
     );
-    assert!(select.contains("value=\"0\""), "Uncategorized option missing: {select}");
+    assert!(
+        select.contains("value=\"0\""),
+        "Uncategorized option missing: {select}"
+    );
     assert!(select.contains("Uncategorized"));
     // The disabled separator is 15 U+2015 bars (matching the PHP).
     assert!(
-        select.contains(&format!("<option disabled=\"1\">{}</option>", "\u{2015}".repeat(15))),
+        select.contains(&format!(
+            "<option disabled=\"1\">{}</option>",
+            "\u{2015}".repeat(15)
+        )),
         "separator: {select}"
     );
     // feed 1's cat is 1, so Technology is pre-selected.
@@ -146,7 +160,10 @@ async fn test_editfeed_basic(
     assert!(result["intervals"]["purge"].is_object());
     let purge0 = result["intervals"]["purge"]["0"].as_str().unwrap();
     assert!(purge0.starts_with("Use default"), "{purge0}");
-    assert!(purge0.contains("(60 days)"), "default purge suffix: {purge0}");
+    assert!(
+        purge0.contains("(60 days)"),
+        "default purge suffix: {purge0}"
+    );
     assert_eq!(result["force_purge"], 0);
 
     // user
@@ -163,7 +180,12 @@ async fn test_editfeed_basic(
         let first = s.chars().next().unwrap();
         assert_eq!(
             first,
-            first.to_uppercase().collect::<String>().chars().next().unwrap(),
+            first
+                .to_uppercase()
+                .collect::<String>()
+                .chars()
+                .next()
+                .unwrap(),
             "language should be ucfirst: {s}"
         );
     }
@@ -208,12 +230,13 @@ async fn test_editfeed_cats_nested(
     .await
     .unwrap();
 
-    let result =
-        ttrss_server::feeds::editfeed(&state, &sess, &request(&[("id", json!(1))])).await;
+    let result = ttrss_server::feeds::editfeed(&state, &sess, &request(&[("id", json!(1))])).await;
     let select = result["cats"]["select"].as_str().unwrap();
     // "Technology" (top) comes before its child "\u{2003}Sub-Tech" (indented by an em space).
     let tech_pos = select.find("Technology").expect("Technology");
-    let sub_pos = select.find("\u{2003}Sub-Tech").expect("indented Sub-Tech: {select}");
+    let sub_pos = select
+        .find("\u{2003}Sub-Tech")
+        .expect("indented Sub-Tech: {select}");
     assert!(sub_pos > tech_pos, "child should follow parent: {select}");
     assert!(select.contains("Sub-Tech"));
 }
@@ -258,7 +281,10 @@ async fn test_get_icon_virtual(
     assert_eq!(get_icon(&state, -4), "inbox");
     assert_eq!(get_icon(&state, -6), "restore");
     // Label ids (below LABEL_BASE_INDEX) map to the generic label icon.
-    assert_eq!(get_icon(&state, ttrss_server::labels::LABEL_BASE_INDEX - 5), "label");
+    assert_eq!(
+        get_icon(&state, ttrss_server::labels::LABEL_BASE_INDEX - 5),
+        "label"
+    );
     // A real feed with no icon file maps to the empty string.
     assert_eq!(get_icon(&state, 1), "");
 }
@@ -290,7 +316,11 @@ async fn test_editfeeds_overview(
     let doc = parse_doc(&html);
 
     // The three hidden fields (the form's identity).
-    for (name, value) in [("ids", "1,2"), ("op", "Pref_Feeds"), ("method", "batchEditSave")] {
+    for (name, value) in [
+        ("ids", "1,2"),
+        ("op", "Pref_Feeds"),
+        ("method", "batchEditSave"),
+    ] {
         let els = doc
             .select(&format!("input[name={name}]"))
             .unwrap()
@@ -342,7 +372,12 @@ async fn test_editfeeds_general_tab(
 
     // The General tab's four selects, each paired with a "Check to enable
     // field" toggle.
-    for name in ["cat_id", "feed_language", "update_interval", "purge_interval"] {
+    for name in [
+        "cat_id",
+        "feed_language",
+        "update_interval",
+        "purge_interval",
+    ] {
         let sel = doc
             .select(&format!("select[name={name}]"))
             .unwrap()
@@ -355,7 +390,10 @@ async fn test_editfeeds_general_tab(
             .collect::<Vec<_>>();
         assert_eq!(toggle.len(), 1, "exactly one toggle for {name}");
         let attrs = toggle[0].attributes.borrow();
-        assert_eq!(attrs.get("onchange"), Some("App.dialogOf(this).toggleField(this)"));
+        assert_eq!(
+            attrs.get("onchange"),
+            Some("App.dialogOf(this).toggleField(this)")
+        );
         assert_eq!(attrs.get("title"), Some("Check to enable field"));
     }
 
@@ -393,12 +431,18 @@ async fn test_editfeeds_auth_tab(
     let doc = parse_doc(&html);
 
     // The Authentication tab's login + password inputs (disabled, autocomplete).
-    let login = doc.select("input[name=auth_login]").unwrap().collect::<Vec<_>>();
+    let login = doc
+        .select("input[name=auth_login]")
+        .unwrap()
+        .collect::<Vec<_>>();
     assert_eq!(login.len(), 1);
     let la = login[0].attributes.borrow();
     assert_eq!(la.get("disabled"), Some("1"));
     assert_eq!(la.get("autocomplete"), Some("new-password"));
-    let pass = doc.select("input[name=auth_pass]").unwrap().collect::<Vec<_>>();
+    let pass = doc
+        .select("input[name=auth_pass]")
+        .unwrap()
+        .collect::<Vec<_>>();
     assert_eq!(pass.len(), 1);
     let pa = pass[0].attributes.borrow();
     assert_eq!(pa.get("type"), Some("password"));
@@ -432,13 +476,19 @@ async fn test_editfeeds_options_tab(
     // The five boolean options, each a disabled checkbox + caption + toggle.
     let expected = [
         ("include_in_digest", "Include in email digest"),
-        ("always_display_enclosures", "Always display image attachments"),
+        (
+            "always_display_enclosures",
+            "Always display image attachments",
+        ),
         ("hide_images", "Do not embed media"),
         ("cache_images", "Cache media"),
         ("mark_unread_on_update", "Mark updated articles as unread"),
     ];
     for (name, caption) in expected {
-        let cb = doc.select(&format!("input[name={name}]")).unwrap().collect::<Vec<_>>();
+        let cb = doc
+            .select(&format!("input[name={name}]"))
+            .unwrap()
+            .collect::<Vec<_>>();
         assert_eq!(cb.len(), 1, "exactly one checkbox {name}");
         assert_eq!(cb[0].attributes.borrow().get("disabled"), Some("1"));
         assert!(html.contains(caption), "caption {caption} present");
@@ -521,18 +571,35 @@ async fn test_subscribe_to_feed(
 
     // The category `<select>` — named "cat", listing the user's categories and
     // an "Uncategorized" option (selected, since default_id is None).
-    let cat_select = result["cat_select"].as_str().expect("cat_select is a string");
+    let cat_select = result["cat_select"]
+        .as_str()
+        .expect("cat_select is a string");
     assert!(cat_select.contains("<select name=\"cat\""), "{cat_select}");
-    assert!(cat_select.contains("value='1'>Technology</option>"), "{cat_select}");
-    assert!(cat_select.contains("value='2'>Science &amp; Nature</option>"), "{cat_select}");
-    assert!(cat_select.contains("value=\"0\">Uncategorized</option>"), "{cat_select}");
+    assert!(
+        cat_select.contains("value='1'>Technology</option>"),
+        "{cat_select}"
+    );
+    assert!(
+        cat_select.contains("value='2'>Science &amp; Nature</option>"),
+        "{cat_select}"
+    );
+    assert!(
+        cat_select.contains("value=\"0\">Uncategorized</option>"),
+        "{cat_select}"
+    );
 
     // The update-interval options — a JSON object (key => label), with the
     // "Default interval" entry annotated with the DEFAULT_UPDATE_INTERVAL label
     // (no pref set in the fixtures → the default 30 → "30 minutes").
     let update = &result["intervals"]["update"];
-    assert!(update.is_object(), "intervals.update is an object: {update}");
-    assert_eq!(update["0"].as_str().unwrap(), "Default interval (30 minutes)");
+    assert!(
+        update.is_object(),
+        "intervals.update is an object: {update}"
+    );
+    assert_eq!(
+        update["0"].as_str().unwrap(),
+        "Default interval (30 minutes)"
+    );
     assert_eq!(update["-1"].as_str().unwrap(), "Disable updates");
     assert_eq!(update["15"].as_str().unwrap(), "15 minutes");
     assert_eq!(update["60"].as_str().unwrap(), "Hourly");
@@ -559,10 +626,12 @@ async fn test_opensite(
     //   102 — empty site_url → not found
     //   103 — invalid site_url → not found
     // The "other user" feed needs a second user to own it.
-    sqlx::query("INSERT INTO ttrss_users (login, pwd_hash, access_level) VALUES ('other', 'x', 10)")
-        .execute(db)
-        .await
-        .expect("insert second user");
+    sqlx::query(
+        "INSERT INTO ttrss_users (login, pwd_hash, access_level) VALUES ('other', 'x', 10)",
+    )
+    .execute(db)
+    .await
+    .expect("insert second user");
     sqlx::query(
         "INSERT INTO ttrss_feeds (id, owner_uid, title, cat_id, feed_url, update_interval, purge_interval, site_url)\n\
          VALUES\n\
@@ -594,7 +663,11 @@ async fn test_opensite(
 
     // Feed owned by another user → 404 (the owner_uid filter excludes it).
     let (status, _, _) = ttrss_server::feeds::opensite(&state, &sess, &extra(101)).await;
-    assert_eq!(status, StatusCode::NOT_FOUND, "other user's feed is not found");
+    assert_eq!(
+        status,
+        StatusCode::NOT_FOUND,
+        "other user's feed is not found"
+    );
 
     // Empty site URL → 404.
     let (status, _, _) = ttrss_server::feeds::opensite(&state, &sess, &extra(102)).await;
@@ -602,5 +675,9 @@ async fn test_opensite(
 
     // Invalid site URL → 404 (validation rejects it).
     let (status, _, _) = ttrss_server::feeds::opensite(&state, &sess, &extra(103)).await;
-    assert_eq!(status, StatusCode::NOT_FOUND, "invalid site URL is not found");
+    assert_eq!(
+        status,
+        StatusCode::NOT_FOUND,
+        "invalid site URL is not found"
+    );
 }
