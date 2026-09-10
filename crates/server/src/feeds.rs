@@ -17,6 +17,7 @@ use serde::Serialize;
 use serde_json::{json, Map, Value};
 use minijinja::Environment;
 use sqlx::Row;
+use axum::http::StatusCode;
 
 use crate::controls;
 use crate::cats::{CAT_LABELS, CAT_SPECIAL};
@@ -605,6 +606,39 @@ pub async fn catchup_all(state: &AppState, sess: &Sess) -> Value {
     json!({ "message": "UPDATE_COUNTERS" })
 }
 
+/// `Feeds::opensite` — 302-redirect to a feed's site URL (validated), or 404 if
+/// the feed is missing / has no valid site URL. Not a JSON method: it emits a
+/// raw `Location` header (302) or a 404 body.
+pub async fn opensite(
+    state: &AppState,
+    sess: &Sess,
+    extra: &Map<String, Value>,
+) -> (StatusCode, Option<String>, String) {
+    let uid = sess.data().uid().unwrap_or(0);
+    let feed_id = crate::util::clean_int(extra.get("feed_id")) as i32;
+
+    let site_url: Option<String> = sqlx::query_scalar(
+        "SELECT site_url FROM ttrss_feeds WHERE id = $1 AND owner_uid = $2",
+    )
+    .bind(feed_id)
+    .bind(uid)
+    .fetch_optional(state.db.pool())
+    .await
+    .ok()
+    .flatten();
+
+    if let Some(url) = site_url {
+        if let Some(valid) = crate::urlhelper::validate(&url, false) {
+            return (StatusCode::FOUND, Some(valid), String::new());
+        }
+    }
+
+    (
+        StatusCode::NOT_FOUND,
+        None,
+        "Feed not found or has an empty site URL.".into(),
+    )
+}
 /// `Feeds::subscribeToFeed` — the data for the "Add a feed" dialog: the
 /// category `<select>` (`cat`) and the update-interval options (the default-
 /// annotated `$update_intervals`). Pure read. PHP emits `intervals.update` as a

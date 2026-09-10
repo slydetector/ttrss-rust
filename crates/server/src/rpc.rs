@@ -253,6 +253,10 @@ async fn dispatch(
             "updatedebugger" => DispatchOutput::TextHtml(crate::feeds::updatedebugger(state, sess, extra, csrf).await),
             "catchupAll" => DispatchOutput::Json(crate::feeds::catchup_all(state, sess).await),
             "subscribeToFeed" => DispatchOutput::Json(crate::feeds::subscribe_to_feed(state, sess).await),
+            "opensite" => {
+                let (status, location, body) = crate::feeds::opensite(state, sess, extra).await;
+                DispatchOutput::Raw(status, location, body)
+            },
             _ => DispatchOutput::Json(unknown_method("Feeds", method)),
         },
         "Pref_Feeds" => match method {

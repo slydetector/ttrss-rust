@@ -39,6 +39,7 @@ pub mod system;
 pub mod users;
 pub mod time;
 pub mod util;
+pub mod urlhelper;
 
 use ttrss_core::config::Config;
 use ttrss_core::db::Db;

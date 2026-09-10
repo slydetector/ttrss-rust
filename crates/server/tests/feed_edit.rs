@@ -11,7 +11,7 @@ mod common;
 
 use kuchikiki::parse_html;
 use kuchikiki::traits::TendrilSink;
-
+use axum::http::StatusCode;
 use base64::Engine as _;
 use serde_json::{json, Map, Value};
 use ttrss_core::config::Config;
@@ -536,4 +536,70 @@ async fn test_subscribe_to_feed(
     assert_eq!(update["15"].as_str().unwrap(), "15 minutes");
     assert_eq!(update["60"].as_str().unwrap(), "Hourly");
     assert_eq!(update["10080"].as_str().unwrap(), "Weekly");
+}
+
+/// `Feeds::opensite` — 302-redirect to a feed's site URL (validated), or 404 if
+/// the feed is missing, owned by another user, or has an empty/invalid site
+/// URL. Not a JSON method: it returns a raw status + optional `Location` + body.
+#[sqlx::test(fixtures(
+    "../../testing/fixtures/schema.sql",
+    "../../testing/fixtures/baseline.sql",
+    "../../testing/fixtures/seed.sql",
+))]
+async fn test_opensite(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
+    let (state, sess) = setup(pool, options).await;
+    let db = state.db.pool();
+
+    // Extra feeds to exercise the failure paths:
+    //   101 — owned by uid 2 (the session is uid 1) → not found
+    //   102 — empty site_url → not found
+    //   103 — invalid site_url → not found
+    // The "other user" feed needs a second user to own it.
+    sqlx::query("INSERT INTO ttrss_users (login, pwd_hash, access_level) VALUES ('other', 'x', 10)")
+        .execute(db)
+        .await
+        .expect("insert second user");
+    sqlx::query(
+        "INSERT INTO ttrss_feeds (id, owner_uid, title, cat_id, feed_url, update_interval, purge_interval, site_url)\n\
+         VALUES\n\
+           (101, 2, 'Other user feed', 1, 'https://example.com/f101', 30, 0, 'https://example.com'),\n\
+           (102, 1, 'Empty site', 1, 'https://example.com/f102', 30, 0, ''),\n\
+           (103, 1, 'Bad site', 1, 'https://example.com/f103', 30, 0, 'not a url')",
+    )
+    .execute(db)
+    .await
+    .expect("insert test feeds");
+
+    let extra = |feed_id: i32| {
+        let mut m = Map::new();
+        m.insert("feed_id".to_string(), json!(feed_id));
+        m
+    };
+
+    // Valid site URL → 302 to the validated URL, no body.
+    let (status, location, body) = ttrss_server::feeds::opensite(&state, &sess, &extra(1)).await;
+    assert_eq!(status, StatusCode::FOUND, "valid feed redirects");
+    assert_eq!(location.as_deref(), Some("https://news.ycombinator.com"));
+    assert!(body.is_empty(), "redirect has no body");
+
+    // Missing feed → 404 + message, no Location.
+    let (status, location, body) = ttrss_server::feeds::opensite(&state, &sess, &extra(99)).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(location, None);
+    assert_eq!(body, "Feed not found or has an empty site URL.");
+
+    // Feed owned by another user → 404 (the owner_uid filter excludes it).
+    let (status, _, _) = ttrss_server::feeds::opensite(&state, &sess, &extra(101)).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "other user's feed is not found");
+
+    // Empty site URL → 404.
+    let (status, _, _) = ttrss_server::feeds::opensite(&state, &sess, &extra(102)).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "empty site URL is not found");
+
+    // Invalid site URL → 404 (validation rejects it).
+    let (status, _, _) = ttrss_server::feeds::opensite(&state, &sess, &extra(103)).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "invalid site URL is not found");
 }

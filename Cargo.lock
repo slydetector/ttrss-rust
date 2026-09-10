@@ -4428,6 +4428,7 @@ dependencies = [
  "ctor",
  "flate2",
  "html5ever 0.26.0",
+ "idna",
  "image",
  "kuchikiki",
  "md5",
