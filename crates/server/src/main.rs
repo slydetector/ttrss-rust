@@ -24,7 +24,8 @@ use ttrss_core::session as core_session;
 use ttrss_server::util::now_unix;
 use tokio::fs;
 use ttrss_server::{
-    nocache_headers, with_trailing_slash, AppState, api, auth, diskcache, mime, render, rpc, session,
+    nocache_headers, with_trailing_slash, AppState, api, auth, diskcache, forgotpass, mime, render,
+    rpc, session,
     syndication,
 };
 
@@ -194,6 +195,22 @@ async fn public_handler(
     match op {
         Some("login") => login_flow(&state, sess.0, &query, &form).await,
         Some("logout") => logout_flow(&state, sess.0, &form).await,
+        // `Handler_Public::forgotpass` — the public password-recovery page.
+        Some("forgotpass") => {
+            let p = forgotpass::Params {
+                hash: query.hash.as_deref(),
+                login: query
+                    .login
+                    .as_deref()
+                    .or_else(|| form.login.as_deref())
+                    .unwrap_or(""),
+                email: form.email.as_deref(),
+                test: form.test.as_deref(),
+                csrf_token: form.csrf_token.as_deref(),
+                method: form.method.as_deref(),
+            };
+            forgotpass::forgotpass(&state, &sess.0, &p).await
+        }
         // `Handler_Public::cached` — serve `<CACHE_DIR>/<subdir>/<file>`.
         Some("cached") => cached_file(&state, query.file.as_deref()),
         // `Handler_Public::feed_icon` — serve `<CACHE_DIR>/feed-icons/<id>`.
@@ -261,6 +278,10 @@ struct PublicQuery {
     id: Option<String>,
     #[serde(rename = "return")]
     return_url: Option<String>,
+    // `op=forgotpass` (password recovery) params — the reset link arrives via
+    // `?op=forgotpass&hash=…&login=…` (GET).
+    hash: Option<String>,
+    login: Option<String>,
     // `op=rss` (syndication) params
     key: Option<String>,
     format: Option<String>,
@@ -287,6 +308,10 @@ struct PublicForm {
     bw_limit: Option<String>,
     profile: Option<String>,
     csrf_token: Option<String>,
+    // `op=forgotpass` (password recovery) form fields (POST `method=do`).
+    email: Option<String>,
+    test: Option<String>,
+    method: Option<String>,
 }
 
 /// `Handler_Public::logout` + `UserHelper::logout`.

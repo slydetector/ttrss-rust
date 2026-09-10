@@ -45,6 +45,10 @@ pub struct Config {
     /// `Config::FORBID_PASSWORD_CHANGES` (T_BOOL, default false): when true,
     /// `Pref_Prefs::changepassword` is refused with "Access forbidden.".
     pub forbid_password_changes: bool,
+    /// `Config::DISABLE_LOGIN_FORM` (T_BOOL, default false): when true, the
+    /// login form and the public `forgotpass` (password-recovery) page are
+    /// disabled (a 403 Forbidden).
+    pub disable_login_form: bool,
 
     /// `Config::PLUGINS` (T_STRING): the comma-separated list of
     /// system-enabled plugins (the `TTRSS_PLUGINS` env var).
@@ -100,6 +104,7 @@ impl Config {
             },
             single_user_mode: sql_bool_to_bool(&std::env::var("TTRSS_SINGLE_USER_MODE").unwrap_or_default()),
             forbid_password_changes: sql_bool_to_bool(&std::env::var("TTRSS_FORBID_PASSWORD_CHANGES").unwrap_or_default()),
+            disable_login_form: sql_bool_to_bool(&std::env::var("TTRSS_DISABLE_LOGIN_FORM").unwrap_or_default()),
             plugins: std::env::var("TTRSS_PLUGINS").unwrap_or_else(|_| "auth_internal".into()),
             listen: env("TTRSS_RUST_LISTEN", "127.0.0.1:8281")?,
             docroot: std::env::var("TTRSS_RUST_DOCROOT")
@@ -199,6 +204,7 @@ mod tests {
             encryption_key: None,
             single_user_mode: false,
             forbid_password_changes: false,
+            disable_login_form: false,
             plugins: "auth_internal".into(),
             listen: "127.0.0.1:8281".parse().unwrap(),
             docroot: PathBuf::from("tt-rss"),

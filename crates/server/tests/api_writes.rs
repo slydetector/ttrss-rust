@@ -34,6 +34,7 @@ fn test_config() -> Config {
         encryption_key: None,
         single_user_mode: false,
         forbid_password_changes: false,
+        disable_login_form: false,
         plugins: "auth_internal".into(),
         listen: "127.0.0.1:8281".parse().unwrap(),
         docroot: std::path::PathBuf::from("tt-rss"),
@@ -125,6 +126,48 @@ async fn test_api_disabled(
         api::before_and_dispatch(&state, &sess, "getversion", &request(&[])).await;
     assert_eq!(status, 1);
     assert_eq!(content["error"], "API_DISABLED");
+}
+
+/// `logout` destroys the session and reports OK; the stored `uid` is cleared
+/// (the middleware deletes the stored row on `destroy`).
+#[sqlx::test(fixtures(
+    "../../testing/fixtures/schema.sql",
+    "../../testing/fixtures/baseline.sql",
+    "../../testing/fixtures/seed.sql",
+))]
+async fn test_logout(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
+    let (state, sess) = setup(pool, options).await;
+    enable_api(&state.db).await;
+    assert_eq!(sess.data().uid(), Some(1));
+
+    let (status, content) =
+        api::before_and_dispatch(&state, &sess, "logout", &request(&[])).await;
+    assert_eq!(status, 0);
+    assert_eq!(content["status"], "OK");
+    assert_eq!(sess.data().uid(), None, "session should be destroyed");
+}
+
+/// `logout` is callable even when not logged in (`UserHelper::logout` always
+/// succeeds), so it is exempt from the not-logged-in gate.
+#[sqlx::test(fixtures(
+    "../../testing/fixtures/schema.sql",
+    "../../testing/fixtures/baseline.sql",
+    "../../testing/fixtures/seed.sql",
+))]
+async fn test_logout_not_logged_in(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
+    let (state, _sess) = setup(pool, options).await;
+    let anon = Sess::new("anon-sid".to_string()); // no `uid`
+
+    let (status, content) =
+        api::before_and_dispatch(&state, &anon, "logout", &request(&[])).await;
+    assert_eq!(status, 0);
+    assert_eq!(content["status"], "OK");
 }
 
 /// `catchupFeed` marks a feed's unread entries read and returns `status: OK`.

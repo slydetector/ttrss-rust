@@ -15,6 +15,7 @@ pub mod diskcache;
 pub mod digest;
 pub mod feeds;
 pub mod filters;
+pub mod forgotpass;
 pub mod headlines;
 pub mod hotkeys;
 pub mod labels;

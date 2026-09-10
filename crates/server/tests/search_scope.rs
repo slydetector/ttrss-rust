@@ -43,6 +43,7 @@ fn test_config() -> Config {
         encryption_key: None,
         single_user_mode: false,
         forbid_password_changes: false,
+        disable_login_form: false,
         plugins: "auth_internal".into(),
         listen: "127.0.0.1:8282".parse().unwrap(),
         docroot: std::path::PathBuf::from("tt-rss"),

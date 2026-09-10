@@ -270,7 +270,7 @@ async fn find_user_by_login(pool: &sqlx::PgPool, login: &str) -> Option<i32> {
 /// `UserHelper::reset_password` — set user `$uid`'s password to `$new_password`
 /// (or a fresh random one) and return the message. `$format_output` is `false`
 /// on the admin paths (a plain `print`, not `print_notice`).
-async fn reset_password(pool: &sqlx::PgPool, uid: i32, new_password: &str) -> String {
+pub(crate) async fn reset_password(pool: &sqlx::PgPool, uid: i32, new_password: &str) -> String {
     let row: Option<String> = sqlx::query_scalar("SELECT login FROM ttrss_users WHERE id = $1")
         .bind(uid)
         .fetch_optional(pool)

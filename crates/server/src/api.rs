@@ -106,7 +106,7 @@ async fn api_auth(state: &AppState, sess: &Sess, op: &str) -> Result<(), (i64, V
             return Err((STATUS_ERR, json!({ "error": E_API_DISABLED })));
         }
         Ok(())
-    } else if matches!(op, "login" | "isloggedin") {
+    } else if matches!(op, "login" | "isloggedin" | "logout") {
         Ok(())
     } else {
         Err((STATUS_ERR, json!({ "error": E_NOT_LOGGED_IN })))
@@ -129,6 +129,12 @@ pub async fn before_and_dispatch(
 
     match op {
         "login" => login(state, sess, body).await,
+        // `API::logout`: destroy the session; the middleware deletes the stored
+        // row. `UserHelper::logout` always succeeds, so no login gate is needed.
+        "logout" => {
+            sess.destroy();
+            (STATUS_OK, json!({ "status": "OK" }))
+        }
         "isloggedin" => (
             STATUS_OK,
             json!({ "status": data.uid().is_some() }),
