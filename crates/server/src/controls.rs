@@ -121,6 +121,50 @@ pub fn select_hash(
     rv
 }
 
+/// PHP `Controls::icon($icon, $attributes = [])`.
+pub fn icon(icon: &str) -> String {
+    format!("<i class=\"material-icons\">{}</i>", icon)
+}
+
+/// PHP `Controls::input_tag($name, $value, $type = "text", $attributes = [], $id = "")`.
+pub fn input_tag(
+    name: &str,
+    value: &str,
+    type_: &str,
+    attributes: &[(&str, String)],
+    id: &str,
+) -> String {
+    let attrs_str = attributes_to_string(attributes);
+    let dojo_type = if attrs_str.contains("dojoType") {
+        ""
+    } else {
+        "dojoType='dijit.form.TextBox'"
+    };
+    format!(
+        "<input name=\"{}\" {} {} id=\"{}\"\n   type=\"{}\" value=\"{}\">",
+        util::htmlspecialchars(name),
+        dojo_type,
+        attrs_str,
+        util::htmlspecialchars(id),
+        type_,
+        util::htmlspecialchars(value)
+    )
+}
+
+/// PHP `Controls::number_spinner_tag($name, $value, $attributes = [], $id = "")`.
+pub fn number_spinner_tag(
+    name: &str,
+    value: &str,
+    attributes: &[(&str, String)],
+    id: &str,
+) -> String {
+    // `['dojoType' => 'dijit.form.NumberSpinner', ...$attributes]`.
+    let mut merged: Vec<(&str, String)> = vec![("dojoType", "dijit.form.NumberSpinner".to_string())];
+    merged.extend(attributes.iter().filter(|(k, _)| *k != "dojoType").map(|(k, v)| (*k, v.clone())));
+    input_tag(name, value, "text", &merged, id)
+}
+
+
 /// PHP `Controls::button_tag($value, $type, $attributes)`.
 pub fn button_tag(value: &str, type_: &str, attributes: &[(&str, String)]) -> String {
     format!(

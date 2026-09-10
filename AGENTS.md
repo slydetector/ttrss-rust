@@ -74,6 +74,7 @@ session in this directory. The frozen PHP reference lives in `tt-rss/`
   small, isolated change.
 - Keep the workspace green: `cargo test` must pass and the working tree must be
   clean before committing.
+- **Run expensive commands once, grep the saved output many times.** Don't re-run `cargo test` (or the like) repeatedly just to pull a different count/suite line — capture stdout to a file (`tee /tmp/test_out.txt`) and `grep`/`awk` that file for every follow-up question.
 - Docker is an acceptable requirement.
 - Stay on the approved dependency versions (e.g. sqlx 0.7) unless told to
   change them.

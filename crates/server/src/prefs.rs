@@ -31,6 +31,7 @@ pub const DIGEST_PREFERRED_TIME: &str = "DIGEST_PREFERRED_TIME";
 pub const USER_CSS_THEME: &str = "USER_CSS_THEME";
 pub const USER_LANGUAGE: &str = "USER_LANGUAGE";
 pub const BLACKLISTED_TAGS: &str = "BLACKLISTED_TAGS";
+pub const SSL_CERT_SERIAL: &str = "SSL_CERT_SERIAL";
 /// PHP `Config::T_*` type hints.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Type {

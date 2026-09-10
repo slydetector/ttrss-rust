@@ -1,0 +1,75 @@
+<div dojoType='dijit.layout.AccordionContainer' region='center'>
+	<div dojoType='dijit.layout.AccordionPane' title="<i class='material-icons'>person</i> Personal data / Authentication">
+		<script type='dojo/method' event='onSelected' args='evt'>
+			if (this.domNode.querySelector('.loading'))
+				window.setTimeout(() => {
+					xhr.post("backend.php", {op: 'Pref_Prefs', method: 'index_auth'}, (reply) => {
+						this.attr('content', reply);
+					});
+				}, 100);
+		</script>
+		<span class='loading'>Loading, please wait...</span>
+	</div>
+	<div dojoType='dijit.layout.AccordionPane' selected='true' title="<i class='material-icons'>settings</i> Preferences">
+		<form dojoType='dijit.form.Form' id='changeSettingsForm'>
+			{{ hidden_op }}
+			{{ hidden_saveconfig }}
+
+			<script type="dojo/method" event="onSubmit" args="evt, quit">
+				if (evt) evt.preventDefault();
+				if (this.validate()) {
+					xhr.post("backend.php", this.getValues(), (reply) => {
+						if (quit) {
+							document.location.href = 'index.php';
+						} else {
+							if (reply == 'PREFS_NEED_RELOAD') {
+								window.location.reload();
+							} else {
+								Notify.info(reply);
+							}
+						}
+					})
+				}
+			</script>
+
+			<div dojoType="dijit.layout.BorderContainer" gutters="false">
+				<div dojoType="dijit.layout.ContentPane" region="center" style="overflow-y : auto">
+					{% if profile_notice %}<div class="notice notice-info">Some preferences are only available in default profile.</div>{% endif %}
+					{% for section in sections %}
+					<h2>{{ section.title }}</h2>
+					{% for item in section.items %}
+					{% if item.kind == 'sep' %}<hr/>{% endif %}
+					{% if item.kind == 'field' %}
+					<fieldset class='prefs'>
+						<label for='CB_{{ item.name }}'>{{ item.short_desc }}:</label>
+						{{ item.control }}
+						{% if item.help_text %}<div class='help-text text-muted'><label for='CB_{{ item.name }}'>{{ item.help_text }}</label></div>{% endif %}
+					</fieldset>
+					{% endif %}
+					{% endfor %}
+					{% endfor %}
+					{{ hidden_boolean }}
+				</div>
+				<div dojoType="dijit.layout.ContentPane" region="bottom">
+					<div dojoType="fox.form.ComboButton" type="submit" class="alt-primary">
+						<span>	Save configuration</span>
+						<div dojoType="dijit.DropDownMenu">
+							<div dojoType="dijit.MenuItem" onclick="dijit.byId('changeSettingsForm').onSubmit(null, true)">Save and exit</div>
+						</div>
+					</div>
+					<button dojoType="dijit.form.Button" onclick="return Helpers.Profiles.edit()">
+						<i class='material-icons'>settings</i>
+						Manage profiles
+					</button>
+					<button dojoType="dijit.form.Button" class="alt-danger" onclick="return Helpers.Prefs.confirmReset()">
+						<i class='material-icons'>clear</i>
+						Reset to defaults
+					</button>
+				</div>
+			</div>
+		</form>
+	</div>
+	<div dojoType='dijit.layout.AccordionPane' style='padding : 0' title="<i class='material-icons'>extension</i> Plugins">
+		{{ plugins_pane }}
+	</div>
+</div>

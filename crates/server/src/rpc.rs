@@ -31,6 +31,7 @@ use crate::users;
 use crate::plugins;
 use crate::labels;
 use crate::opml;
+use crate::pref_ui;
 
 /// Form/query params for `backend.php` (all arrive via `$_REQUEST`).
 #[derive(Deserialize, Default)]
@@ -373,6 +374,7 @@ async fn dispatch(
         },
         "Pref_Prefs" => match method {
             "getProfiles" => DispatchOutput::Json(settings::get_profiles(state, sess).await),
+            "index" => DispatchOutput::Html(pref_ui::index(state, sess).await.unwrap_or_default()),
             "addprofile" => {
                 let _ = settings::add_profile(state, sess, extra).await;
                 DispatchOutput::TextHtml(String::new())

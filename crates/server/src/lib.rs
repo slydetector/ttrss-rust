@@ -22,6 +22,8 @@ pub mod mime;
 pub mod opml;
 pub mod prefs;
 pub mod plugins;
+pub mod pref_ui;
+pub mod pref_timezones;
 pub mod render;
 pub mod rpc;
 pub mod search;
