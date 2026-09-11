@@ -17,9 +17,14 @@
 
 mod common;
 
-use serde_json::Value;
+use serde_json::{json, Map, Value};
+use ttrss_core::config::Config;
 use ttrss_core::db::Db;
+use ttrss_core::phpser::Value as PValue;
+use ttrss_core::session::Session;
 use ttrss_server::counters::{self, FeedOrTag};
+use ttrss_server::session::Sess;
+use ttrss_server::AppState;
 
 /// `DbTestCase::setUp`: `$_SESSION["uid"] = 1`.
 const SESSION_UID: i64 = 1;
@@ -90,7 +95,8 @@ async fn test_get_counters_returns_int(
     options: sqlx::postgres::PgConnectOptions,
 ) {
     let db = setup(pool, options).await;
-    let result = counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(-4), false, false, None).await;
+    let result =
+        counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(-4), false, false, None).await;
     assert!(result >= 0);
 }
 
@@ -271,10 +277,22 @@ async fn test_get_counters_by_feed_id_all(
     options: sqlx::postgres::PgConnectOptions,
 ) {
     let db = setup(pool, options).await;
-    assert_eq!(3, counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(1), false, false, None).await);
-    assert_eq!(3, counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(2), false, false, None).await);
-    assert_eq!(2, counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(3), false, false, None).await);
-    assert_eq!(3, counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(4), false, false, None).await);
+    assert_eq!(
+        3,
+        counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(1), false, false, None).await
+    );
+    assert_eq!(
+        3,
+        counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(2), false, false, None).await
+    );
+    assert_eq!(
+        2,
+        counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(3), false, false, None).await
+    );
+    assert_eq!(
+        3,
+        counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(4), false, false, None).await
+    );
 }
 
 // PHP: test_get_counters_by_feed_id_unread_only
@@ -288,10 +306,22 @@ async fn test_get_counters_by_feed_id_unread_only(
     options: sqlx::postgres::PgConnectOptions,
 ) {
     let db = setup(pool, options).await;
-    assert_eq!(2, counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(1), false, true, None).await);
-    assert_eq!(3, counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(2), false, true, None).await);
-    assert_eq!(1, counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(3), false, true, None).await);
-    assert_eq!(2, counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(4), false, true, None).await);
+    assert_eq!(
+        2,
+        counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(1), false, true, None).await
+    );
+    assert_eq!(
+        3,
+        counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(2), false, true, None).await
+    );
+    assert_eq!(
+        1,
+        counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(3), false, true, None).await
+    );
+    assert_eq!(
+        2,
+        counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(4), false, true, None).await
+    );
 }
 
 // PHP: test_get_counters_nonexistent_feed
@@ -464,7 +494,15 @@ async fn test_get_counters_tag_nonexistent(
     let db = setup(pool, options).await;
     assert_eq!(
         0,
-        counters::get_counters(&db, SESSION_UID, FeedOrTag::Tag("nonexistent-tag"), false, false, None).await
+        counters::get_counters(
+            &db,
+            SESSION_UID,
+            FeedOrTag::Tag("nonexistent-tag"),
+            false,
+            false,
+            None
+        )
+        .await
     );
 }
 
@@ -520,14 +558,30 @@ async fn test_get_counters_label_id(
     // Count unread articles with this label
     assert_eq!(
         1,
-        counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(label_ref), false, false, None).await
+        counters::get_counters(
+            &db,
+            SESSION_UID,
+            FeedOrTag::Feed(label_ref),
+            false,
+            false,
+            None
+        )
+        .await
     );
 
     // Count all articles with this label (PHP's _get_label_unread always
     // filters unread = true, so this is the same count)
     assert_eq!(
         1,
-        counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(label_ref), false, false, None).await
+        counters::get_counters(
+            &db,
+            SESSION_UID,
+            FeedOrTag::Feed(label_ref),
+            false,
+            false,
+            None
+        )
+        .await
     );
     // NOTE: the PHP test's cleanup DELETEs are unnecessary — the harness
     // drops the per-test database.
@@ -615,14 +669,16 @@ async fn test_get_counters_sum_per_feed(
     // Sum of individual feed counts should equal FEED_ALL total
     let mut total = 0;
     for i in 1..=4i64 {
-        total += counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(i), false, false, None).await;
+        total +=
+            counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(i), false, false, None).await;
     }
     assert_eq!(11, total);
 
     // Unread sum
     let mut unread_total = 0;
     for i in 1..=4i64 {
-        unread_total += counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(i), false, true, None).await;
+        unread_total +=
+            counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(i), false, true, None).await;
     }
     assert_eq!(8, unread_total);
 }
@@ -640,7 +696,14 @@ async fn test_counters_get_feeds_returns_array(
     options: sqlx::postgres::PgConnectOptions,
 ) {
     let db = setup(pool, options).await;
-    let result = counters::get_conditional(&db, SESSION_UID, Some(&[1, 2]), None, std::path::Path::new(ICON_DIR)).await;
+    let result = counters::get_conditional(
+        &db,
+        SESSION_UID,
+        Some(&[1, 2]),
+        None,
+        std::path::Path::new(ICON_DIR),
+    )
+    .await;
     assert!(!result.is_empty());
 }
 
@@ -655,11 +718,22 @@ async fn test_counters_get_feeds_contains_requested_feeds(
     options: sqlx::postgres::PgConnectOptions,
 ) {
     let db = setup(pool, options).await;
-    let result = counters::get_conditional(&db, SESSION_UID, Some(&[1, 2]), None, std::path::Path::new(ICON_DIR)).await;
+    let result = counters::get_conditional(
+        &db,
+        SESSION_UID,
+        Some(&[1, 2]),
+        None,
+        std::path::Path::new(ICON_DIR),
+    )
+    .await;
 
     // Filter to only feed entries (see is_feed_entry for the PHP condition)
     let feed_entries: Vec<&Value> = result.iter().filter(|v| is_feed_entry(v)).collect();
-    assert_eq!(2, feed_entries.len(), "Should contain exactly feeds 1 and 2");
+    assert_eq!(
+        2,
+        feed_entries.len(),
+        "Should contain exactly feeds 1 and 2"
+    );
 
     // Build lookup by id
     let by_id: std::collections::HashMap<i64, &serde_json::Map<String, Value>> = feed_entries
@@ -673,15 +747,30 @@ async fn test_counters_get_feeds_contains_requested_feeds(
     // Feed 1 (Hacker News): 2 unread, 1 marked
     let f1 = by_id[&1];
     assert_eq!(1, f1.get("id").and_then(Value::as_i64).unwrap());
-    assert_eq!(2, f1.get("counter").and_then(Value::as_i64).unwrap(), "Feed 1 should have 2 unread");
-    assert_eq!(1, f1.get("markedcounter").and_then(Value::as_i64).unwrap(), "Feed 1 should have 1 starred");
-    assert_eq!(0, f1.get("publishedcounter").and_then(Value::as_i64).unwrap());
+    assert_eq!(
+        2,
+        f1.get("counter").and_then(Value::as_i64).unwrap(),
+        "Feed 1 should have 2 unread"
+    );
+    assert_eq!(
+        1,
+        f1.get("markedcounter").and_then(Value::as_i64).unwrap(),
+        "Feed 1 should have 1 starred"
+    );
+    assert_eq!(
+        0,
+        f1.get("publishedcounter").and_then(Value::as_i64).unwrap()
+    );
     assert!(f1.get("error").is_some());
     assert!(f1.get("updated").is_some());
 
     // Feed 2 (The Register): 3 unread, 0 marked
     let f2 = by_id[&2];
-    assert_eq!(3, f2.get("counter").and_then(Value::as_i64).unwrap(), "Feed 2 should have 3 unread");
+    assert_eq!(
+        3,
+        f2.get("counter").and_then(Value::as_i64).unwrap(),
+        "Feed 2 should have 3 unread"
+    );
     assert_eq!(0, f2.get("markedcounter").and_then(Value::as_i64).unwrap());
 }
 
@@ -696,15 +785,28 @@ async fn test_counters_get_feeds_empty_array(
     options: sqlx::postgres::PgConnectOptions,
 ) {
     let db = setup(pool, options).await;
-    let result = counters::get_conditional(&db, SESSION_UID, Some(&[]), None, std::path::Path::new(ICON_DIR)).await;
+    let result = counters::get_conditional(
+        &db,
+        SESSION_UID,
+        Some(&[]),
+        None,
+        std::path::Path::new(ICON_DIR),
+    )
+    .await;
 
-    let feed_entries: Vec<&Value> = result.iter().filter(|v| {
-        v.as_object()
-            .and_then(|m| m.get("id"))
-            .and_then(Value::as_i64)
-            .is_some_and(|id| id > 0)
-    }).collect();
-    assert!(feed_entries.is_empty(), "Empty feed_ids should yield no feed entries");
+    let feed_entries: Vec<&Value> = result
+        .iter()
+        .filter(|v| {
+            v.as_object()
+                .and_then(|m| m.get("id"))
+                .and_then(Value::as_i64)
+                .is_some_and(|id| id > 0)
+        })
+        .collect();
+    assert!(
+        feed_entries.is_empty(),
+        "Empty feed_ids should yield no feed entries"
+    );
 }
 
 // ── Rust-only regression: `get_cats` with a filtered cat list ──────────────
@@ -733,8 +835,14 @@ async fn test_counters_get_conditional_feed_ids_category_rows(
     options: sqlx::postgres::PgConnectOptions,
 ) {
     let db = setup(pool, options).await;
-    let result =
-        counters::get_conditional(&db, SESSION_UID, Some(&[1, 2]), None, std::path::Path::new(ICON_DIR)).await;
+    let result = counters::get_conditional(
+        &db,
+        SESSION_UID,
+        Some(&[1, 2]),
+        None,
+        std::path::Path::new(ICON_DIR),
+    )
+    .await;
 
     let cat_entries: Vec<&Value> = result
         .iter()
@@ -778,7 +886,9 @@ async fn test_counters_get_conditional_feed_ids_category_rows(
     );
     assert_eq!(
         0,
-        tech.get("publishedcounter").and_then(Value::as_i64).unwrap(),
+        tech.get("publishedcounter")
+            .and_then(Value::as_i64)
+            .unwrap(),
         "Technology published: {tech:?}"
     );
 
@@ -948,7 +1058,11 @@ async fn test_counters_get_labels_with_ids(
     assert!(!label_ids.is_empty());
 
     let result = counters::get_labels(&db, SESSION_UID, Some(&label_ids)).await;
-    assert_eq!(label_ids.len(), result.len(), "Should return entries for the requested labels");
+    assert_eq!(
+        label_ids.len(),
+        result.len(),
+        "Should return entries for the requested labels"
+    );
 
     for entry in &result {
         let m = entry.as_object().unwrap();
@@ -1005,7 +1119,14 @@ async fn test_counters_get_conditional_with_label_ids(
     let label_ids = seed_label_ids(&db).await;
     assert!(!label_ids.is_empty());
 
-    let result = counters::get_conditional(&db, SESSION_UID, None, Some(&label_ids), std::path::Path::new(ICON_DIR)).await;
+    let result = counters::get_conditional(
+        &db,
+        SESSION_UID,
+        None,
+        Some(&label_ids),
+        std::path::Path::new(ICON_DIR),
+    )
+    .await;
 
     let label_entries: Vec<&Value> = result.iter().filter(|v| is_label_entry(v)).collect();
     assert_eq!(label_ids.len(), label_entries.len());
@@ -1024,7 +1145,14 @@ async fn test_counters_get_conditional_with_both_feed_and_label_ids(
     let db = setup(pool, options).await;
     let label_ids = seed_label_ids(&db).await;
 
-    let result = counters::get_conditional(&db, SESSION_UID, Some(&[1, 2]), Some(&label_ids), std::path::Path::new(ICON_DIR)).await;
+    let result = counters::get_conditional(
+        &db,
+        SESSION_UID,
+        Some(&[1, 2]),
+        Some(&label_ids),
+        std::path::Path::new(ICON_DIR),
+    )
+    .await;
 
     let feed_entries: Vec<&Value> = result.iter().filter(|v| is_feed_entry(v)).collect();
     let label_entries: Vec<&Value> = result.iter().filter(|v| is_label_entry(v)).collect();
@@ -1033,5 +1161,258 @@ async fn test_counters_get_conditional_with_both_feed_and_label_ids(
         feed_entries.len() >= 2,
         "Should contain at least 2 requested feed entries"
     );
-    assert_eq!(label_ids.len(), label_entries.len(), "Should contain label entries");
+    assert_eq!(
+        label_ids.len(),
+        label_entries.len(),
+        "Should contain label entries"
+    );
+}
+
+// ── get_all_counters handler (RPC glue) ─────────────────────────────────────
+//
+// Rust-only: the PHP suite has no handler-level test for
+// `RPC::getAllCounters` (its tests cover the `Counters::*` methods above).
+// These pin the handler glue rewritten with the July 2026 `feed_ids[]` fix:
+// the `feed_id_count`/`label_id_count` == -1 → null ("return all counters")
+// contract, the `DISABLE_CONDITIONAL_COUNTERS` pref gate (PHP: `is_array
+// ($feed_ids) && !Prefs::get(...)` → `Counters::get_all()`), the `seq` echo
+// (`(int)` cast from string or numeric), and the label-subset wiring on the
+// conditional path (`get_conditional($feed_ids, $label_ids)`).
+
+/// Test-only config for the handler-level tests (mirrors `api_writes.rs`).
+fn test_config() -> Config {
+    Config {
+        db_host: "127.0.0.1".into(),
+        db_port: 5432,
+        db_user: "postgres".into(),
+        db_pass: "postgres".into(),
+        db_name: "postgres".into(),
+        db_sslmode: "disable".into(),
+        self_url: "http://127.0.0.1:8280/tt-rss/".into(),
+        encryption_key: None,
+        single_user_mode: false,
+        forbid_password_changes: false,
+        disable_login_form: false,
+        plugins: "auth_internal".into(),
+        listen: "127.0.0.1:8281".parse().unwrap(),
+        docroot: std::path::PathBuf::from("tt-rss"),
+        feed_icon_dir: std::path::PathBuf::from("no-such-test-icon-dir"),
+        max_favicon_file_size: 1024 * 1024,
+        force_article_purge: 0,
+    }
+}
+
+/// [`setup`] + the `AppState`/`Sess` the handler takes (session `uid = 1`,
+/// the fixture owner).
+async fn setup_state(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) -> (AppState, Sess) {
+    let db = setup(pool, options).await;
+    let state = AppState {
+        config: test_config(),
+        db,
+    };
+    let mut data = Session::new();
+    data.set("uid", PValue::Int(1));
+    let sess = Sess::new("test-sid".to_string());
+    sess.replace("test-sid".to_string(), data);
+    (state, sess)
+}
+
+/// The feed-entry ids in a counters response, sorted.
+fn feed_ids_in(counters: &[Value]) -> Vec<i64> {
+    let mut ids: Vec<i64> = counters
+        .iter()
+        .filter(|v| is_feed_entry(v))
+        .map(|v| v["id"].as_i64().unwrap())
+        .collect();
+    ids.sort_unstable();
+    ids
+}
+
+/// The `kind: "cat"` entries in a counters response.
+fn cat_entries(counters: &[Value]) -> Vec<&Value> {
+    counters
+        .iter()
+        .filter(|v| {
+            v.as_object()
+                .and_then(|m| m.get("kind"))
+                .is_some_and(|k| k.as_str() == Some("cat"))
+        })
+        .collect()
+}
+
+// Rust-only: `feed_ids[]` (string values, as the form parser produces) +
+// `feed_id_count` → the conditional path: only the requested feeds, their
+// category rows (Technology + uncategorized + Labels), all label entries
+// (no `label_ids` param → PHP `get_labels(null)` = all labels), and the
+// string `seq` echoed as an int.
+#[sqlx::test(fixtures(
+    "../../testing/fixtures/schema.sql",
+    "../../testing/fixtures/baseline.sql",
+    "../../testing/fixtures/seed.sql",
+))]
+async fn test_get_all_counters_handler_feed_ids_array(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
+    let (state, sess) = setup_state(pool, options).await;
+    let mut extra = Map::new();
+    extra.insert("seq".into(), json!("7"));
+    extra.insert("feed_id_count".into(), json!(2));
+    extra.insert("feed_ids".into(), json!(["1", "2"]));
+    let v = counters::get_all_counters(&state, &sess, &extra).await;
+
+    assert_eq!(v["seq"], json!(7), "seq: (int) cast of the string '7'");
+    let c = v["counters"].as_array().expect("counters array");
+
+    assert_eq!(vec![1, 2], feed_ids_in(c), "only the requested feeds");
+    let f1 = c.iter().find(|v| v["id"] == json!(1)).unwrap();
+    assert_eq!(f1["counter"], json!(2), "feed 1 unread");
+    assert_eq!(f1["markedcounter"], json!(1), "feed 1 marked");
+    let f2 = c.iter().find(|v| v["id"] == json!(2)).unwrap();
+    assert_eq!(f2["counter"], json!(3), "feed 2 unread");
+
+    // Categories of feeds 1-2: Labels + Technology (feeds 1-3: 6 unread) +
+    // uncategorized (0) — not Science & Nature (feed 4).
+    let cats = cat_entries(c);
+    let mut cat_ids: Vec<i64> = cats.iter().map(|v| v["id"].as_i64().unwrap()).collect();
+    cat_ids.sort_unstable();
+    assert_eq!(
+        vec![ttrss_server::cats::CAT_LABELS, 0, 1],
+        cat_ids,
+        "cat entries: {cats:?}"
+    );
+
+    // No label_ids param → PHP `get_labels(null)` → all seeded labels.
+    let labels: Vec<&Value> = c.iter().filter(|v| is_label_entry(v)).collect();
+    assert_eq!(2, labels.len(), "all seeded labels: {c:?}");
+}
+
+// Rust-only: absent `*_id_count` params → -1 → null → `Counters::get_all()`
+// — every feed, every category, numeric `seq` echoed as-is.
+#[sqlx::test(fixtures(
+    "../../testing/fixtures/schema.sql",
+    "../../testing/fixtures/baseline.sql",
+    "../../testing/fixtures/seed.sql",
+))]
+async fn test_get_all_counters_handler_no_counts_returns_all(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
+    let (state, sess) = setup_state(pool, options).await;
+    let mut extra = Map::new();
+    extra.insert("seq".into(), json!(3));
+    let v = counters::get_all_counters(&state, &sess, &extra).await;
+
+    assert_eq!(v["seq"], json!(3));
+    let c = v["counters"].as_array().expect("counters array");
+    assert_eq!(vec![1, 2, 3, 4], feed_ids_in(c), "all seeded feeds");
+    let mut cat_ids: Vec<i64> = cat_entries(c)
+        .iter()
+        .map(|v| v["id"].as_i64().unwrap())
+        .collect();
+    cat_ids.sort_unstable();
+    assert_eq!(
+        vec![ttrss_server::cats::CAT_LABELS, 0, 1, 2],
+        cat_ids,
+        "all categories + uncategorized + labels"
+    );
+}
+
+// Rust-only: an explicit `feed_id_count: -1` overrides the supplied `feed_ids`
+// (PHP: `$feed_id_count == -1 ? null : _param_to_int_array(...)`).
+#[sqlx::test(fixtures(
+    "../../testing/fixtures/schema.sql",
+    "../../testing/fixtures/baseline.sql",
+    "../../testing/fixtures/seed.sql",
+))]
+async fn test_get_all_counters_handler_feed_id_count_minus_one(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
+    let (state, sess) = setup_state(pool, options).await;
+    let mut extra = Map::new();
+    extra.insert("feed_id_count".into(), json!(-1));
+    extra.insert("feed_ids".into(), json!(["1", "2"]));
+    let v = counters::get_all_counters(&state, &sess, &extra).await;
+
+    let c = v["counters"].as_array().expect("counters array");
+    assert_eq!(
+        vec![1, 2, 3, 4],
+        feed_ids_in(c),
+        "count -1 → null → all feeds"
+    );
+}
+
+// Rust-only: `DISABLE_CONDITIONAL_COUNTERS` → `Counters::get_all()` even when
+// feed ids were supplied (PHP: `is_array($feed_ids) && !Prefs::get(...)`).
+#[sqlx::test(fixtures(
+    "../../testing/fixtures/schema.sql",
+    "../../testing/fixtures/baseline.sql",
+    "../../testing/fixtures/seed.sql",
+))]
+async fn test_get_all_counters_handler_disable_conditional(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
+    let (state, sess) = setup_state(pool, options).await;
+    sqlx::query(
+        "INSERT INTO ttrss_user_prefs2 (owner_uid, pref_name, profile, value)
+         VALUES (1, 'DISABLE_CONDITIONAL_COUNTERS', NULL, '1')",
+    )
+    .execute(state.db.pool())
+    .await
+    .expect("set DISABLE_CONDITIONAL_COUNTERS");
+
+    let mut extra = Map::new();
+    extra.insert("feed_id_count".into(), json!(2));
+    extra.insert("feed_ids".into(), json!(["1", "2"]));
+    let v = counters::get_all_counters(&state, &sess, &extra).await;
+
+    let c = v["counters"].as_array().expect("counters array");
+    assert_eq!(
+        vec![1, 2, 3, 4],
+        feed_ids_in(c),
+        "pref gate → get_all() ignores the feed filter"
+    );
+    let mut cat_ids: Vec<i64> = cat_entries(c)
+        .iter()
+        .map(|v| v["id"].as_i64().unwrap())
+        .collect();
+    cat_ids.sort_unstable();
+    assert_eq!(
+        vec![ttrss_server::cats::CAT_LABELS, 0, 1, 2],
+        cat_ids,
+        "get_all() → all categories"
+    );
+}
+
+// Rust-only: `label_ids` on the conditional path → only the requested label
+// entries (PHP `get_conditional($feed_ids, $label_ids)` → `get_labels($label_ids)`).
+#[sqlx::test(fixtures(
+    "../../testing/fixtures/schema.sql",
+    "../../testing/fixtures/baseline.sql",
+    "../../testing/fixtures/seed.sql",
+))]
+async fn test_get_all_counters_handler_label_ids_subset(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
+    let (state, sess) = setup_state(pool, options).await;
+    let mut extra = Map::new();
+    extra.insert("feed_id_count".into(), json!(2));
+    extra.insert("feed_ids".into(), json!(["1", "2"]));
+    extra.insert("label_id_count".into(), json!(1));
+    extra.insert("label_ids".into(), json!("1"));
+    let v = counters::get_all_counters(&state, &sess, &extra).await;
+
+    let c = v["counters"].as_array().expect("counters array");
+    let labels: Vec<&Value> = c.iter().filter(|v| is_label_entry(v)).collect();
+    assert_eq!(1, labels.len(), "only the requested label: {c:?}");
+    assert_eq!(
+        ttrss_server::labels::label_to_feed_id(1),
+        labels[0]["id"].as_i64().unwrap()
+    );
 }
