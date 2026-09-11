@@ -18,20 +18,20 @@ use sqlx::Row;
 use ttrss_core::phpser;
 use ttrss_core::user;
 
-use crate::feeds;
-use crate::prefs;
-use crate::session::{self, Sess};
-use crate::AppState;
 use crate::article;
-use crate::util;
-use crate::settings;
+use crate::feeds;
 use crate::filters;
-use crate::system;
-use crate::users;
-use crate::plugins;
 use crate::labels;
 use crate::opml;
+use crate::plugins;
 use crate::pref_ui;
+use crate::prefs;
+use crate::session::{self, Sess};
+use crate::settings;
+use crate::system;
+use crate::users;
+use crate::util;
+use crate::AppState;
 
 /// Form/query params for `backend.php` (all arrive via `$_REQUEST`).
 #[derive(Deserialize, Default)]
@@ -42,6 +42,55 @@ pub struct RpcForm {
     csrf_token: Option<String>,
     #[serde(flatten)]
     extra: Map<String, Value>,
+}
+
+/// Parse an `application/x-www-form-urlencoded` (or query-string) payload into
+/// an [`RpcForm`], preserving repeated keys as JSON arrays. The Dojo SPA sends
+/// batch ops (`catchupSelected`, `markSelected`, `delete`, …) as repeated
+/// `ids[]=…&ids[]=…` params; deserializing those into a `Map` (the previous
+/// `serde_urlencoded` path) collapsed each key to its *last* value, so only the
+/// final id was ever acted on. A single-valued key stays a scalar string (the
+/// axum `Form` convention the scalar handlers and tests rely on); a repeated
+/// key becomes a `Value::Array` that `param_int_array` and friends read whole.
+fn rpc_form_from_urlencoded(input: &[u8]) -> RpcForm {
+    let mut op: Option<String> = None;
+    let mut method: Option<String> = None;
+    let mut subop: Option<String> = None;
+    let mut csrf_token: Option<String> = None;
+    let mut idx: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let mut vals: Vec<(String, Vec<String>)> = Vec::new();
+    for (k, v) in url::form_urlencoded::parse(input) {
+        let (k, v) = (k.into_owned(), v.into_owned());
+        match k.as_str() {
+            "op" => op = Some(v),
+            "method" => method = Some(v),
+            "subop" => subop = Some(v),
+            "csrf_token" => csrf_token = Some(v),
+            _ => {
+                let i = *idx.entry(k.clone()).or_insert_with(|| {
+                    vals.push((k.clone(), Vec::new()));
+                    vals.len() - 1
+                });
+                vals[i].1.push(v);
+            }
+        }
+    }
+    let mut extra: Map<String, Value> = Map::new();
+    for (k, v) in vals {
+        let value = if v.len() == 1 {
+            Value::String(v.into_iter().next().unwrap())
+        } else {
+            Value::Array(v.into_iter().map(Value::String).collect())
+        };
+        extra.insert(k, value);
+    }
+    RpcForm {
+        op,
+        method,
+        subop,
+        csrf_token,
+        extra,
+    }
 }
 
 /// `backend.php` — dispatch on `op`/`method`, return a JSON envelope.
@@ -77,46 +126,47 @@ pub async fn handler(
             .into_response();
     }
 
-    let (body, content_type) = match dispatch(&state, &sess, &op, &method, &csrf, &extra, file.as_deref()).await {
-        DispatchOutput::Json(v) => (v.to_string(), "application/json; charset=utf-8"),
-        DispatchOutput::Html(h) => (h, "application/json; charset=utf-8"),
-        DispatchOutput::TextHtml(h) => (h, "text/html;charset=UTF-8"),
-        DispatchOutput::Raw(status, location, body) => {
-            let mut res = Response::builder()
-                .status(status)
-                .header(header::CONTENT_TYPE, "application/json; charset=utf-8")
-                .body(Body::from(body))
-                .expect("valid response");
-            if let Some(loc) = location {
-                // A 302 without a parseable `Location` would be malformed; the
-                // validated URL is always parseable, but fall back rather than panic.
-                let hv = loc
-                    .parse()
-                    .unwrap_or_else(|_| axum::http::HeaderValue::from_static("/"));
-                res.headers_mut().insert(header::LOCATION, hv);
-            }
-            if sess.had_cookie() {
-                super::nocache_headers(res.headers_mut());
-            }
-            return res;
-        }
-        DispatchOutput::Download(status, ct, disposition, body) => {
-            let mut res = Response::builder()
-                .status(status)
-                .header(header::CONTENT_TYPE, ct)
-                .body(Body::from(body))
-                .expect("valid response");
-            if let Some(d) = disposition {
-                if let Ok(hv) = d.parse() {
-                    res.headers_mut().insert(header::CONTENT_DISPOSITION, hv);
+    let (body, content_type) =
+        match dispatch(&state, &sess, &op, &method, &csrf, &extra, file.as_deref()).await {
+            DispatchOutput::Json(v) => (v.to_string(), "application/json; charset=utf-8"),
+            DispatchOutput::Html(h) => (h, "application/json; charset=utf-8"),
+            DispatchOutput::TextHtml(h) => (h, "text/html;charset=UTF-8"),
+            DispatchOutput::Raw(status, location, body) => {
+                let mut res = Response::builder()
+                    .status(status)
+                    .header(header::CONTENT_TYPE, "application/json; charset=utf-8")
+                    .body(Body::from(body))
+                    .expect("valid response");
+                if let Some(loc) = location {
+                    // A 302 without a parseable `Location` would be malformed; the
+                    // validated URL is always parseable, but fall back rather than panic.
+                    let hv = loc
+                        .parse()
+                        .unwrap_or_else(|_| axum::http::HeaderValue::from_static("/"));
+                    res.headers_mut().insert(header::LOCATION, hv);
                 }
+                if sess.had_cookie() {
+                    super::nocache_headers(res.headers_mut());
+                }
+                return res;
             }
-            if sess.had_cookie() {
-                super::nocache_headers(res.headers_mut());
+            DispatchOutput::Download(status, ct, disposition, body) => {
+                let mut res = Response::builder()
+                    .status(status)
+                    .header(header::CONTENT_TYPE, ct)
+                    .body(Body::from(body))
+                    .expect("valid response");
+                if let Some(d) = disposition {
+                    if let Ok(hv) = d.parse() {
+                        res.headers_mut().insert(header::CONTENT_DISPOSITION, hv);
+                    }
+                }
+                if sess.had_cookie() {
+                    super::nocache_headers(res.headers_mut());
+                }
+                return res;
             }
-            return res;
-        }
-    };
+        };
 
     let mut res = Response::builder()
         .status(StatusCode::OK)
@@ -184,9 +234,9 @@ async fn parse_backend(req: Request) -> (RpcForm, Option<Vec<u8>>) {
     let form = if ct.contains("application/json") {
         serde_json::from_slice(&body).unwrap_or_default()
     } else if !body.is_empty() {
-        serde_urlencoded::from_bytes(&body).unwrap_or_default()
+        rpc_form_from_urlencoded(&body)
     } else {
-        serde_urlencoded::from_str(&query).unwrap_or_default()
+        rpc_form_from_urlencoded(query.as_bytes())
     };
     (form, None)
 }
@@ -219,14 +269,15 @@ async fn dispatch(
     // `Sessions::validate_session` (parity row 9): guests pass; a logged-in
     // session is re-checked against the DB (user exists, account not
     // disabled, pwd hash unchanged).
-    if !session::validate_session(state.db.pool(), state.config.single_user_mode, &mut data)
-        .await
-    {
+    if !session::validate_session(state.db.pool(), state.config.single_user_mode, &mut data).await {
         // Reflect the failure reason into the live session (PHP $_SESSION),
         // where the UI surfaces it.
         if let Some(msg) = data.get_str("login_error_msg") {
             sess.with_mut(|s| {
-                s.set("login_error_msg", phpser::Value::Bytes(msg.as_bytes().to_vec()))
+                s.set(
+                    "login_error_msg",
+                    phpser::Value::Bytes(msg.as_bytes().to_vec()),
+                )
             });
         }
         return DispatchOutput::Json(errors("E_UNAUTHORIZED"));
@@ -263,13 +314,17 @@ async fn dispatch(
         "Feeds" => match method {
             "view" => DispatchOutput::Json(crate::headlines::view(state, sess, extra).await),
             "search" => DispatchOutput::Json(crate::headlines::search(state, sess, extra).await),
-            "updatedebugger" => DispatchOutput::TextHtml(crate::feeds::updatedebugger(state, sess, extra, csrf).await),
+            "updatedebugger" => DispatchOutput::TextHtml(
+                crate::feeds::updatedebugger(state, sess, extra, csrf).await,
+            ),
             "catchupall" => DispatchOutput::Json(crate::feeds::catchup_all(state, sess).await),
-            "subscribetofeed" => DispatchOutput::Json(crate::feeds::subscribe_to_feed(state, sess).await),
+            "subscribetofeed" => {
+                DispatchOutput::Json(crate::feeds::subscribe_to_feed(state, sess).await)
+            }
             "opensite" => {
                 let (status, location, body) = crate::feeds::opensite(state, sess, extra).await;
                 DispatchOutput::Raw(status, location, body)
-            },
+            }
             _ => DispatchOutput::Json(unknown_method("Feeds", method)),
         },
         "Pref_Feeds" => match method {
@@ -278,7 +333,9 @@ async fn dispatch(
             "feedswitherrors" => DispatchOutput::Json(feeds::feeds_with_errors(state, sess).await),
             "inactivefeeds" => DispatchOutput::Json(feeds::inactive_feeds(state, sess).await),
             "editsave" => DispatchOutput::Json(feeds::edit_save(state, sess, extra).await),
-            "batcheditsave" => DispatchOutput::Json(feeds::batch_edit_save(state, sess, extra).await),
+            "batcheditsave" => {
+                DispatchOutput::Json(feeds::batch_edit_save(state, sess, extra).await)
+            }
             "remove" => DispatchOutput::Json(feeds::remove_feeds(state, sess, extra).await),
             "addcat" => DispatchOutput::Json(feeds::add_cat(state, sess, extra).await),
             "renamecat" => DispatchOutput::Json(feeds::rename_cat(state, sess, extra).await),
@@ -287,14 +344,18 @@ async fn dispatch(
             "feedsortreset" => DispatchOutput::Json(feeds::feedsortreset(state, sess, extra).await),
             "savefeedorder" => DispatchOutput::Json(feeds::savefeedorder(state, sess, extra).await),
             "removeicon" => DispatchOutput::Json(feeds::remove_icon(state, sess, extra).await),
-            "uploadicon" => DispatchOutput::Json(feeds::upload_icon(state, sess, extra, file).await),
+            "uploadicon" => {
+                DispatchOutput::Json(feeds::upload_icon(state, sess, extra, file).await)
+            }
             "clearkeys" => DispatchOutput::Json(feeds::clear_keys(state, sess, extra).await),
             "regenfeedkey" => DispatchOutput::Json(feeds::regen_feed_key(state, sess, extra).await),
             "getsharedurl" => DispatchOutput::Json(feeds::get_shared_url(state, sess, extra).await),
             "editfeed" => DispatchOutput::Json(feeds::editfeed(state, sess, extra).await),
             "editfeeds" => DispatchOutput::Html(feeds::editfeeds(state, sess, extra).await),
             "batchsubscribe" => DispatchOutput::Json(feeds::batch_subscribe(state, sess).await),
-            "batchaddfeeds" => DispatchOutput::Json(feeds::batch_add_feeds(state, sess, extra).await),
+            "batchaddfeeds" => {
+                DispatchOutput::Json(feeds::batch_add_feeds(state, sess, extra).await)
+            }
             _ => DispatchOutput::Json(unknown_method("Pref_Feeds", method)),
         },
         "Article" => match method {
@@ -315,10 +376,18 @@ async fn dispatch(
                 .await,
             ),
             "setscore" => DispatchOutput::Json(article::set_score(state, sess, extra).await),
-            "setarticletags" => DispatchOutput::Json(article::set_article_tags(state, sess, extra).await),
-            "completetags" => DispatchOutput::Json(article::complete_tags(state, sess, extra).await),
-            "assigntolabel" => DispatchOutput::Json(article::label_ops(state, sess, extra, true).await),
-            "removefromlabel" => DispatchOutput::Json(article::label_ops(state, sess, extra, false).await),
+            "setarticletags" => {
+                DispatchOutput::Json(article::set_article_tags(state, sess, extra).await)
+            }
+            "completetags" => {
+                DispatchOutput::Json(article::complete_tags(state, sess, extra).await)
+            }
+            "assigntolabel" => {
+                DispatchOutput::Json(article::label_ops(state, sess, extra, true).await)
+            }
+            "removefromlabel" => {
+                DispatchOutput::Json(article::label_ops(state, sess, extra, false).await)
+            }
             "redirect" => {
                 let (status, location, body) = article::redirect(state, sess, extra).await;
                 DispatchOutput::Raw(status, location, body)
@@ -334,8 +403,14 @@ async fn dispatch(
                 Some(v) => DispatchOutput::Json(v),
                 None => DispatchOutput::TextHtml(String::new()),
             },
-            "save" => DispatchOutput::TextHtml(labels::save(state, sess, extra).await.unwrap_or_default()),
-            "add" => DispatchOutput::TextHtml(labels::add_label(state, sess, extra).await.unwrap_or_default()),
+            "save" => {
+                DispatchOutput::TextHtml(labels::save(state, sess, extra).await.unwrap_or_default())
+            }
+            "add" => DispatchOutput::TextHtml(
+                labels::add_label(state, sess, extra)
+                    .await
+                    .unwrap_or_default(),
+            ),
             "colorset" => {
                 let _ = labels::colorset(state, sess, extra).await;
                 DispatchOutput::TextHtml(String::new())
@@ -434,7 +509,9 @@ async fn dispatch(
                 DispatchOutput::Html(html)
             }
             "previewdigest" => DispatchOutput::Json(settings::preview_digest(state, sess).await),
-            "saveconfig" => DispatchOutput::TextHtml(settings::saveconfig(state, sess, extra).await),
+            "saveconfig" => {
+                DispatchOutput::TextHtml(settings::saveconfig(state, sess, extra).await)
+            }
             "resetconfig" => DispatchOutput::TextHtml(settings::resetconfig(state, sess).await),
             "changepersonaldata" => {
                 DispatchOutput::TextHtml(settings::change_personal_data(state, sess, extra).await)
@@ -443,7 +520,9 @@ async fn dispatch(
                 DispatchOutput::TextHtml(settings::changepassword(state, sess, extra).await)
             }
             "otpenable" => DispatchOutput::TextHtml(settings::otp_enable(state, sess, extra).await),
-            "otpdisable" => DispatchOutput::TextHtml(settings::otp_disable(state, sess, extra).await),
+            "otpdisable" => {
+                DispatchOutput::TextHtml(settings::otp_disable(state, sess, extra).await)
+            }
             "customizecss" => DispatchOutput::Json(settings::customize_css(state, sess).await),
             // TODO(port): Plugins-tab management actions are not yet ported and
             // fall through to `unknown_method` (E_UNKNOWN_METHOD). Spec:
@@ -459,7 +538,9 @@ async fn dispatch(
         },
         "Pref_System" => match method {
             "index" => DispatchOutput::Html(system::index(state, sess, extra).await),
-            "getscheduledtasks" => DispatchOutput::Html(system::getscheduledtasks(state, sess).await),
+            "getscheduledtasks" => {
+                DispatchOutput::Html(system::getscheduledtasks(state, sess).await)
+            }
             "clearlog" => {
                 system::clear_log(state).await;
                 DispatchOutput::Json(json!({ "status": "OK" }))
@@ -479,7 +560,7 @@ async fn dispatch(
             "remove" => {
                 users::remove(state, sess, extra).await;
                 DispatchOutput::TextHtml(String::new())
-            },
+            }
             "add" => DispatchOutput::TextHtml(users::add(state, sess, extra).await),
             "resetpass" => DispatchOutput::TextHtml(users::reset_pass(state, sess, extra).await),
             _ => DispatchOutput::Json(unknown_method("Pref_Users", method)),
@@ -574,7 +655,19 @@ fn csrf_ignored(op: &str, method: &str) -> bool {
 
 /// `Handler_Protected` handlers (all the ones ported so far) require a user.
 fn is_protected(op: &str) -> bool {
-    matches!(op, "RPC" | "Feeds" | "Pref_Feeds" | "Article" | "Pref_Labels" | "Pref_Filters" | "Pref_Users" | "Pref_System" | "Pref_Prefs" | "OPML")
+    matches!(
+        op,
+        "RPC"
+            | "Feeds"
+            | "Pref_Feeds"
+            | "Article"
+            | "Pref_Labels"
+            | "Pref_Filters"
+            | "Pref_Users"
+            | "Pref_System"
+            | "Pref_Prefs"
+            | "OPML"
+    )
 }
 
 /// `Handler_Administrative` handlers require an admin-level session.
@@ -591,12 +684,16 @@ async fn sanity_check(state: &AppState, sess: &Sess, extra: &Map<String, Value>)
     // Stored (not returned) — mirrors `$_SESSION["hasSandbox"/"clientTzOffset"]`.
     sess.with_mut(|s| {
         if let Some(v) = extra.get("hasSandbox").and_then(Value::as_str) {
-            s.set("hasSandbox", ttrss_core::phpser::Value::Bool(
-                !v.is_empty() && v != "f" && v != "false",
-            ));
+            s.set(
+                "hasSandbox",
+                ttrss_core::phpser::Value::Bool(!v.is_empty() && v != "f" && v != "false"),
+            );
         }
         if let Some(v) = extra.get("clientTzOffset").and_then(Value::as_str) {
-            s.set("clientTzOffset", ttrss_core::phpser::Value::Bytes(v.trim().as_bytes().to_vec()));
+            s.set(
+                "clientTzOffset",
+                ttrss_core::phpser::Value::Bytes(v.trim().as_bytes().to_vec()),
+            );
         }
     });
 
@@ -622,7 +719,10 @@ async fn sanity_check(state: &AppState, sess: &Sess, extra: &Map<String, Value>)
             "server_scheme".into(),
             Value::from(server_scheme.clone().unwrap_or_default()),
         );
-        params.insert("self_url_path".into(), Value::from(state.config.self_url_rtrim()));
+        params.insert(
+            "self_url_path".into(),
+            Value::from(state.config.self_url_rtrim()),
+        );
     }
 
     if err == "E_SUCCESS" {
@@ -729,7 +829,11 @@ fn file_is_locked(path: &std::path::Path) -> bool {
     }
     const LOCK_EX: i32 = 2;
     const LOCK_NB: i32 = 4;
-    match std::fs::OpenOptions::new().read(true).write(true).open(path) {
+    match std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(path)
+    {
         Ok(f) => unsafe { flock(f.as_raw_fd(), LOCK_EX | LOCK_NB) == -1 },
         Err(_) => false,
     }
@@ -741,12 +845,7 @@ fn file_is_locked(_path: &std::path::Path) -> bool {
 }
 
 /// `RPC::_make_init_params`.
-async fn make_init_params(
-    state: &AppState,
-    sess: &Sess,
-    uid: i64,
-    profile: Option<i32>,
-) -> Value {
+async fn make_init_params(state: &AppState, sess: &Sess, uid: i64, profile: Option<i32>) -> Value {
     let data = sess.data();
     let rows = prefs::load_rows(&state.db, uid, profile).await;
     let p = |name: &str| prefs::resolve(name, &rows, profile);
@@ -766,47 +865,113 @@ async fn make_init_params(
     let (prefixes, hotkeys) = crate::hotkeys::hotkeys_map();
 
     let mut out = Map::new();
-    out.insert("on_catchup_show_next_feed".into(), Value::from(p("ON_CATCHUP_SHOW_NEXT_FEED").as_int()));
-    out.insert("hide_read_feeds".into(), Value::from(p("HIDE_READ_FEEDS").as_int()));
-    out.insert("enable_feed_cats".into(), Value::from(p(prefs::ENABLE_FEED_CATS).as_int()));
-    out.insert("feeds_sort_by_unread".into(), Value::from(p("FEEDS_SORT_BY_UNREAD").as_int()));
-    out.insert("confirm_feed_catchup".into(), Value::from(p("CONFIRM_FEED_CATCHUP").as_int()));
-    out.insert("cdm_auto_catchup".into(), Value::from(p("CDM_AUTO_CATCHUP").as_int()));
-    out.insert("fresh_article_max_age".into(), Value::from(p(prefs::FRESH_ARTICLE_MAX_AGE).as_int()));
-    out.insert("recently_read_max_age".into(), Value::from(p("RECENTLY_READ_MAX_AGE").as_int()));
-    out.insert("hide_read_shows_special".into(), Value::from(p("HIDE_READ_SHOWS_SPECIAL").as_int()));
-    out.insert("combined_display_mode".into(), Value::from(p("COMBINED_DISPLAY_MODE").as_int()));
-    out.insert("debug_headline_ids".into(), Value::from(p("DEBUG_HEADLINE_IDS").as_int()));
-    out.insert("cdm_enable_grid".into(), Value::from(p("CDM_ENABLE_GRID").as_int()));
+    out.insert(
+        "on_catchup_show_next_feed".into(),
+        Value::from(p("ON_CATCHUP_SHOW_NEXT_FEED").as_int()),
+    );
+    out.insert(
+        "hide_read_feeds".into(),
+        Value::from(p("HIDE_READ_FEEDS").as_int()),
+    );
+    out.insert(
+        "enable_feed_cats".into(),
+        Value::from(p(prefs::ENABLE_FEED_CATS).as_int()),
+    );
+    out.insert(
+        "feeds_sort_by_unread".into(),
+        Value::from(p("FEEDS_SORT_BY_UNREAD").as_int()),
+    );
+    out.insert(
+        "confirm_feed_catchup".into(),
+        Value::from(p("CONFIRM_FEED_CATCHUP").as_int()),
+    );
+    out.insert(
+        "cdm_auto_catchup".into(),
+        Value::from(p("CDM_AUTO_CATCHUP").as_int()),
+    );
+    out.insert(
+        "fresh_article_max_age".into(),
+        Value::from(p(prefs::FRESH_ARTICLE_MAX_AGE).as_int()),
+    );
+    out.insert(
+        "recently_read_max_age".into(),
+        Value::from(p("RECENTLY_READ_MAX_AGE").as_int()),
+    );
+    out.insert(
+        "hide_read_shows_special".into(),
+        Value::from(p("HIDE_READ_SHOWS_SPECIAL").as_int()),
+    );
+    out.insert(
+        "combined_display_mode".into(),
+        Value::from(p("COMBINED_DISPLAY_MODE").as_int()),
+    );
+    out.insert(
+        "debug_headline_ids".into(),
+        Value::from(p("DEBUG_HEADLINE_IDS").as_int()),
+    );
+    out.insert(
+        "cdm_enable_grid".into(),
+        Value::from(p("CDM_ENABLE_GRID").as_int()),
+    );
     out.insert("safe_mode".into(), Value::from(data.safe_mode()));
     out.insert("check_for_updates".into(), Value::from(check_for_updates()));
-    out.insert("icons_url".into(), Value::from(format!("{self_url}/public.php")));
-    out.insert("cookie_lifetime".into(), Value::from(session::COOKIE_LIFETIME));
-    out.insert("default_view_mode".into(), Value::from(p("_DEFAULT_VIEW_MODE").as_str()));
-    out.insert("default_view_limit".into(), Value::from(p("_DEFAULT_VIEW_LIMIT").as_int()));
-    out.insert("default_view_order_by".into(), Value::from(p("_DEFAULT_VIEW_ORDER_BY").as_str()));
-    out.insert("bw_limit".into(), Value::from(data.get_bool("bw_limit").unwrap_or(false) as i64));
+    out.insert(
+        "icons_url".into(),
+        Value::from(format!("{self_url}/public.php")),
+    );
+    out.insert(
+        "cookie_lifetime".into(),
+        Value::from(session::COOKIE_LIFETIME),
+    );
+    out.insert(
+        "default_view_mode".into(),
+        Value::from(p("_DEFAULT_VIEW_MODE").as_str()),
+    );
+    out.insert(
+        "default_view_limit".into(),
+        Value::from(p("_DEFAULT_VIEW_LIMIT").as_int()),
+    );
+    out.insert(
+        "default_view_order_by".into(),
+        Value::from(p("_DEFAULT_VIEW_ORDER_BY").as_str()),
+    );
+    out.insert(
+        "bw_limit".into(),
+        Value::from(data.get_bool("bw_limit").unwrap_or(false) as i64),
+    );
     out.insert("is_default_pw".into(), Value::from(is_default_pw));
     out.insert("label_base_index".into(), Value::from(-1024i64));
     out.insert("theme".into(), Value::from(theme));
-    out.insert("plugins".into(), Value::from(plugin_names(&state.config.docroot)));
+    out.insert(
+        "plugins".into(),
+        Value::from(plugin_names(&state.config.docroot)),
+    );
     out.insert("php_platform".into(), Value::from("Linux"));
     out.insert("php_version".into(), Value::from("8.5.9"));
     out.insert("self_url_prefix".into(), Value::from(self_url));
     out.insert("max_feed_id".into(), Value::from(max_feed_id));
     out.insert("num_feeds".into(), Value::from(num_feeds));
     out.insert("hotkeys".into(), json!([prefixes, hotkeys]));
-    out.insert("widescreen".into(), Value::from(p("WIDESCREEN_MODE").as_int()));
+    out.insert(
+        "widescreen".into(),
+        Value::from(p("WIDESCREEN_MODE").as_int()),
+    );
     out.insert(
         "icon_indicator_white".into(),
         image_base64(&state.config.docroot, "images/indicator_white.gif"),
     );
-    out.insert("icon_oval".into(), image_base64(&state.config.docroot, "images/oval.svg"));
+    out.insert(
+        "icon_oval".into(),
+        image_base64(&state.config.docroot, "images/oval.svg"),
+    );
     out.insert(
         "icon_three_dots".into(),
         image_base64(&state.config.docroot, "images/three-dots.svg"),
     );
-    out.insert("icon_blank".into(), image_base64(&state.config.docroot, "images/blank_icon.gif"));
+    out.insert(
+        "icon_blank".into(),
+        image_base64(&state.config.docroot, "images/blank_icon.gif"),
+    );
     out.insert("labels".into(), labels);
     Value::Object(out)
 }
@@ -844,7 +1009,10 @@ async fn feed_counts(pool: &sqlx::PgPool, uid: i64) -> (i64, i64) {
         .ok()
         .flatten();
     match row {
-        Some(r) => (r.get::<Option<i32>, _>(0).unwrap_or(0) as i64, r.get::<i64, _>(1)),
+        Some(r) => (
+            r.get::<Option<i32>, _>(0).unwrap_or(0) as i64,
+            r.get::<i64, _>(1),
+        ),
         None => (0, 0),
     }
 }
@@ -869,8 +1037,7 @@ fn theme_exists(docroot: &std::path::Path, theme: &str) -> bool {
     if theme.is_empty() {
         return false;
     }
-    docroot.join("themes").join(theme).exists()
-        || docroot.join("themes.local").join(theme).exists()
+    docroot.join("themes").join(theme).exists() || docroot.join("themes.local").join(theme).exists()
 }
 
 /// `RPC::image_to_base64` — `data:image/<ext>;base64,<b64>` ("" if missing).
@@ -944,7 +1111,6 @@ fn plugin_class_name(docroot: &std::path::Path, dir: &str) -> Option<String> {
 
 // The hotkey tables + `hotkeys_map` / `hotkey_help` live in `crate::hotkeys`
 // (they are `RPC` class statics in PHP; split out to keep the dispatcher lean).
-
 
 /// `hash_equals` (constant-time; false on length mismatch).
 fn ct_eq(a: &str, b: &str) -> bool {
@@ -1021,6 +1187,32 @@ mod tests {
     }
 
     #[test]
+    fn parse_backend_repeated_keys_become_array() {
+        // Batch ops (`catchupSelected`, `markSelected`, `delete`, …) send
+        // repeated `ids[]` params; they must arrive as a JSON array so every id
+        // is acted on. Regression: the old `serde_urlencoded`→`Map` path kept
+        // only the *last* value for a repeated key.
+        let (form, file) = rt().block_on(parse_backend(build(
+            "/backend.php",
+            Some("application/x-www-form-urlencoded"),
+            "op=RPC&method=catchupSelected&csrf_token=tok&ids[]=430&ids[]=431&ids[]=432&cmode=0",
+        )));
+        assert_eq!(form.op.as_deref(), Some("RPC"));
+        assert_eq!(form.method.as_deref(), Some("catchupSelected"));
+        assert_eq!(
+            form.extra.get("ids[]"),
+            Some(&Value::Array(vec![
+                Value::String("430".into()),
+                Value::String("431".into()),
+                Value::String("432".into()),
+            ]))
+        );
+        // A single-valued key stays a scalar string (unchanged behavior).
+        assert_eq!(form.extra.get("cmode"), Some(&Value::String("0".into())));
+        assert!(file.is_none());
+    }
+
+    #[test]
     fn parse_backend_json() {
         let (form, file) = rt().block_on(parse_backend(build(
             "/backend.php",
@@ -1058,4 +1250,3 @@ mod tests {
         assert_eq!(file.as_deref(), Some(b"PNGBYTES".as_slice()));
     }
 }
-
