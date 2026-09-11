@@ -60,6 +60,10 @@ oracle-restore: ## restore golden-db.sql into a fresh db container
 oracle-reset: ## reset the running oracle DB to the golden baseline
 	$(SCRIPTS)/reset-db.sh
 
+.PHONY: oracle-check
+oracle-check: ## verify the golden dataset matches the current seed recipe
+	$(SCRIPTS)/check_sync.py
+
 # --- Rust server -------------------------------------------------------------
 .PHONY: build
 build: ## build the Rust server + harness binaries
@@ -93,6 +97,7 @@ harness-keep: ## like `harness` but leave the Rust server running
 
 .PHONY: record
 record: ## record a fresh oracle baseline -> oracle/data/runs/oracle-a
+	$(SCRIPTS)/check_sync.py
 	$(HARNESS_BIN) run --base-url $(ORACLE_URL) \
 		--scenarios $(SCENARIOS) --vars $(VARS) --out oracle/data/runs/oracle-a
 
@@ -105,14 +110,6 @@ diff: ## diff two run dirs (A/B via ARGS=--a <dir> --b <dir>)
 # front-end-shaped input battery and record the ground truth as a fixture the
 # Rust tests compare against. They run in the *public* PHP image matching the
 # app's PHP 8.5 — no oracle stack required. See oracle/recorders/.
-PHP_IMAGE := php:8.5-cli
-
 .PHONY: record-params
 record-params: ## re-record the param differential fixtures from frozen PHP (public php:8.5-cli)
-	@for r in param_int_array param_to_bool clean_str php_int_cast; do \
-		docker run --rm \
-			-v "$(CURDIR)/tt-rss":/tt-rss:ro \
-			-v "$(CURDIR)/crates/server/tests/fixtures":/fx:rw \
-			-v "$(CURDIR)/oracle/recorders":/rec:ro \
-			$(PHP_IMAGE) php /rec/$$r.php /fx/$$r.json; \
-	done
+	$(SCRIPTS)/record_params.sh

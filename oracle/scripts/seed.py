@@ -33,7 +33,7 @@ ORACLE = ROOT / "oracle"
 DATA = ORACLE / "data"
 
 
-def env_get(key: str, default: str | None = None) -> str | None:
+def env_get(key: str, default: str) -> str:
     for line in (ORACLE / ".env").read_text().splitlines():
         line = line.strip()
         if not line or line.startswith("#") or "=" not in line:
@@ -96,9 +96,30 @@ def sh(cmd: list[str], cwd=ORACLE, check: bool = True) -> str:
 def sql(query: str) -> list[list[str]]:
     """Run a SQL query in the db container; return rows as lists of strings."""
     p = subprocess.run(
-        ["docker", "compose", "exec", "-T", "db", "psql", "-U", "postgres", "-d", "postgres",
-         "-t", "-A", "-F", "\t", "-v", "ON_ERROR_STOP=1", "-c", query],
-        capture_output=True, text=True, cwd=ORACLE)
+        [
+            "docker",
+            "compose",
+            "exec",
+            "-T",
+            "db",
+            "psql",
+            "-U",
+            "postgres",
+            "-d",
+            "postgres",
+            "-t",
+            "-A",
+            "-F",
+            "\t",
+            "-v",
+            "ON_ERROR_STOP=1",
+            "-c",
+            query,
+        ],
+        capture_output=True,
+        text=True,
+        cwd=ORACLE,
+    )
     if p.returncode != 0:
         raise RuntimeError(f"SQL failed:\n{query}\n{p.stderr}")
     return [line.split("\t") for line in p.stdout.splitlines() if line.strip()]
@@ -122,10 +143,18 @@ class Client:
     def __init__(self):
         self.jar = CookieJar()
         self.opener = urllib.request.build_opener(
-            urllib.request.HTTPCookieProcessor(self.jar), NoRedirect())
+            urllib.request.HTTPCookieProcessor(self.jar), NoRedirect()
+        )
 
-    def request(self, method: str, path: str, form=None, json_body=None,
-                headers=None, expect=None) -> tuple[int, bytes]:
+    def request(
+        self,
+        method: str,
+        path: str,
+        form=None,
+        json_body=None,
+        headers=None,
+        expect=None,
+    ) -> tuple[int, bytes]:
         data = None
         hdrs = dict(headers or {})
         if form is not None:
@@ -134,7 +163,9 @@ class Client:
         if json_body is not None:
             data = json.dumps(json_body).encode()
             hdrs["Content-Type"] = "application/json"
-        req = urllib.request.Request(BASE + path, data=data, headers=hdrs, method=method)
+        req = urllib.request.Request(
+            BASE + path, data=data, headers=hdrs, method=method
+        )
         try:
             resp = self.opener.open(req, timeout=180)
             status, body, rheaders = resp.status, resp.read(), dict(resp.headers)
@@ -142,15 +173,19 @@ class Client:
             status, body, rheaders = e.code, e.read(), dict(e.headers)
         if expect is not None and status != expect:
             raise RuntimeError(
-                f"{method} {path}: expected {expect}, got {status}\n{body[:800]!r}")
+                f"{method} {path}: expected {expect}, got {status}\n{body[:800]!r}"
+            )
         return status, body
 
 
 def web_login(c: Client, user: str, password: str) -> str:
     c.request("GET", "/index.php", expect=200)  # establish session cookie
-    c.request("POST", f"/public.php?return={BASE}/index.php",
-              form={"op": "login", "login": user, "password": password},
-              expect=302)
+    c.request(
+        "POST",
+        f"/public.php?return={BASE}/index.php",
+        form={"op": "login", "login": user, "password": password},
+        expect=302,
+    )
     # The post-login shell carries this session's CSRF token.
     _, body = c.request("GET", "/index.php", expect=200)
     m = re.search(rb'const __csrf_token = "([0-9a-f]+)"', body)
@@ -209,9 +244,13 @@ def main() -> int:
         parent_expr = "null" if parent is None else str(cat_ids["/" + parent])
         sql_exec(
             f"insert into ttrss_feed_categories (owner_uid, title, parent_cat) "
-            f"values ({admin_uid}, {q(title)}, {parent_expr})")
+            f"values ({admin_uid}, {q(title)}, {parent_expr})"
+        )
         cat_ids["/" + title] = int(
-            sql(f"select id from ttrss_feed_categories where owner_uid = {admin_uid} and title = {q(title)}")[0][0])
+            sql(
+                f"select id from ttrss_feed_categories where owner_uid = {admin_uid} and title = {q(title)}"
+            )[0][0]
+        )
     # bare + nested path keys, as used by feeds.txt
     for title, parent in CATS:
         cat_ids[title] = cat_ids["/" + title]
@@ -220,14 +259,18 @@ def main() -> int:
     print("categories:", cat_ids)
 
     # collapse one category for UI coverage
-    sql_exec(f"update ttrss_feed_categories set collapsed = true "
-             f"where id = {cat_ids['/Blogs']}")
+    sql_exec(
+        f"update ttrss_feed_categories set collapsed = true "
+        f"where id = {cat_ids['/Blogs']}"
+    )
 
     # 2. labels (via the real backend handler)
     for cap in LABELS:
         backend(c, csrf, "Pref_Labels", "add", caption=cap, output="1")
     label_ids = {}
-    for row in sql(f"select caption, id from ttrss_labels2 where owner_uid = {admin_uid} order by id"):
+    for row in sql(
+        f"select caption, id from ttrss_labels2 where owner_uid = {admin_uid} order by id"
+    ):
         label_ids[row[0]] = int(row[1])
     print("labels:", label_ids)
 
@@ -250,10 +293,12 @@ def main() -> int:
         "insert into ttrss_user_prefs2 (owner_uid, pref_name, value) "
         "select {uid}, {name}, {val} where not exists "
         "(select 1 from ttrss_user_prefs2 where owner_uid = {uid} "
-        "and pref_name = {name} and profile is null)")
+        "and pref_name = {name} and profile is null)"
+    )
     upd_pref = (
         "update ttrss_user_prefs2 set value = {val} where owner_uid = {uid} "
-        "and pref_name = {name} and profile is null")
+        "and pref_name = {name} and profile is null"
+    )
     for name, value in admin_prefs.items():
         sql_exec(set_pref.format(uid=admin_uid, name=q(name), val=q(value)))
         sql_exec(upd_pref.format(uid=admin_uid, name=q(name), val=q(value)))
@@ -278,8 +323,11 @@ def main() -> int:
         if cat_path == "Broken":
             continue  # inserted directly below
         cat_id = cat_ids.get(cat_path, 0)
-        content = api(c, {"op": "subscribetofeed", "feed_url": url,
-                          "category_id": cat_id}, sid=api_sid)
+        content = api(
+            c,
+            {"op": "subscribetofeed", "feed_url": url, "category_id": cat_id},
+            sid=api_sid,
+        )
         # API wraps _subscribe()'s array under the "status" key
         st = content.get("status") if isinstance(content, dict) else None
         if isinstance(st, dict) and st.get("code") in (0, 1):
@@ -296,27 +344,49 @@ def main() -> int:
             "update_method, update_interval, auth_login, auth_pass, "
             "auth_pass_encrypted) "
             f"values ({admin_uid}, {q(title)}, {q(url)}, "
-            f"{cat_ids.get('Broken', 0)}, 0, 0, '', '', false)")
+            f"{cat_ids.get('Broken', 0)}, 0, 0, '', '', false)"
+        )
         feed_ids[url] = int(
-            sql(f"select id from ttrss_feeds where owner_uid = {admin_uid} and feed_url = {q(url)}")[0][0])
-    print(f"feeds: {len(feed_ids)} total, "
-          f"{sum(1 for v in feed_ids.values() if v)} subscribed/inserted")
+            sql(
+                f"select id from ttrss_feeds where owner_uid = {admin_uid} and feed_url = {q(url)}"
+            )[0][0]
+        )
+    print(
+        f"feeds: {len(feed_ids)} total, "
+        f"{sum(1 for v in feed_ids.values() if v)} subscribed/inserted"
+    )
 
     # 5. run feed updates until stable (2 passes: first imports, second settles)
     #    (sudo -E: the CLI needs the TTRSS_* env vars to reach the DB)
     for i in range(2):
         print(f"running feed update pass {i + 1} ...")
-        out = sh(["docker", "compose", "exec", "-T", "app", "sh", "-c",
-                  "sudo -E -u app php /var/www/html/tt-rss/update.php --feeds 2>&1"])
+        out = sh(
+            [
+                "docker",
+                "compose",
+                "exec",
+                "-T",
+                "app",
+                "sh",
+                "-c",
+                "sudo -E -u app php /var/www/html/tt-rss/update.php --feeds 2>&1",
+            ]
+        )
         last = "\n".join(out.splitlines()[-6:])
         print(last)
     n_articles = int(sql("select count(*) from ttrss_entries")[0][0])
-    n_updated = int(sql("select count(*) from ttrss_feeds where last_updated is not null")[0][0])
+    n_updated = int(
+        sql("select count(*) from ttrss_feeds where last_updated is not null")[0][0]
+    )
     n_errors = int(sql("select count(*) from ttrss_feeds where last_error <> ''")[0][0])
-    print(f"entries: {n_articles}, feeds updated: {n_updated}, feeds with errors: {n_errors}")
+    print(
+        f"entries: {n_articles}, feeds updated: {n_updated}, feeds with errors: {n_errors}"
+    )
     if n_articles < 100:
         print("warning: fewer than 100 articles; check feed fetching", file=sys.stderr)
-    pending = int(sql("select count(*) from ttrss_feeds where last_updated is null")[0][0])
+    pending = int(
+        sql("select count(*) from ttrss_feeds where last_updated is null")[0][0]
+    )
     if pending:
         print(f"warning: {pending} feeds still pending update", file=sys.stderr)
 
@@ -332,35 +402,50 @@ def main() -> int:
     sql_exec(
         f"update ttrss_user_entries set marked = true, unread = false, "
         f"last_read = now(), last_marked = now() "
-        f"where owner_uid = {admin_uid} and int_id % 7 = 0")
+        f"where owner_uid = {admin_uid} and int_id % 7 = 0"
+    )
     sql_exec(
         f"update ttrss_user_entries set published = true, last_published = now() "
-        f"where owner_uid = {admin_uid} and int_id % 97 = 0")
+        f"where owner_uid = {admin_uid} and int_id % 97 = 0"
+    )
     for i, note in enumerate(note_texts):
         sql_exec(
             f"update ttrss_user_entries set note = {q(note)} "
-            f"where owner_uid = {admin_uid} and int_id % 29 = {i}")
+            f"where owner_uid = {admin_uid} and int_id % 29 = {i}"
+        )
     sql_exec(
         f"update ttrss_user_entries set score = (1 + int_id % 5) "
-        f"where owner_uid = {admin_uid} and int_id % 13 = 0")
+        f"where owner_uid = {admin_uid} and int_id % 13 = 0"
+    )
     for i, tag in enumerate(tags):
-        ids = [r[0] for r in sql(
-            f"select int_id from ttrss_user_entries where owner_uid = {admin_uid} and int_id % 31 = {i}")]
+        ids = [
+            r[0]
+            for r in sql(
+                f"select int_id from ttrss_user_entries where owner_uid = {admin_uid} and int_id % 31 = {i}"
+            )
+        ]
         if ids:
             sql_exec(
                 f"insert into ttrss_tags (tag_name, owner_uid, post_int_id) "
                 f"select {q(tag)}, {admin_uid}, unnest(ARRAY{ids}::int[]) "
-                f"on conflict do nothing")
+                f"on conflict do nothing"
+            )
             sql_exec(
                 f"update ttrss_user_entries set tag_cache = {q(tag)} "
-                f"where owner_uid = {admin_uid} and int_id in ({','.join(ids)})")
+                f"where owner_uid = {admin_uid} and int_id in ({','.join(ids)})"
+            )
     for i, (cap, lid) in enumerate(label_list):
-        ids = [r[0] for r in sql(
-            f"select int_id from ttrss_user_entries where owner_uid = {admin_uid} and int_id % 17 = {i}")]
+        ids = [
+            r[0]
+            for r in sql(
+                f"select int_id from ttrss_user_entries where owner_uid = {admin_uid} and int_id % 17 = {i}"
+            )
+        ]
         if ids:
             sql_exec(
                 f"insert into ttrss_user_labels2 (label_id, article_id) "
-                f"select {lid}, unnest(ARRAY{ids}::int[]) on conflict do nothing")
+                f"select {lid}, unnest(ARRAY{ids}::int[]) on conflict do nothing"
+            )
             # NOTE: leave label_cache empty (do NOT write the plain caption).
             # The app stores label_cache as JSON (array of [feed_id, caption, fg,
             # bg] or {"no-labels":1}); a bare caption is invalid JSON, so
@@ -375,42 +460,61 @@ def main() -> int:
     hn_feed_id = feed_ids.get(hn_url, 0)
     sql_exec(
         "insert into ttrss_filters2 (owner_uid, title, enabled, order_id, match_any_rule, inverse) "
-        f"values ({admin_uid}, 'Auto: security', true, 1, false, false) returning id")
-    f1 = int(sql(f"select id from ttrss_filters2 where owner_uid = {admin_uid} and title = 'Auto: security'")[0][0])
+        f"values ({admin_uid}, 'Auto: security', true, 1, false, false) returning id"
+    )
+    f1 = int(
+        sql(
+            f"select id from ttrss_filters2 where owner_uid = {admin_uid} and title = 'Auto: security'"
+        )[0][0]
+    )
     sql_exec(
         "insert into ttrss_filters2_rules (filter_id, reg_exp, filter_type, cat_id) "
-        f"values ({f1}, '(?i)security', 1, {tech_cat_id})")
+        f"values ({f1}, '(?i)security', 1, {tech_cat_id})"
+    )
     sql_exec(
         "insert into ttrss_filters2_actions (filter_id, action_id, action_param) "
-        f"values ({f1}, 3, '')")  # mark
+        f"values ({f1}, 3, '')"
+    )  # mark
     sql_exec(
         "insert into ttrss_filters2_actions (filter_id, action_id, action_param) "
-        f"values ({f1}, 7, {str(label_ids.get('Important', 0))})")  # label
+        f"values ({f1}, 7, {str(label_ids.get('Important', 0))})"
+    )  # label
 
     sql_exec(
         "insert into ttrss_filters2 (owner_uid, title, enabled, order_id, match_any_rule, inverse) "
-        f"values ({admin_uid}, 'Score Ask HN', true, 2, false, false) returning id")
-    f2 = int(sql(f"select id from ttrss_filters2 where owner_uid = {admin_uid} and title = 'Score Ask HN'")[0][0])
+        f"values ({admin_uid}, 'Score Ask HN', true, 2, false, false) returning id"
+    )
+    f2 = int(
+        sql(
+            f"select id from ttrss_filters2 where owner_uid = {admin_uid} and title = 'Score Ask HN'"
+        )[0][0]
+    )
     sql_exec(
         "insert into ttrss_filters2_rules (filter_id, reg_exp, filter_type, feed_id) "
-        f"values ({f2}, '(?i)^Ask HN', 1, {hn_feed_id})")
+        f"values ({f2}, '(?i)^Ask HN', 1, {hn_feed_id})"
+    )
     sql_exec(
         "insert into ttrss_filters2_actions (filter_id, action_id, action_param) "
-        f"values ({f2}, 6, '3')")  # score 3
+        f"values ({f2}, 6, '3')"
+    )  # score 3
     print("filters seeded")
 
     # 8. profiles (admin)
     for title in ("Home", "Work"):
         sql_exec(
             "insert into ttrss_settings_profiles (title, owner_uid) "
-            f"values ({q(title)}, {admin_uid})")
+            f"values ({q(title)}, {admin_uid})"
+        )
     profile_ids = {}
-    for row in sql(f"select title, id from ttrss_settings_profiles where owner_uid = {admin_uid} order by id"):
+    for row in sql(
+        f"select title, id from ttrss_settings_profiles where owner_uid = {admin_uid} order by id"
+    ):
         profile_ids[row[0]] = int(row[1])
     sql_exec(
         "insert into ttrss_user_prefs2 (owner_uid, pref_name, profile, value) "
         f"values ({admin_uid}, 'USER_CSS_THEME', {profile_ids['Home']}, 'light'),"
-        f"       ({admin_uid}, 'USER_CSS_THEME', {profile_ids['Work']}, 'night_blue')")
+        f"       ({admin_uid}, 'USER_CSS_THEME', {profile_ids['Work']}, 'night_blue')"
+    )
     print("profiles:", profile_ids)
 
     # 9. app password for admin (API login). Admin has NO OTP — the demo login
@@ -422,50 +526,80 @@ def main() -> int:
     # user passwords.
     ap_pass = "AppPass123"
     ap_salt = "a1b2c3d4e5f6"
-    ap_hash = f"SSHA-512:{hashlib.sha512((ap_salt + ap_pass).encode()).hexdigest()}:{ap_salt}"
+    ap_hash = (
+        f"SSHA-512:{hashlib.sha512((ap_salt + ap_pass).encode()).hexdigest()}:{ap_salt}"
+    )
     sql_exec(
         "insert into ttrss_app_passwords (title, pwd_hash, service, created, owner_uid) "
-        f"values ('RSS Reader App', {q(ap_hash)}, '_api', now(), {admin_uid})")
+        f"values ('RSS Reader App', {q(ap_hash)}, '_api', now(), {admin_uid})"
+    )
     sql_exec(
         "update ttrss_users set otp_enabled = false, otp_secret = null "
-        f"where id = {admin_uid}")
+        f"where id = {admin_uid}"
+    )
     print("admin app password set; OTP disabled (frictionless demo login)")
 
     # 10. access keys (feed + category) for syndication (unchanged numbering)
-    first_feed_id = feed_ids.get("https://arstechnica.com/information-technology/feed/", 0)
+    first_feed_id = feed_ids.get(
+        "https://arstechnica.com/information-technology/feed/", 0
+    )
     ak_feed = "a1b2c3d4e5f6g"
     ak_cat = "g6d4c3b2a1e8f"
     sql_exec(
         "insert into ttrss_access_keys (access_key, feed_id, is_cat, owner_uid) "
-        f"values ({q(ak_feed)}, {str(first_feed_id)}, false, {admin_uid})")
+        f"values ({q(ak_feed)}, {str(first_feed_id)}, false, {admin_uid})"
+    )
     sql_exec(
         "insert into ttrss_access_keys (access_key, feed_id, is_cat, owner_uid) "
-        f"values ({q(ak_cat)}, {str(tech_cat_id)}, true, {admin_uid})")
+        f"values ({q(ak_cat)}, {str(tech_cat_id)}, true, {admin_uid})"
+    )
     print("access keys:", ak_feed, ak_cat)
 
     # 11. second user via the CLI (uses the real password hashing code)
     # (numbering kept stable; see steps above)
-    sh(["docker", "compose", "exec", "-T", "app", "sh", "-c",
-        'sudo -E -u app php /var/www/html/tt-rss/update.php --force-yes '
-        '--user-add "testuser:testpass:0" 2>&1'])
+    sh(
+        [
+            "docker",
+            "compose",
+            "exec",
+            "-T",
+            "app",
+            "sh",
+            "-c",
+            "sudo -E -u app php /var/www/html/tt-rss/update.php --force-yes "
+            '--user-add "testuser:testpass:0" 2>&1',
+        ]
+    )
     test_uid = int(sql("select id from ttrss_users where login = 'testuser'")[0][0])
     sql_exec(
         "insert into ttrss_user_prefs2 (owner_uid, pref_name, value) values "
         f"({test_uid}, 'USER_CSS_THEME', 'compact_night'),"
         f"({test_uid}, '_ENABLED_PLUGINS', 'note'),"
-        f"({test_uid}, 'USER_LANGUAGE', 'en')")
+        f"({test_uid}, 'USER_LANGUAGE', 'en')"
+    )
     print("testuser created, uid:", test_uid)
 
     # 11b. otpuser — a dedicated regular user WITH OTP enabled, so the TOTP
     # challenge + code flow is demonstrated without putting it on the admin
     # demo path (created via the CLI so the password hashing is authentic).
-    sh(["docker", "compose", "exec", "-T", "app", "sh", "-c",
-        'sudo -E -u app php /var/www/html/tt-rss/update.php --force-yes '
-        f'--user-add "{OTP_LOGIN}:{OTP_PASS}:0" 2>&1'])
+    sh(
+        [
+            "docker",
+            "compose",
+            "exec",
+            "-T",
+            "app",
+            "sh",
+            "-c",
+            "sudo -E -u app php /var/www/html/tt-rss/update.php --force-yes "
+            f'--user-add "{OTP_LOGIN}:{OTP_PASS}:0" 2>&1',
+        ]
+    )
     otp_uid = int(sql(f"select id from ttrss_users where login = {q(OTP_LOGIN)}")[0][0])
     sql_exec(
         "update ttrss_users set otp_enabled = true, otp_secret = "
-        f"{q(OTP_SECRET)} where id = {otp_uid}")
+        f"{q(OTP_SECRET)} where id = {otp_uid}"
+    )
     print("otpuser created with OTP enabled, uid:", otp_uid)
 
     # Fixed last_login for all users: the users index page displays it, and
@@ -473,7 +607,8 @@ def main() -> int:
     # runs ("Never" on the first run, a time on subsequent ones).
     sql_exec(
         "update ttrss_users set last_login = '2026-01-01 12:00:00' "
-        "where last_login is null")
+        "where last_login is null"
+    )
     ro_uid = int(sql(f"select id from ttrss_users where login = {q(RO_LOGIN)}")[0][0])
 
     # 12. sample articles for the scenario template
@@ -481,7 +616,8 @@ def main() -> int:
     def first_article(feed_id: int) -> int:
         rows = sql(
             f"select int_id from ttrss_user_entries where owner_uid = {admin_uid} "
-            f"and feed_id = {feed_id} order by ref_id desc limit 1")
+            f"and feed_id = {feed_id} order by ref_id desc limit 1"
+        )
         return int(rows[0][0]) if rows else 0
 
     ids = {
@@ -489,8 +625,12 @@ def main() -> int:
         "admin": {"uid": admin_uid, "login": ADMIN_LOGIN, "password": ADMIN_PASS},
         "readonly": {"uid": ro_uid, "login": RO_LOGIN, "password": RO_PASS},
         "testuser": {"uid": test_uid, "login": "testuser", "password": "testpass"},
-        "otpuser": {"uid": otp_uid, "login": OTP_LOGIN, "password": OTP_PASS,
-                    "totp_secret": OTP_SECRET},
+        "otpuser": {
+            "uid": otp_uid,
+            "login": OTP_LOGIN,
+            "password": OTP_PASS,
+            "totp_secret": OTP_SECRET,
+        },
         "categories": {
             "news": cat_ids.get("News", 0),
             "world_news": cat_ids.get("News/World News", 0),
@@ -505,16 +645,24 @@ def main() -> int:
         "labels": label_ids,
         "profiles": profile_ids,
         "feeds": {url: fid for url, fid in feed_ids.items() if fid},
-        "feed_ars": feed_ids.get("https://arstechnica.com/information-technology/feed/", 0),
+        "feed_ars": feed_ids.get(
+            "https://arstechnica.com/information-technology/feed/", 0
+        ),
         "feed_hn_frontpage": feed_ids.get("https://hnrss.org/frontpage", 0),
-        "article_1": first_article(feed_ids.get("https://arstechnica.com/information-technology/feed/", 0)),
+        "article_1": first_article(
+            feed_ids.get("https://arstechnica.com/information-technology/feed/", 0)
+        ),
         "article_2": first_article(feed_ids.get("https://hnrss.org/frontpage", 0)),
         "access_key_feed_ars": ak_feed,
         "access_key_cat_tech": ak_cat,
         "app_password": ap_pass,
         "totp_secret": OTP_SECRET,
-        "counts": {"entries": n_articles, "feeds": len(feed_ids),
-                   "feeds_updated": n_updated, "feeds_errors": n_errors},
+        "counts": {
+            "entries": n_articles,
+            "feeds": len(feed_ids),
+            "feeds_updated": n_updated,
+            "feeds_errors": n_errors,
+        },
     }
     out = DATA / "ids.json"
     out.write_text(json.dumps(ids, indent=2) + "\n")

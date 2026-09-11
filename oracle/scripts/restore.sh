@@ -5,9 +5,11 @@
 #   3. stop the updater daemon (corpus runs need a frozen dataset)
 #   4. restore golden-db.sql
 #   5. re-import the cached disk state (feed icons)
-cd "$(dirname "$0")/../.."   # repo root
+cd "$(dirname "$0")/../.." # repo root
 
 DATA=oracle/data
+
+python3 oracle/scripts/check_sync.py
 PROJ=tt-rust-oracle
 C="docker compose -f oracle/compose.yaml"
 
@@ -20,7 +22,7 @@ $C stop updater
 
 echo "== restore db =="
 $C exec -T db psql -U postgres -d postgres -v ON_ERROR_STOP=0 \
-    < "$DATA/golden-db.sql" > /tmp/restore.log 2>&1 || true
+    <"$DATA/golden-db.sql" >/tmp/restore.log 2>&1 || true
 tail -5 /tmp/restore.log
 
 echo "== restore cache =="

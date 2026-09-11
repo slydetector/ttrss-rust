@@ -36,7 +36,7 @@
 # oracle/.env (the single source of truth); the Rust server's own listen port,
 # self URL, docroot, and feed-icon dir are fixed here.
 set -e
-cd "$(dirname "$0")/../.."   # repo root
+cd "$(dirname "$0")/../.." # repo root
 
 BASELINE=oracle/data/runs/oracle-a
 SCENARIOS=oracle/corpus/scenarios.template.toml
@@ -50,15 +50,42 @@ BASE_URL="http://127.0.0.1:${BASE_PORT}/tt-rss/"
 
 while [ $# -gt 0 ]; do
     case "$1" in
-        --baseline)  BASELINE="$2"; shift 2 ;;
-        --scenarios) SCENARIOS="$2"; shift 2 ;;
-        --vars)      VARS="$2"; shift 2 ;;
-        --out)       OUT="$2"; shift 2 ;;
-        --no-build)  DO_BUILD=0; shift ;;
-        --no-reset)  DO_RESET=0; shift ;;
-        --keep)      KEEP=1; shift ;;
-        -h|--help)   grep '^#' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
-        *) echo "unknown arg: $1 (see --help)" >&2; exit 2 ;;
+    --baseline)
+        BASELINE="$2"
+        shift 2
+        ;;
+    --scenarios)
+        SCENARIOS="$2"
+        shift 2
+        ;;
+    --vars)
+        VARS="$2"
+        shift 2
+        ;;
+    --out)
+        OUT="$2"
+        shift 2
+        ;;
+    --no-build)
+        DO_BUILD=0
+        shift
+        ;;
+    --no-reset)
+        DO_RESET=0
+        shift
+        ;;
+    --keep)
+        KEEP=1
+        shift
+        ;;
+    -h | --help)
+        grep '^#' "$0" | sed 's/^# \{0,1\}//'
+        exit 0
+        ;;
+    *)
+        echo "unknown arg: $1 (see --help)" >&2
+        exit 2
+        ;;
     esac
 done
 
@@ -70,8 +97,14 @@ DB_PASS=$(env_get TTRSS_DB_PASS)
 PLUGINS=$(env_get TTRSS_PLUGINS)
 ENC_KEY=$(env_get TTRSS_ENCRYPTION_KEY)
 for v in DB_USER DB_NAME DB_PASS PLUGINS ENC_KEY; do
-    [ -n "${!v}" ] || { echo "oracle/.env is missing $v" >&2; exit 1; }
+    [ -n "${!v}" ] || {
+        echo "oracle/.env is missing $v" >&2
+        exit 1
+    }
 done
+
+# --- the golden baseline must match the current seed recipe ---
+python3 oracle/scripts/check_sync.py
 
 # --- build ---
 if [ "$DO_BUILD" = 1 ]; then
@@ -108,7 +141,7 @@ export TTRSS_RUST_DOCROOT="$PWD/tt-rss"
 export TTRSS_RUST_FEED_ICONS_DIR="$PWD/oracle/data/feed-icons"
 export RUST_BACKTRACE="${RUST_BACKTRACE:-1}"
 
-./target/debug/tt-rust > "$SERVER_LOG" 2>&1 &
+./target/debug/tt-rust >"$SERVER_LOG" 2>&1 &
 SERVER_PID=$!
 cleanup() {
     if [ "$KEEP" = 0 ]; then kill "$SERVER_PID" 2>/dev/null || true; fi
@@ -125,7 +158,10 @@ trap cleanup EXIT
 ready=0
 for _ in $(seq 1 40); do
     code=$(curl -s -o /dev/null -w '%{http_code}' "${BASE_URL}healthz" 2>/dev/null || true)
-    if [ "$code" = "200" ]; then ready=1; break; fi
+    if [ "$code" = "200" ]; then
+        ready=1
+        break
+    fi
     sleep 0.5
 done
 if [ "$ready" != 1 ]; then

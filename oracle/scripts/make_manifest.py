@@ -1,6 +1,13 @@
 #!/usr/bin/env python3
-"""Write oracle/data/db-manifest.json: row counts + key facts of the golden DB."""
+"""Write oracle/data/db-manifest.json: row counts + key facts of the golden DB.
 
+Also records the seed lineage (SHA-256 of seed.py, feeds.txt, and the
+golden dump itself) so `check_sync.py` can detect a stale golden dataset —
+the dump is generated data (gitignored) and silently goes stale whenever
+the seed recipe changes without a re-seed + re-snapshot.
+"""
+
+import hashlib
 import json
 import subprocess
 import sys
@@ -13,6 +20,10 @@ def main() -> int:
     base = sys.argv[2]
     data_dir.mkdir(parents=True, exist_ok=True)
 
+    root = data_dir.parents[1]   # repo root (data_dir == <root>/oracle/data)
+
+    def sha256(p: Path) -> str:
+        return hashlib.sha256(p.read_bytes()).hexdigest()
     def rows(query: str) -> list[list[str]]:
         p = subprocess.run(
             ["docker", "compose", "exec", "-T", "db", "psql", "-U", "postgres",
@@ -62,6 +73,13 @@ def main() -> int:
             for r in rows(
                 "select login, id, access_level from ttrss_users order by id")
         ],
+        "lineage": {
+            # What produced this dump; verified by check_sync.py before any
+            # reset/restore/harness/record run uses the golden dataset.
+            "seed_sha256": sha256(root / "oracle/scripts/seed.py"),
+            "feeds_sha256": sha256(root / "oracle/feeds.txt"),
+            "dump_sha256": sha256(data_dir / "golden-db.sql"),
+        },
     }
     out = data_dir / "db-manifest.json"
     out.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n")

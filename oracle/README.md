@@ -23,6 +23,8 @@ oracle/
 │   ├── snapshot.sh       # pg_dump + app cache + manifest -> oracle/data/
 │   ├── restore.sh        # restore golden-db.sql into a fresh db container
 │   ├── make_manifest.py  # row counts / facts -> db-manifest.json
+│   ├── check_sync.py     # verify recorded dataset matches the current seed recipe
+│   ├── record_params.sh  # re-record the param-differential fixtures (PHP 8.5 container)
 │   ├── bench.sh          # latency baseline -> oracle/data/baseline.json
 │   └── census.sh         # nginx request-distribution summary
 ├── corpus/
@@ -85,6 +87,24 @@ Seeded contents (stable by construction, ids in `oracle/data/ids.json`):
 
 The seed stops the updater daemon before recording feed state, so the
 snapshot is frozen (no background feed updates during corpus runs).
+
+### Sync gate (seed recipe ↔ recorded dataset)
+
+`db-manifest.json` records a `lineage` block: the SHA-256 of the
+`seed.py` that produced the recorded dataset, and the SHA-256 of
+golden-db.sql. `check_sync.py` verifies that the working-tree seed
+recipe still matches that lineage, and (when the stack is up) that live
+row counts match the manifest:
+
+```sh
+make oracle-check                # or: python3 oracle/scripts/check_sync.py
+```
+
+If you edit `seed.py` (or restore/patch the DB out-of-band), re-snapshot
+(`make oracle-seed && make oracle-snapshot`) — the recorded dataset is
+only valid for the seed recipe that produced it. `harness.sh` runs the
+same check before build/reset, so a drifted dataset can never silently
+serve as the baseline of a harness run.
 
 ## Corpus
 
@@ -157,6 +177,7 @@ make harness ARGS=--no-build         # reuse existing binaries
 make harness ARGS=--no-reset         # skip the DB reset
 make harness-keep                    # leave the Rust server running
 make run                             # just run the Rust server (foreground)
+make record-params                   # re-record param fixtures from frozen PHP
 ```
 
 The diff strips the authority port, so the oracle (8280) and Rust (8281) compare
