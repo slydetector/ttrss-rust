@@ -646,8 +646,46 @@ clean** on the golden dataset. Done so far:
   handler reads/stores `prefs_filter_search` in the session and supplies the one
   dynamic value (the `clean()`ed, html-escaped search box). The `PluginHost` hook
   is a no-op and `__()` is the identity. Structure verified against the PHP (3 DB
-  tests in `tests/filter_index.rs`; `oracle/recorders/filters_index.php`). Only
-  `testFilterDo` remains (the M6 filter-execution engine).
+  tests in `tests/filter_index.rs`; `oracle/recorders/filters_index.php`).
+
+  **Filter test dialog (M5, was DEFERRED):** `testFilterDo` is ported — the
+  "Test Filter" preview dry-runs the posted rules against the owner's
+  articles (read-only). The shared `RSSUtils::eval_article_filters` engine
+  now lives in `ttrss_core::filters` (regexes via the `regex` crate with the
+  PHP `/$reg_exp/iu` semantics — `(?i)` + UTF-8; per-rule `inverse`,
+  `match_any_rule` short-circuit, filter-level `inverse`, and the
+  `matched_rules`/`matched_filters` out-params carrying the last-processed
+  rule + the regexp captures). The handler builds the fake all-rules filter
+  from the `rule[]` JSON params (invalid JSON / non-objects skipped), applies
+  the per-rule feed/category scope to the query (`feed_id = N`, `CAT:N` →
+  `cat_id = N`, `CAT:0` → `cat_id IS NULL`; OR-joined within a rule, joined
+  `match_any_rule ? OR : AND`), and formats each match the way the PHP does:
+  `highlight_words_str` (hence the DOM round-trip's outer `<span>` on
+  highlighted titles/previews), the `&hellip;` + 200-char content preview
+  (over the **tag-stripped** content — `strip_tags` is specific to this
+  preview path, so a rule matching only inside a tag attribute previews from
+  the start with no `&hellip;` and no highlight), the per-rule-type preview
+  (`&mdash;` / link / author / tag icon), and the plain rule name
+  (`get_rule_name`, incl. its trailing-space quirk and the always-present
+  `(inverse)` suffix here, since `testFilterDo` does `$rule['inverse'] ??=
+  false` before naming — the PHP `isset()` check is key-presence, not
+  value). One PHP quirk is reproduced as `Err(())` → HTTP 500 with an empty
+  body: a matched rule whose highlight word (the match, `strip_tags`-ed,
+  200 chars) is empty — e.g. an `inverse` filter whose rule matched nothing,
+  or a regex matching the empty string — makes
+  `Sanitizer::highlight_words` loop forever and the request dies at
+  `max_execution_time` (verified against the live oracle: ~39 s → 500
+  empty). The request-parse boundary now normalizes PHP's `$_REQUEST`
+  bracket fields (`rule[]` → `rule` array) so the SPA's editSave /
+  testFilterDo forms reach the handlers in the shape PHP sees. Verified by
+  30 core unit tests (1:1 from `tests_functional/RSSUtilsTest.php`
+  `test_eval_article_filters_*`) + 14 DB tests in `tests/filter_test.rs`
+  (title/content/tag rules, feed / category / uncategorized scopes,
+  match-any vs match-all, inverse ×2 incl. the fatal path, the
+  strip_tags preview, limit/offset, malformed-rule skip, no-rules, and the
+  `rule[]`/`action[]` editSave regression through the real `rpc::handler`)
+  - the oracle corpus `oracle/corpus/scenarios-filter-test.toml` (11 steps
+  against the live PHP — 11/11 byte-identical, incl. the 500).
 
 ### Test-parity program (PHP `#[test]` → Rust `#[test]`, 2026-09-05)
 
@@ -1015,7 +1053,7 @@ Port each handler class, method-by-method, against golden files (read methods la
 4. `Counters`: get_all/get_conditional.
 5. `Pref_Prefs`: the big one (1647 L) — profiles ✅ (add/clone/remove/activate/save + getProfiles; pure DB + session, no plugin overlap), app passwords ✅ (generateAppPassword/deleteAppPasswords/appPasswordList — a `make_password`/`get_salt` helper + SSHA-512 hash in the `ALGO:HASH:SALT` form the API auth already verifies; list is a jinja template, oracle-structurally-matched), getPluginsList/getAvailablePlugins ✅ (listing only), previewDigest ✅, prefs save/reset ✅ (`saveconfig` + `resetconfig`), pref UI `index` page ✅ (the `AccordionContainer` shell + the full `index_prefs` list — all six sections, every control type, data sources oracle-matched; `index_plugins` form shell inlined with the list still lazy), pref UI `index_auth` pane ✅ (the `TabContainer`: personal data / password / app passwords / OTP-2FA with the QR + base32 secret), its write handlers ✅ (`changePersonalData`/`changepassword`/`otpenable`/`otpdisable` — the auth + OTP mutations) + `customizeCSS` ✅; remaining: the `index_plugins` list content (M7) and plugin install/uninstall/update (M7).
 6. `Pref_Feeds`: feed tree, edit/save (single + batch), categories (add/rename/remove/sort), icons (upload/remove), OPML import, inactive/error feeds, access keys (clear/regen/shared URL).
-7. `Pref_Filters`: tree ✅, edit/clone/add/remove/save ✅ (write CRUD), ordering ✅, join ✅, optimize ✅, edit-dialog prefill (`edit`) ✅, rule/action names (`printRuleName`/`printActionName`) ✅, feed multi-select (`editrule`/`_feed_multi_select`) ✅, `index` dojo page ✅ (jinja). **DEFERRED (user, 2026-09-16): `testFilterDo`** — the "test filter" preview (dry-runs a filter's rules against existing articles, read-only). It delegates to the shared `RSSUtils::eval_article_filters` engine (the same one applied on every feed update), so porting it means porting that M6 filter-execution engine. Revisit in M6 (the engine milestone); low user priority (an advanced feature). See §3a Phase 2 for the engine.
+7. `Pref_Filters`: tree ✅, edit/clone/add/remove/save ✅ (write CRUD), ordering ✅, join ✅, optimize ✅, edit-dialog prefill (`edit`) ✅, rule/action names (`printRuleName`/`printActionName`) ✅, feed multi-select (`editrule`/`_feed_multi_select`) ✅, `index` dojo page ✅ (jinja), `testFilterDo` ✅ (the "test filter" preview — the `RSSUtils::eval_article_filters` engine ported to `ttrss_core::filters`, previously DEFERRED to M6). **Complete.**
 8. `Pref_Labels`: tree, edit, colors, save, add/remove.
 9. `Pref_Users`: list, add, edit, details, remove, resetPass (admin).
 10. `Pref_System`: log viewer, clear log, send test email, scheduled tasks list.

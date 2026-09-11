@@ -4405,6 +4405,7 @@ dependencies = [
  "hmac",
  "iana-time-zone",
  "rand 0.8.8",
+ "regex",
  "serde",
  "serde_json",
  "sha1",

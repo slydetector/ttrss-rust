@@ -45,12 +45,15 @@ pub struct RpcForm {
 }
 
 /// Parse an `application/x-www-form-urlencoded` (or query-string) payload into
-/// an [`RpcForm`], preserving repeated keys as JSON arrays. The Dojo SPA sends
-/// batch ops (`catchupSelected`, `markSelected`, `delete`, …) as repeated
-/// `ids[]=…&ids[]=…` params; deserializing those into a `Map` (the previous
-/// `serde_urlencoded` path) collapsed each key to its *last* value, so only the
-/// final id was ever acted on. A single-valued key stays a scalar string (the
-/// axum `Form` convention the scalar handlers and tests rely on); a repeated
+/// an [`RpcForm`], mirroring PHP's `$_REQUEST` normalization. The Dojo SPA
+/// sends batch ops (`catchupSelected`, `markSelected`, `delete`, …) as
+/// repeated `ids[]=…&ids[]=…` params and the filter forms as repeated
+/// `rule[]`/`action[]` params; a `Map` (the previous `serde_urlencoded` path)
+/// collapsed each repeated key to its *last* value, so only the final id was
+/// ever acted on. A `[]`-suffixed field name normalizes to the bare key, as
+/// an array even with a single value (PHP: `rule[]={…}` → `$_REQUEST['rule']
+/// = ['{…}']`). A plain single-valued key stays a scalar string (the axum
+/// `Form` convention the scalar handlers and tests rely on); a repeated plain
 /// key becomes a `Value::Array` that `param_int_array` and friends read whole.
 fn rpc_form_from_urlencoded(input: &[u8]) -> RpcForm {
     let mut op: Option<String> = None;
@@ -77,12 +80,20 @@ fn rpc_form_from_urlencoded(input: &[u8]) -> RpcForm {
     }
     let mut extra: Map<String, Value> = Map::new();
     for (k, v) in vals {
-        let value = if v.len() == 1 {
-            Value::String(v.into_iter().next().unwrap())
+        // PHP `$_REQUEST`: `name[]` fields normalize to the bare key, always
+        // as an array (even a single `x[]=5` yields `$_REQUEST['x'] = ['5']`).
+        let arr = k.ends_with("[]");
+        let key = if arr {
+            k[..k.len() - 2].to_string()
         } else {
-            Value::Array(v.into_iter().map(Value::String).collect())
+            k
         };
-        extra.insert(k, value);
+        let value = if arr || v.len() > 1 {
+            Value::Array(v.into_iter().map(Value::String).collect())
+        } else {
+            Value::String(v.into_iter().next().unwrap())
+        };
+        extra.insert(key, value);
     }
     RpcForm {
         op,
@@ -466,6 +477,14 @@ async fn dispatch(
             "filtersortreset" => {
                 let _ = filters::filtersortreset(state, sess).await;
                 DispatchOutput::TextHtml(String::new())
+            }
+            "testfilterdo" => match filters::test_filter_do(state, sess, extra).await {
+                Ok(v) => DispatchOutput::Json(v),
+                // PHP fatal (`Sanitizer::highlight_words` infinite loop on an
+                // empty highlight word) → 500 with an empty body.
+                Err(()) => {
+                    DispatchOutput::Raw(StatusCode::INTERNAL_SERVER_ERROR, None, String::new())
+                }
             }
             _ => DispatchOutput::Json(unknown_method("Pref_Filters", method)),
         },
@@ -1191,16 +1210,18 @@ mod tests {
         // Batch ops (`catchupSelected`, `markSelected`, `delete`, …) send
         // repeated `ids[]` params; they must arrive as a JSON array so every id
         // is acted on. Regression: the old `serde_urlencoded`→`Map` path kept
-        // only the *last* value for a repeated key.
+        // only the *last* value for a repeated key. PHP `$_REQUEST` semantics:
+        // the `[]` suffix is stripped from the key and a `[]` field is always
+        // an array, even with a single value (`rule[]`).
         let (form, file) = rt().block_on(parse_backend(build(
             "/backend.php",
             Some("application/x-www-form-urlencoded"),
-            "op=RPC&method=catchupSelected&csrf_token=tok&ids[]=430&ids[]=431&ids[]=432&cmode=0",
+            "op=RPC&method=catchupSelected&csrf_token=tok&ids[]=430&ids[]=431&ids[]=432&cmode=0&rule[]=%7B%22reg_exp%22%3A%22x%22%7D",
         )));
         assert_eq!(form.op.as_deref(), Some("RPC"));
         assert_eq!(form.method.as_deref(), Some("catchupSelected"));
         assert_eq!(
-            form.extra.get("ids[]"),
+            form.extra.get("ids"),
             Some(&Value::Array(vec![
                 Value::String("430".into()),
                 Value::String("431".into()),
@@ -1209,6 +1230,12 @@ mod tests {
         );
         // A single-valued key stays a scalar string (unchanged behavior).
         assert_eq!(form.extra.get("cmode"), Some(&Value::String("0".into())));
+        // A single-valued `[]` field is still an array (PHP: `rule[]` →
+        // `$_REQUEST['rule'] = ['{…}']`), under the bare key.
+        assert_eq!(
+            form.extra.get("rule"),
+            Some(&Value::Array(vec![Value::String("{\"reg_exp\":\"x\"}".into())]))
+        );
         assert!(file.is_none());
     }
 

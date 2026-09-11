@@ -755,6 +755,300 @@ pub async fn editrule(state: &AppState, sess: &Sess, extra: &Map<String, Value>)
     json!({ "multiselect": multiselect })
 }
 
+/// A posted `rule[]` JSON — kept both raw (for `_get_rule_name`) and as the
+/// typed eval representation.
+struct PostedRule {
+    raw: Value,
+    eval_rule: ttrss_core::filters::EvalRule,
+    /// The `feed_id` elements as strings (PHP `"$feed_id"` casts).
+    feed_ids: Vec<String>,
+}
+
+impl PostedRule {
+    fn from_json(v: &Value) -> Self {
+        let reg_exp = v.get("reg_exp").and_then(util::scalar_str).unwrap_or_default();
+        let filter_type = util::clean_int(v.get("filter_type"));
+        // `$rule['inverse'] ??= false;` — truthy-checked by the engine.
+        let inverse = v.get("inverse").map(json_truthy).unwrap_or(false);
+        let feeds = v.get("feed_id").cloned().unwrap_or(Value::Null);
+        let feeds_vec = match &feeds {
+            Value::Array(a) => a.clone(),
+            other => vec![other.clone()],
+        };
+        let feed_ids: Vec<String> = feeds_vec.iter().filter_map(util::scalar_str).collect();
+        PostedRule {
+            raw: v.clone(),
+            eval_rule: ttrss_core::filters::EvalRule {
+                reg_exp,
+                rule_type: ttrss_core::filters::RuleType::from_id(filter_type as i32),
+                inverse,
+            },
+            feed_ids,
+        }
+    }
+}
+
+/// `Pref_Filters::testFilterDo` — the "Test Filter" dialog: evaluates the
+/// rules the dialog currently holds (posted `rule[]` JSON) as a single fake
+/// filter over the user's recent entries and returns the pre-filtering count
+/// (the page size) plus the matching items (highlighted title / preview and
+/// plain rule names). The filter's actions are the placeholder
+/// `'dummy-action'` — only the match itself matters.
+///
+/// `Err(())` is the PHP `max_execution_time` fatal: a matched rule whose
+/// highlight word (the match, `strip_tags`-ed and cut to 200 chars) is empty
+/// — e.g. a filter that matched via `inverse` (the rule matched nothing
+/// textually) or a regex matching the empty string — makes PHP's
+/// `Sanitizer::highlight_words` loop forever, and the request 500s with an
+/// empty body (verified against the oracle: ~39 s → fatal).
+#[allow(clippy::result_unit_err)] // the only error is the fatal itself
+pub async fn test_filter_do(
+    state: &AppState,
+    sess: &Sess,
+    extra: &Map<String, Value>,
+) -> Result<Value, ()> {
+    let pool = state.db.pool();
+    let uid = sess.data().uid().unwrap_or(0);
+
+    let offset = util::clean_int(extra.get("offset"));
+    let limit = util::clean_int(extra.get("limit"));
+    let match_any_rule = util::checkbox(extra, "match_any_rule");
+    let inverse = util::checkbox(extra, "inverse");
+
+    // `$_REQUEST['rule']`: an array of JSON strings; invalid JSON and
+    // non-object/array values are skipped (PHP try/catch + `is_array`).
+    let mut posted: Vec<PostedRule> = Vec::new();
+    let rule_param = extra.get("rule").cloned().unwrap_or(Value::Null);
+    let rule_items = match &rule_param {
+        Value::Array(a) => a.clone(),
+        other => vec![other.clone()],
+    };
+    for it in rule_items {
+        let Some(s) = it.as_str() else {
+            continue;
+        };
+        let Ok(v) = serde_json::from_str::<Value>(s) else {
+            continue;
+        };
+        if !matches!(v, Value::Object(_) | Value::Array(_)) {
+            continue;
+        }
+        posted.push(PostedRule::from_json(&v));
+    }
+
+    // Scope parts: per rule, the feed/category restrictions (OR-joined
+    // within a rule; the rules join by `match_any_rule`).
+    let mut scope_qparts: Vec<String> = Vec::new();
+    for pr in &posted {
+        let mut parts: Vec<String> = Vec::new();
+        for fid in &pr.feed_ids {
+            if let Some(rest) = fid.strip_prefix("CAT:") {
+                let cat_id = util::php_int_cast(rest);
+                parts.push(if cat_id > 0 {
+                    format!("cat_id = {cat_id}")
+                } else {
+                    "cat_id IS NULL".to_string()
+                });
+            } else if util::is_numeric(fid) && util::php_int_cast(fid) > 0 {
+                parts.push(format!("feed_id = {}", util::php_int_cast(fid)));
+            }
+        }
+        if !parts.is_empty() {
+            scope_qparts.push(format!("({})", parts.join(" OR ")));
+        }
+    }
+
+    let mut sql = format!(
+        "SELECT e.title, e.content, e.date_entered, e.link, e.author, ue.tag_cache, \
+         f.id AS feed_id, f.title AS feed_title, fc.id AS cat_id \
+         FROM ttrss_entries e \
+         JOIN ttrss_user_entries ue ON ue.ref_id = e.id \
+         LEFT JOIN ttrss_feeds f ON f.id = ue.feed_id \
+         LEFT JOIN ttrss_feed_categories fc ON fc.id = f.cat_id \
+         WHERE ue.owner_uid = {uid}"
+    );
+    if !scope_qparts.is_empty() {
+        sql.push_str(&format!(
+            " AND ({})",
+            scope_qparts.join(if match_any_rule { " OR " } else { " AND " })
+        ));
+    }
+    sql.push_str(&format!(" ORDER BY e.date_entered DESC LIMIT {limit} OFFSET {offset}"));
+
+    let rows = match sqlx::query(&sql).fetch_all(pool).await {
+        Ok(r) => r,
+        // A SQL failure (e.g. a negative LIMIT) degrades to an empty result
+        // (PHP would 500; the SPA only sends non-negative values).
+        Err(_) => {
+            return Ok(json!({ "pre_filtering_count": 0, "items": [] }))
+        }
+    };
+
+    let empty_map = Map::new();
+    let mut items: Vec<Value> = Vec::new();
+    for r in &rows {
+        let title: String = r.get("title");
+        let content: String = r.get("content");
+        let date_entered: Option<chrono::NaiveDateTime> = r.get("date_entered");
+        let link: String = r.get("link");
+        let author: Option<String> = r.get("author");
+        let tag_cache: String = r.get("tag_cache");
+        let feed_id: Option<i32> = r.get("feed_id");
+        let feed_title: Option<String> = r.get("feed_title");
+        let cat_id: Option<i32> = r.get("cat_id");
+
+        let author = author.unwrap_or_default();
+        // `explode(",", $entry['tag_cache'])`
+        let tags: Vec<String> = tag_cache.split(',').map(str::to_string).collect();
+
+        // The rules applicable to this entry's feed/category: `CAT:0` +
+        // uncategorized, `CAT:<cat>` (incl. `CAT:` + null), the feed id
+        // (strict int compare), or `0` (all feeds).
+        let cat_str = cat_id
+            .map(|c| format!("CAT:{c}"))
+            .unwrap_or_else(|| "CAT:".to_string());
+        let mut entry_rules: Vec<&PostedRule> = Vec::new();
+        for pr in &posted {
+            for fid in &pr.feed_ids {
+                let in_scope = fid == cat_str.as_str()
+                    || (fid == "CAT:0" && cat_id.is_none())
+                    || feed_id.map(|f| util::php_int_cast(fid) == f as i64).unwrap_or(false)
+                    || fid == "0";
+                if in_scope {
+                    entry_rules.push(pr);
+                    break;
+                }
+            }
+        }
+
+        let feed_filter = ttrss_core::filters::EvalFilter {
+            match_any_rule,
+            inverse,
+            rules: entry_rules.iter().map(|pr| pr.eval_rule.clone()).collect(),
+            actions: vec![ttrss_core::filters::FilterAction::default()],
+        };
+        let outcome = ttrss_core::filters::eval_article_filters(
+            std::slice::from_ref(&feed_filter),
+            &title,
+            &content,
+            &link,
+            &author,
+            &tags,
+        );
+        if outcome.actions.is_empty() {
+            continue;
+        }
+
+        // `strip_tags(preg_replace("/[\\r\\n\\t]/", "", $entry["content"]))` —
+        // the tag-stripped text is what `mb_strpos` and the preview operate
+        // on (mirrors the content/both preview path in
+        // `RSSUtils::eval_article_filters`).
+        let content_flat: String = util::strip_tags(
+            &content.chars().filter(|c| !matches!(c, '\r' | '\n' | '\t')).collect::<String>(),
+        );
+        let mut content_preview = String::new();
+        let mut matches: Vec<String> = Vec::new();
+        let mut rules_names: Vec<String> = Vec::new();
+        let mut entry_title = title.clone();
+
+        for mr in &outcome.matched_rules {
+            // `mb_substr(strip_tags($rule['regexp_matches'][0]), 0, 200)`
+            let full_match = mr.regexp_matches.first().cloned().unwrap_or_default();
+            let rule_regexp_match: String = util::strip_tags(&full_match).chars().take(200).collect();
+            matches.push(rule_regexp_match.clone());
+
+            let mut raw_map = mr
+                .rule_index
+                .and_then(|idx| entry_rules.get(idx))
+                .and_then(|pr| pr.raw.as_object())
+                .unwrap_or(&empty_map)
+                .clone();
+            // PHP: `$rule['inverse'] ??= false;` — the key is always present
+            // here, so `_get_rule_name` always appends `(inverse)`.
+            raw_map.entry("inverse").or_insert(Value::Bool(false));
+            rules_names.push(get_rule_name(pool, uid, &raw_map, false).await);
+
+            let rule_type = mr
+                .rule_index
+                .and_then(|idx| entry_rules.get(idx))
+                .map(|pr| pr.eval_rule.rule_type)
+                .unwrap_or(ttrss_core::filters::RuleType::Unknown);
+            let preview = match rule_type {
+                ttrss_core::filters::RuleType::Content | ttrss_core::filters::RuleType::Both => {
+                    // `mb_strpos` (case-sensitive, char index) +
+                    // `mb_substr(…, $match_index)`; a miss (e.g. case
+                    // mismatch) previews from the start without `&hellip;`.
+                    match content_flat.find(&rule_regexp_match) {
+                        Some(byte_i) => {
+                            let char_i = content_flat[..byte_i].chars().count();
+                            let mut p =
+                                util::truncate_string(&content_flat[byte_i..], 200, "&hellip;");
+                            if char_i > 0 {
+                                p = format!("&hellip;{p}");
+                            }
+                            p
+                        }
+                        None => util::truncate_string(&content_flat, 200, "&hellip;"),
+                    }
+                }
+                ttrss_core::filters::RuleType::Link => link.clone(),
+                ttrss_core::filters::RuleType::Author => author.clone(),
+                ttrss_core::filters::RuleType::Tag => {
+                    format!("<i class=\"material-icons\">label_outline</i> {}", tags.join(", "))
+                }
+                _ => "&mdash;".to_string(),
+            };
+            content_preview = preview;
+
+            let (mut hl_title, mut hl_content) = (false, false);
+            match rule_type {
+                ttrss_core::filters::RuleType::Both => {
+                    hl_title = true;
+                    hl_content = true;
+                }
+                ttrss_core::filters::RuleType::Title => hl_title = true,
+                ttrss_core::filters::RuleType::Content
+                | ttrss_core::filters::RuleType::Link
+                | ttrss_core::filters::RuleType::Author
+                | ttrss_core::filters::RuleType::Tag => hl_content = true,
+                ttrss_core::filters::RuleType::Unknown => {}
+            }
+            // PHP: an empty highlight word (rule matched nothing textually —
+            // e.g. via `inverse` — or the match stripped to nothing) makes
+            // `Sanitizer::highlight_words` loop forever → the
+            // max-execution-time fatal → 500 with an empty body.
+            if rule_regexp_match.is_empty() && (hl_content || hl_title) {
+                return Err(());
+            }
+            if hl_content {
+                content_preview = crate::sanitizer::highlight_words_str(&content_preview, &matches);
+            }
+            if hl_title {
+                entry_title = crate::sanitizer::highlight_words_str(&entry_title, &matches);
+            }
+        }
+
+        // `mb_substr($entry['date_entered'], 0, 16)`
+        let date = date_entered
+            .map(|dt| crate::time::naive_to_pg_text(&dt))
+            .unwrap_or_default();
+        let date: String = date.chars().take(16).collect();
+
+        items.push(json!({
+            "title": entry_title,
+            "feed_title": feed_title,
+            "date": date,
+            "content_preview": content_preview,
+            "rules": rules_names,
+        }));
+    }
+
+    Ok(json!({
+        "pre_filtering_count": rows.len(),
+        "items": items,
+    }))
+}
+
 /// `Pref_Filters::index` — the filters tab page (the Dojo UI). The `search`
 /// param (when present) is cleaned and stored in the session as
 /// `prefs_filter_search`; otherwise the session value is used. Renders the page
