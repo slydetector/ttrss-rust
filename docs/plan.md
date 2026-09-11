@@ -1102,6 +1102,7 @@ A parking lot for small, known, not-now items (not milestone blockers):
 4. **Integration**: Postgres testcontainer; `ApiTest` port; Selenium smoke from existing suite.
 5. **Fuzz**: sanitizer, feed parser, URL validator.
 6. **Ops**: lockfile/daemon behavior tests; migration up/down (v0→151, partial states).
+7. **Browser/UX** (golden states): Playwright + headless Chromium (pinned Docker image) driving the real SPA — the 3-test Selenium smoke ported, plus ~8–12 "golden UI states" (feed tree + counters, headlines, article pane, labels, prefs, error) recorded **once against the PHP oracle** and asserted against Rust. The UX-level floor; see `docs/php-tests-and-browser-automation.md`.
 
 ---
 
