@@ -273,6 +273,7 @@ async fn dispatch(
             _ => DispatchOutput::Json(unknown_method("Feeds", method)),
         },
         "Pref_Feeds" => match method {
+            "index" => DispatchOutput::Html(feeds::index(state, sess, extra).await),
             "getfeedtree" => DispatchOutput::Json(feeds::getfeedtree(state, sess, extra).await),
             "feedswitherrors" => DispatchOutput::Json(feeds::feeds_with_errors(state, sess).await),
             "inactivefeeds" => DispatchOutput::Json(feeds::inactive_feeds(state, sess).await),
@@ -325,6 +326,7 @@ async fn dispatch(
             _ => DispatchOutput::Json(unknown_method("Article", method)),
         },
         "Pref_Labels" => match method {
+            "index" => DispatchOutput::Html(labels::index(state, sess, extra)),
             "getlabeltree" => DispatchOutput::Json(
                 labels::get_label_tree(state.db.pool(), data.uid().unwrap_or(0)).await,
             ),
@@ -443,6 +445,14 @@ async fn dispatch(
             "otpenable" => DispatchOutput::TextHtml(settings::otp_enable(state, sess, extra).await),
             "otpdisable" => DispatchOutput::TextHtml(settings::otp_disable(state, sess, extra).await),
             "customizecss" => DispatchOutput::Json(settings::customize_css(state, sess).await),
+            // TODO(port): Plugins-tab management actions are not yet ported and
+            // fall through to `unknown_method` (E_UNKNOWN_METHOD). Spec:
+            // Pref_Prefs.php — `setplugins()` (enable/disable),
+            // `installPlugin()` / `uninstallPlugin()` (file ops),
+            // `checkForPluginUpdates()` / `updateLocalPlugins()` (network),
+            // `clearPluginData()`. The SPA's `xhr.post` callers (e.g. "Enable
+            // selected") treat the error body as success, so these falsely
+            // confirm without writing anything.
             "getpluginslist" => DispatchOutput::Json(plugins::get_plugins_list(state, sess).await),
             "getavailableplugins" => DispatchOutput::Json(plugins::get_available_plugins(sess)),
             _ => DispatchOutput::Json(unknown_method("Pref_Prefs", method)),
@@ -553,6 +563,13 @@ fn csrf_ignored(op: &str, method: &str) -> bool {
         || (op == "Pref_Filters" && matches!(method, "index" | "getfiltertree"))
         // `Pref_System::csrf_ignore` = ["index"].
         || (op == "Pref_System" && method == "index")
+        // `Pref_Prefs::csrf_ignore` = ["index", "updateself", "otpqrcode"].
+        || (op == "Pref_Prefs"
+            && matches!(method, "index" | "updateself" | "otpqrcode"))
+        // `Pref_Labels::csrf_ignore` = ["index", "getlabeltree"].
+        || (op == "Pref_Labels" && matches!(method, "index" | "getlabeltree"))
+        // `Pref_Users::csrf_ignore` = ["index"].
+        || (op == "Pref_Users" && method == "index")
 }
 
 /// `Handler_Protected` handlers (all the ones ported so far) require a user.

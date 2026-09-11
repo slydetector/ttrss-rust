@@ -307,6 +307,71 @@ pub async fn getfeedtree(
     Value::Object(out)
 }
 
+/// `Pref_Feeds::index` — the feeds settings tab: a `TabContainer` with the
+/// "My feeds" toolbar/tree, "OPML" import/export, and "Sharing" panes
+/// (`index_feeds` / `index_opml` / `index_shared`).
+pub async fn index(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> String {
+    let uid = sess.data().uid().unwrap_or(0);
+    let profile = sess.data().profile().map(|p| p as i32);
+    let rows = prefs::load_rows(&state.db, uid, profile).await;
+    let enable_feed_cats = prefs::resolve(prefs::ENABLE_FEED_CATS, &rows, profile).as_bool();
+
+    // `index_feeds`: the feed-tree search term — `$_REQUEST["search"]` when
+    // present (also cached in the session), else the cached value.
+    let feed_search = if extra.contains_key("search") {
+        let s = util::clean_str(extra.get("search").and_then(Value::as_str).unwrap_or(""));
+        sess.with_mut(|d| {
+            d.set("prefs_feed_search", ttrss_core::phpser::Value::Bytes(s.as_bytes().to_vec()))
+        });
+        s
+    } else {
+        sess.data().get_str("prefs_feed_search").unwrap_or("").to_string()
+    };
+    let auto_expand = if feed_search.is_empty() { "false" } else { "true" };
+
+    let mut ctx: Map<String, Value> = Map::new();
+    ctx.insert("feed_search".into(), Value::String(util::htmlspecialchars(&feed_search)));
+    ctx.insert("auto_expand".into(), Value::String(auto_expand.to_string()));
+    ctx.insert("enable_feed_cats".into(), Value::Bool(enable_feed_cats));
+    ctx.insert(
+        "csrf_token".into(),
+        Value::String(sess.data().get_str("csrf_token").unwrap_or_default().to_string()),
+    );
+    ctx.insert(
+        "opml_notice".into(),
+        Value::String(controls::format_notice(
+            "Only main settings profile can be migrated using OPML.",
+        )),
+    );
+    ctx.insert(
+        "shared_notice".into(),
+        Value::String(controls::format_notice(
+            "Published articles can be subscribed by anyone who knows the following URL:",
+        )),
+    );
+    ctx.insert(
+        "include_settings_checkbox".into(),
+        Value::String(controls::checkbox_tag("include_settings", true, "1", &[])),
+    );
+
+    feeds_index_env()
+        .get_template("feeds_index")
+        .expect("feeds_index template")
+        .render(ctx)
+        .expect("feeds_index template render")
+}
+
+/// The minijinja environment holding `feeds_index` (parsed once).
+fn feeds_index_env() -> &'static Environment<'static> {
+    static ENV: std::sync::OnceLock<Environment<'static>> = std::sync::OnceLock::new();
+    ENV.get_or_init(|| {
+        let mut env = Environment::new();
+        env.add_template("feeds_index", include_str!("../templates/feeds_index.html.jinja"))
+            .expect("valid feeds_index template");
+        env
+    })
+}
+
 /// `Feeds::_get_cat_title` for the special/uncategorized ids (real category
 /// titles come from the DB rows).
 fn cat_title(cat_id: i64) -> &'static str {

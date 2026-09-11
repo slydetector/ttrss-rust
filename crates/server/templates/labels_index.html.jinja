@@ -1,0 +1,44 @@
+<div dojoType='dijit.layout.BorderContainer' gutters='false'>
+	<div style='padding : 0px' dojoType='dijit.layout.ContentPane' region='top'>
+		<div dojoType='fox.Toolbar'>
+			<div dojoType='fox.form.DropDownButton'>
+				<span>Select</span>
+				<div dojoType='dijit.Menu' style='display: none'>
+					<div onclick="dijit.byId('labelTree').model.setAllChecked(true)"
+						dojoType='dijit.MenuItem'>All</div>
+					<div onclick="dijit.byId('labelTree').model.setAllChecked(false)"
+						dojoType='dijit.MenuItem'>None</div>
+				</div>
+			</div>
+
+			<button dojoType='dijit.form.Button' onclick='CommonDialogs.addLabel()'>
+				Create label</button>
+			<button dojoType='dijit.form.Button' onclick="dijit.byId('labelTree').removeSelected()">
+				Remove</button>
+			<button dojoType='dijit.form.Button' onclick="dijit.byId('labelTree').resetColors()">
+				Clear colors</button>
+		</div>
+	</div>
+
+	<div style='padding : 0px' dojoType='dijit.layout.ContentPane' region='center'>
+		<div dojoType='dojo.data.ItemFileWriteStore' jsId='labelStore'
+			url='backend.php?op=Pref_Labels&method=getlabeltree'>
+		</div>
+
+		<div dojoType='lib.CheckBoxStoreModel' jsId='labelModel' store='labelStore'
+			query="{id:'root'}" rootId='root'
+			childrenAttrs='items' checkboxStrict='false' checkboxAll='false'>
+		</div>
+
+		<div dojoType='fox.PrefLabelTree' id='labelTree' model='labelModel' openOnClick='true'>
+			<script type='dojo/method' event='onClick' args='item'>
+				var id = String(item.id);
+				var bare_id = id.substr(id.indexOf(':')+1);
+
+				if (id.match('LABEL:')) {
+					dijit.byId('labelTree').editLabel(bare_id);
+				}
+			</script>
+		</div>
+	</div>
+</div>

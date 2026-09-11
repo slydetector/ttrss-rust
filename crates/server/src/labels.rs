@@ -9,12 +9,36 @@
 use std::collections::HashMap;
 
 use serde_json::{json, Map, Value};
+use minijinja::Environment;
 use sqlx::Row;
 use ttrss_core::db::Db;
 
 use crate::session::Sess;
 use crate::util;
 use crate::AppState;
+
+/// `Pref_Labels::index` — the labels settings tab: the Dojo toolbar (Select,
+/// Create label, Remove, Clear colors) + the `PrefLabelTree` fed by
+/// `getlabeltree`. Fully static (no per-request values), rendered from a
+/// fixed template with an empty context.
+pub fn index(_state: &AppState, _sess: &Sess, _extra: &Map<String, Value>) -> String {
+    labels_index_env()
+        .get_template("labels_index")
+        .expect("labels_index template")
+        .render(Map::new())
+        .expect("labels_index template render")
+}
+
+/// The minijinja environment holding `labels_index` (parsed once).
+fn labels_index_env() -> &'static Environment<'static> {
+    static ENV: std::sync::OnceLock<Environment<'static>> = std::sync::OnceLock::new();
+    ENV.get_or_init(|| {
+        let mut env = Environment::new();
+        env.add_template("labels_index", include_str!("../templates/labels_index.html.jinja"))
+            .expect("valid labels_index template");
+        env
+    })
+}
 /// `LABEL_BASE_INDEX` (functions.php) — the base of the label id space.
 pub const LABEL_BASE_INDEX: i64 = -1024;
 
