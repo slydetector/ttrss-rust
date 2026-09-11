@@ -50,7 +50,7 @@ PHP suite and its gaps; Part B proposes a lightweight browser-automation layer.
 ### 2.1 Layout (frozen checkout at `2f7d831`)
 
 | Directory | Role | Test methods |
-|---|---|---|
+| --- | --- | --- |
 | `tests/` | Unit tests (no DB; some mocked) | ~102 |
 | `tests/mocked/` | Unit tests with mocked `Config`/`Prefs`/`PluginHost` (no DB at all) | 171 |
 | `tests_functional/` | Class-level "functional" tests (no DB; pure helpers/parsers) | 435 |
@@ -61,7 +61,7 @@ PHP suite and its gaps; Part B proposes a lightweight browser-automation layer.
 Per-file counts (significant files):
 
 | File | Tests | Covers |
-|---|---|---|
+| --- | --- | --- |
 | `tests_integration/SanitizerTest` | 162 | content sanitization (largest suite) |
 | `tests/mocked/SanitizerUnitTest` | 81 | sanitizer unit surface |
 | `tests_functional/RSSUtilsTest` | 81 | feed-fetch/parse utilities |
@@ -148,7 +148,7 @@ Per-file counts (significant files):
 From `docs/plan.md` (parity program — 15/15 rows ported and green; the maintained count lives there):
 
 | PHP suite(s) | Count | Rust status |
-|---|---|---|
+| --- | --- | --- |
 | Sanitizer (all four suites) | 256 | ✅ ported 1:1 (row 2; 5 NOTEs for PHP-own bugs/libxml diffs) |
 | Functions | 73 | ✅ 69 + 4 parked (row 4) |
 | UrlHelper (144 total) | 144 | ✅ ported applicable subset (row 5: `validate` 9, `url_to_youtube_vid` 6); fetch/redirect cases are M6 |
@@ -245,7 +245,7 @@ pyramid (login → shell → feed tree → headlines → dialogs → prefs).
 ### 3.2 Tool landscape (2026)
 
 | Option | Notes | Fit |
-|---|---|---|
+| --- | --- | --- |
 | **Playwright** (Microsoft) | 2026 default for new projects (45M+ npm DL/mo): built-in **auto-waiting** + actionability checks (no timing flakes by construction), **built-in visual assertions** (`toHaveScreenshot`, pixelmatch), **clock API** (deterministic `Date`/timers), network interception, auto trace/video on failure, codegen for selector discovery, official **pinned Docker images**, no grid needed, first-party runners in Node/Python/Java/.NET | **Best fit** |
 | Selenium (WebDriver) | The legacy incumbent; what `selenium_test.py` uses. Requires managing browser + driver (or a Grid), no built-in auto-wait, no built-in pixel diff, more boilerplate | Overkill for this; keep only if reusing the existing `.py` verbatim |
 | Cypress | Great DX, but same-origin constraints (XHR-level) and a JS-only runner; weaker for "drive an arbitrary server from outside" | Worse fit |
@@ -317,6 +317,7 @@ browser/
 ```
 
 **Suite 1 — Smoke (≈3 tests, ports `selenium_test.py` 1:1):**
+
 - login: `body.ttrss_login` → fill `login`/`password` (admin/admin from the golden DB) → click
   → shell loads.
 - index: `#feedTree` visible → `Feeds.open({feed:-4})` → `#headlines-frame` visible →
@@ -329,7 +330,7 @@ PHP project itself sets, with the same selectors.
 **Suite 2 — Golden states (≈8–12 states; the actual "is the port correct" check):**
 
 | # | State (deterministic via golden DB + fixed clock) | Evidence |
-|---|---|---|
+| --- | --- | --- |
 | 1 | Login page | screenshot |
 | 2 | Shell home after login (feed tree + counters visible) | text snapshot of feed-tree titles + counter values; screenshot |
 | 3 | Feed open (e.g. feed 1 / Ars Technica): headline list | text snapshot: first N headline titles + feed counter; screenshot |
@@ -346,6 +347,7 @@ Per state: **text/JSON snapshot (exact, deterministic) + full-page screenshot
 titles/counters rendered"); the screenshots carry the layout/rendering signal.
 
 **Oracle A/B (blind golden master at the UX level):**
+
 1. Run both suites once against the **PHP oracle** (golden DB, same browser build, same
    viewport/clock) → `--update-snapshots` → commit the baselines (PNG + txt).
 2. Every check runs the suites against the **Rust server** and asserts against those baselines.
@@ -357,6 +359,7 @@ extra Playwright run per check. It is the minimal form of the record-against-the
 compare idea, applied where the user actually looks.
 
 **Determinism checklist (per state):**
+
 - golden DB (identical data both sides); fixed user (admin); icons from the existing
   `oracle/data/feed-icons` cache (no network);
 - `page.clock.setFixedTime(<fixed>)` **before** navigation → all client-side "time ago" text
@@ -380,6 +383,7 @@ test` (plus a `make browser-record` target pointed at the oracle for re-baselini
 ### 3.5 Flakiness management (what the research says to do / avoid)
 
 **Do:**
+
 - Same pinned browser build for recording and comparison (Docker image, exact tag);
   local and CI identical ([TestQuality](https://testquality.com/playwright-visual-regression-guide/),
   [Autonoma](https://getautonoma.com/blog/playwright-docker-guide)).
@@ -395,6 +399,7 @@ test` (plus a `make browser-record` target pointed at the oracle for re-baselini
   brittle ones.
 
 **Avoid:**
+
 - Selenium Grid / remote drivers (the only reason the PHP test uses them is CI history);
 - SaaS visual tools (Percy/Chromatic) — the comparison is local and free here;
 - `latest` browser images, multi-browser projects (every extra browser is extra baselines and
@@ -436,6 +441,7 @@ golden-DB workflow plus one pinned browser.
 ## 5. Sources
 
 **Local (frozen checkout, `tt-rss/` at `2f7d831`):**
+
 - `tests/`, `tests/mocked/`, `tests_functional/`, `tests_integration/`, `tests/integration/`
   (all files inventoried in §2; test counts measured by method enumeration)
 - `tests_integration/run.sh`, `pg_helper.sh`, `bootstrap.php`, `DbTestCase.php`,
@@ -446,6 +452,7 @@ golden-DB workflow plus one pinned browser.
 - `docs/plan.md` (parity program rows 1–15; per-module status)
 
 **Browser automation (web research, 2026):**
+
 - Playwright vs Selenium/Cypress 2026:
   [BrowserStack](https://www.browserstack.com/guide/playwright-vs-selenium),
   [Browserless](https://www.browserless.io/blog/playwright-vs-selenium-browser-automation-comparison),

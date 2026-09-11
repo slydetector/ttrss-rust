@@ -361,9 +361,12 @@ def main() -> int:
             sql_exec(
                 f"insert into ttrss_user_labels2 (label_id, article_id) "
                 f"select {lid}, unnest(ARRAY{ids}::int[]) on conflict do nothing")
-            sql_exec(
-                f"update ttrss_user_entries set label_cache = {q(cap)} "
-                f"where owner_uid = {admin_uid} and int_id in ({','.join(ids)})")
+            # NOTE: leave label_cache empty (do NOT write the plain caption).
+            # The app stores label_cache as JSON (array of [feed_id, caption, fg,
+            # bg] or {"no-labels":1}); a bare caption is invalid JSON, so
+            # json_decode yields null and the SPA crashes on `labels.map`.
+            # An empty cache makes the app recompute the correct array via
+            # Article::_get_labels from the ttrss_user_labels2 rows above.
     print("article state seeded")
 
     # 7. filters (2 realistic ones)
