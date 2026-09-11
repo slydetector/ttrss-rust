@@ -1,6 +1,9 @@
 //! Test parity: 1:1 port of
 //! `tt-rss/tests_integration/FeedsCountersIntegrationTest.php` (40 cases).
 //!
+//! Plus one Rust-only regression test for the `get_cats` `Some(ids)`
+//! branch, which the PHP suite never exercises (see that section below).
+//!
 //! Starting state matches the PHP suite: fresh per-test database with the
 //! versioned `schema` + `baseline` + `seed` fixtures, plus the PHP
 //! `setUp()`'s `Prefs::set(Prefs::FRESH_ARTICLE_MAX_AGE, 999999, 1, null)`
@@ -704,6 +707,95 @@ async fn test_counters_get_feeds_empty_array(
     assert!(feed_entries.is_empty(), "Empty feed_ids should yield no feed entries");
 }
 
+// ── Rust-only regression: `get_cats` with a filtered cat list ──────────────
+//
+// The PHP suite never exercises the `Some(ids)` branch of
+// `Counters::get_cats`: its `get_conditional` cases pass either an empty
+// `feed_ids` (which skips the cat query entirely) or assert only on the feed
+// entries, and `get_all` uses the static unfiltered cat query. That branch
+// builds `fc.id IN ($2..$n+1)` plus a trailing `${n+2}` at runtime, and
+// `get_cats` swallows query errors (`unwrap_or_default()`), so a malformed
+// placeholder (the `${}$` bug fixed in July 2026) silently dropped every
+// category row without failing any test. This pins the branch directly:
+// feeds [1, 2] → `cats_of` → [Technology(1)] → the dynamic query must return
+// exactly the Technology and uncategorized rows, with the correct counters.
+//
+// Seed fixtures: Technology (cat 1) holds feeds 1-3 → 6 unread (articles
+// 1,2,4,5,6,7), 2 marked (3, 8), 0 published, no child cats; no seeded feed
+// lacks a category; Science & Nature (cat 2) holds none of feeds 1-2.
+#[sqlx::test(fixtures(
+    "../../testing/fixtures/schema.sql",
+    "../../testing/fixtures/baseline.sql",
+    "../../testing/fixtures/seed.sql",
+))]
+async fn test_counters_get_conditional_feed_ids_category_rows(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
+    let db = setup(pool, options).await;
+    let result =
+        counters::get_conditional(&db, SESSION_UID, Some(&[1, 2]), None, std::path::Path::new(ICON_DIR)).await;
+
+    let cat_entries: Vec<&Value> = result
+        .iter()
+        .filter(|v| {
+            v.as_object()
+                .and_then(|m| m.get("kind"))
+                .is_some_and(|k| k.as_str() == Some("cat"))
+        })
+        .collect();
+
+    let by_id: std::collections::HashMap<i64, &Value> = cat_entries
+        .iter()
+        .map(|v| {
+            let m = v.as_object().unwrap();
+            (m.get("id").and_then(Value::as_i64).unwrap(), *v)
+        })
+        .collect();
+
+    // Exactly the Labels entry, Technology, and uncategorized.
+    assert_eq!(
+        3,
+        cat_entries.len(),
+        "expected labels + Technology + uncategorized, got: {cat_entries:?}"
+    );
+    assert!(
+        by_id.contains_key(&ttrss_server::cats::CAT_LABELS),
+        "Labels category entry missing: {result:?}"
+    );
+
+    // Technology (cat 1) holds feeds 1-3: 6 unread, 2 marked, 0 published.
+    let tech = by_id[&1];
+    assert_eq!(
+        6,
+        tech.get("counter").and_then(Value::as_i64).unwrap(),
+        "Technology unread: {tech:?}"
+    );
+    assert_eq!(
+        2,
+        tech.get("markedcounter").and_then(Value::as_i64).unwrap(),
+        "Technology marked: {tech:?}"
+    );
+    assert_eq!(
+        0,
+        tech.get("publishedcounter").and_then(Value::as_i64).unwrap(),
+        "Technology published: {tech:?}"
+    );
+
+    // Uncategorized: no seeded feed lacks a category.
+    assert_eq!(
+        0,
+        by_id[&0].get("counter").and_then(Value::as_i64).unwrap(),
+        "uncategorized: {:?}",
+        by_id[&0]
+    );
+
+    // Science & Nature (cat 2) holds none of the requested feeds → absent.
+    assert!(
+        !by_id.contains_key(&2),
+        "cat 2 must not appear for feeds [1, 2]: {cat_entries:?}"
+    );
+}
 // ── Counters::get_all() ─────────────────────────────────────────────────────
 
 // PHP: test_counters_get_all_returns_array
