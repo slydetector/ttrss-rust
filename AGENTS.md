@@ -46,6 +46,9 @@ The frozen PHP reference in `tt-rss/` (commit `2f7d831`) is the spec.
   re-running `cargo test`.
 - **Keep the workspace green**: `cargo test` passes and the tree is clean
   before committing.
+- **Address processes by PID, not by name.** Never `pkill`/`killall` unless
+  absolutely necessary: names/patterns aren't unique and are susceptible to
+  grep misinformation (the shell running the command matches its own pattern).
 
 ## Build on existing libraries
 
