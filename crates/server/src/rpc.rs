@@ -83,11 +83,7 @@ fn rpc_form_from_urlencoded(input: &[u8]) -> RpcForm {
         // PHP `$_REQUEST`: `name[]` fields normalize to the bare key, always
         // as an array (even a single `x[]=5` yields `$_REQUEST['x'] = ['5']`).
         let arr = k.ends_with("[]");
-        let key = if arr {
-            k[..k.len() - 2].to_string()
-        } else {
-            k
-        };
+        let key = if arr { k[..k.len() - 2].to_string() } else { k };
         let value = if arr || v.len() > 1 {
             Value::Array(v.into_iter().map(Value::String).collect())
         } else {
@@ -485,7 +481,7 @@ async fn dispatch(
                 Err(()) => {
                     DispatchOutput::Raw(StatusCode::INTERNAL_SERVER_ERROR, None, String::new())
                 }
-            }
+            },
             _ => DispatchOutput::Json(unknown_method("Pref_Filters", method)),
         },
         "Pref_Prefs" => match method {
@@ -1234,7 +1230,9 @@ mod tests {
         // `$_REQUEST['rule'] = ['{…}']`), under the bare key.
         assert_eq!(
             form.extra.get("rule"),
-            Some(&Value::Array(vec![Value::String("{\"reg_exp\":\"x\"}".into())]))
+            Some(&Value::Array(vec![Value::String(
+                "{\"reg_exp\":\"x\"}".into()
+            )]))
         );
         assert!(file.is_none());
     }
@@ -1275,5 +1273,66 @@ mod tests {
         assert_eq!(form.method.as_deref(), Some("uploadIcon"));
         assert_eq!(form.extra.get("feed_id"), Some(&Value::String("1".into())));
         assert_eq!(file.as_deref(), Some(b"PNGBYTES".as_slice()));
+    }
+
+    /// `Handler::csrf_ignore` per class (the frozen PHP spec):
+    /// `Feeds: ["index"]`, `OPML: ["export"]`,
+    /// `Pref_Filters: ["index", "getfiltertree"]`,
+    /// `Pref_Labels: ["index", "getlabeltree"]`,
+    /// `Pref_Prefs: ["index", "updateself", "otpqrcode"]`,
+    /// `Pref_System: ["index"]`, `Pref_Users: ["index"]`,
+    /// `Pref_Feeds: ["index", "getfeedtree"]`.
+    /// `RPC::csrf_ignore` is commented out in PHP → no exemptions.
+    /// Every exempt (op, method) pair must pass tokenless GETs; every other
+    /// pair (including the ones `ef827a5` added) must still validate CSRF.
+    #[test]
+    fn csrf_ignored_matches_php() {
+        let exempted: &[(&str, &str)] = &[
+            ("Feeds", "index"),
+            ("OPML", "export"),
+            ("Pref_Filters", "index"),
+            ("Pref_Filters", "getfiltertree"),
+            ("Pref_Labels", "index"),
+            ("Pref_Labels", "getlabeltree"),
+            ("Pref_Prefs", "index"),
+            ("Pref_Prefs", "updateself"),
+            ("Pref_Prefs", "otpqrcode"),
+            ("Pref_System", "index"),
+            ("Pref_Users", "index"),
+            ("Pref_Feeds", "index"),
+            ("Pref_Feeds", "getfeedtree"),
+        ];
+        for (op, method) in exempted {
+            assert!(
+                csrf_ignored(op, method),
+                "{op}::{method} must be CSRF-exempt (PHP spec)"
+            );
+        }
+
+        // Not exempt: write methods, other read methods, and unknown ops.
+        let not_exempted: &[(&str, &str)] = &[
+            ("Feeds", "getfeedtree"),
+            ("Feeds", "editfeed"),
+            ("OPML", "import"),
+            ("Pref_Filters", "testfilterdo"),
+            ("Pref_Filters", "add"),
+            ("Pref_Labels", "add"),
+            ("Pref_Labels", "edit"),
+            ("Pref_Prefs", "getsettings"),
+            ("Pref_Prefs", "setsystem"),
+            ("Pref_System", "setplugin"),
+            ("Pref_Users", "edit"),
+            ("Pref_Feeds", "editfeed"),
+            ("RPC", "completelabels"), // commented out in PHP → not exempt
+            ("RPC", "getAllCounters"),
+            ("Article", "index"),
+            ("Unknown_Op", "index"),
+        ];
+        for (op, method) in not_exempted {
+            assert!(
+                !csrf_ignored(op, method),
+                "{op}::{method} must NOT be CSRF-exempt"
+            );
+        }
     }
 }
