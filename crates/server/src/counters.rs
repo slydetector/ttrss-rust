@@ -11,14 +11,14 @@ use serde_json::{json, Map, Value};
 use sqlx::Row;
 use ttrss_core::db::Db;
 
-use crate::prefs;
 use crate::cats::CAT_LABELS;
 use crate::headlines::PLUGIN_FEED_BASE_INDEX;
 use crate::labels::{feed_to_label_id, label_to_feed_id, LABEL_BASE_INDEX};
+use crate::prefs;
 use crate::session::Sess;
 use crate::time::TzCtx;
+use crate::util::{php_int_cast, scalar_str};
 use crate::AppState;
-use crate::util::php_int_cast;
 
 // `Feeds::*` (functions.php).
 
@@ -30,11 +30,7 @@ const FEED_ALL: i64 = -4;
 const FEED_RECENTLY_READ: i64 = -6;
 
 /// `RPC::getAllCounters`.
-pub async fn get_all_counters(
-    state: &AppState,
-    sess: &Sess,
-    extra: &Map<String, Value>,
-) -> Value {
+pub async fn get_all_counters(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Value {
     let data = sess.data();
     let uid = data.uid().unwrap_or(0);
     let profile = data.profile().map(|p| p as i32);
@@ -44,7 +40,10 @@ pub async fn get_all_counters(
     // `@$seq = (int) $_REQUEST['seq']`
     let seq = extra
         .get("seq")
-        .and_then(|v| v.as_i64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
+        .and_then(|v| {
+            v.as_i64()
+                .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+        })
         .unwrap_or(0);
 
     // `feed_id_count == -1 ? null : _param_to_int_array(...)` — "return all
@@ -60,60 +59,80 @@ pub async fn get_all_counters(
     // `get_conditional` passes `Feeds::_cats_of($feed_ids, uid, true)` as the
     // category list when feeds were given.
     let cat_ids = match feed_ids.as_ref() {
-        Some(ids) if !disable_conditional && !ids.is_empty() => {
-            cats_of(pool, uid, ids, true).await
-        }
+        Some(ids) if !disable_conditional && !ids.is_empty() => cats_of(pool, uid, ids, true).await,
         _ => Vec::new(),
     };
 
     let counters: Vec<Value> = match &feed_ids {
-        Some(ids) if !disable_conditional => all_counters(
-            pool,
-            uid,
-            profile,
-            &rows,
-            &state.config.feed_icon_dir,
-            client_tz_offset,
-            Some(ids),
-            label_ids.as_deref(),
-            Some(&cat_ids),
-        )
-        .await,
-        _ => all_counters(
-            pool,
-            uid,
-            profile,
-            &rows,
-            &state.config.feed_icon_dir,
-            client_tz_offset,
-            None,
-            None,
-            None,
-        )
-        .await,
+        Some(ids) if !disable_conditional => {
+            all_counters(
+                pool,
+                uid,
+                profile,
+                &rows,
+                &state.config.feed_icon_dir,
+                client_tz_offset,
+                Some(ids),
+                label_ids.as_deref(),
+                Some(&cat_ids),
+            )
+            .await
+        }
+        _ => {
+            all_counters(
+                pool,
+                uid,
+                profile,
+                &rows,
+                &state.config.feed_icon_dir,
+                client_tz_offset,
+                None,
+                None,
+                None,
+            )
+            .await
+        }
     };
 
     json!({ "counters": counters, "seq": seq })
 }
 
-/// `Handler::_param_to_int_array`: a CSV string of ints (or null). A
+/// `Handler::_param_to_int_array`: the id list (or null). `feed_ids[]` /
+/// `label_ids[]` arrive as a `Value::Array` (the form parser normalizes the
+/// `[]` suffix to the bare key); a plain key stays a scalar CSV string —
+/// mirroring PHP's `$_REQUEST['feed_ids']` being an array or a string. A
 /// non-integer item rejects the whole input (null). `*_count == -1` (absent)
 /// → null (no list); `*_count >= 0` → the list (possibly empty).
 fn parse_id_list(count: Option<&Value>, ids: Option<&Value>) -> Option<Vec<i64>> {
     let count = count
-        .and_then(|v| v.as_i64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
+        .and_then(|v| {
+            v.as_i64()
+                .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+        })
         .unwrap_or(-1);
     if count == -1 {
         return None;
     }
-    let s = ids.and_then(|v| v.as_str()).unwrap_or("");
-    let trimmed = s.trim();
-    if trimmed.is_empty() {
-        return Some(Vec::new());
+    let mut raw: Vec<String> = Vec::new();
+    match ids {
+        Some(Value::Array(items)) => {
+            for it in items {
+                if let Some(s) = scalar_str(it) {
+                    raw.push(s);
+                }
+            }
+        }
+        Some(other) => {
+            if let Some(s) = scalar_str(other) {
+                raw.push(s);
+            }
+        }
+        None => {}
     }
-    let items: Vec<&str> = trimmed
-        .split(',')
-        .map(|t| t.trim())
+    let items: Vec<String> = raw
+        .iter()
+        .flat_map(|s| s.split(','))
+        .map(|t| t.trim().to_string())
         .filter(|t| !t.is_empty())
         .collect();
     if items.is_empty() {
@@ -147,7 +166,18 @@ pub(crate) async fn all_counters(
     out.extend(get_global(pool, uid).await);
     out.extend(get_virt(pool, uid, fresh_max_age).await);
     out.extend(labels_counters(pool, uid, label_ids).await);
-    out.extend(get_feeds(pool, uid, feed_ids, icon_dir, rows, profile, client_tz_offset).await);
+    out.extend(
+        get_feeds(
+            pool,
+            uid,
+            feed_ids,
+            icon_dir,
+            rows,
+            profile,
+            client_tz_offset,
+        )
+        .await,
+    );
     out.extend(get_cats(pool, uid, cat_ids, fresh_max_age).await);
     out
 }
@@ -162,11 +192,12 @@ async fn get_global(pool: &sqlx::PgPool, uid: i64) -> Vec<Value> {
     .fetch_one(pool)
     .await
     .unwrap_or(0);
-    let subscribed = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM ttrss_feeds WHERE owner_uid = $1")
-        .bind(uid)
-        .fetch_one(pool)
-        .await
-        .unwrap_or(0);
+    let subscribed =
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM ttrss_feeds WHERE owner_uid = $1")
+            .bind(uid)
+            .fetch_one(pool)
+            .await
+            .unwrap_or(0);
     vec![
         json!({ "id": "global-unread", "counter": global_unread }),
         json!({ "id": "subscribed-feeds", "counter": subscribed }),
@@ -177,7 +208,13 @@ async fn get_global(pool: &sqlx::PgPool, uid: i64) -> Vec<Value> {
 /// virtual feeds in this deployment).
 async fn get_virt(pool: &sqlx::PgPool, uid: i64, fresh_max_age: i64) -> Vec<Value> {
     let mut out = Vec::new();
-    for feed_id in [FEED_ARCHIVED, FEED_STARRED, FEED_PUBLISHED, FEED_FRESH, FEED_ALL] {
+    for feed_id in [
+        FEED_ARCHIVED,
+        FEED_STARRED,
+        FEED_PUBLISHED,
+        FEED_FRESH,
+        FEED_ALL,
+    ] {
         let count = feed_counters(pool, uid, feed_id, false, true, true, fresh_max_age).await;
         let auxctr = if [FEED_ARCHIVED, FEED_STARRED, FEED_PUBLISHED].contains(&feed_id) {
             feed_counters(pool, uid, feed_id, false, false, true, fresh_max_age).await
@@ -199,11 +236,7 @@ async fn get_virt(pool: &sqlx::PgPool, uid: i64, fresh_max_age: i64) -> Vec<Valu
 }
 
 /// `Counters::get_labels` (PHP body).
-async fn labels_counters(
-    pool: &sqlx::PgPool,
-    uid: i64,
-    label_ids: Option<&[i64]>,
-) -> Vec<Value> {
+async fn labels_counters(pool: &sqlx::PgPool, uid: i64, label_ids: Option<&[i64]>) -> Vec<Value> {
     let rows = match label_ids {
         Some([]) => return Vec::new(),
         Some(ids) => {
@@ -255,10 +288,19 @@ async fn labels_counters(
             // SUM columns are NULL for labels without articles; PHP casts to 0.
             let mut cv = Map::new();
             cv.insert("id".into(), json!(label_to_feed_id(label_id)));
-            cv.insert("counter".into(), json!(r.get::<Option<i64>, _>(2).unwrap_or(0)));
+            cv.insert(
+                "counter".into(),
+                json!(r.get::<Option<i64>, _>(2).unwrap_or(0)),
+            );
             cv.insert("auxcounter".into(), json!(r.get::<i64, _>(5)));
-            cv.insert("markedcounter".into(), json!(r.get::<Option<i64>, _>(3).unwrap_or(0)));
-            cv.insert("publishedcounter".into(), json!(r.get::<Option<i64>, _>(4).unwrap_or(0)));
+            cv.insert(
+                "markedcounter".into(),
+                json!(r.get::<Option<i64>, _>(3).unwrap_or(0)),
+            );
+            cv.insert(
+                "publishedcounter".into(),
+                json!(r.get::<Option<i64>, _>(4).unwrap_or(0)),
+            );
             cv.insert("description".into(), json!(r.get::<String, _>(1)));
             Value::Object(cv)
         })
@@ -280,10 +322,16 @@ async fn get_feeds(
     }
 
     let tz = TzCtx {
-        user_tz: prefs::resolve(prefs::USER_TIMEZONE, rows, profile).as_str().to_string(),
+        user_tz: prefs::resolve(prefs::USER_TIMEZONE, rows, profile)
+            .as_str()
+            .to_string(),
         client_tz_offset,
-        short_date_format: prefs::resolve(prefs::SHORT_DATE_FORMAT, rows, profile).as_str().to_string(),
-        long_date_format: prefs::resolve(prefs::LONG_DATE_FORMAT, rows, profile).as_str().to_string(),
+        short_date_format: prefs::resolve(prefs::SHORT_DATE_FORMAT, rows, profile)
+            .as_str()
+            .to_string(),
+        long_date_format: prefs::resolve(prefs::LONG_DATE_FORMAT, rows, profile)
+            .as_str()
+            .to_string(),
     };
 
     let q: String = match feed_ids {
@@ -310,7 +358,8 @@ async fn get_feeds(
                 FROM ttrss_feeds AS f
                 INNER JOIN ttrss_user_entries AS ue ON (ue.feed_id = f.id)
                 WHERE (ue.owner_uid = $1)
-                GROUP BY f.id".into(),
+                GROUP BY f.id"
+            .into(),
     };
     let mut query = sqlx::query(&q);
     query = query.bind(uid);
@@ -330,11 +379,7 @@ async fn get_feeds(
             let count_marked: i64 = r.get(4);
             let count_published: i64 = r.get(5);
             let last_updated: Option<String> = r.get(6);
-            let updated = crate::time::make_local_datetime(
-                last_updated.as_deref(),
-                false,
-                &tz,
-            );
+            let updated = crate::time::make_local_datetime(last_updated.as_deref(), false, &tz);
             let has_icon = icon_dir.join(feed_id.to_string()).is_file();
             let ts = if has_icon {
                 icon_dir
@@ -402,7 +447,7 @@ async fn get_cats(
                     FROM ttrss_feeds f, ttrss_user_entries ue
                     WHERE f.cat_id IS NULL AND
                         ue.feed_id = f.id AND
-                        ue.owner_uid = ${}$",
+                        ue.owner_uid = ${}",
                 qmarks.join(","),
                 2 + ids.len()
             );
@@ -451,18 +496,20 @@ async fn get_cats(
         let count_published = r.get::<Option<i64>, _>(3).unwrap_or(0);
         let num_children = r.get::<i64, _>(4);
 
-        let (child_counter, child_marked, child_published) =
-            if num_children > 0 {
-                cat_children(pool, uid, cat_id, fresh_max_age).await
-            } else {
-                (0, 0, 0)
-            };
+        let (child_counter, child_marked, child_published) = if num_children > 0 {
+            cat_children(pool, uid, cat_id, fresh_max_age).await
+        } else {
+            (0, 0, 0)
+        };
 
         let mut out_r = Map::new();
         out_r.insert("id".into(), json!(cat_id));
         out_r.insert("kind".into(), json!("cat"));
         out_r.insert("markedcounter".into(), json!(count_marked + child_marked));
-        out_r.insert("publishedcounter".into(), json!(count_published + child_published));
+        out_r.insert(
+            "publishedcounter".into(),
+            json!(count_published + child_published),
+        );
         out_r.insert("counter".into(), json!(count + child_counter));
         out.push(Value::Object(out_r));
     }
@@ -476,19 +523,20 @@ async fn cat_children(
     cat_id: i64,
     fresh_max_age: i64,
 ) -> (i64, i64, i64) {
-    let children = sqlx::query("SELECT id FROM ttrss_feed_categories WHERE parent_cat = $1 AND owner_uid = $2")
-        .bind(cat_id)
-        .bind(uid)
-        .fetch_all(pool)
-        .await
-        .unwrap_or_default();
+    let children = sqlx::query(
+        "SELECT id FROM ttrss_feed_categories WHERE parent_cat = $1 AND owner_uid = $2",
+    )
+    .bind(cat_id)
+    .bind(uid)
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default();
     let mut unread = 0i64;
     let mut marked = 0i64;
     let mut published = 0i64;
     for c in children {
         let cid = c.get::<i32, _>(0) as i64;
-        let (tmp_u, tmp_m, tmp_p) =
-            Box::pin(cat_children(pool, uid, cid, fresh_max_age)).await;
+        let (tmp_u, tmp_m, tmp_p) = Box::pin(cat_children(pool, uid, cid, fresh_max_age)).await;
         unread += tmp_u + cat_unread(pool, uid, cid, fresh_max_age).await;
         marked += tmp_m + cat_marked(pool, uid, cid, fresh_max_age).await;
         published += tmp_p + cat_published(pool, uid, cid, fresh_max_age).await;
@@ -657,7 +705,16 @@ pub async fn get_counters(
     } else {
         0
     };
-    feed_counters(pool, owner, n_feed, false, unread_only, matches!(feed, FeedOrTag::Feed(_)), fresh_max_age).await
+    feed_counters(
+        pool,
+        owner,
+        n_feed,
+        false,
+        unread_only,
+        matches!(feed, FeedOrTag::Feed(_)),
+        fresh_max_age,
+    )
+    .await
 }
 
 /// `Counters::get_all` (PHP) — the full counter list for the session user.
@@ -679,13 +736,11 @@ pub async fn get_conditional(
     // `is_array($feed_ids) ? Feeds::_cats_of($feed_ids, uid, true) : null`
     // (an empty list yields an empty category list, not the full one).
     let cat_ids: Option<Vec<i64>> = match feed_ids {
-        Some(ids) => {
-            Some(if ids.is_empty() {
-                Vec::new()
-            } else {
-                cats_of(db.pool(), uid, ids, true).await
-            })
-        }
+        Some(ids) => Some(if ids.is_empty() {
+            Vec::new()
+        } else {
+            cats_of(db.pool(), uid, ids, true).await
+        }),
         None => None,
     };
     all_counters(
@@ -722,12 +777,7 @@ async fn label_unread(pool: &sqlx::PgPool, uid: i64, label_id: i64) -> i64 {
 }
 
 /// `Feeds::_get_cat_unread` (real cats + the special LABELS/UNCATEGORIZED ids).
-async fn cat_unread(
-    pool: &sqlx::PgPool,
-    uid: i64,
-    cat: i64,
-    _fresh_max_age: i64,
-) -> i64 {
+async fn cat_unread(pool: &sqlx::PgPool, uid: i64, cat: i64, _fresh_max_age: i64) -> i64 {
     if cat >= 0 {
         let n = sqlx::query_scalar::<_, Option<i64>>(
             "SELECT SUM(CASE WHEN unread THEN 1 ELSE 0 END)
@@ -738,7 +788,7 @@ async fn cat_unread(
              AND owner_uid = $1",
         )
         .bind(uid)
-        .bind(if cat == 0 { None } else { Some(cat as i32 )})
+        .bind(if cat == 0 { None } else { Some(cat as i32) })
         .fetch_one(pool)
         .await
         .unwrap_or(None);
@@ -865,4 +915,63 @@ fn truncate_string(s: &str, max_len: usize) -> String {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
 
+    // `parse_id_list` — the `feed_ids[]` / `label_ids[]` reader. PHP's
+    // `$_REQUEST['feed_ids']` is an array (from the `[]` field) or a CSV
+    // string; `Handler::_param_to_int_array` handles both.
+
+    #[test]
+    fn array_param() {
+        // `feed_ids[]=36` → `Value::Array(["36"])`, `feed_id_count=1`.
+        assert_eq!(
+            parse_id_list(Some(&json!(1)), Some(&json!(["36"]))),
+            Some(vec![36])
+        );
+    }
+
+    #[test]
+    fn array_param_multi() {
+        assert_eq!(
+            parse_id_list(Some(&json!(2)), Some(&json!(["36", "7"]))),
+            Some(vec![36, 7])
+        );
+    }
+
+    #[test]
+    fn csv_string_param() {
+        assert_eq!(
+            parse_id_list(Some(&json!(3)), Some(&json!("1,2,3"))),
+            Some(vec![1, 2, 3])
+        );
+    }
+
+    #[test]
+    fn absent_count() {
+        // `feed_id_count` absent (JS sends -1 for a null list) → null (all).
+        assert_eq!(parse_id_list(None, None), None);
+        assert_eq!(parse_id_list(Some(&json!(-1)), None), None);
+    }
+
+    #[test]
+    fn empty_list() {
+        // `feed_id_count=0` with no ids → empty list (not null).
+        assert_eq!(parse_id_list(Some(&json!(0)), None), Some(Vec::new()));
+        assert_eq!(
+            parse_id_list(Some(&json!(0)), Some(&json!([]))),
+            Some(Vec::new())
+        );
+    }
+
+    #[test]
+    fn non_int_rejects_all() {
+        // PHP: a non-int token rejects the whole input (null).
+        assert_eq!(
+            parse_id_list(Some(&json!(2)), Some(&json!(["36", "x"]))),
+            None
+        );
+        assert_eq!(parse_id_list(Some(&json!(2)), Some(&json!("36,abc"))), None);
+    }
+}
