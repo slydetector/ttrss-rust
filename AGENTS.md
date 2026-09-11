@@ -107,6 +107,16 @@ tabs/newlines/indent depth are irrelevant and need not be reproduced
 byte-for-byte. Prefer emitting clean, consistently-indented HTML. (Confirmed
 from tt-rss/js/PrefFeedTree.js editMultiple + SingleUseDialog.js.)
 
+## Debugging the live UI
+
+For UX-level truth (rendered DOM, XHR bodies, JS errors), drive the app in a real
+browser with the MCP `mcp_chrome_*` tools — snapshot for stable node `uid`s, act
+by `uid`, and read ground truth from the network log and console. The response
+**body** (not the HTTP status) is the source of truth. See
+`docs/browser-debugging.md`; `browser/diff_rpc_surface.py` diffs the app's RPC
+surface against the backend dispatch to spot unhandled (op, method) without
+clicking every path.
+
 ## Test harness / oracle
 
 - The oracle + record/replay/diff harness is documented in **`oracle/README.md`**
