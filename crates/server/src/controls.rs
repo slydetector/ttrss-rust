@@ -12,7 +12,7 @@ use crate::util;
 pub fn attributes_to_string(attributes: &[(&str, String)]) -> String {
     let mut parts = Vec::new();
     for (k, v) in attributes {
-        if *k == "disabled" && !ttrss_core::config::sql_bool_to_bool(v) {
+        if *k == "disabled" && !crate::core::config::sql_bool_to_bool(v) {
             continue;
         }
         parts.push(format!("{}=\"{}\"", k, util::htmlspecialchars(v)));

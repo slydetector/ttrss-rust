@@ -8,8 +8,8 @@ mod common;
 
 use axum::body::to_bytes;
 use axum::response::Response;
-use ttrss_core::config::Config;
-use ttrss_core::db::Db;
+use ttrss_server::core::config::Config;
+use ttrss_server::core::db::Db;
 use ttrss_server::forgotpass;
 use ttrss_server::session::Sess;
 use ttrss_server::AppState;

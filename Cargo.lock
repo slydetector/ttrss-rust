@@ -4402,43 +4402,23 @@ dependencies = [
 ]
 
 [[package]]
-name = "ttrss-core"
+name = "ttrss-server"
 version = "0.1.0"
 dependencies = [
  "aead",
  "anyhow",
- "base64 0.22.1",
- "chacha20poly1305",
- "chrono",
- "hex",
- "hmac",
- "iana-time-zone",
- "rand 0.8.8",
- "regex",
- "roxmltree",
- "serde",
- "serde_json",
- "sha1",
- "sha2",
- "sqlx",
- "tokio",
- "tracing",
- "url",
-]
-
-[[package]]
-name = "ttrss-server"
-version = "0.1.0"
-dependencies = [
- "anyhow",
  "axum 0.7.9",
  "base32",
  "base64 0.22.1",
+ "chacha20poly1305",
  "chrono",
  "chrono-tz",
  "ctor",
  "flate2",
+ "hex",
+ "hmac",
  "html5ever 0.26.0",
+ "iana-time-zone",
  "idna",
  "image",
  "kuchikiki",
@@ -4450,15 +4430,16 @@ dependencies = [
  "quick-xml",
  "rand 0.8.8",
  "regex",
+ "roxmltree",
  "serde",
  "serde_json",
  "serde_urlencoded",
  "sha1",
+ "sha2",
  "sqlx",
  "tokio",
  "tracing",
  "tracing-subscriber",
- "ttrss-core",
  "ttrss-testing",
  "url",
  "urlencoding",

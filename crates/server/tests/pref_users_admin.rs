@@ -9,10 +9,10 @@ use axum::body::to_bytes;
 use axum::extract::{Extension, State};
 use axum::http::{header, Method};
 use serde_json::{Map, Value};
-use ttrss_core::config::Config;
-use ttrss_core::db::Db;
-use ttrss_core::phpser::Value as PValue;
-use ttrss_core::session::Session;
+use ttrss_server::core::config::Config;
+use ttrss_server::core::db::Db;
+use ttrss_server::core::phpser::Value as PValue;
+use ttrss_server::core::session::Session;
 use ttrss_server::session::Sess;
 use ttrss_server::users;
 use ttrss_server::AppState;
@@ -259,7 +259,7 @@ async fn test_edit_save_password_reset(
         .fetch_one(pool)
         .await
         .expect("salt");
-    assert!(ttrss_core::user::verify_password(
+    assert!(ttrss_server::core::user::verify_password(
         &new_hash, "hunter2", &salt
     ));
 }

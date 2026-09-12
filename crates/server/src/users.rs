@@ -16,7 +16,7 @@ use crate::util::{
 };
 use crate::AppState;
 use serde_json::{json, Map, Value};
-use ttrss_core::user;
+use crate::core::user;
 
 /// `UserHelper::ACCESS_LEVEL_*` → display name (the `$access_level_names` map
 /// built in `backend.php`).

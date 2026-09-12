@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use serde_json::{json, Map, Value};
 use minijinja::Environment;
 use sqlx::Row;
-use ttrss_core::db::Db;
+use crate::core::db::Db;
 
 use crate::session::Sess;
 use crate::util;

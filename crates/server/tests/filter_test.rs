@@ -2,7 +2,7 @@
 //! + the request-parse `[]` normalization regression.
 //!
 //! Rust-only: the frozen PHP suite has no `testFilterDo` test; the pure
-//! evaluation engine is covered 1:1 by the `ttrss_core::filters` unit tests
+//! evaluation engine is covered 1:1 by the `ttrss_server::core::filters` unit tests
 //! (ported from `tests_functional/RSSUtilsTest.php`). These exercise the
 //! handler end to end on the versioned `schema` + `baseline` + `seed`
 //! fixtures. Owner 1 is the test session's uid.
@@ -10,10 +10,10 @@
 mod common;
 
 use serde_json::{json, Map, Value};
-use ttrss_core::config::Config;
-use ttrss_core::db::Db;
-use ttrss_core::phpser::Value as PValue;
-use ttrss_core::session::Session;
+use ttrss_server::core::config::Config;
+use ttrss_server::core::db::Db;
+use ttrss_server::core::phpser::Value as PValue;
+use ttrss_server::core::session::Session;
 use ttrss_server::session::Sess;
 use ttrss_server::AppState;
 

@@ -321,7 +321,7 @@ pub async fn index(state: &AppState, sess: &Sess, extra: &Map<String, Value>) ->
     let feed_search = if extra.contains_key("search") {
         let s = util::clean_str(extra.get("search").and_then(Value::as_str).unwrap_or(""));
         sess.with_mut(|d| {
-            d.set("prefs_feed_search", ttrss_core::phpser::Value::Bytes(s.as_bytes().to_vec()))
+            d.set("prefs_feed_search", crate::core::phpser::Value::Bytes(s.as_bytes().to_vec()))
         });
         s
     } else {
@@ -752,7 +752,7 @@ pub async fn batch_add_feeds(state: &AppState, sess: &Sess, extra: &Map<String, 
     let pool = state.db.pool();
 
     // `access_level == ACCESS_LEVEL_READONLY` → no-op (the PHP early-returns).
-    if sess.data().access_level().unwrap_or(0) == ttrss_core::user::ACCESS_LEVEL_READONLY as i64 {
+    if sess.data().access_level().unwrap_or(0) == crate::core::user::ACCESS_LEVEL_READONLY as i64 {
         return Value::Null;
     }
 
@@ -1215,7 +1215,7 @@ async fn editsaveops(state: &AppState, uid: i64, profile: Option<i32>, extra: &M
     // Encrypt the password up front (PHP: before the single/batch branch).
     if let Some(key) = &state.config.encryption_key {
         if !auth_pass.is_empty() {
-            if let Ok(env) = ttrss_core::session::encrypt_envelope(auth_pass.as_bytes(), key) {
+            if let Ok(env) = crate::core::session::encrypt_envelope(auth_pass.as_bytes(), key) {
                 auth_pass = base64::engine::general_purpose::STANDARD.encode(env);
             }
         }
@@ -1957,7 +1957,7 @@ pub fn decrypt_feed_pass(auth_pass: &str, key: Option<&[u8; 32]>) -> String {
     if !auth_pass.is_empty() {
         if let Some(k) = key {
             if let Ok(decoded) = base64::engine::general_purpose::STANDARD.decode(auth_pass) {
-                if let Ok(pt) = ttrss_core::session::decrypt_envelope(&decoded, k) {
+                if let Ok(pt) = crate::core::session::decrypt_envelope(&decoded, k) {
                     return String::from_utf8_lossy(&pt).to_string();
                 }
             }

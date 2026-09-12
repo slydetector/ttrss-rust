@@ -4,7 +4,7 @@
 //!
 //! The wire format is a PHP-serialized 3-element associative array
 //! (`algo`, `nonce`, `payload`), which the caller is responsible for
-//! (de)serializing via [`crate::phpser`].
+//! (de)serializing via [`crate::core::phpser`].
 
 use aead::{Aead, KeyInit};
 use anyhow::{anyhow, Result};

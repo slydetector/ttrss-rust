@@ -113,7 +113,7 @@ pub async fn enable_otp(db: &PgPool, uid: i64, otp_code: &str, t_secs: u64) -> R
     let Some((_otp_enabled, secret)) = otp_state(db, uid).await? else {
         return Ok(false);
     };
-    if !ttrss_core::user::check_otp(secret.as_bytes(), otp_code, t_secs) {
+    if !crate::core::user::check_otp(secret.as_bytes(), otp_code, t_secs) {
         return Ok(false);
     }
     sqlx::query("UPDATE ttrss_users SET otp_enabled = true WHERE id = $1")

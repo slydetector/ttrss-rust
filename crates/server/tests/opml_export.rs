@@ -8,8 +8,8 @@
 
 mod common;
 
-use ttrss_core::config::Config;
-use ttrss_core::db::Db;
+use ttrss_server::core::config::Config;
+use ttrss_server::core::db::Db;
 use ttrss_server::session::Sess;
 use ttrss_server::AppState;
 
@@ -132,9 +132,9 @@ async fn test_export_handler(
     options: sqlx::postgres::PgConnectOptions,
 ) {
     let state = make_state(pool, options).await;
-    let mut data = ttrss_core::session::Session::new();
-    data.set("uid", ttrss_core::phpser::Value::Int(1));
-    data.set("name", ttrss_core::phpser::Value::Bytes(b"admin".to_vec()));
+    let mut data = ttrss_server::core::session::Session::new();
+    data.set("uid", ttrss_server::core::phpser::Value::Int(1));
+    data.set("name", ttrss_server::core::phpser::Value::Bytes(b"admin".to_vec()));
     let sess = Sess::new("test-sid".to_string());
     sess.replace("test-sid".to_string(), data);
 

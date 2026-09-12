@@ -18,7 +18,7 @@ use axum::http::{header, StatusCode};
 use axum::response::{IntoResponse, Response};
 use serde_json::{json, Map, Value};
 use sqlx::Row;
-use ttrss_core::user;
+use crate::core::user;
 
 use crate::article;
 use crate::auth;
@@ -148,7 +148,7 @@ pub async fn before_and_dispatch(
         "getheadlines" => get_headlines(state, sess, body).await,
         "getarticle" => get_article(state, uid, body).await,
         "getpref" => get_pref(state, sess, body).await,
-        "getversion" => (STATUS_OK, json!({ "version": ttrss_core::config::VERSION })),
+        "getversion" => (STATUS_OK, json!({ "version": crate::core::config::VERSION })),
         "getapilevel" => (STATUS_OK, json!({ "level": API_LEVEL })),
         "catchupfeed" => catchup_feed(state, sess, body).await,
         "unsubscribefeed" => unsubscribe_feed(state, sess, body).await,

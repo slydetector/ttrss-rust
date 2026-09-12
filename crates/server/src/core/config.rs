@@ -99,7 +99,7 @@ impl Config {
             self_url: std::env::var("TTRSS_SELF_URL_PATH")
                 .unwrap_or_else(|_| "http://127.0.0.1:8280/tt-rss/".into()),
             encryption_key: match std::env::var("TTRSS_ENCRYPTION_KEY") {
-                Ok(k) if !k.trim().is_empty() => Some(crate::crypt::hex_key(&k)?),
+                Ok(k) if !k.trim().is_empty() => Some(crate::core::crypt::hex_key(&k)?),
                 _ => None,
             },
             single_user_mode: sql_bool_to_bool(&std::env::var("TTRSS_SINGLE_USER_MODE").unwrap_or_default()),

@@ -12,10 +12,10 @@ use axum::response::Response;
 use base64::Engine as _;
 use std::sync::{Arc, Mutex};
 use sqlx::{PgPool, Row};
-use ttrss_core::db::Db;
-use ttrss_core::phpser::Value;
-use ttrss_core::session::{self, Session};
-use ttrss_core::user;
+use crate::core::db::Db;
+use crate::core::phpser::Value;
+use crate::core::session::{self, Session};
+use crate::core::user;
 use crate::util::now_unix;
 
 use crate::AppState;

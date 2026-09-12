@@ -6,7 +6,7 @@
 
 use std::path::Path;
 
-use ttrss_core::config::Config;
+use crate::core::config::Config;
 
 /// Max mtime (unix secs) of top-level `js/*.js` — mirrors
 /// `get_scripts_timestamp()`.
@@ -128,7 +128,7 @@ pub fn render_prefs_page(csrf_token: &str, scripts_ts: i64, access_level: i64) -
     let mut html = PREFS_TEMPLATE
         .replace("@CSRF@", csrf_token)
         .replace("@CACHEBUST@", &scripts_ts.to_string());
-    if access_level < ttrss_core::user::ACCESS_LEVEL_ADMIN as i64 {
+    if access_level < crate::core::user::ACCESS_LEVEL_ADMIN as i64 {
         html = html.replace(PREFS_ADMIN_TABS, PREFS_NONADMIN_CLOSE);
     }
     html

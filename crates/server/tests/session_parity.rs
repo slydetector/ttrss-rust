@@ -16,10 +16,10 @@ mod common;
 
 use base64::Engine as _;
 use rand::RngCore;
-use ttrss_core::db::Db;
-use ttrss_core::phpser::Value;
-use ttrss_core::session as core_session;
-use ttrss_core::session::Session;
+use ttrss_server::core::db::Db;
+use ttrss_server::core::phpser::Value;
+use ttrss_server::core::session as core_session;
+use ttrss_server::core::session::Session;
 use ttrss_server::auth;
 use ttrss_server::session as sessions;
 
@@ -411,7 +411,7 @@ async fn test_write_stores_encrypted_data_when_key_configured(
     assert_ne!(b64(data), stored_b64, "Stored data should NOT be the plaintext base64 encoding");
 
     // The raw stored data should be a serialized PHP structure
-    let unserialized = ttrss_core::phpser::deserialize(&raw_stored).expect("stored data should be a serialized PHP array (encrypted object)");
+    let unserialized = ttrss_server::core::phpser::deserialize(&raw_stored).expect("stored data should be a serialized PHP array (encrypted object)");
     assert!(unserialized.as_array().is_some(), "Stored data should be a serialized PHP array (encrypted object)");
     assert!(unserialized.get("algo").is_some());
     assert!(unserialized.get("nonce").is_some());

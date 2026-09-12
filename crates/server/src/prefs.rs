@@ -9,8 +9,8 @@
 //! default, and casts the string to the pref's type hint (`Config::cast_to`).
 
 use sqlx::Row;
-use ttrss_core::config::sql_bool_to_bool;
-use ttrss_core::db::Db;
+use crate::core::config::sql_bool_to_bool;
+use crate::core::db::Db;
 use serde_json::{json, Value};
 
 /// Pref-name constants (mirror `Prefs::*` in classes/Prefs.php).

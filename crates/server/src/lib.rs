@@ -11,6 +11,7 @@ pub mod article;
 pub mod auth;
 pub mod counters;
 pub mod controls;
+pub mod core;
 pub mod diskcache;
 pub mod digest;
 pub mod feeds;
@@ -42,8 +43,8 @@ pub mod time;
 pub mod util;
 pub mod urlhelper;
 
-use ttrss_core::config::Config;
-use ttrss_core::db::Db;
+use crate::core::config::Config;
+use crate::core::db::Db;
 
 /// Shared server state (`AppState`): configuration + DB pool.
 #[derive(Clone)]

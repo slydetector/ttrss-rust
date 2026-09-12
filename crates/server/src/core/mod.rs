@@ -1,4 +1,4 @@
-//! tt-rss domain core (no HTTP).
+//! Pure domain core ported from the tt-rss PHP reference (no HTTP).
 //!
 //! Byte-for-byte ports of the PHP primitives the server depends on: PHP
 //! serialization, DB-backed encrypted sessions, user password/OTP/app-password

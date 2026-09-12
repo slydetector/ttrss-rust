@@ -4,7 +4,7 @@
 use minijinja::Environment;
 use serde_json::{json, Map, Value};
 use sqlx::Row;
-use ttrss_core::phpser::Value as PValue;
+use crate::core::phpser::Value as PValue;
 
 use crate::auth;
 use crate::controls;
@@ -283,11 +283,11 @@ pub async fn generate_app_password(
     let uid = sess.data().uid().unwrap_or(0) as i32;
     let title = util::clean_str(extra.get("title").and_then(Value::as_str).unwrap_or(""));
     let new_password = util::make_password(16);
-    let new_salt = ttrss_core::user::get_salt();
-    let new_password_hash = ttrss_core::user::hash_password(
+    let new_salt = crate::core::user::get_salt();
+    let new_password_hash = crate::core::user::hash_password(
         &new_password,
         &new_salt,
-        ttrss_core::user::ALGO_SSHA512,
+        crate::core::user::ALGO_SSHA512,
     )
     .expect("hash_password");
 

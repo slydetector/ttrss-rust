@@ -15,7 +15,7 @@
 mod common;
 
 use sqlx::Row;
-use ttrss_core::db::Db;
+use ttrss_server::core::db::Db;
 use ttrss_server::headlines::{get_headlines_query, HeadlinesParams};
 
 /// `DbTestCase::setUp`: `$_SESSION["uid"] = 1`.

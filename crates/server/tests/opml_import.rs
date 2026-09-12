@@ -9,8 +9,8 @@
 
 mod common;
 
-use ttrss_core::config::Config;
-use ttrss_core::db::Db;
+use ttrss_server::core::config::Config;
+use ttrss_server::core::db::Db;
 use ttrss_server::session::Sess;
 use ttrss_server::AppState;
 
@@ -49,9 +49,9 @@ async fn make_state(
 
 /// A logged-in session for `uid` (mirrors the `opml_export.rs` setup).
 fn sess_for(uid: i64) -> Sess {
-    let mut data = ttrss_core::session::Session::new();
-    data.set("uid", ttrss_core::phpser::Value::Int(uid));
-    data.set("name", ttrss_core::phpser::Value::Bytes(b"admin".to_vec()));
+    let mut data = ttrss_server::core::session::Session::new();
+    data.set("uid", ttrss_server::core::phpser::Value::Int(uid));
+    data.set("name", ttrss_server::core::phpser::Value::Bytes(b"admin".to_vec()));
     let sess = Sess::new("test-sid".to_string());
     sess.replace("test-sid".to_string(), data);
     sess

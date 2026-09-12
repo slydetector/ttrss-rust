@@ -10,10 +10,10 @@
 mod common;
 
 use serde_json::{json, Map};
-use ttrss_core::config::Config;
-use ttrss_core::db::Db;
-use ttrss_core::phpser::Value as PValue;
-use ttrss_core::session::Session;
+use ttrss_server::core::config::Config;
+use ttrss_server::core::db::Db;
+use ttrss_server::core::phpser::Value as PValue;
+use ttrss_server::core::session::Session;
 use ttrss_server::session::Sess;
 use ttrss_server::system;
 use ttrss_server::AppState;
@@ -204,7 +204,7 @@ async fn test_get_php_info(
     let (state, _) = setup(pool, options).await;
     let html = system::get_php_info(&state);
     assert!(
-        html.contains(ttrss_core::config::VERSION),
+        html.contains(ttrss_server::core::config::VERSION),
         "shows the version"
     );
     assert!(

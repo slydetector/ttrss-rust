@@ -9,10 +9,10 @@ mod common;
 
 use serde_json::{json, Map, Value};
 use sqlx::Row;
-use ttrss_core::config::Config;
-use ttrss_core::db::Db;
-use ttrss_core::phpser::Value as PValue;
-use ttrss_core::session::Session;
+use ttrss_server::core::config::Config;
+use ttrss_server::core::db::Db;
+use ttrss_server::core::phpser::Value as PValue;
+use ttrss_server::core::session::Session;
 use ttrss_server::session::Sess;
 use ttrss_server::AppState;
 
@@ -131,7 +131,7 @@ async fn test_generate_app_password(
             .len(),
         16
     );
-    assert!(ttrss_core::user::verify_app_password(pwd_hash, &pw));
+    assert!(ttrss_server::core::user::verify_app_password(pwd_hash, &pw));
 
     // The response is the warning div + the refreshed list.
     assert!(resp.contains("Generated password"));

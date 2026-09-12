@@ -10,7 +10,7 @@
 mod common;
 
 use serde_json::{json, Map, Value};
-use ttrss_core::db::Db;
+use ttrss_server::core::db::Db;
 use ttrss_server::labels;
 
 // ── LabelsTest (pure functions) ─────────────────────────────────────────────

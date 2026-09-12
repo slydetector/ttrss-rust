@@ -18,10 +18,10 @@
 mod common;
 
 use serde_json::{json, Map, Value};
-use ttrss_core::config::Config;
-use ttrss_core::db::Db;
-use ttrss_core::phpser::Value as PValue;
-use ttrss_core::session::Session;
+use ttrss_server::core::config::Config;
+use ttrss_server::core::db::Db;
+use ttrss_server::core::phpser::Value as PValue;
+use ttrss_server::core::session::Session;
 use ttrss_server::counters::{self, FeedOrTag};
 use ttrss_server::session::Sess;
 use ttrss_server::AppState;

@@ -12,7 +12,7 @@
 //!
 //! This module parses/renders both layers and offers a typed [`Session`] view.
 
-use crate::phpser::{self, Key, Value};
+use crate::core::phpser::{self, Key, Value};
 use anyhow::{anyhow, Result};
 use base64::Engine as _;
 
@@ -147,7 +147,7 @@ pub fn decode_data(bytes: &[u8]) -> Result<Vec<(String, Value)>> {
 // Envelope + base64 (the stored `ttrss_sessions.data` form)
 // ---------------------------------------------------------------------------
 
-use crate::crypt;
+use crate::core::crypt;
 
 /// Encrypt `data` into the envelope form: a PHP-serialized
 /// `a:3:{s:4:"algo";\u2026s:5:"nonce";\u2026s:7:"payload";\u2026}` object (PHP

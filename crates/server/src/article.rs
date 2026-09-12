@@ -20,9 +20,9 @@ use kuchikiki::{parse_html, NodeRef};
 use serde_json::{json, Map, Value};
 use sha1::Digest as _;
 use sqlx::Row;
-use ttrss_core::db::Db;
-use ttrss_core::phpser::Value as PValue;
-use ttrss_core::session::Session;
+use crate::core::db::Db;
+use crate::core::phpser::Value as PValue;
+use crate::core::session::Session;
 use crate::util::{basename, param_int_array, scalar_str};
 
 use crate::prefs;

@@ -68,7 +68,7 @@ impl TzCtx {
     /// Build the context for the current session (loads the owner's date/time
     /// prefs once). Handlers that render dates via `make_local_datetime` use
     /// this instead of inlining the `prefs::load_rows` + `resolve` sequence.
-    pub async fn for_session(state: &crate::AppState, data: &ttrss_core::session::Session) -> Self {
+    pub async fn for_session(state: &crate::AppState, data: &crate::core::session::Session) -> Self {
         let uid = data.uid().unwrap_or(0);
         let profile = data.profile().map(|p| p as i32);
         let rows = crate::prefs::load_rows(&state.db, uid, profile).await;

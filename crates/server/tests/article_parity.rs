@@ -15,9 +15,9 @@ mod common;
 
 use chrono::NaiveDateTime;
 use serde_json::{json, Value};
-use ttrss_core::db::Db;
-use ttrss_core::phpser::Value as PValue;
-use ttrss_core::session::Session;
+use ttrss_server::core::db::Db;
+use ttrss_server::core::phpser::Value as PValue;
+use ttrss_server::core::session::Session;
 use ttrss_server::article::{self, CATCHUP_MODE_MARK_AS_READ, CATCHUP_MODE_MARK_AS_UNREAD, CATCHUP_MODE_TOGGLE};
 
 /// `DbTestCase::setUp`: `$_SESSION["uid"] = 1`.

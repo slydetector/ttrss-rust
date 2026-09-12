@@ -3,13 +3,13 @@
 //!
 //! Row *order* matters: the PHP emits no `ORDER BY` on the aggregate queries
 //! and the SPA (and the harness) see the natural PG order. The session setup
-//! in `ttrss_core::db` reproduces `Db::pdo_connect()`'s
+//! in `crate::core::db` reproduces `Db::pdo_connect()`'s
 //! `set cpu_tuple_cost = 0.5`, so the same query text yields the same plan
 //! and the same row order as the PHP oracle.
 
 use serde_json::{json, Map, Value};
 use sqlx::Row;
-use ttrss_core::db::Db;
+use crate::core::db::Db;
 
 use crate::cats::CAT_LABELS;
 use crate::headlines::PLUGIN_FEED_BASE_INDEX;

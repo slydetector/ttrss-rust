@@ -17,11 +17,11 @@
 use chrono::NaiveDateTime;
 use rand::Rng;
 use sqlx::Row;
-use ttrss_core::config::SCHEMA_VERSION;
-use ttrss_core::db::Db;
-use ttrss_core::phpser::Value;
-use ttrss_core::session::{self as core_session, Session};
-use ttrss_core::user;
+use crate::core::config::SCHEMA_VERSION;
+use crate::core::db::Db;
+use crate::core::phpser::Value;
+use crate::core::session::{self as core_session, Session};
+use crate::core::user;
 use crate::util::now_unix;
 
 /// `AUTH_MIN_INTERVAL` (seconds) — minimum gap between failed login attempts.
@@ -143,12 +143,12 @@ async fn success(pool: &sqlx::PgPool, user: &UserRow, password: &str) -> AuthOut
 
     let mut pwd_hash = user.pwd_hash.clone();
     let stored_algo = user.pwd_hash.split_once(':').map(|(a, _)| a.to_string());
-    if stored_algo.as_deref() != Some(ttrss_core::user::ALGO_SSHA512) {
+    if stored_algo.as_deref() != Some(crate::core::user::ALGO_SSHA512) {
         // `check_password`: "Upgrading password of user $login to SSHA-512"
-        if let Some(new_hash) = ttrss_core::user::hash_password(
+        if let Some(new_hash) = crate::core::user::hash_password(
             password,
             &user.salt,
-            ttrss_core::user::ALGO_SSHA512,
+            crate::core::user::ALGO_SSHA512,
         ) {
             let _ = sqlx::query("UPDATE ttrss_users SET pwd_hash = $1 WHERE id = $2")
                 .bind(&new_hash)
@@ -197,13 +197,13 @@ pub async fn check_password(pool: &sqlx::PgPool, uid: i32, password: &str) -> bo
     };
     let pwd_hash: String = row.get(0);
     let salt: String = row.get(1);
-    if !ttrss_core::user::verify_password(&pwd_hash, password, &salt) {
+    if !crate::core::user::verify_password(&pwd_hash, password, &salt) {
         return false;
     }
     if let Some((algo, _)) = pwd_hash.split_once(':') {
-        if algo != ttrss_core::user::ALGO_SSHA512 {
+        if algo != crate::core::user::ALGO_SSHA512 {
             if let Some(new_hash) =
-                ttrss_core::user::hash_password(password, &salt, ttrss_core::user::ALGO_SSHA512)
+                crate::core::user::hash_password(password, &salt, crate::core::user::ALGO_SSHA512)
             {
                 let _ = sqlx::query("UPDATE ttrss_users SET pwd_hash = $1 WHERE id = $2")
                     .bind(&new_hash)
@@ -233,9 +233,9 @@ pub async fn change_password(
     if !check_password(pool, uid, old_password).await {
         return None;
     }
-    let new_salt = ttrss_core::user::get_salt();
+    let new_salt = crate::core::user::get_salt();
     let new_hash =
-        ttrss_core::user::hash_password(new_password, &new_salt, ttrss_core::user::ALGO_SSHA512)?;
+        crate::core::user::hash_password(new_password, &new_salt, crate::core::user::ALGO_SSHA512)?;
     let _ = sqlx::query("UPDATE ttrss_users SET salt = $1, pwd_hash = $2 WHERE id = $3")
         .bind(&new_salt)
         .bind(&new_hash)

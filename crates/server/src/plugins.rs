@@ -12,7 +12,7 @@ use serde_json::{json, Value};
 use crate::prefs;
 use crate::session::Sess;
 use crate::AppState;
-use ttrss_core::user::ACCESS_LEVEL_ADMIN;
+use crate::core::user::ACCESS_LEVEL_ADMIN;
 
 /// Static `about()` metadata for the bundled plugins, in the order the
 /// `PluginHost` loads them (before the final name-sort). Fields:

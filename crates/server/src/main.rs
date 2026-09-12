@@ -18,10 +18,10 @@ use axum::{
 };
 use serde::Deserialize;
 use tokio::fs;
-use ttrss_core::config::Config;
-use ttrss_core::db::Db;
-use ttrss_core::phpser::Value;
-use ttrss_core::session as core_session;
+use ttrss_server::core::config::Config;
+use ttrss_server::core::db::Db;
+use ttrss_server::core::phpser::Value;
+use ttrss_server::core::session as core_session;
 use ttrss_server::util::now_unix;
 use ttrss_server::{
     api, auth, diskcache, forgotpass, mime, nocache_headers, render, rpc, session, syndication,

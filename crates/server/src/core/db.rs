@@ -21,7 +21,7 @@ use sqlx::pool::PoolOptions;
 use sqlx::postgres::{PgConnectOptions, PgConnection, PgPool};
 use std::str::FromStr;
 
-use crate::config::Config;
+use crate::core::config::Config;
 
 /// The exact per-connection session statements from `Db::pdo_connect()`.
 ///
@@ -98,7 +98,7 @@ impl Db {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::Config;
+    use crate::core::config::Config;
     use std::path::PathBuf;
 
     /// Connect to the local golden DB (the oracle's postgres, exposed on

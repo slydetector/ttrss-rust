@@ -160,7 +160,7 @@ pub async fn view(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> 
                 .execute(pool)
                 .await;
             sess.with_mut(|s| {
-                s.set("last_login_update", ttrss_core::phpser::Value::Int(now));
+                s.set("last_login_update", crate::core::phpser::Value::Int(now));
             });
         }
     }
@@ -1051,7 +1051,7 @@ impl HeadlinesParams {
 /// is unavailable in this context, so prefs resolve against the default
 /// profile (matching the integration-test session, which carries none).
 pub async fn get_headlines_query(
-    db: &ttrss_core::db::Db,
+    db: &crate::core::db::Db,
     params: &HeadlinesParams,
 ) -> HeadlinesQuery {
     let pool = db.pool();

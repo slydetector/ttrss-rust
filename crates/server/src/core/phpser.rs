@@ -21,7 +21,7 @@
 //! The session *data* format (PHP's `php` session serialize handler,
 //! ext/session/session.c `PS_SERIALIZER_(EN|DE)CODE_FUNC(php)`) is a
 //! concatenation of `key|<serialized value>` pairs with **no** separator; the
-//! keys may not contain `|`. See [`crate::session`] for that layer.
+//! keys may not contain `|`. See [`crate::core::session`] for that layer.
 
 use std::fmt;
 

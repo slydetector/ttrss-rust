@@ -17,7 +17,7 @@
 use regex::Regex;
 use std::sync::LazyLock;
 
-use ttrss_core::db::Db;
+use crate::core::db::Db;
 
 use crate::labels;
 use crate::prefs;

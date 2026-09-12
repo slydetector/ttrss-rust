@@ -11,7 +11,7 @@
 
 mod common;
 
-use ttrss_core::db::Db;
+use ttrss_server::core::db::Db;
 use ttrss_server::prefs::{self, Pref, Type};
 
 /// PHP: `PrefsTest::createTestUser` — a synthetic user with the

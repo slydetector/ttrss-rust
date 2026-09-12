@@ -20,8 +20,8 @@
 
 mod common;
 
-use ttrss_core::db::Db;
-use ttrss_core::user;
+use ttrss_server::core::db::Db;
+use ttrss_server::core::user;
 use ttrss_server::auth::{self, AuthOutcome};
 
 /// `UserHelperTest::setUp` on top of the harness-injected pool: a `testuser`

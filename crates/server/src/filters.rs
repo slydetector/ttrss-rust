@@ -759,7 +759,7 @@ pub async fn editrule(state: &AppState, sess: &Sess, extra: &Map<String, Value>)
 /// typed eval representation.
 struct PostedRule {
     raw: Value,
-    eval_rule: ttrss_core::filters::EvalRule,
+    eval_rule: crate::core::filters::EvalRule,
     /// The `feed_id` elements as strings (PHP `"$feed_id"` casts).
     feed_ids: Vec<String>,
 }
@@ -778,9 +778,9 @@ impl PostedRule {
         let feed_ids: Vec<String> = feeds_vec.iter().filter_map(util::scalar_str).collect();
         PostedRule {
             raw: v.clone(),
-            eval_rule: ttrss_core::filters::EvalRule {
+            eval_rule: crate::core::filters::EvalRule {
                 reg_exp,
-                rule_type: ttrss_core::filters::RuleType::from_id(filter_type as i32),
+                rule_type: crate::core::filters::RuleType::from_id(filter_type as i32),
                 inverse,
             },
             feed_ids,
@@ -921,13 +921,13 @@ pub async fn test_filter_do(
             }
         }
 
-        let feed_filter = ttrss_core::filters::EvalFilter {
+        let feed_filter = crate::core::filters::EvalFilter {
             match_any_rule,
             inverse,
             rules: entry_rules.iter().map(|pr| pr.eval_rule.clone()).collect(),
-            actions: vec![ttrss_core::filters::FilterAction::default()],
+            actions: vec![crate::core::filters::FilterAction::default()],
         };
-        let outcome = ttrss_core::filters::eval_article_filters(
+        let outcome = crate::core::filters::eval_article_filters(
             std::slice::from_ref(&feed_filter),
             &title,
             &content,
@@ -972,9 +972,9 @@ pub async fn test_filter_do(
                 .rule_index
                 .and_then(|idx| entry_rules.get(idx))
                 .map(|pr| pr.eval_rule.rule_type)
-                .unwrap_or(ttrss_core::filters::RuleType::Unknown);
+                .unwrap_or(crate::core::filters::RuleType::Unknown);
             let preview = match rule_type {
-                ttrss_core::filters::RuleType::Content | ttrss_core::filters::RuleType::Both => {
+                crate::core::filters::RuleType::Content | crate::core::filters::RuleType::Both => {
                     // `mb_strpos` (case-sensitive, char index) +
                     // `mb_substr(…, $match_index)`; a miss (e.g. case
                     // mismatch) previews from the start without `&hellip;`.
@@ -991,9 +991,9 @@ pub async fn test_filter_do(
                         None => util::truncate_string(&content_flat, 200, "&hellip;"),
                     }
                 }
-                ttrss_core::filters::RuleType::Link => link.clone(),
-                ttrss_core::filters::RuleType::Author => author.clone(),
-                ttrss_core::filters::RuleType::Tag => {
+                crate::core::filters::RuleType::Link => link.clone(),
+                crate::core::filters::RuleType::Author => author.clone(),
+                crate::core::filters::RuleType::Tag => {
                     format!("<i class=\"material-icons\">label_outline</i> {}", tags.join(", "))
                 }
                 _ => "&mdash;".to_string(),
@@ -1002,16 +1002,16 @@ pub async fn test_filter_do(
 
             let (mut hl_title, mut hl_content) = (false, false);
             match rule_type {
-                ttrss_core::filters::RuleType::Both => {
+                crate::core::filters::RuleType::Both => {
                     hl_title = true;
                     hl_content = true;
                 }
-                ttrss_core::filters::RuleType::Title => hl_title = true,
-                ttrss_core::filters::RuleType::Content
-                | ttrss_core::filters::RuleType::Link
-                | ttrss_core::filters::RuleType::Author
-                | ttrss_core::filters::RuleType::Tag => hl_content = true,
-                ttrss_core::filters::RuleType::Unknown => {}
+                crate::core::filters::RuleType::Title => hl_title = true,
+                crate::core::filters::RuleType::Content
+                | crate::core::filters::RuleType::Link
+                | crate::core::filters::RuleType::Author
+                | crate::core::filters::RuleType::Tag => hl_content = true,
+                crate::core::filters::RuleType::Unknown => {}
             }
             // PHP: an empty highlight word (rule matched nothing textually —
             // e.g. via `inverse` — or the match stripped to nothing) makes
@@ -1061,7 +1061,7 @@ pub async fn index(_state: &AppState, sess: &Sess, extra: &Map<String, Value>) -
         sess.with_mut(|d| {
             d.set(
                 "prefs_filter_search",
-                ttrss_core::phpser::Value::Bytes(s.as_bytes().to_vec()),
+                crate::core::phpser::Value::Bytes(s.as_bytes().to_vec()),
             )
         });
         s

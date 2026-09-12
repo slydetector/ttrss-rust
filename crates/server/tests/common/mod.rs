@@ -10,14 +10,14 @@
 //! when the test succeeds.
 //!
 //! [`make_db`] wraps the injected options in a core [`Db`] with the server's
-//! exact per-connection session setup (`ttrss_core::db::SESSION_SETUP`:
+//! exact per-connection session setup (`ttrss_server::core::db::SESSION_SETUP`:
 //! `TIME ZONE 0`, `datestyle = 'ISO, european'`, …) so test connections
 //! behave exactly like the server's and the PHP reference's.
 
 use sqlx::pool::PoolOptions;
 use sqlx::postgres::{PgConnectOptions, PgConnection, Postgres};
 use std::time::Duration;
-use ttrss_core::db::{Db, SESSION_SETUP};
+use ttrss_server::core::db::{Db, SESSION_SETUP};
 
 #[ctor::ctor(unsafe)]
 fn init_test_pg() {

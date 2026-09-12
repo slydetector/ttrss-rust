@@ -361,7 +361,7 @@ pub fn get_php_info(state: &AppState) -> String {
     };
 
     head(&mut out, "Server");
-    row(&mut out, "tt-rss (Rust) version", ttrss_core::config::VERSION);
+    row(&mut out, "tt-rss (Rust) version", crate::core::config::VERSION);
     row(&mut out, "Server crate", crate_id);
     row(&mut out, "Build target", &target);
     row(&mut out, "Available parallelism", &cpus.to_string());

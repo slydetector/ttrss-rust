@@ -15,8 +15,8 @@ use chrono::{Datelike, Timelike};
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use sqlx::Row;
-use ttrss_core::phpser;
-use ttrss_core::user;
+use crate::core::phpser;
+use crate::core::user;
 
 use crate::article;
 use crate::feeds;
@@ -308,7 +308,7 @@ async fn dispatch(
     // admin handlers (`Pref_Users`, `Pref_System`) additionally need
     // `access_level >= ACCESS_LEVEL_ADMIN`.
     if is_administrative(op)
-        && data.access_level().unwrap_or(0) < ttrss_core::user::ACCESS_LEVEL_ADMIN as i64
+        && data.access_level().unwrap_or(0) < crate::core::user::ACCESS_LEVEL_ADMIN as i64
     {
         return DispatchOutput::Json(errors("E_UNAUTHORIZED"));
     }
@@ -701,13 +701,13 @@ async fn sanity_check(state: &AppState, sess: &Sess, extra: &Map<String, Value>)
         if let Some(v) = extra.get("hasSandbox").and_then(Value::as_str) {
             s.set(
                 "hasSandbox",
-                ttrss_core::phpser::Value::Bool(!v.is_empty() && v != "f" && v != "false"),
+                crate::core::phpser::Value::Bool(!v.is_empty() && v != "f" && v != "false"),
             );
         }
         if let Some(v) = extra.get("clientTzOffset").and_then(Value::as_str) {
             s.set(
                 "clientTzOffset",
-                ttrss_core::phpser::Value::Bytes(v.trim().as_bytes().to_vec()),
+                crate::core::phpser::Value::Bytes(v.trim().as_bytes().to_vec()),
             );
         }
     });
@@ -806,7 +806,7 @@ pub(crate) async fn make_runtime_info(state: &AppState, sess: &Sess) -> Value {
                 let stamp_ok = if delta > 1800 { 0 } else { 1 };
                 if stamp_ok == 1 {
                     sess.with_mut(|s| {
-                        s.set("daemon_stamp_check", ttrss_core::phpser::Value::Int(now));
+                        s.set("daemon_stamp_check", crate::core::phpser::Value::Int(now));
                     });
                 }
                 out.insert("daemon_stamp_ok".into(), Value::from(stamp_ok));

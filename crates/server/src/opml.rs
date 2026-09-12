@@ -17,7 +17,7 @@ use quick_xml::Reader;
 use serde::Serialize;
 use serde_json::{Map, Value, json};
 use sqlx::Row;
-use ttrss_core::db::Db;
+use crate::core::db::Db;
 
 use crate::session::Sess;
 use crate::AppState;

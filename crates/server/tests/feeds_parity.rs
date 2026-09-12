@@ -18,7 +18,7 @@
 
 mod common;
 
-use ttrss_core::db::Db;
+use ttrss_server::core::db::Db;
 use ttrss_server::feeds;
 
 /// PHP `Feeds::*` constants (mirrors `tt-rss/classes/Feeds.php`).

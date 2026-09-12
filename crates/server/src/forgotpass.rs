@@ -18,8 +18,8 @@ use axum::body::Body;
 use axum::http::{header, StatusCode};
 use axum::response::Response;
 use sqlx::PgPool;
-use ttrss_core::config::Config;
-use ttrss_core::phpser::Value;
+use crate::core::config::Config;
+use crate::core::phpser::Value;
 
 use crate::render;
 use crate::session;
@@ -65,7 +65,7 @@ pub async fn forgotpass(state: &AppState, sess: &session::Sess, p: &Params<'_>) 
     // POST (PHP `session_start()` creates one on first access), and set the cookie
     // so the browser remembers it.
     let sid = if sess.id().is_empty() {
-        let id = ttrss_core::session::new_session_id();
+        let id = crate::core::session::new_session_id();
         sess.replace(id.clone(), sess.data());
         id
     } else {
