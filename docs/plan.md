@@ -169,6 +169,7 @@ Restructured per `research-report.md` (strangler-fig / vertical-slice / golden-m
 | **M6** | ⬜ **NEXT** | — | The update engine — decomposed below. |
 
 **Next = M6 (the engine)**, decomposed per `docs/unified-architecture.md` §4:
+
 - **M6a — parser** (`FeedParser` + `FeedItem_*`) — pure, architecture-independent. **← the next increment**
 - **M6b — deterministic pipeline** (GUID/hash → dedup → upsert → filter → counters) — verified by ported PHP tests + a batch smoke test.
 - **M6c — daemon/scheduler shell** (tokio worker loop, fetch, housekeeping, graceful shutdown).
