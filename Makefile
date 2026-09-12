@@ -9,7 +9,12 @@
 SHELL := /bin/bash
 SCRIPTS     := oracle/scripts
 HARNESS_BIN := ./target/debug/tt-rust-harness
-SERVER_BIN  := ./target/debug/tt-rust
+# Server build profile for `run`. A debug build is ~7x slower per request than
+# the optimized one (and the PHP oracle is compiled/OPcache'd), so the
+# canonical server runs in release; set PROFILE=debug for fast iteration.
+PROFILE     ?= release
+CARGO_PROF  := $(if $(filter release,$(PROFILE)),--release,)
+SERVER_BIN  := ./target/$(PROFILE)/tt-rust
 
 # Canonical Rust server values (the oracle web is on 8280; the Rust server on
 # 8281 so the diff can compare them as the same app on different ports).
@@ -66,11 +71,15 @@ oracle-check: ## verify the golden dataset matches the current seed recipe
 
 # --- Rust server -------------------------------------------------------------
 .PHONY: build
-build: ## build the Rust server + harness binaries
+build: ## build the debug Rust server + harness (for tests / the differential harness)
 	cargo build -p ttrss-server --bin tt-rust -p tt-rust-harness
 
+.PHONY: build-server
+build-server: ## build the server in $(PROFILE) (used by `run`)
+	cargo build $(CARGO_PROF) -p ttrss-server --bin tt-rust
+
 .PHONY: run
-run: ## run the Rust server in the foreground (canonical env, port 8281)
+run: build-server ## run the (release by default) Rust server (canonical env, port 8281)
 	TTRSS_DB_HOST=127.0.0.1 TTRSS_DB_PORT=5432 \
 	TTRSS_DB_USER=$(DB_USER) TTRSS_DB_NAME=$(DB_NAME) TTRSS_DB_PASS=$(DB_PASS) \
 	TTRSS_PLUGINS=$(PLUGINS) TTRSS_ENCRYPTION_KEY=$(ENC_KEY) \

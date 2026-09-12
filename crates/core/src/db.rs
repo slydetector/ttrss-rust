@@ -9,10 +9,12 @@
 //! set cpu_tuple_cost = 0.5;
 //! ```
 //!
-//! We apply the same statements in sqlx's `before_acquire` hook so every pooled
+//! We apply the same statements in sqlx's `after_connect` hook so every pooled
 //! connection has identical session settings (in particular `TIME ZONE 0`,
-//! which fixes timestamp interpretation to UTC exactly as PHP does). The
-//! statements are idempotent, so re-applying them on each checkout is a no-op.
+//! which fixes timestamp interpretation to UTC exactly as PHP does). The pool
+//! never resets session GUCs on return (the idle check is a `ping`, not a
+//! `DISCARD`), so setting them once per new connection is enough; re-running
+//! them on every acquire added four redundant round-trips per query.
 
 use anyhow::Result;
 use sqlx::pool::PoolOptions;
@@ -40,8 +42,8 @@ pub struct Db {
 }
 
 impl Db {
-    /// Open a connection pool, applying the PHP session setup to each
-    /// connection on acquisition.
+    /// Open a connection pool, applying the PHP session setup to each new
+    /// connection.
     pub async fn connect(cfg: &Config) -> Result<Self> {
         Self::connect_url(&cfg.db_url()).await
     }
@@ -60,12 +62,19 @@ impl Db {
 
         let pool = PoolOptions::<sqlx::Postgres>::new()
             .max_connections(10)
-            .before_acquire(|conn: &mut PgConnection, _meta| {
+            // `after_connect` runs once per *new* connection (not on every
+            // checkout). The four statements are session GUCs that persist for
+            // the connection's life — sqlx's pool only `ping`s idle connections
+            // on return (no `DISCARD ALL`) — so applying them at connect keeps
+            // every connection identically configured while dropping four
+            // redundant round-trips from every acquire (the headlines view
+            // issues dozens of queries, so this was the dominant DB overhead).
+            .after_connect(|conn: &mut PgConnection, _meta| {
                 Box::pin(async move {
                     for stmt in SESSION_SETUP {
                         sqlx::query(stmt).execute(&mut *conn).await?;
                     }
-                    Ok(true)
+                    Ok(())
                 })
             })
             .connect_with(options)
