@@ -100,11 +100,19 @@ row counts match the manifest:
 make oracle-check                # or: python3 oracle/scripts/check_sync.py
 ```
 
-If you edit `seed.py` (or restore/patch the DB out-of-band), re-snapshot
-(`make oracle-seed && make oracle-snapshot`) — the recorded dataset is
-only valid for the seed recipe that produced it. `harness.sh` runs the
-same check before build/reset, so a drifted dataset can never silently
-serve as the baseline of a harness run.
+If you edit `seed.py`/`feeds.txt` (or patch the DB out-of-band), the gate
+fails until you re-baseline. Pick one:
+
+- `make oracle-bless` — cheap: re-records the lineage hashes from the files
+  on disk (no re-seed, no live fetch, no docker). Use it when the golden
+  dump is still the baseline you want (e.g. a comment-only recipe edit).
+- `make oracle-seed && make oracle-snapshot` — regenerate the dump from the
+  recipe (re-fetches live feeds, ~minutes; a fresh stack needs `oracle-up`
+  first). Use it when the recipe's *data* actually changed.
+
+The recorded dataset is only valid for the seed recipe that produced it.
+`harness.sh` runs the same check before build/reset, so a drifted dataset
+can never silently serve as the baseline of a harness run.
 
 ## Corpus
 

@@ -9,9 +9,11 @@ reset/restore/harness/record run then carries that stale data (Sept 2026:
 a 5-day-old dump with bare-word label_cache values cascaded SPA crashes
 and corpus mismatches).
 
-This gate is invoked by those consumers; it fails fast with the fix
-command. It never re-seeds automatically — re-seeding fetches live feeds
-and takes minutes, so it must be a deliberate `make oracle-seed`.
+This gate is invoked by those consumers and fails fast. It never re-seeds
+automatically — re-seeding fetches live feeds and takes minutes. To
+re-baseline after a recipe edit, run `make oracle-bless` (cheap: re-record
+the lineage hashes, no re-seed) or `make oracle-seed && make
+oracle-snapshot` (genuinely regenerate the dump).
 """
 
 import hashlib
@@ -77,9 +79,13 @@ def main() -> int:
         for b in bad:
             print(f"  - {b}", file=sys.stderr)
         print(
-            "Fix:  make oracle-seed && make oracle-snapshot\n"
-            "(fresh stack: `make oracle-up` first; the dump must also exist "
-            "before `oracle-snapshot` records its hash)",
+            "Fix (pick one):\n"
+            "  make oracle-bless                        # the golden dump is still your baseline:\n"
+            "                                           # re-record the lineage hashes (no re-seed,\n"
+            "                                           # no live fetch, no docker needed)\n"
+            "  make oracle-seed && make oracle-snapshot # genuinely regenerate the dump (re-fetches\n"
+            "                                           # live feeds, ~minutes; fresh stack needs\n"
+            "                                           # `make oracle-up` first)",
             file=sys.stderr,
         )
         return 1

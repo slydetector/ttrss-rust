@@ -57,6 +57,10 @@ oracle-seed: ## seed the golden dataset from scratch (fresh stack, ~3 min)
 oracle-snapshot: ## snapshot the current oracle state -> oracle/data/
 	$(SCRIPTS)/snapshot.sh
 
+.PHONY: oracle-bless
+oracle-bless: ## re-baseline the manifest lineage to the current files (no re-seed)
+	python3 $(SCRIPTS)/bless.py
+
 .PHONY: oracle-restore
 oracle-restore: ## restore golden-db.sql into a fresh db container
 	$(SCRIPTS)/restore.sh
