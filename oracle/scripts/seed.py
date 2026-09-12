@@ -129,6 +129,14 @@ def sql_exec(query: str) -> None:
     sql(query)
 
 
+def to_int(value: int | str, *, what: str) -> int:
+    """Convert a DB/API string to an int, failing loudly (with context) if it can't."""
+    try:
+        return int(value)
+    except (TypeError, ValueError) as e:
+        raise RuntimeError(f"expected integer for {what!r}, got {value!r}") from e
+
+
 def q(s: str) -> str:
     """Single-quote a SQL string literal."""
     return "'" + s.replace("'", "''") + "'"
@@ -205,7 +213,10 @@ def api(c: Client, payload: dict, sid: str | None = None) -> dict:
     if sid:
         payload = {"sid": sid, **payload}
     _, body = c.request("POST", "/api/index.php", json_body=payload, expect=200)
-    j = json.loads(body)
+    try:
+        j = json.loads(body)
+    except json.JSONDecodeError as e:
+        raise RuntimeError(f"API {payload.get('op')!r} returned non-JSON: {body[:200]!r}") from e
     if j.get("status") != 0:
         raise RuntimeError(f"API {payload.get('op')!r} failed: {j}")
     return j.get("content") or {}
@@ -238,7 +249,7 @@ def main() -> int:
     print("logged in as admin (web)")
 
     # 1. category tree
-    admin_uid = int(sql("select id from ttrss_users where login = 'admin'")[0][0])
+    admin_uid = to_int(sql("select id from ttrss_users where login = 'admin'")[0][0], what="admin uid")
     cat_ids: dict[str, int] = {}
     for title, parent in CATS:
         parent_expr = "null" if parent is None else str(cat_ids["/" + parent])
@@ -246,10 +257,11 @@ def main() -> int:
             f"insert into ttrss_feed_categories (owner_uid, title, parent_cat) "
             f"values ({admin_uid}, {q(title)}, {parent_expr})"
         )
-        cat_ids["/" + title] = int(
+        cat_ids["/" + title] = to_int(
             sql(
                 f"select id from ttrss_feed_categories where owner_uid = {admin_uid} and title = {q(title)}"
-            )[0][0]
+            )[0][0],
+            what="category id",
         )
     # bare + nested path keys, as used by feeds.txt
     for title, parent in CATS:
@@ -271,7 +283,7 @@ def main() -> int:
     for row in sql(
         f"select caption, id from ttrss_labels2 where owner_uid = {admin_uid} order by id"
     ):
-        label_ids[row[0]] = int(row[1])
+        label_ids[row[0]] = to_int(row[1], what="label id")
     print("labels:", label_ids)
 
     # 3. per-user prefs (admin) — ENABLE_API_ACCESS must be set before the
@@ -331,7 +343,7 @@ def main() -> int:
         # API wraps _subscribe()'s array under the "status" key
         st = content.get("status") if isinstance(content, dict) else None
         if isinstance(st, dict) and st.get("code") in (0, 1):
-            fid = int(st.get("feed_id", 0))
+            fid = to_int(st.get("feed_id", 0), what="feed_id")
         else:
             print(f"  warning: subscribe {url} -> {content}", file=sys.stderr)
             fid = 0
@@ -346,10 +358,11 @@ def main() -> int:
             f"values ({admin_uid}, {q(title)}, {q(url)}, "
             f"{cat_ids.get('Broken', 0)}, 0, 0, '', '', false)"
         )
-        feed_ids[url] = int(
+        feed_ids[url] = to_int(
             sql(
                 f"select id from ttrss_feeds where owner_uid = {admin_uid} and feed_url = {q(url)}"
-            )[0][0]
+            )[0][0],
+            what="feed id",
         )
     print(
         f"feeds: {len(feed_ids)} total, "
@@ -374,18 +387,20 @@ def main() -> int:
         )
         last = "\n".join(out.splitlines()[-6:])
         print(last)
-    n_articles = int(sql("select count(*) from ttrss_entries")[0][0])
-    n_updated = int(
-        sql("select count(*) from ttrss_feeds where last_updated is not null")[0][0]
+    n_articles = to_int(sql("select count(*) from ttrss_entries")[0][0], what="article count")
+    n_updated = to_int(
+        sql("select count(*) from ttrss_feeds where last_updated is not null")[0][0],
+        what="updated feed count",
     )
-    n_errors = int(sql("select count(*) from ttrss_feeds where last_error <> ''")[0][0])
+    n_errors = to_int(sql("select count(*) from ttrss_feeds where last_error <> ''")[0][0], what="error feed count")
     print(
         f"entries: {n_articles}, feeds updated: {n_updated}, feeds with errors: {n_errors}"
     )
     if n_articles < 100:
         print("warning: fewer than 100 articles; check feed fetching", file=sys.stderr)
-    pending = int(
-        sql("select count(*) from ttrss_feeds where last_updated is null")[0][0]
+    pending = to_int(
+        sql("select count(*) from ttrss_feeds where last_updated is null")[0][0],
+        what="pending feed count",
     )
     if pending:
         print(f"warning: {pending} feeds still pending update", file=sys.stderr)
@@ -462,10 +477,11 @@ def main() -> int:
         "insert into ttrss_filters2 (owner_uid, title, enabled, order_id, match_any_rule, inverse) "
         f"values ({admin_uid}, 'Auto: security', true, 1, false, false) returning id"
     )
-    f1 = int(
+    f1 = to_int(
         sql(
             f"select id from ttrss_filters2 where owner_uid = {admin_uid} and title = 'Auto: security'"
-        )[0][0]
+        )[0][0],
+        what="filter id",
     )
     sql_exec(
         "insert into ttrss_filters2_rules (filter_id, reg_exp, filter_type, cat_id) "
@@ -484,10 +500,11 @@ def main() -> int:
         "insert into ttrss_filters2 (owner_uid, title, enabled, order_id, match_any_rule, inverse) "
         f"values ({admin_uid}, 'Score Ask HN', true, 2, false, false) returning id"
     )
-    f2 = int(
+    f2 = to_int(
         sql(
             f"select id from ttrss_filters2 where owner_uid = {admin_uid} and title = 'Score Ask HN'"
-        )[0][0]
+        )[0][0],
+        what="filter id",
     )
     sql_exec(
         "insert into ttrss_filters2_rules (filter_id, reg_exp, filter_type, feed_id) "
@@ -509,7 +526,7 @@ def main() -> int:
     for row in sql(
         f"select title, id from ttrss_settings_profiles where owner_uid = {admin_uid} order by id"
     ):
-        profile_ids[row[0]] = int(row[1])
+        profile_ids[row[0]] = to_int(row[1], what="profile id")
     sql_exec(
         "insert into ttrss_user_prefs2 (owner_uid, pref_name, profile, value) "
         f"values ({admin_uid}, 'USER_CSS_THEME', {profile_ids['Home']}, 'light'),"
@@ -570,7 +587,7 @@ def main() -> int:
             '--user-add "testuser:testpass:0" 2>&1',
         ]
     )
-    test_uid = int(sql("select id from ttrss_users where login = 'testuser'")[0][0])
+    test_uid = to_int(sql("select id from ttrss_users where login = 'testuser'")[0][0], what="testuser uid")
     sql_exec(
         "insert into ttrss_user_prefs2 (owner_uid, pref_name, value) values "
         f"({test_uid}, 'USER_CSS_THEME', 'compact_night'),"
@@ -595,7 +612,7 @@ def main() -> int:
             f'--user-add "{OTP_LOGIN}:{OTP_PASS}:0" 2>&1',
         ]
     )
-    otp_uid = int(sql(f"select id from ttrss_users where login = {q(OTP_LOGIN)}")[0][0])
+    otp_uid = to_int(sql(f"select id from ttrss_users where login = {q(OTP_LOGIN)}")[0][0], what="otpuser uid")
     sql_exec(
         "update ttrss_users set otp_enabled = true, otp_secret = "
         f"{q(OTP_SECRET)} where id = {otp_uid}"
@@ -609,7 +626,7 @@ def main() -> int:
         "update ttrss_users set last_login = '2026-01-01 12:00:00' "
         "where last_login is null"
     )
-    ro_uid = int(sql(f"select id from ttrss_users where login = {q(RO_LOGIN)}")[0][0])
+    ro_uid = to_int(sql(f"select id from ttrss_users where login = {q(RO_LOGIN)}")[0][0], what="readonly uid")
 
     # 12. sample articles for the scenario template
     # (numbering kept stable)
@@ -618,7 +635,7 @@ def main() -> int:
             f"select int_id from ttrss_user_entries where owner_uid = {admin_uid} "
             f"and feed_id = {feed_id} order by ref_id desc limit 1"
         )
-        return int(rows[0][0]) if rows else 0
+        return to_int(rows[0][0], what="article int_id") if rows else 0
 
     ids = {
         "base_url": BASE,

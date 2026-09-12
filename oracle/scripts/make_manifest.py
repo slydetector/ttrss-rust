@@ -15,6 +15,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
+def to_int(value: int | str, *, what: str) -> int:
+    """Convert a DB value to an int, failing loudly (with context) if it can't."""
+    try:
+        return int(value)
+    except (TypeError, ValueError) as e:
+        raise RuntimeError(f"expected integer for {what!r}, got {value!r}") from e
+
+
 def main() -> int:
     data_dir = Path(sys.argv[1])
     base = sys.argv[2]
@@ -37,13 +45,13 @@ def main() -> int:
     tables = [r[0] for r in rows(
         "select tablename from pg_tables where schemaname = 'public' order by 1")]
     for t in tables:
-        counts[t] = int(rows(f"select count(*) from {t}")[0][0])
+        counts[t] = to_int(rows(f"select count(*) from {t}")[0][0], what=f"row count of {t}")
 
     feeds = rows("""
         select feed_url, title,
                last_updated is null, last_error <> '',
-               (select count(*) from ttrss_user_entries ue
-                where ue.feed_id = f.id) as articles
+               (select count(*) from ttrss_user_entries e
+                where e.feed_id = f.id) as articles
         from ttrss_feeds f order by f.id""")
 
     manifest = {
@@ -53,7 +61,7 @@ def main() -> int:
         "table_counts": counts,
         "feeds": [
             {"url": f[0], "title": f[1], "not_updated": f[2] == "t",
-             "has_error": f[3] == "t", "articles": int(f[4])}
+             "has_error": f[3] == "t", "articles": to_int(f[4], what=f"articles for {f[0]}")}
             for f in feeds
         ],
         "totals": {
@@ -69,7 +77,7 @@ def main() -> int:
             "error_log_entries": counts["ttrss_error_log"],
         },
         "users": [
-            {"login": r[0], "uid": int(r[1]), "access_level": int(r[2])}
+            {"login": r[0], "uid": to_int(r[1], what=f"uid of {r[0]}"), "access_level": to_int(r[2], what=f"access_level of {r[0]}")}
             for r in rows(
                 "select login, id, access_level from ttrss_users order by id")
         ],
