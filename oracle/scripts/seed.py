@@ -15,6 +15,7 @@ Run against a FRESH stack (scripts/up.sh, no prior seeding). The script:
 The updater daemon should be stopped before recording corpus runs (the DB is
 then frozen); seeding itself is fine with the daemon running.
 """
+from __future__ import annotations
 
 import hashlib
 import json
