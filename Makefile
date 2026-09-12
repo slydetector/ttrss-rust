@@ -1,4 +1,4 @@
-# tt-rust — Makefile for the oracle + record/replay harness workflow.
+# ttrss — Makefile for the oracle + record/replay harness workflow.
 #
 # This is the primary interface. `make` (or `make help`) lists every target;
 # the targets launch the `oracle/scripts/` helpers and set the canonical env
@@ -14,7 +14,7 @@ HARNESS_BIN := ./target/debug/tt-rust-harness
 # canonical server runs in release; set PROFILE=debug for fast iteration.
 PROFILE     ?= release
 CARGO_PROF  := $(if $(filter release,$(PROFILE)),--release,)
-SERVER_BIN  := ./target/$(PROFILE)/tt-rust
+SERVER_BIN  := ./target/$(PROFILE)/ttrss
 
 # Canonical Rust server values (the oracle web is on 8280; the Rust server on
 # 8281 so the diff can compare them as the same app on different ports).
@@ -33,7 +33,7 @@ ENC_KEY := $(shell grep -E '^TTRSS_ENCRYPTION_KEY=' oracle/.env 2>/dev/null | cu
 
 .PHONY: help
 help: ## (default) list targets
-	@echo "tt-rust — oracle + record/replay harness workflow"
+	@echo "ttrss — oracle + record/replay harness workflow"
 	@echo "Run a target with:  make <target>   (extra opts via ARGS=...)"
 	@echo ""
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -76,11 +76,11 @@ oracle-check: ## verify the golden dataset matches the current seed recipe
 # --- Rust server -------------------------------------------------------------
 .PHONY: build
 build: ## build the debug Rust server + harness (for tests / the differential harness)
-	cargo build -p ttrss-server --bin tt-rust -p tt-rust-harness
+	cargo build -p ttrss --bin ttrss -p tt-rust-harness
 
 .PHONY: build-server
 build-server: ## build the server in $(PROFILE) (used by `run`)
-	cargo build $(CARGO_PROF) -p ttrss-server --bin tt-rust
+	cargo build $(CARGO_PROF) -p ttrss --bin ttrss
 
 .PHONY: run
 run: build-server ## run the (release by default) Rust server (canonical env, port 8281)

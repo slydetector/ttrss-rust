@@ -109,7 +109,7 @@ python3 oracle/scripts/check_sync.py
 # --- build ---
 if [ "$DO_BUILD" = 1 ]; then
     echo "building server + harness ..."
-    cargo build -q -p ttrss-server --bin tt-rust -p tt-rust-harness
+    cargo build -q -p ttrss --bin ttrss -p tt-rust-harness
 fi
 
 # --- the oracle DB must be reachable ---
@@ -141,7 +141,7 @@ export TTRSS_RUST_DOCROOT="$PWD/tt-rss"
 export TTRSS_RUST_FEED_ICONS_DIR="$PWD/oracle/data/feed-icons"
 export RUST_BACKTRACE="${RUST_BACKTRACE:-1}"
 
-./target/debug/tt-rust >"$SERVER_LOG" 2>&1 &
+./target/debug/ttrss >"$SERVER_LOG" 2>&1 &
 SERVER_PID=$!
 cleanup() {
     if [ "$KEEP" = 0 ]; then kill "$SERVER_PID" 2>/dev/null || true; fi

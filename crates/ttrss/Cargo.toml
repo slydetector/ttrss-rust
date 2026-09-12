@@ -1,0 +1,51 @@
+[package]
+name = "ttrss"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "ttrss"
+path = "src/main.rs"
+
+[dev-dependencies]
+ctor.workspace = true
+ttrss-testing = { path = "../testing" }
+
+[dependencies]
+anyhow.workspace = true
+axum.workspace = true
+tokio.workspace = true
+base64.workspace = true
+flate2.workspace = true
+chrono.workspace = true
+chrono-tz.workspace = true
+md5.workspace = true
+serde_json.workspace = true
+serde_urlencoded.workspace = true
+mime_guess.workspace = true
+rand.workspace = true
+serde.workspace = true
+sqlx.workspace = true
+url.workspace = true
+idna.workspace = true
+regex.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+chacha20poly1305.workspace = true
+aead = "0.5"
+hex.workspace = true
+hmac.workspace = true
+iana-time-zone.workspace = true
+roxmltree.workspace = true
+sha2.workspace = true
+kuchikiki.workspace = true
+html5ever.workspace = true
+sha1.workspace = true
+quick-xml.workspace = true
+minijinja.workspace = true
+qrcode.workspace = true
+image.workspace = true
+base32.workspace = true
+png.workspace = true
+urlencoding.workspace = true

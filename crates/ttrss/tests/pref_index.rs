@@ -1,0 +1,181 @@
+//! DB tests for the `Pref_Prefs::index` handler — the settings/preferences tab
+//! (the Dojo `AccordionContainer` the preferences tab injects). Rust-only: the
+//! frozen PHP suite has no `Pref_Prefs` configuration tests, so these exercise
+//! the ported handler on the versioned `schema` + `baseline` fixtures (owner 1
+//! = the session uid).
+//!
+//! The fidelity bar (AGENTS.md "Frontend HTML forms") is structural: the Dojo
+//! widgets and the visible labels / section headers / control types must be
+//! present; whitespace is not asserted.
+mod common;
+
+use ttrss::core::config::Config;
+use ttrss::core::db::Db;
+use ttrss::core::phpser::Value as PValue;
+use ttrss::core::session::Session;
+use ttrss::session::Sess;
+use ttrss::AppState;
+
+/// A test-only config (the handlers only need `db`).
+fn test_config() -> Config {
+    Config {
+        db_host: "127.0.0.1".into(),
+        db_port: 5432,
+        db_user: "postgres".into(),
+        db_pass: "postgres".into(),
+        db_name: "postgres".into(),
+        db_sslmode: "disable".into(),
+        self_url: "http://127.0.0.1:8280/tt-rss/".into(),
+        encryption_key: None,
+        single_user_mode: false,
+        forbid_password_changes: false,
+        disable_login_form: false,
+        plugins: "auth_internal".into(),
+        listen: "127.0.0.1:8281".parse().unwrap(),
+        feed_icon_dir: std::path::PathBuf::from("no-such-test-icon-dir"),
+        max_favicon_file_size: 1024 * 1024,
+        force_article_purge: 0,
+        docroot: std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join("tt-rss"),
+    }
+}
+
+/// Fresh fixtures + a session carrying `uid = 1` and an admin access level.
+async fn setup(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) -> (AppState, Sess) {
+    let db: Db = common::make_db(pool, options).await.expect("test db");
+    let state = AppState {
+        config: test_config(),
+        db,
+    };
+    let mut data = Session::new();
+    data.set("uid", PValue::Int(1));
+    data.set("access_level", PValue::Int(10));
+    let sess = Sess::new("test-sid".to_string());
+    sess.replace("test-sid".to_string(), data);
+    (state, sess)
+}
+
+/// Strip all whitespace so structural comparisons are whitespace-agnostic.
+fn normalize(s: &str) -> String {
+    s.chars().filter(|c| !c.is_whitespace()).collect()
+}
+
+#[sqlx::test(fixtures(
+    "../../testing/fixtures/schema.sql",
+    "../../testing/fixtures/baseline.sql"
+))]
+async fn test_index_structure(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
+    let (state, sess) = setup(pool, options).await;
+
+    let html = ttrss::pref_ui::index(&state, &sess)
+        .await
+        .expect("render");
+    let n = normalize(&html);
+
+    // The accordion + the three panes (titles + the lazy loaders).
+    assert!(n.contains("dijit.layout.AccordionContainer"));
+    assert!(n.contains("Personaldata/Authentication"));
+    assert!(n.contains("Preferences"));
+    assert!(n.contains("Plugins"));
+    // The auth pane lazy-loads `index_auth` and shows a loading span.
+    assert!(n.contains("method:'index_auth'"));
+    assert!(n.contains("Loading,pleasewait..."));
+
+    // The Preferences pane form + the save mechanism.
+    assert!(n.contains("changeSettingsForm"));
+    assert!(n.contains("name=\"method\"value=\"saveconfig\""));
+
+    // All six sections (in order) are present.
+    for section in [
+        "General",
+        "Feeds",
+        "Articles",
+        "Digest",
+        "Advanced",
+        "Debugging",
+    ] {
+        assert!(
+            n.contains(&format!("<h2>{section}</h2>")),
+            "missing section {section}"
+        );
+    }
+
+    // Representative field labels (the `short_desc`s) are present.
+    for label in [
+        "Language",
+        "Timezone",
+        "Theme",
+        "EnableAPI",
+        "Defaultupdateinterval",
+        "Purgearticlesolderthan",
+        "Enablecategories",
+        "Enabledigest",
+        "Blacklistedtags",
+        "ShowarticleandfeedIDs",
+    ] {
+        assert!(n.contains(label), "missing label {label}");
+    }
+
+    // The right control types are emitted for representative prefs.
+    assert!(n.contains("dijit.form.FilteringSelect")); // USER_TIMEZONE
+    assert!(n.contains("dijit.form.SimpleTextarea")); // BLACKLISTED_TAGS
+    assert!(n.contains("dijit.form.NumberSpinner")); // FRESH_ARTICLE_MAX_AGE
+    assert!(n.contains("dijit.form.CheckBox")); // booleans
+    assert!(n.contains("dijit.form.ValidationTextBox")); // DIGEST_PREFERRED_TIME
+
+    // The `boolean_prefs` hidden tag lists the boolean prefs.
+    assert!(n.contains("boolean_prefs"));
+
+    // The Plugins pane (a form whose list loads lazily) + the admin buttons
+    // (the session access level is admin).
+    assert!(n.contains("changePluginsForm"));
+    assert!(n.contains("prefs-plugin-list"));
+    assert!(n.contains("Checkforupdates"));
+    assert!(n.contains("Installplugin"));
+}
+
+#[sqlx::test(fixtures(
+    "../../testing/fixtures/schema.sql",
+    "../../testing/fixtures/baseline.sql"
+))]
+async fn test_index_profile_hides_blacklisted(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
+    let (state, sess) = setup(pool, options).await;
+    let db = state.db.pool();
+
+    // Create + activate a named profile (the session `profile` key is set).
+    let profile_id: i32 = sqlx::query_scalar(
+        "INSERT INTO ttrss_settings_profiles (title, owner_uid) VALUES ('Work', 1) RETURNING id",
+    )
+    .fetch_one(db)
+    .await
+    .expect("insert profile");
+    {
+        let mut data = sess.data();
+        data.set("profile", PValue::Int(profile_id as i64));
+        sess.replace("test-sid".to_string(), data);
+    }
+
+    let html = ttrss::pref_ui::index(&state, &sess)
+        .await
+        .expect("render");
+    let n = normalize(&html);
+
+    // The profile notice is shown.
+    assert!(n.contains("Somepreferencesareonlyavailableindefaultprofile."));
+    // A profile-blacklisted pref (USER_TIMEZONE) is hidden in a named profile.
+    assert!(!n.contains("CB_USER_TIMEZONE"));
+    // Block separators are omitted in a non-default profile (no `<hr/>`).
+    assert!(!n.contains("<hr/>"));
+    // A non-blacklisted pref is still shown.
+    assert!(n.contains("CB_COMBINED_DISPLAY_MODE"));
+}
