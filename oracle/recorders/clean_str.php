@@ -1,6 +1,6 @@
 <?php
 // Recorder for the `clean`/`clean_str` differential test fixture
-// (crates/server/tests/fixtures/clean_str.json).
+// (crates/ttrss/tests/fixtures/clean_str.json).
 //
 // Drives the real `clean()` (tt-rss/include/functions.php) —
 // `trim(strip_tags($v))` for strings — over the fixture's "in" battery and

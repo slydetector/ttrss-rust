@@ -46,6 +46,6 @@ Media | https://changelog.com/podcast/feed
 Media | https://lexfridman.com/feed/podcast/
 Media | https://talkpython.fm/rss
 
-Broken | https://nonexistent-tt-rust-oracle-8280.example.com/feed.xml
+Broken | https://nonexistent-ttrss-oracle-8280.example.com/feed.xml
 Broken | https://arstechnica.com/no-such-feed-path-404
 Broken | https://example.com/

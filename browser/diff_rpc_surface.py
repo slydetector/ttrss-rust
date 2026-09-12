@@ -4,7 +4,7 @@ doesn't handle, without clicking every path.
 
 The "app surface" is the frozen frontend (`tt-rss/js/*.js` call literals + the
 `hidden_tag` form fields in `tt-rss/**/*.php`). The "backend surface" is parsed
-live from the Rust dispatch (`crates/server/src/rpc.rs`) so it stays in sync
+live from the Rust dispatch (`crates/ttrss/src/rpc.rs`) so it stays in sync
 with the port. A gap means the SPA would receive an unknown-method error for
 that call.
 
@@ -116,7 +116,7 @@ def main():
     args = ap.parse_args()
     root = os.path.abspath(args.root)
 
-    src = os.path.join(root, "crates/server/src/rpc.rs")
+    src = os.path.join(root, "crates/ttrss/src/rpc.rs")
     if not os.path.exists(src):
         sys.exit(f"backend source not found: {src}")
     arms, special = parse_backend_arms(src)

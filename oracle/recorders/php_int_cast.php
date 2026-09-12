@@ -1,6 +1,6 @@
 <?php
 // Recorder for the `php_int_cast` differential test fixture
-// (crates/server/tests/fixtures/php_int_cast.json).
+// (crates/ttrss/tests/fixtures/php_int_cast.json).
 //
 // Records PHP's `(int)` cast — the leading-integer-prefix, whitespace-trimming
 // truncation — over the fixture's "in" battery and writes the "out" fields

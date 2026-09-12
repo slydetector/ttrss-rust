@@ -1,4 +1,4 @@
-# Research Report: Best Practices for Large Cross-Language Ports + tt-rust Methodology
+# Research Report: Best Practices for Large Cross-Language Ports + ttrss Methodology
 
 Purpose: inform the tt-rss → Rust backend port process. Covers language-agnostic
 practices for large rewrites, then applies them to this project: oracle strategy,
@@ -31,7 +31,7 @@ revised milestone plan, CLI/daemon recommendations, and performance strategy.
   behavior**, not writing code<sup>6</sup>. Budget for discovery, not just
   translation.
 
-**Implication for tt-rust:** no phase may exist that "only makes sense in the
+**Implication for ttrss:** no phase may exist that "only makes sense in the
 future." Every milestone must run end-to-end (serve, log in, show data). The
 frontend stays frozen (it is the spec and the UI); the server is replaced in
 slices behind the same HTTP surface.
@@ -65,7 +65,7 @@ is the most on-point source found:
     specs; consider **mutation testing** for extra confidence.
   - Databases/reports are "another interface" and need their own parity tests.
 
-**Implication for tt-rust:** the PHP codebase + a running PHP instance *is* the
+**Implication for ttrss:** the PHP codebase + a running PHP instance *is* the
 spec. We need (a) a recorded executable contract for every HTTP surface
 (`backend.php`, `api/`, `public.php`, shells), (b) instrumentation of the oracle
 to see which ops the UI actually exercises, and (c) a scope decision per feature
@@ -91,7 +91,7 @@ to see which ops the UI actually exercises, and (c) a scope decision per feature
   treated as equivalent and the new one is regression-free"<sup>11</sup><sup>12</sup>.
   Diffy is explicitly designed to tolerate/normalize "noise" differences.
 
-**Implication for tt-rust:** build the golden-master harness *first* (before
+**Implication for ttrss:** build the golden-master harness *first* (before
 porting logic), driven by a dockerized PHP oracle: (1) a **populated reference
 DB** (pg_dump) as the data fixture, (2) a **request corpus** (scripted browser
 session + API calls) with recorded responses as fixtures, (3) a **diff tool**
@@ -146,7 +146,7 @@ into safe pieces:
 
 ---
 
-## Part 2 — Applied to tt-rust
+## Part 2 — Applied to ttrss
 
 ### 2.1 Decisions locked in (from user answers)
 
@@ -159,7 +159,7 @@ into safe pieces:
 | 5 | CLI/daemon: keep the existing surface unless clearly better — any changes must be proposed *before* implementation (see §2.5). |
 | 6 | MVP-first with demoable end-to-end checkpoints; confidence marker = **web UI comes up in read-only mode on real data**. |
 | 7 | Oracle: dockerized live PHP instance (researched below; the docker setup lives in the main repo's `.docker/` + published images, not a separate repo). |
-| 8 | Project name: **tt-rust**. |
+| 8 | Project name: **ttrss**. |
 | 9 | Performance goal: Rust must be *faster* than PHP-FPM (no hard targets). |
 
 ### 2.2 The oracle (dockerized PHP tt-rss)
@@ -190,7 +190,7 @@ Research findings (sources: tt-rss Installation Guide<sup>16</sup>, repo
 
 **Oracle plan (milestone M0):**
 
-1. `oracle/` dir in tt-rust: pinned `docker-compose.yml` + `.env` mirroring the
+1. `oracle/` dir in ttrss: pinned `docker-compose.yml` + `.env` mirroring the
    repo's, images pinned to the checkout's `sha-` tag (fallback: build local
    images from `.docker/`).
 2. Bring up: db + app + updater + nginx. Verify `healthcheck` and login.
@@ -229,12 +229,12 @@ updated to this ladder.)
 | M | Milestone | Demo / exit criteria |
 |---|---|---|
 | **M0** | Oracle + harness | Dockerized PHP oracle up with populated golden DB; request-corpus recorder; diff tool with normalizers; CI runs "record vs replay" against a *stub* Rust server to prove the harness works |
-| **M1** | Walking skeleton | `tt-rust serve`: serves all static frontend assets + login page; real login (`auth_internal`, SSHA-512 verify) against golden DB; SPA shell renders in a real browser (read-only, empty state OK); sessions in DB (encrypted) |
+| **M1** | Walking skeleton | `ttrss serve`: serves all static frontend assets + login page; real login (`auth_internal`, SSHA-512 verify) against golden DB; SPA shell renders in a real browser (read-only, empty state OK); sessions in DB (encrypted) |
 | **M2** | **Read-only UI on real data** (the confidence marker) | Feed tree + categories + counters + headlines + article content + search + labels all correct on the golden dataset; `backend.php` read ops + `api/index.php` read ops (level 23) pass the diff harness; Atom/JSON syndication + feed icons + ETag shells |
 | **M3** | Mutations I: article state | mark/unread/publish/star, catchup (feed/cat/all), notes, scores, labels assign/remove, tags; diff harness asserts both *responses* and *resulting DB state* vs PHP |
 | **M4** | Mutations II: configuration | prefs (toggle/set, profiles), feed management (subscribe/edit/remove, categories, icons, ordering, OPML import/export), filter CRUD + execution on update, labels CRUD; access-key/syndication management |
 | **M5** | External API completeness + admin | Full level-23 API incl. `updateFeed`/`subscribeToFeed`/`shareToPublished`; `Pref_Users`, `Pref_System` (log, test email), password recovery (forgotpass), OTP/QR |
-| **M6** | The engine: updates | `tt-rust update` CLI + daemon (tokio workers): fetch/parse/hash/dedup/filters/enclosures/favicons, counter cache maintenance, failed-feed disabling, scheduler/cron housekeeping, digest emails; run the updater on the golden dataset and diff resulting DB state vs PHP updater run |
+| **M6** | The engine: updates | `ttrss update` CLI + daemon (tokio workers): fetch/parse/hash/dedup/filters/enclosures/favicons, counter cache maintenance, failed-feed disabling, scheduler/cron housekeeping, digest emails; run the updater on the golden dataset and diff resulting DB state vs PHP updater run |
 | **M7** | Plugin system + first-party plugins | Rust plugin API; port auth_internal, auth_remote, nsfw, note, af_* (incl. psql_trgm), share, bookmarklets, cache_starred_images, hotkeys; plugin storage + per-user enablement portable |
 | **M8** | CLI/daemon parity + polish | All `update.php` subcommands (users, OPML, gen-*, debug-feed, cleanup-tags…), lockfile semantics, `--update-schema` (reuse exact `.sql` migrations) |
 | **M9** | Hardening & performance | Fuzz (sanitizer/parser/URL), security matrix, perf vs PHP baseline on golden dataset (target: faster), Docker image + docs + cutover runbook |
@@ -288,10 +288,10 @@ Per decision #5, here is the thinking, *before* acting:
   failure classes).
 
 **Proposed (genuine improvements, flagged for your approval):**
-1. **One binary `tt-rust` with subcommands** instead of three entry scripts:
-   `tt-rust serve` (web), `tt-rust update …` (CLI ops, accepts legacy
-   `--opt:value` flags), `tt-rust daemon …` (long-running updater; also usable
-   as `tt-rust update --daemon` for exact PHP parity). Rationale: one artifact
+1. **One binary `ttrss` with subcommands** instead of three entry scripts:
+   `ttrss serve` (web), `ttrss update …` (CLI ops, accepts legacy
+   `--opt:value` flags), `ttrss daemon …` (long-running updater; also usable
+   as `ttrss update --daemon` for exact PHP parity). Rationale: one artifact
    to ship, shared core; flag surface unchanged.
 2. **No forking.** Workers are tokio tasks in one process (PHP needed forks for
    process isolation + `pcntl`; Rust gets concurrency natively). Lockfiles are

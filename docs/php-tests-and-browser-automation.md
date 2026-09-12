@@ -1,4 +1,4 @@
-# PHP Test Suite Sufficiency + Browser Automation for the tt-rust Port
+# PHP Test Suite Sufficiency + Browser Automation for the ttrss Port
 
 **Date:** 2026-09-07
 **Status:** research / planning (no code changes)
@@ -299,7 +299,7 @@ the comparison removes the whole class.
    trivial.
 6. **`reducedMotion: 'reduce'` + fixed viewport** in the config — standard determinism settings.
 
-### 3.4 Proposed design for tt-rust (the lightweight version)
+### 3.4 Proposed design for ttrss (the lightweight version)
 
 A new top-level `browser/` directory (kept *out* of the Rust workspace — different toolchain,
 different layer):

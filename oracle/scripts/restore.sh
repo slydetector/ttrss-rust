@@ -10,7 +10,7 @@ cd "$(dirname "$0")/../.." # repo root
 DATA=oracle/data
 
 python3 oracle/scripts/check_sync.py
-PROJ=tt-rust-oracle
+PROJ=ttrss-oracle
 C="docker compose -f oracle/compose.yaml"
 
 $C down --remove-orphans

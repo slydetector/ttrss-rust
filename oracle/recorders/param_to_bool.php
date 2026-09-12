@@ -1,6 +1,6 @@
 <?php
 // Recorder for the `param_to_bool` differential test fixture
-// (crates/server/tests/fixtures/param_to_bool.json).
+// (crates/ttrss/tests/fixtures/param_to_bool.json).
 //
 // Drives the real `Handler::_param_to_bool` (tt-rss/classes/Handler.php) —
 // `clean($p) && ($p !== "f" && $p !== "false")` — over the fixture's "in"

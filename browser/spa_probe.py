@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""SPA probe — drive the tt-rust web SPA in a real browser against the seeded
+"""SPA probe — drive the ttrss web SPA in a real browser against the seeded
 oracle server, capturing everything a headless curl cannot see:
 
   * console messages (all levels)          -> out/console.log
@@ -161,7 +161,7 @@ class Probe:
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Drive the tt-rust SPA in a real browser.")
+    ap = argparse.ArgumentParser(description="Drive the ttrss SPA in a real browser.")
     ap.add_argument(
         "--base", default=DEFAULT_BASE, help="app base URL (normalized to end with /)"
     )

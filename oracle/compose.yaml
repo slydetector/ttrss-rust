@@ -1,4 +1,4 @@
-# tt-rust oracle: live PHP tt-rss instance used as the reference implementation.
+# ttrss oracle: live PHP tt-rss instance used as the reference implementation.
 #
 # Services:
 #   db      - PostgreSQL 15 (data volume kept across up/down)
@@ -11,7 +11,7 @@
 #
 # Usage: from oracle/ run `docker compose up -d` (or scripts/up.sh).
 
-name: tt-rust-oracle
+name: ttrss-oracle
 
 x-app-env: &app-env
   TTRSS_DB_HOST: db

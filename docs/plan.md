@@ -1,4 +1,4 @@
-# tt-rss PHP → Rust Backend: Migration Plan (project: **tt-rust**)
+# tt-rss PHP → Rust Backend: Migration Plan (project: **ttrss**)
 
 Delivery is tracked as a milestone ladder (**M0–M9**, §3). §3a keeps the original
 per-subsystem phase notes (P0–P8) as the detailed work-item reference. Locked
@@ -101,7 +101,7 @@ tt-rss-rs/
 └── tests/                      # golden-file + differential test harness
 ```
 
-Binary: one **`tt-rust`** binary with subcommands `serve` (web server), `update` (CLI ops), `daemon` (long-running updater); `update --daemon` preserved for exact PHP parity. Legacy `--opt:value` flag surface kept (see RESEARCH-REPORT §2.5 for the full keep/propose list — **to be confirmed before implementation**).
+Binary: one **`ttrss`** binary with subcommands `serve` (web server), `update` (CLI ops), `daemon` (long-running updater); `update --daemon` preserved for exact PHP parity. Legacy `--opt:value` flag surface kept (see RESEARCH-REPORT §2.5 for the full keep/propose list — **to be confirmed before implementation**).
 
 ### 2.2 Crate choices (vetted, mainstream — no custom infrastructure)
 
@@ -142,12 +142,12 @@ Restructured per `research-report.md` (strangler-fig / vertical-slice / golden-m
 | M | Milestone | Demo / exit criteria |
 | --- | --- | --- |
 | **M0** | Oracle + harness | Dockerized PHP oracle (pinned `sha-` image) up with populated **golden DB** (`pg_dump` fixture); request-corpus recorder; structural JSON/HTML/Atom diff tool with non-determinism normalizers; harness proven against a stub Rust server; PHP perf baseline recorded |
-| **M1** | Walking skeleton | `tt-rust serve` serves all static assets + login page; real login (`auth_internal`, SSHA-512) against golden DB; SPA shell renders in a browser; DB sessions (encrypted) read/write |
+| **M1** | Walking skeleton | `ttrss serve` serves all static assets + login page; real login (`auth_internal`, SSHA-512) against golden DB; SPA shell renders in a browser; DB sessions (encrypted) read/write |
 | **M2** | **Read-only UI on real data** (confidence marker) | Feed tree + counters + headlines + article content + search + labels correct on golden dataset; `backend.php` read ops + external API read ops (level 23) pass diff harness; Atom/JSON syndication, feed icons, ETag shells |
 | **M3** | Mutations I: article state | mark/publish/star/unread, catchup (feed/cat/all), notes, scores, labels, tags; harness checks responses **and** resulting DB state vs PHP |
 | **M4** | Mutations II: configuration | prefs/profiles, feed CRUD (create/subscribe → M6) + categories + icons + ordering + OPML, filter CRUD + execution, label CRUD, access keys |
 | **M5** | External API completeness + admin | Full level-23 API; user admin (`Pref_Users`), system (log, test email), password recovery (OTP/QR shipped in M4) |
-| **M6** | The engine: updates | Fetch/parse/hash/dedup/filters/enclosures/favicons, counter-cache maintenance, failed-feed disabling, cron housekeeping, digest emails; **`Feeds::add` (feed subscribe, moved from M4)**. **Hosted in the server's tokio runtime (single process, not a separate daemon); `tt-rust update` CLI retained for one-shot/standalone** — see `docs/unified-architecture.md`. Verified via ported PHP piece tests + a batch smoke test (golden update-run diff dropped). |
+| **M6** | The engine: updates | Fetch/parse/hash/dedup/filters/enclosures/favicons, counter-cache maintenance, failed-feed disabling, cron housekeeping, digest emails; **`Feeds::add` (feed subscribe, moved from M4)**. **Hosted in the server's tokio runtime (single process, not a separate daemon); `ttrss update` CLI retained for one-shot/standalone** — see `docs/unified-architecture.md`. Verified via ported PHP piece tests + a batch smoke test (golden update-run diff dropped). |
 | **M7** | Plugin system + first-party plugins | Rust plugin API; port auth_internal/remote, nsfw, note, af_* (incl. psql_trgm), share, bookmarklets, cache_starred_images, hotkeys; plugin storage + per-user enablement portable; plugin installer deferred (listing only) |
 | **M8** | CLI/daemon parity + migrations | All `update.php` subcommands, lockfile semantics, `--update-schema` reusing exact `.sql` files, exit codes |
 | **M9** | Hardening & performance | Fuzz (sanitizer/parser/URL), security matrix, perf vs PHP baseline (target: faster), Docker images, docs, cutover runbook |
@@ -219,7 +219,7 @@ Key PHP behaviors discovered (the Rust port must match these):
 
 ### M1 status: COMPLETE (2026-09-04)
 
-Goal: `tt-rust serve` boots, serves static + login, and can log in against the
+Goal: `ttrss serve` boots, serves static + login, and can log in against the
 golden DB with encrypted DB sessions; SPA shell renders. Progress is
 demoable and oracle-diff-verified per surface.
 
@@ -245,16 +245,16 @@ Done:
   / hex / timestamps), sorts attributes, keeps `<script>`/`<style>` as raw text
   (compared faithfully, not regex-mangled). Diff is now **port-agnostic** (compares
   request path, not full URL) so oracle (8280) vs Rust (8281) diff cleanly.
-- **`ttrss-server` (axum, binary `tt-rust serve`):** base-path nesting, `/healthz`,
+- **`ttrss-server` (axum, binary `ttrss serve`):** base-path nesting, `/healthz`,
   login-page renderer (`templates/login.html.tpl`: scripts/theme cache-bust from
   real mtimes, PHP-style urlencode), and a **custom static handler** — full
   header control, byte-for-byte bodies, path-traversal protection.
 - **Static header parity:** Content-Type from the **canonical nginx `mime.types`**
   (107 ext; e.g. `application/javascript`, not `mime_guess`'s `text/javascript`),
   `Cache-Control: no-cache`, no `Accept-Ranges` (nginx omits it on the gzip path
-  real clients hit). `crates/server/src/mime.rs` holds the nginx table.
+  real clients hit). `crates/ttrss/src/mime.rs` holds the nginx table.
 - **Login flow (verified 4/4 against the oracle through the comparator):**
-  `POST /public.php?op=login` — `crates/server/src/auth.rs` ports the
+  `POST /public.php?op=login` — `crates/ttrss/src/auth.rs` ports the
   `auth_internal` web path: SSHA-512 verify + TOTP (ASCII-byte key, no window);
   no-otp → 200 OTP challenge page (`templates/otp_challenge.html.tpl`),
   valid-otp → 302 + `Set-Cookie: ttrss_sid=<32hex>; path=/` + `Location` (validated
@@ -262,7 +262,7 @@ Done:
   must-revalidate`, `Pragma: no-cache`, fixed 1981 `Expires`). Non-OTP users get
   `last_auth_attempt` throttling (`AUTH_MIN_INTERVAL`). Verified: `healthcheck`,
   `login_page`, `web_login` (200 challenge), `web_login_otp` (302) all diff clean.
-- **DB-backed encrypted session middleware** (`crates/server/src/session.rs`):
+- **DB-backed encrypted session middleware** (`crates/ttrss/src/session.rs`):
   reads `ttrss_sid` cookie, loads + decrypts the session (via core `from_stored`),
   exposes a mutable `Sess` handle to handlers, persists back only if dirty
   (core `to_stored`). Anonymous requests never touch the DB. Session creation on
@@ -290,7 +290,7 @@ Done:
   `shell` (200 SPA shell), `shell_conditional` (304). Whole workspace:
   **49 tests passing, clippy clean**.
 
-M1 is done: `tt-rust serve` boots, serves static byte-for-byte, renders the
+M1 is done: `ttrss serve` boots, serves static byte-for-byte, renders the
 login page, logs in (SSHA-512 + TOTP) against the golden DB, maintains encrypted
 DB sessions, and renders the authenticated SPA shell. Next (M2) makes the SPA
 actually load data read-only: the `backend.php` RPC surface (`getfeedtree`,
@@ -338,7 +338,7 @@ oracle. **`Feeds::view` (feed + category), `Feeds::search`, `RPC::getAllCounters
 `Pref_Feeds::getfeedtree`, `RPC::sanityCheck`, and `RPC::getRuntimeInfo` all diff
 clean** on the golden dataset. Done so far:
 
-- **`backend.php` dispatcher** (`crates/server/src/rpc.rs`): `op`/`method`
+- **`backend.php` dispatcher** (`crates/ttrss/src/rpc.rs`): `op`/`method`
   (`subop` fallback) routing, public shim (`rss`/`getProfiles`/`share` → 302
   `public.php`), light session validation (E_UNAUTHORIZED), CSRF gate
   (`validate_csrf`), `Handler`/`Errors::to_json` envelope, `E_UNKNOWN_METHOD`
@@ -352,7 +352,7 @@ clean** on the golden dataset. Done so far:
   `""`), `plugins`, `hotkeys` (61-entry static map + derived prefixes), 4
   `icon_*` base64 blobs, labels) and `_make_runtime_info`. `_make_runtime_info`
   - `init-params` `labels` share `Labels::get_all`.
-- **`Prefs` resolver** (`crates/server/src/prefs.rs`): the `ttrss_prefs` DB
+- **`Prefs` resolver** (`crates/ttrss/src/prefs.rs`): the `ttrss_prefs` DB
   registry is empty in this fork — defaults live in PHP `Prefs::_DEFAULTS`
   (reproduced) with the profile blacklist + `cast_to` (bool/int/str) +
   `ttrss_user_prefs2` overrides.
@@ -368,7 +368,7 @@ clean** on the golden dataset. Done so far:
   (`daemon_is_running`/`daemon_stamp`/`daemon_stamp_ok` — present when an updater
   runs, absent on the daemon-less Rust test server) and `php_platform`/`php_version`
   (runtime environment facts, unused by the frontend) alongside `recent_log_events`.
-- **`Pref_Feeds::getfeedtree`** (`crates/server/src/feeds.rs`) — the feed list
+- **`Pref_Feeds::getfeedtree`** (`crates/ttrss/src/feeds.rs`) — the feed list
   the SPA renders in the left panel (mode 2, a CSRF-ignored GET). Ports
   `_makefeedtree`: the special (`CAT:-1`) + labels (`CAT:-2`) categories with
   their real unread counts (`Feeds::_get_counters` — `FEED_FRESH` is the one
@@ -401,7 +401,7 @@ clean** on the golden dataset. Done so far:
   Remaining mismatches are the unimplemented M2+ surface (other RPC methods,
   headlines `Feeds::view`, article/labels/filters/users/prefs, external API,
   syndication, icons).
-- **`Feeds::view` / `Feeds::search` (headlines)** (`crates/server/src/headlines.rs`):
+- **`Feeds::view` / `Feeds::search` (headlines)** (`crates/ttrss/src/headlines.rs`):
   the main content area. Ported `Feeds::view` (feed + category + virtual feeds),
   the full `_get_headlines` dynamic-SQL branch logic (starred/published/fresh/all/
   recently-read/archived/error/label feeds + search), the `yyiw` date-grouping
@@ -410,17 +410,17 @@ clean** on the golden dataset. Done so far:
   order). `content_preview` is byte-identical (70/70 articles); `content`/`buttons`
   compare structurally (DOM). Article time rendering uses the new `time` module.
   `content_preview`/`feed_bg_color`/enclosures/labels all verified against the oracle.
-- **`RPC::getAllCounters`** (`crates/server/src/counters.rs`): ports `Counters::get_all`
+- **`RPC::getAllCounters`** (`crates/ttrss/src/counters.rs`): ports `Counters::get_all`
   (feed + category + label counters, 64 entries). Uses the oracle's session settings
   (`cpu_tuple_cost = 0.5`, `TIME ZONE 0`) and **no explicit `ORDER BY`** so the natural
   plan order matches the PHP. Counter *values* and the *order relative to PHP* are
   byte-identical on the same DB (verified: PHP oracle and Rust produce the identical
   label-counter order on the same dataset).
-- **`time` module** (`crates/server/src/time.rs`): ports `TimeHelper::make_local_datetime`
+- **`time` module** (`crates/ttrss/src/time.rs`): ports `TimeHelper::make_local_datetime`
   - `smart_date_time` + the user's `SHORT_DATE_FORMAT`/`LONG_DATE_FORMAT` (uid 1: `j M, G:i`),
   the `eta_min` and bare-time cases, and `naive_to_pg_text` (a `timestamp without time zone`
   → the exact PG/PDO text, fraction only when non-zero, trailing zeros stripped).
-- **Sanitizer libxml2 fidelity** (`crates/server/src/sanitizer.rs`): PHP uses libxml2
+- **Sanitizer libxml2 fidelity** (`crates/ttrss/src/sanitizer.rs`): PHP uses libxml2
   (`DOMDocument::loadHTML`), which does *implicit `<p>` insertion* for leading bare text
   and drops leading whitespace/comments; html5ever (spec-compliant) does not. Ported
   `apply_libxml_implicit_p` to match — this cleared the category-view content diffs.
@@ -432,7 +432,7 @@ clean** on the golden dataset. Done so far:
   output (e.g. `<p>中文</p>` → `<p>&#20013;&#25991;</p>`; the `highlight_words_str`
   multibyte case is `t&euml;st` on libxml 2.13.9 despite the PHP test's `>= 21200`
   branch). Needed for the syndication feed's byte-fidelity.
-- **Atom/JSON syndication** (`crates/server/src/syndication.rs`): `public.php?op=rss`.
+- **Atom/JSON syndication** (`crates/ttrss/src/syndication.rs`): `public.php?op=rss`.
   Access-key auth (`ttrss_access_keys` lookup → 403; get-or-create of the feed self
   URL's key via `uniqid_short`), `Feeds::_get_headlines` with the syndication params
   (`include_children`, `ignore_vfeed_group`, `limit` default 60, virtual-feed default
@@ -452,7 +452,7 @@ clean** on the golden dataset. Done so far:
   token (they differ run-to-run and server-to-server); URL authority ports are stripped
   (oracle vs Rust run on different ports by construction).
 - **External JSON API + feed-tree date fix** (2026-09-07): `api/index.php`
-  (API level 23) ported to `crates/server/src/api.rs` — the `{seq, status, content}`
+  (API level 23) ported to `crates/ttrss/src/api.rs` — the `{seq, status, content}`
   envelope, the `API::before()` gate (login / `ENABLE_API_ACCESS`), and the read methods
   `login`, `isLoggedIn`, `getConfig`, `getUnread`, `getCounters`, `getFeeds`,
   `getCategories`, `getFeedTree`, `getLabels`, `getHeadlines`, `getArticle`, `getPref`
@@ -511,7 +511,7 @@ clean** on the golden dataset. Done so far:
   (the `_search_to_sql` fragment is spliced into the mark-read UPDATE);
   article `note` (notes are plugin territory) is excluded from M3.
   **Search (M3+):** `Feeds::_search_to_sql` fully ported in
-  `crates/server/src/search.rs` (oracle-verified: the `str_getcsv` tokenizer,
+  `crates/ttrss/src/search.rs` (oracle-verified: the `str_getcsv` tokenizer,
   the three quote-grouping `preg_replace` passes, and the keyword loop —
   71 exact fragment cases incl. date-relative, in `tests/search_to_sql.rs`;
   `@date` parsing in `search_date.rs`). The headline view splices the
@@ -825,11 +825,11 @@ isolated per test, fast + repeatable.
 libraries, don't cleanroom the lifecycle):**
 
 - **Server** = a *reused* testcontainers `postgres:15-alpine` container
-  (`crates/testing`, `CONTAINER_NAME = "ttrss_test_pg"`). Reused containers persist
+  (`crates/test-db`, `CONTAINER_NAME = "ttrss_test_pg"`). Reused containers persist
   across runs and are **not removed on handle drop** (verified in testcontainers
   0.27.3 source: `ContainerAsync::drop` returns early for
   `ReuseDirective::Always`/`CurrentSession`). A `#[ctor]` in each test binary
-  starts/attaches it and sets `DATABASE_URL` (`crates/testing::init_database_url`).
+  starts/attaches it and sets `DATABASE_URL` (`crates/test-db::init_database_url`).
   `TTRSS_TEST_PG_URL` overrides with any dedicated instance.
 - **Per-test DB** = sqlx `#[sqlx::test(fixtures(...))]`. Confirmed from sqlx 0.7.4
   source (`sqlx-core/src/testing/`, `sqlx-postgres/src/testing/`): creates a fresh
@@ -837,7 +837,7 @@ libraries, don't cleanroom the lifecycle):**
   each as one command string), injects the pool, drops the DB on success (failed
   tests keep it; stale DBs are reaped on the next run via the `_sqlx_test.databases`
   bookkeeping table + a 2s margin). Reads `DATABASE_URL` (a superuser) at runtime.
-- **Fixtures** = `crates/testing/fixtures/{schema,baseline,seed}.sql` (versioned =
+- **Fixtures** = `crates/test-db/fixtures/{schema,baseline,seed}.sql` (versioned =
   the frozen reference's base schema + admin user + PHP `seed.sql`), referenced by
   **explicit path** from each test file (`include_str!` is source-file-relative).
 - **Session parity** = reuse `ttrss_core::db::SESSION_SETUP` via the `#[sqlx::test]`
@@ -877,7 +877,7 @@ libraries, don't cleanroom the lifecycle):**
   `Db::from_pool(PgPool)`.
 - ✅ `server` split into lib + bin; `auth::authenticate` fixed to match PHP (SSHA-512
   hash upgrade + `last_login` stamp); `AuthOutcome: Debug`.
-- ✅ `crates/testing` rewritten to the design above: `PgServer::acquire` (reuse
+- ✅ `crates/test-db` rewritten to the design above: `PgServer::acquire` (reuse
   container or `TTRSS_TEST_PG_URL`), `ensure_test_pg()`, sync
   `init_database_url()` (the `#[ctor]` entry point; no-op if `DATABASE_URL` is
   already set), `ssha512_password`, `seed_user` (returns `i32`). Old template-clone
@@ -902,7 +902,7 @@ libraries, don't cleanroom the lifecycle):**
 - Verified: `cargo nextest run` → **389 pass, 1 ignored**; per-test DBs are dropped
   on success (empty `_sqlx_test.databases` bookkeeping after a green run).
 
-**Row 9–14 pattern** (each new suite = one file in `crates/server/tests/`):
+**Row 9–14 pattern** (each new suite = one file in `crates/ttrss/tests/`):
 `mod common;` + per test `#[sqlx::test(fixtures("../../testing/fixtures/schema.sql",
 "../../testing/fixtures/baseline.sql", "../../testing/fixtures/seed.sql"))]` with the
 `PoolOptions<Postgres> + PgConnectOptions` signature and `common::make_db`. Extra
@@ -947,7 +947,7 @@ Infra findings from rows 12–14 (affect all DB-backed tests):
 - `8efb755` harness: HTML-bearing JSON fields compared **structurally** (canonical
   DOM via existing `scraper`/`html5ever` in `crates/harness/src/html.rs`), not as raw
   strings. `normalize_json` → `html::is_html_fragment(s)` → `canonical_html(s)`.
-- `e2a187b` **high-fidelity iterative sanitizer** (`crates/server/src/sanitizer.rs`,
+- `e2a187b` **high-fidelity iterative sanitizer** (`crates/ttrss/src/sanitizer.rs`,
   `kuchikiki`+`html5ever` 0.26): ports `Sanitizer::sanitize` — rewrite `<a>`/`<img>`/
   `source`/`video` (`UrlHelper::rewrite_relative`+`has_disallowed_ip`, `rel`/`target`,
   `referrerpolicy`/`loading`, `srcset` via `RSSUtils`), sandbox iframes, strip
@@ -959,7 +959,7 @@ Infra findings from rows 12–14 (affect all DB-backed tests):
   bare text; html5ever HTML5 doesn't) — reconciles the two without chasing libxml.
 
 **DONE (2026-09-11 — all ported; the plan below is kept for reference):** `Feeds::view` (017/018/019/056) + `Feeds::search` (020) +
-`RPC::getAllCounters` (009). Wire a `"Feeds"` branch in `crates/server/src/rpc.rs` (add
+`RPC::getAllCounters` (009). Wire a `"Feeds"` branch in `crates/ttrss/src/rpc.rs` (add
 `Feeds` to `is_protected`; it's CSRF-gated, corpus sends valid token). `Feeds::view`:
 feed-ownership check (label/feed/cat) → else `_generate_error_feed` "Feed not found.";
 `_get_headlines` SQL (regular feed `feed_id=N`; category `cat_id IN (subcats)` +
@@ -1176,8 +1176,8 @@ A parking lot for small, known, not-now items (not milestone blockers):
 2. **Plugins**: native Rust plugin API + ported first-party plugins (option a); community PHP plugins unsupported; **git-based plugin installer deferred** (M7 ships read-only listing only).
 3. **Database**: PostgreSQL-only, clean cutover (no PHP/Rust cohabitation); Rust must pass tests on a fully populated PHP-originated dataset (golden DB from the oracle).
 4. **External API**: level-23 compatibility maintained.
-5. **CLI/daemon**: keep existing surface unless clearly better; changes must be proposed *before* implementation → proposal in RESEARCH-REPORT §2.5 (single `tt-rust` binary with `serve`/`update`/`daemon`, no forking, kept lockfile names/exit codes). **Needs user approval before M8.**
+5. **CLI/daemon**: keep existing surface unless clearly better; changes must be proposed *before* implementation → proposal in RESEARCH-REPORT §2.5 (single `ttrss` binary with `serve`/`update`/`daemon`, no forking, kept lockfile names/exit codes). **Needs user approval before M8.**
 6. **Priority**: MVP-first, demoable end-to-end checkpoints; confidence marker = read-only UI on real data (M2).
 7. **Oracle**: we dockerize a live PHP instance (pinned `sha-` images from the repo's `.docker/` setup); details in RESEARCH-REPORT §2.2.
-8. **Naming**: project **tt-rust**; crates `tt-rust-*`; GPLv3 retained.
+8. **Naming**: the Rust port is **`ttrss`** (no dashes) — one app crate `ttrss` with a `core` module; internal helper crates `test-db` and `harness` (no prefix; workspace-scoped); the frozen PHP reference stays `tt-rss` (dashes). GPLv3 retained.
 9. **Performance**: bar is "faster than PHP-FPM"; baseline recorded in M0, perf gate in M9 (RESEARCH-REPORT §2.6).

@@ -138,7 +138,7 @@ Grounded in current, non-toy projects:
 | 4 | **Compile-time registration** | Plugins are crates compiled **into** the binary; each self-registers via a linker-section registry (`inventory`, `linkme`) or an explicit registry list. | Many Rust CLIs/engines use this for "extensible-without-dlopen". | **Pro:** simplest, no dynamic-loading machinery, full type safety, no ABI concerns. **Con:** no runtime install/swap — the set of plugins is fixed at build time (first-party or build-time only). |
 | 5 | **Separate process (IPC/RPC)** | Each plugin is its own process; the host talks to it over stdio/Unix-socket/gRPC. | Figma plugins, Electron renderer isolation, LSPs. | **Pro:** strong isolation + crash containment. **Con:** heavyweight; the "plugin" is really a separate program with a protocol; overkill for trusted first-party code. |
 
-**Take-aways for tt-rust:**
+**Take-aways for ttrss:**
 
 - Because we are **first-party only**, #3 and #5 are overkill (no untrusted
   code to sandbox; no separate-language need). We keep Rust end to end.
@@ -279,7 +279,7 @@ only when a plugin that registered that hook is active — so they can land
 
 ---
 
-## 6. Recommendation for tt-rust
+## 6. Recommendation for ttrss
 
 **Separate the contract from the loader, and start static.**
 
@@ -344,7 +344,7 @@ decision rather than on the loading mechanism itself:
 
 Keep it small and verifiable, matching the established rhythm:
 
-1. **A `crates/server/src/pluginhost/` module** with:
+1. **A `crates/ttrss/src/pluginhost/` module** with:
    - `trait Plugin { fn name(&self)->&str; fn about(&self)->PluginAbout; fn init(&self, host:&mut PluginHost); /* + the ~50 hook methods with PHP-matching signatures */ }`
    - `trait PluginHost` (or a concrete `PluginHost` struct) with `add_hook`, `run_hooks*`, and `set/get` storage.
    - `struct HostCtx<'a>` (`&'a PgPool`, session `uid`/`profile`/`access_level`, request params).

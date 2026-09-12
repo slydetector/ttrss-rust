@@ -1,6 +1,6 @@
 # Project Instructions
 
-Standing working agreements for **tt-rust** (a Rust re-implementation of the
+Standing working agreements for **ttrss** (a Rust re-implementation of the
 Tiny Tiny RSS server backend); they apply to every session in this directory.
 The frozen PHP reference in `tt-rss/` (commit `2f7d831`) is the spec.
 
@@ -22,6 +22,7 @@ The frozen PHP reference in `tt-rss/` (commit `2f7d831`) is the spec.
   `make_db`/`Db::connect_url` for the same reason — do not re-enable it.
 - **Stay on the approved dependency versions** (e.g. sqlx 0.7) unless told
   otherwise. Docker is an acceptable requirement.
+- **Keep the repo relocatable: no absolute paths.** Everything under the repo (scripts, build files, docs) references paths **relative to the repo base directory** — resolve them from the script's own location (`$(dirname "$0")/…`) or the current working dir. Never hardcode an absolute path like `/home/<user>/…`; that's what lets the repo be renamed or moved without breakage.
 
 ## Working style
 
@@ -115,7 +116,7 @@ is the spec and lands *with* the code, not after. Mirror each matching PHP
   expectation + a `NOTE`.
 - DB-backed tests must **not** depend on the mutable golden dump
   (`oracle/data/golden-db.sql`); use the stable schema + fixtures
-  (`crates/testing`). The golden dump is reserved for the end-to-end oracle.
+  (`crates/test-db`). The golden dump is reserved for the end-to-end oracle.
 
 ## Context management
 

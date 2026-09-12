@@ -1,4 +1,4 @@
-# tt-rust
+# ttrss
 
 Rust re-implementation of the [tt-rss](https://github.com/tt-rss/tt-rss) (Tiny Tiny RSS)
 server backend. The existing PHP codebase in `tt-rss/` is the frozen reference
@@ -65,7 +65,7 @@ make diff ARGS=--a <run-a> --b <run-b>
 
 - **M0 complete**: oracle + golden dataset + corpus; harness proven with a
   clean self-replay diff; PHP-FPM baseline in `oracle/data/baseline.json`.
-- **M1 complete**: `tt-rust serve` (static assets byte-for-byte + login page +
+- **M1 complete**: `ttrss serve` (static assets byte-for-byte + login page +
   real login SSHA-512 + TOTP + logout + authenticated SPA shell with
   ETag/304 + encrypted DB sessions with rolling cookie re-stamp). The full
   login/logout/session surface diffs clean against the oracle; the corpus is

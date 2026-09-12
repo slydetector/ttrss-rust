@@ -1,4 +1,4 @@
-//! Test support for tt-rust: a **dedicated** Postgres server for the
+//! Test support for ttrss: a **dedicated** Postgres server for the
 //! DB-backed parity suites (test-parity rows 8–14 in `docs/plan.md`).
 //!
 //! Design (see `docs/plan.md`, "Test infrastructure for DB-backed suites"):

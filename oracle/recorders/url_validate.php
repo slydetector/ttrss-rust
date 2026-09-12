@@ -1,6 +1,6 @@
 <?php
 // Recorder for the `UrlHelper::validate` differential test fixture
-// (crates/server/tests/fixtures/url_validate.json).
+// (crates/ttrss/tests/fixtures/url_validate.json).
 //
 // Drives the real `UrlHelper::validate` (tt-rss/classes/UrlHelper.php) over the
 // fixture's "in" battery, with each case's "ext" as the `extended_filtering`
@@ -12,7 +12,7 @@
 // the IDNA path is exercised) with the frozen tt-rss/ mounted:
 //   docker run --rm --entrypoint php \
 //       -v "$PWD/tt-rss":/tt-rss:ro \
-//       -v "$PWD/crates/server/tests/fixtures":/fx:rw \
+//       -v "$PWD/crates/ttrss/tests/fixtures":/fx:rw \
 //       -v "$PWD/oracle/recorders":/rec:ro \
 //       ghcr.io/tt-rss/tt-rss:sha-2f7d831 /rec/url_validate.php /fx/url_validate.json
 //

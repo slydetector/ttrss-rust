@@ -1,6 +1,6 @@
 <?php
 // Recorder for the `param_int_array` differential test fixture
-// (crates/server/tests/fixtures/param_int_array.json).
+// (crates/ttrss/tests/fixtures/param_int_array.json).
 //
 // It drives the *real* frozen PHP reference — `Handler::_param_to_int_array`
 // (tt-rss/classes/Handler.php), which delegates to `clean()` in
@@ -22,7 +22,7 @@
 //
 //   docker run --rm \
 //     -v "$PWD/tt-rss":/tt-rss:ro \
-//     -v "$PWD/crates/server/tests/fixtures":/fx:rw \
+//     -v "$PWD/crates/ttrss/tests/fixtures":/fx:rw \
 //     -v "$PWD/oracle/recorders":/rec:ro \
 //     php:8.5-cli php /rec/param_int_array.php /fx/param_int_array.json
 //

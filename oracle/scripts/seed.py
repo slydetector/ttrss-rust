@@ -81,7 +81,7 @@ LABELS = [
 ]
 
 BROKEN_FEEDS = {
-    "https://nonexistent-tt-rust-oracle-8280.example.com/feed.xml": "Dead Feed (DNS failure)",
+    "https://nonexistent-ttrss-oracle-8280.example.com/feed.xml": "Dead Feed (DNS failure)",
     "https://arstechnica.com/no-such-feed-path-404": "404 Feed",
     "https://example.com/": "HTML Page (not a feed)",
 }

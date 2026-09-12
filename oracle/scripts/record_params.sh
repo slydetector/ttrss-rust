@@ -11,7 +11,7 @@ PHP_IMAGE=${PHP_IMAGE:-php:8.5-cli}
 for r in param_int_array param_to_bool clean_str php_int_cast; do
     docker run --rm \
         -v "$PWD/tt-rss":/tt-rss:ro \
-        -v "$PWD/crates/server/tests/fixtures":/fx:rw \
+        -v "$PWD/crates/ttrss/tests/fixtures":/fx:rw \
         -v "$PWD/oracle/recorders":/rec:ro \
         "$PHP_IMAGE" php "/rec/$r.php" "/fx/$r.json"
 done

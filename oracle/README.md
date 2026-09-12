@@ -3,7 +3,7 @@
 The oracle is a live, stock Tiny Tiny RSS (PHP) deployment that serves two
 purposes:
 
-1. **Reference implementation** for the tt-rust port: the harness records its
+1. **Reference implementation** for the ttrss port: the harness records its
    HTTP behavior as fixtures (golden corpus), and the Rust server is diffed
    against it.
 2. **Performance baseline**: `scripts/bench.sh` measures PHP-FPM latency for

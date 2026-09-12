@@ -1,4 +1,4 @@
-//! `tt-rust` — the Rust HTTP server for Tiny Tiny RSS (M1 walking skeleton).
+//! `ttrss` — the Rust HTTP server for Tiny Tiny RSS (M1 walking skeleton).
 //!
 //! Serves, under the configured base path (default `/tt-rss`):
 //!   * static assets byte-for-byte from the doc root,
@@ -42,7 +42,7 @@ async fn main() -> anyhow::Result<()> {
         listen = %config.listen,
         docroot = %config.docroot.display(),
         base = %config.base_path(),
-        "starting tt-rust"
+        "starting ttrss"
     );
 
     let state = AppState {

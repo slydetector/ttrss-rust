@@ -1,6 +1,6 @@
 //! Library portion of the tt-rss server crate: the DB-backed domain ports
 //! (auth, session, prefs, counters, headlines, sanitizer, …) shared by the
-//! `tt-rust` binary and the test suites.
+//! `ttrss` binary and the test suites.
 //!
 //! The binary (`src/main.rs`) owns the HTTP wiring: `AppState` construction,
 //! routing, the login/logout flows, and static file serving.

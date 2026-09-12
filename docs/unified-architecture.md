@@ -108,7 +108,7 @@ fixtures → resulting DB rows) vs PHP."*
 
 ## 2. Process architecture: one process hosting web + update engine
 
-**Question.** The web server we've already built (`crates/server`, a
+**Question.** The web server we've already built (`crates/ttrss`, a
 long-running axum app on tokio + sqlx-async) was conceptually kept separate
 from the "update daemon" (the M6 plan describes `tt-rss update` /
 `tt-rss daemon` subcommands). For simplicity, do we **combine everything into
@@ -124,7 +124,7 @@ serves each web request as (conceptually) its own process, so a long-running
 daemon *had* to be separate and share state via DB + filesystem. Our Rust
 design does **not** have that constraint:
 
-- `crates/server` is already a **long-running** axum process (not per-request
+- `crates/ttrss` is already a **long-running** axum process (not per-request
   like PHP-FPM) — it *can* host background work natively.
 - We already use **`tokio`** (rt-multi-thread, time, signal), **`sqlx` async**
   (one pool), and **`reqwest`** (the fetch layer). A combined design needs
@@ -237,7 +237,7 @@ visibility.
 Concrete numbers the §5 sizing decisions are anchored to (the web-only server,
 before M6):
 
-- **Runtime:** `#[tokio::main]` (bare, `crates/server/src/main.rs`) →
+- **Runtime:** `#[tokio::main]` (bare, `crates/ttrss/src/main.rs`) →
   **multi-thread**; worker threads = `available_parallelism()` (all cores / the
   cgroup limit). Not tuned.
 - **Request concurrency:** **unbounded** — no `Semaphore`, no router-level cap,
@@ -245,7 +245,7 @@ before M6):
   descriptors.
 - **CPU-bound work:** none offloaded — no `spawn_blocking` anywhere yet; all
   handler work (md5, small HTML) runs on the async worker threads.
-- **DB pool:** `max_connections(10)` (`crates/core/src/db.rs`), default 30s
+- **DB pool:** `max_connections(10)` (`crates/ttrss/src/core/db.rs`), default 30s
   `acquire_timeout`, no `min_connections`. **This is the effective throughput
   ceiling today** (every request does DB work) — not the CPU or the request count.
 - **Outbound HTTP:** reqwest pool — not yet in the request path (M6 feed fetch).
