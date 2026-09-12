@@ -86,9 +86,9 @@ fn is_label_entry(v: &Value) -> bool {
 
 // PHP: test_get_counters_returns_int
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_counters_returns_int(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -104,9 +104,9 @@ async fn test_get_counters_returns_int(
 
 // PHP: test_get_counters_feed_all
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_counters_feed_all(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -122,9 +122,9 @@ async fn test_get_counters_feed_all(
 
 // PHP: test_get_counters_feed_starred
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_counters_feed_starred(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -140,9 +140,9 @@ async fn test_get_counters_feed_starred(
 
 // PHP: test_get_counters_feed_starred_unread_only
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_counters_feed_starred_unread_only(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -158,9 +158,9 @@ async fn test_get_counters_feed_starred_unread_only(
 
 // PHP: test_get_counters_feed_published
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_counters_feed_published(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -176,9 +176,9 @@ async fn test_get_counters_feed_published(
 
 // PHP: test_get_counters_feed_fresh
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_counters_feed_fresh(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -196,9 +196,9 @@ async fn test_get_counters_feed_fresh(
 
 // PHP: test_get_counters_feed_recently_read
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_counters_feed_recently_read(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -214,9 +214,9 @@ async fn test_get_counters_feed_recently_read(
 
 // PHP: test_get_counters_feed_archived
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_counters_feed_archived(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -234,9 +234,9 @@ async fn test_get_counters_feed_archived(
 
 // PHP: test_get_counters_by_feed_id
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_counters_by_feed_id(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -268,9 +268,9 @@ async fn test_get_counters_by_feed_id(
 
 // PHP: test_get_counters_by_feed_id_all
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_counters_by_feed_id_all(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -297,9 +297,9 @@ async fn test_get_counters_by_feed_id_all(
 
 // PHP: test_get_counters_by_feed_id_unread_only
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_counters_by_feed_id_unread_only(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -326,9 +326,9 @@ async fn test_get_counters_by_feed_id_unread_only(
 
 // PHP: test_get_counters_nonexistent_feed
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_counters_nonexistent_feed(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -346,9 +346,9 @@ async fn test_get_counters_nonexistent_feed(
 
 // PHP: test_get_counters_category
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_counters_category(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -365,9 +365,9 @@ async fn test_get_counters_category(
 
 // PHP: test_get_counters_category_all
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_counters_category_all(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -383,9 +383,9 @@ async fn test_get_counters_category_all(
 
 // PHP: test_get_counters_category_unread_only
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_counters_category_unread_only(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -401,9 +401,9 @@ async fn test_get_counters_category_unread_only(
 
 // PHP: test_get_counters_category_science
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_counters_category_science(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -426,9 +426,9 @@ async fn test_get_counters_category_science(
 
 // PHP: test_get_counters_category_uncategorized
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_counters_category_uncategorized(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -444,9 +444,9 @@ async fn test_get_counters_category_uncategorized(
 
 // PHP: test_get_counters_category_special
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_counters_category_special(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -464,9 +464,9 @@ async fn test_get_counters_category_special(
 
 // PHP: test_get_counters_tag
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_counters_tag(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -483,9 +483,9 @@ async fn test_get_counters_tag(
 
 // PHP: test_get_counters_tag_nonexistent
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_counters_tag_nonexistent(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -508,9 +508,9 @@ async fn test_get_counters_tag_nonexistent(
 
 // PHP: test_get_counters_tag_all
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_counters_tag_all(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -528,9 +528,9 @@ async fn test_get_counters_tag_all(
 
 // PHP: test_get_counters_label_id
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_counters_label_id(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -591,9 +591,9 @@ async fn test_get_counters_label_id(
 
 // PHP: test_get_counters_different_owner
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_counters_different_owner(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -613,9 +613,9 @@ async fn test_get_counters_different_owner(
 
 // PHP: test_get_counters_category_different_owner
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_counters_category_different_owner(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -633,9 +633,9 @@ async fn test_get_counters_category_different_owner(
 
 // PHP: test_get_counters_all_total
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_counters_all_total(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -657,9 +657,9 @@ async fn test_get_counters_all_total(
 
 // PHP: test_get_counters_sum_per_feed
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_counters_sum_per_feed(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -687,9 +687,9 @@ async fn test_get_counters_sum_per_feed(
 
 // PHP: test_counters_get_feeds_returns_array
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_counters_get_feeds_returns_array(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -709,9 +709,9 @@ async fn test_counters_get_feeds_returns_array(
 
 // PHP: test_counters_get_feeds_contains_requested_feeds
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_counters_get_feeds_contains_requested_feeds(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -776,9 +776,9 @@ async fn test_counters_get_feeds_contains_requested_feeds(
 
 // PHP: test_counters_get_feeds_empty_array
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_counters_get_feeds_empty_array(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -826,9 +826,9 @@ async fn test_counters_get_feeds_empty_array(
 // 1,2,4,5,6,7), 2 marked (3, 8), 0 published, no child cats; no seeded feed
 // lacks a category; Science & Nature (cat 2) holds none of feeds 1-2.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_counters_get_conditional_feed_ids_category_rows(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -910,9 +910,9 @@ async fn test_counters_get_conditional_feed_ids_category_rows(
 
 // PHP: test_counters_get_all_returns_array
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_counters_get_all_returns_array(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -925,9 +925,9 @@ async fn test_counters_get_all_returns_array(
 
 // PHP: test_counters_get_all_contains_global_unread
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_counters_get_all_contains_global_unread(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -951,9 +951,9 @@ async fn test_counters_get_all_contains_global_unread(
 
 // PHP: test_counters_get_all_contains_virtual_feeds
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_counters_get_all_contains_virtual_feeds(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -985,9 +985,9 @@ async fn test_counters_get_all_contains_virtual_feeds(
 
 // PHP: test_counters_get_all_contains_category_entries
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_counters_get_all_contains_category_entries(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -1010,9 +1010,9 @@ async fn test_counters_get_all_contains_category_entries(
 
 // PHP: test_counters_get_all_contains_label_entries
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_counters_get_all_contains_label_entries(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -1030,9 +1030,9 @@ async fn test_counters_get_all_contains_label_entries(
 
 // PHP: test_counters_get_labels_returns_array
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_counters_get_labels_returns_array(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -1045,9 +1045,9 @@ async fn test_counters_get_labels_returns_array(
 
 // PHP: test_counters_get_labels_with_ids
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_counters_get_labels_with_ids(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -1075,9 +1075,9 @@ async fn test_counters_get_labels_with_ids(
 
 // PHP: test_counters_get_labels_empty_array
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_counters_get_labels_empty_array(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -1090,9 +1090,9 @@ async fn test_counters_get_labels_empty_array(
 
 // PHP: test_counters_get_labels_nonexistent_ids
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_counters_get_labels_nonexistent_ids(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -1107,9 +1107,9 @@ async fn test_counters_get_labels_nonexistent_ids(
 
 // PHP: test_counters_get_conditional_with_label_ids
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_counters_get_conditional_with_label_ids(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -1134,9 +1134,9 @@ async fn test_counters_get_conditional_with_label_ids(
 
 // PHP: test_counters_get_conditional_with_both_feed_and_label_ids
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_counters_get_conditional_with_both_feed_and_label_ids(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -1249,9 +1249,9 @@ fn cat_entries(counters: &[Value]) -> Vec<&Value> {
 // (no `label_ids` param → PHP `get_labels(null)` = all labels), and the
 // string `seq` echoed as an int.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_all_counters_handler_feed_ids_array(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -1293,9 +1293,9 @@ async fn test_get_all_counters_handler_feed_ids_array(
 // Rust-only: absent `*_id_count` params → -1 → null → `Counters::get_all()`
 // — every feed, every category, numeric `seq` echoed as-is.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_all_counters_handler_no_counts_returns_all(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -1324,9 +1324,9 @@ async fn test_get_all_counters_handler_no_counts_returns_all(
 // Rust-only: an explicit `feed_id_count: -1` overrides the supplied `feed_ids`
 // (PHP: `$feed_id_count == -1 ? null : _param_to_int_array(...)`).
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_all_counters_handler_feed_id_count_minus_one(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -1349,9 +1349,9 @@ async fn test_get_all_counters_handler_feed_id_count_minus_one(
 // Rust-only: `DISABLE_CONDITIONAL_COUNTERS` → `Counters::get_all()` even when
 // feed ids were supplied (PHP: `is_array($feed_ids) && !Prefs::get(...)`).
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_all_counters_handler_disable_conditional(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -1392,9 +1392,9 @@ async fn test_get_all_counters_handler_disable_conditional(
 // Rust-only: `label_ids` on the conditional path → only the requested label
 // entries (PHP `get_conditional($feed_ids, $label_ids)` → `get_labels($label_ids)`).
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_all_counters_handler_label_ids_subset(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,

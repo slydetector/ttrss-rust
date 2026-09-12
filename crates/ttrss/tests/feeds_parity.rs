@@ -74,9 +74,9 @@ async fn test_get_title_error_feed(
 
 /// PHP: test_get_title_numeric_feed_id_existing.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_title_numeric_feed_id_existing(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -92,9 +92,9 @@ async fn test_get_title_numeric_feed_id_existing(
 
 /// PHP: test_get_title_numeric_feed_id_missing.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_title_numeric_feed_id_missing(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -107,9 +107,9 @@ async fn test_get_title_numeric_feed_id_missing(
 
 /// PHP: test_get_title_label_id_existing.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_title_label_id_existing(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -127,9 +127,9 @@ async fn test_get_title_label_id_existing(
 
 /// PHP: test_get_title_label_id_missing.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_title_label_id_missing(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -176,9 +176,9 @@ async fn test_get_title_category_labels(
 
 /// PHP: test_get_title_category_existing.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_title_category_existing(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -192,9 +192,9 @@ async fn test_get_title_category_existing(
 
 /// PHP: test_get_title_category_missing.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_title_category_missing(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -207,9 +207,9 @@ async fn test_get_title_category_missing(
 
 /// PHP: test_get_title_different_owner_uid.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_title_different_owner_uid(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,

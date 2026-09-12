@@ -49,9 +49,9 @@ async fn make_state(
 /// The feed-tree export (no settings): both categories, all four feeds, each
 /// nested under its category, with `htmlUrl`, and *no* `ttrss*` attributes.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_export_feed_tree(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -92,9 +92,9 @@ async fn test_export_feed_tree(
 /// With `include_settings`, the feed outlines carry the `ttrss*` attributes and
 /// the category carries `ttrssSortOrder`.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_export_include_settings(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -123,9 +123,9 @@ async fn test_export_include_settings(
 
 /// The `export` handler returns the OPML as a download (content-type + filename).
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_export_handler(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -160,9 +160,9 @@ async fn test_export_handler(
 /// equivalent export must reproduce this so an empty category round-trips on
 /// import.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_export_retains_empty_category(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,

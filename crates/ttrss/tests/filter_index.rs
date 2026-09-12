@@ -66,8 +66,8 @@ fn request(pairs: &[(&str, Value)]) -> Map<String, Value> {
 /// toolbar button labels (`__()` is the identity) are present, and the search
 /// box is empty when there is no search.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql"
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql"
 ))]
 async fn test_index_structure(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -109,8 +109,8 @@ async fn test_index_structure(
 /// output, and stored in the session (`prefs_filter_search`) as the clean
 /// (unescaped) value — matching PHP.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql"
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql"
 ))]
 async fn test_index_search_param(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -135,8 +135,8 @@ async fn test_index_search_param(
 
 /// `index` without a `search` param reads `prefs_filter_search` from the session.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql"
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql"
 ))]
 async fn test_index_search_from_session(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,

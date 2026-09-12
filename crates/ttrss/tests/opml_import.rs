@@ -65,9 +65,9 @@ async fn count(pool: &sqlx::PgPool, sql: &str) -> i64 {
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_import_creates_category_and_feed(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -110,9 +110,9 @@ async fn test_import_creates_category_and_feed(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_import_dedupes_feeds(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -142,9 +142,9 @@ async fn test_import_dedupes_feeds(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_import_top_level_feed_uncategorized(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -170,9 +170,9 @@ async fn test_import_top_level_feed_uncategorized(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_import_top_level_feed_uses_imported_cat(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -209,9 +209,9 @@ async fn test_import_top_level_feed_uses_imported_cat(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_import_unknown_feed_title(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -236,9 +236,9 @@ async fn test_import_unknown_feed_title(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_import_parse_error_returns_error(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -258,9 +258,9 @@ async fn test_import_parse_error_returns_error(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_import_labels(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -294,9 +294,9 @@ async fn test_import_labels(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_import_labels_dedup(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -320,9 +320,9 @@ async fn test_import_labels_dedup(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_import_prefs(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -351,9 +351,9 @@ async fn test_import_prefs(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_import_filter(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,

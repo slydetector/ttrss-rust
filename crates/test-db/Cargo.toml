@@ -1,12 +1,12 @@
 [package]
-name = "ttrss-testing"
-description = "Dedicated-Postgres test server for tt-rust parity/integration tests"
+name = "test-db"
+description = "Dedicated-Postgres test server for ttrss parity/integration tests"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [lib]
-name = "ttrss_testing"
+name = "test_db"
 path = "src/lib.rs"
 
 [dependencies]

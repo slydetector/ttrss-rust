@@ -96,7 +96,7 @@ async fn setup_with_testuser(
     options: sqlx::postgres::PgConnectOptions,
 ) -> Db {
     let db = common::make_db(pool, options).await.expect("test db");
-    let (hash, salt) = ttrss_testing::ssha512_password("testuser", "testpass123");
+    let (hash, salt) = test_db::ssha512_password("testuser", "testpass123");
     sqlx::query(
         "INSERT INTO ttrss_users (login, pwd_hash, salt, access_level)
          VALUES ('testuser', $1, $2, 0)",
@@ -113,9 +113,9 @@ async fn setup_with_testuser(
 
 // PHP: test_exists_returns_false_for_nonexistent_session
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_exists_returns_false_for_nonexistent_session(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -132,9 +132,9 @@ async fn test_exists_returns_false_for_nonexistent_session(
 
 // PHP: test_exists_returns_true_after_write
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_exists_returns_true_after_write(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -154,9 +154,9 @@ async fn test_exists_returns_true_after_write(
 
 // PHP: test_write_stores_data_in_database
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_write_stores_data_in_database(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -177,9 +177,9 @@ async fn test_write_stores_data_in_database(
 
 // PHP: test_write_overwrites_existing_session
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_write_overwrites_existing_session(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -202,9 +202,9 @@ async fn test_write_overwrites_existing_session(
 
 // PHP: test_read_returns_written_data
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_read_returns_written_data(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -222,9 +222,9 @@ async fn test_read_returns_written_data(
 
 // PHP: test_read_returns_empty_string_for_new_session
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_read_returns_empty_string_for_new_session(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -248,9 +248,9 @@ async fn test_read_returns_empty_string_for_new_session(
 
 // PHP: test_read_with_unicode_data
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_read_with_unicode_data(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -268,9 +268,9 @@ async fn test_read_with_unicode_data(
 
 // PHP: test_read_with_large_payload
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_read_with_large_payload(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -288,9 +288,9 @@ async fn test_read_with_large_payload(
 
 // PHP: test_read_returns_false_on_failure
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_read_returns_false_on_failure(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -308,9 +308,9 @@ async fn test_read_returns_false_on_failure(
 
 // PHP: test_destroy_removes_session_from_database
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_destroy_removes_session_from_database(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -331,9 +331,9 @@ async fn test_destroy_removes_session_from_database(
 
 // PHP: test_destroy_nonexistent_session_returns_true
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_destroy_nonexistent_session_returns_true(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -353,9 +353,9 @@ async fn test_destroy_nonexistent_session_returns_true(
 
 // PHP: test_full_session_lifecycle
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_full_session_lifecycle(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -388,9 +388,9 @@ async fn test_full_session_lifecycle(
 
 // PHP: test_write_stores_encrypted_data_when_key_configured
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_write_stores_encrypted_data_when_key_configured(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -420,9 +420,9 @@ async fn test_write_stores_encrypted_data_when_key_configured(
 
 // PHP: test_write_stores_plaintext_when_encryption_disabled
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_write_stores_plaintext_when_encryption_disabled(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -444,9 +444,9 @@ async fn test_write_stores_plaintext_when_encryption_disabled(
 
 // PHP: test_read_roundtrip_with_encryption_enabled
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_read_roundtrip_with_encryption_enabled(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -465,9 +465,9 @@ async fn test_read_roundtrip_with_encryption_enabled(
 
 // PHP: test_read_roundtrip_with_encryption_disabled
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_read_roundtrip_with_encryption_disabled(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -486,9 +486,9 @@ async fn test_read_roundtrip_with_encryption_disabled(
 
 // PHP: test_read_with_encryption_handles_empty_data
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_read_with_encryption_handles_empty_data(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -507,9 +507,9 @@ async fn test_read_with_encryption_handles_empty_data(
 
 // PHP: test_read_with_encryption_handles_unicode
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_read_with_encryption_handles_unicode(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -528,9 +528,9 @@ async fn test_read_with_encryption_handles_unicode(
 
 // PHP: test_read_with_encryption_handles_large_payload
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_read_with_encryption_handles_large_payload(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -549,9 +549,9 @@ async fn test_read_with_encryption_handles_large_payload(
 
 // PHP: test_different_encryption_keys_produce_different_storage
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_different_encryption_keys_produce_different_storage(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -584,9 +584,9 @@ async fn test_different_encryption_keys_produce_different_storage(
 
 // PHP: test_encrypt_then_decrypt_with_key_removed_fails_gracefully
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_encrypt_then_decrypt_with_key_removed_fails_gracefully(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -616,9 +616,9 @@ async fn test_encrypt_then_decrypt_with_key_removed_fails_gracefully(
 
 // PHP: test_validate_session_returns_true_in_single_user_mode
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_validate_session_returns_true_in_single_user_mode(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -637,9 +637,9 @@ async fn test_validate_session_returns_true_in_single_user_mode(
 
 // PHP: test_validate_session_returns_true_for_guest
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_validate_session_returns_true_for_guest(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -656,9 +656,9 @@ async fn test_validate_session_returns_true_for_guest(
 
 // PHP: test_validate_session_returns_true_for_valid_admin
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_validate_session_returns_true_for_valid_admin(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -675,9 +675,9 @@ async fn test_validate_session_returns_true_for_valid_admin(
 
 // PHP: test_validate_session_fails_when_password_changed
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_validate_session_fails_when_password_changed(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -701,9 +701,9 @@ async fn test_validate_session_fails_when_password_changed(
 
 // PHP: test_validate_session_fails_when_user_not_found
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_validate_session_fails_when_user_not_found(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -724,9 +724,9 @@ async fn test_validate_session_fails_when_user_not_found(
 
 // PHP: test_validate_session_fails_when_account_disabled
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_validate_session_fails_when_account_disabled(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -747,9 +747,9 @@ async fn test_validate_session_fails_when_account_disabled(
 
 // PHP: test_validate_session_with_empty_pwd_hash_in_session
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_validate_session_with_empty_pwd_hash_in_session(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -771,9 +771,9 @@ async fn test_validate_session_with_empty_pwd_hash_in_session(
 
 // PHP: test_validate_session_with_uid_zero
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_validate_session_with_uid_zero(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -798,9 +798,9 @@ async fn test_validate_session_with_uid_zero(
 // (ported here, parity row 9: the id change is a session-layer effect of a
 // successful login — PHP `session_regenerate_id(true)`)
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_authenticate_regenerates_session_id(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,

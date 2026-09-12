@@ -163,9 +163,9 @@ async fn do_test(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> V
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_test_filter_do_title_match(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -229,9 +229,9 @@ async fn test_test_filter_do_title_match(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_test_filter_do_feed_scope(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -282,9 +282,9 @@ async fn test_test_filter_do_feed_scope(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_test_filter_do_category_scope(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -325,9 +325,9 @@ async fn test_test_filter_do_category_scope(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_test_filter_do_uncategorized_scope(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -376,9 +376,9 @@ async fn test_test_filter_do_uncategorized_scope(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_test_filter_do_content_preview(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -430,9 +430,9 @@ async fn test_test_filter_do_content_preview(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_test_filter_do_content_preview_strips_tags(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -477,9 +477,9 @@ async fn test_test_filter_do_content_preview_strips_tags(
     assert!(preview.starts_with("<span>"), "preview: {preview}");
 }
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_test_filter_do_match_any_vs_all(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -520,9 +520,9 @@ async fn test_test_filter_do_match_any_vs_all(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_test_filter_do_inverse_all_match_empty_items(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -557,9 +557,9 @@ async fn test_test_filter_do_inverse_all_match_empty_items(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_test_filter_do_inverse_no_match_fatal(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -592,9 +592,9 @@ async fn test_test_filter_do_inverse_no_match_fatal(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_test_filter_do_tag_rule(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -636,9 +636,9 @@ async fn test_test_filter_do_tag_rule(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_test_filter_do_limit_offset(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -681,9 +681,9 @@ async fn test_test_filter_do_limit_offset(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_test_filter_do_no_rules_no_match(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -705,9 +705,9 @@ async fn test_test_filter_do_no_rules_no_match(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_test_filter_do_invalid_rule_json_skipped(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -743,9 +743,9 @@ async fn test_test_filter_do_invalid_rule_json_skipped(
 /// request shape), `editSave` must save the rules — before the parse-boundary
 /// fix the handler read the bare `rule` key and silently saved none.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_editsave_rule_bracket_fields(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,

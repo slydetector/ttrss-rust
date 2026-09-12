@@ -60,9 +60,9 @@ async fn setup(
 
 /// PHP: test_set_inserts_new_row_into_db
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_set_inserts_new_row_into_db(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -87,9 +87,9 @@ async fn test_set_inserts_new_row_into_db(
 
 /// PHP: test_set_updates_existing_row
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_set_updates_existing_row(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -114,9 +114,9 @@ async fn test_set_updates_existing_row(
 
 /// PHP: test_set_stores_bool_as_string_in_db
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_set_stores_bool_as_string_in_db(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -146,9 +146,9 @@ async fn test_set_stores_bool_as_string_in_db(
 
 /// PHP: test_set_stores_string_in_db
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_set_stores_string_in_db(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -167,9 +167,9 @@ async fn test_set_stores_string_in_db(
 
 /// PHP: test_set_strips_tags_from_string_values
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_set_strips_tags_from_string_values(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -191,9 +191,9 @@ async fn test_set_strips_tags_from_string_values(
 
 /// PHP: test_set_returns_true_without_db_change_when_value_unchanged
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_set_returns_true_without_db_change_when_value_unchanged(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -224,9 +224,9 @@ async fn test_set_returns_true_without_db_change_when_value_unchanged(
 
 /// PHP: test_get_all_returns_all_pref_definitions
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_all_returns_all_pref_definitions(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -257,9 +257,9 @@ async fn test_get_all_returns_all_pref_definitions(
 
 /// PHP: test_get_all_returns_default_values_for_new_user
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_all_returns_default_values_for_new_user(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -285,9 +285,9 @@ async fn test_get_all_returns_default_values_for_new_user(
 
 /// PHP: test_set_profile_blacklisted_pref_returns_false
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_set_profile_blacklisted_pref_returns_false(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -309,9 +309,9 @@ async fn test_set_profile_blacklisted_pref_returns_false(
 
 /// PHP: test_set_non_blacklisted_pref_works_with_profile
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_set_non_blacklisted_pref_works_with_profile(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -336,9 +336,9 @@ async fn test_set_non_blacklisted_pref_works_with_profile(
 
 /// PHP: test_reset_clears_all_user_prefs
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_reset_clears_all_user_prefs(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -382,9 +382,9 @@ async fn test_reset_clears_all_user_prefs(
 
 /// PHP: test_reset_does_not_delete_migrated_flag
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_reset_does_not_delete_migrated_flag(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -410,9 +410,9 @@ async fn test_reset_does_not_delete_migrated_flag(
 
 /// PHP: test_set_returns_false_for_invalid_pref_name
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_set_returns_false_for_invalid_pref_name(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -430,9 +430,9 @@ async fn test_set_returns_false_for_invalid_pref_name(
 
 /// PHP: test_multiple_users_have_isolated_prefs
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_multiple_users_have_isolated_prefs(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,

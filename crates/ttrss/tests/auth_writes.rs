@@ -70,8 +70,8 @@ fn form(pairs: &[(&str, &str)]) -> Map<String, Value> {
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql"
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql"
 ))]
 async fn test_change_personal_data(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -94,8 +94,8 @@ async fn test_change_personal_data(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql"
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql"
 ))]
 async fn test_changepassword_success(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -129,8 +129,8 @@ async fn test_changepassword_success(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql"
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql"
 ))]
 async fn test_changepassword_validation_errors(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -197,8 +197,8 @@ async fn test_changepassword_validation_errors(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql"
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql"
 ))]
 async fn test_changepassword_wrong_old_password(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -215,8 +215,8 @@ async fn test_changepassword_wrong_old_password(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql"
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql"
 ))]
 async fn test_changepassword_forbidden(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -236,8 +236,8 @@ async fn test_changepassword_forbidden(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql"
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql"
 ))]
 async fn test_otp_enable(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -292,8 +292,8 @@ async fn test_otp_enable(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql"
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql"
 ))]
 async fn test_otp_disable(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -334,8 +334,8 @@ async fn test_otp_disable(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql"
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql"
 ))]
 async fn test_customize_css(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,

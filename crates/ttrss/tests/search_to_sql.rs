@@ -96,9 +96,9 @@ const DATE_CASES: &[(&str, &str, &str)] = &[
 ];
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn search_to_sql_fragments(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -124,9 +124,9 @@ async fn search_to_sql_fragments(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn search_to_sql_date_cases(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,

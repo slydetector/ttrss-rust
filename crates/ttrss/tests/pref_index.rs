@@ -65,8 +65,8 @@ fn normalize(s: &str) -> String {
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql"
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql"
 ))]
 async fn test_index_structure(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -142,8 +142,8 @@ async fn test_index_structure(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql"
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql"
 ))]
 async fn test_index_profile_hides_blacklisted(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,

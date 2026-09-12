@@ -110,9 +110,9 @@ async fn entries(db: &Db) -> Vec<Entry> {
         .collect()
 }
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn headline_fts_filters_rows(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -145,9 +145,9 @@ async fn headline_fts_filters_rows(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn headline_fts_empty_language_is_unexecutable(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -164,9 +164,9 @@ async fn headline_fts_empty_language_is_unexecutable(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn headline_title_like_filters(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -185,9 +185,9 @@ async fn headline_title_like_filters(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn headline_star_search(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -212,9 +212,9 @@ async fn headline_star_search(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn headline_dry_run_errors(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -248,9 +248,9 @@ async fn headline_dry_run_errors(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn catchup_scoped_to_search(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -285,9 +285,9 @@ async fn catchup_scoped_to_search(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn catchup_search_with_mode_window(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,

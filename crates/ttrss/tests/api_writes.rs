@@ -78,9 +78,9 @@ async fn enable_api(db: &Db) {
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_version(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -95,9 +95,9 @@ async fn test_get_version(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_api_level(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -113,9 +113,9 @@ async fn test_get_api_level(
 
 /// Without the `ENABLE_API_ACCESS` pref (default `false`) the gate rejects.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_api_disabled(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -131,9 +131,9 @@ async fn test_api_disabled(
 /// `logout` destroys the session and reports OK; the stored `uid` is cleared
 /// (the middleware deletes the stored row on `destroy`).
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_logout(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -152,9 +152,9 @@ async fn test_logout(
 /// `logout` is callable even when not logged in (`UserHelper::logout` always
 /// succeeds), so it is exempt from the not-logged-in gate.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_logout_not_logged_in(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -170,9 +170,9 @@ async fn test_logout_not_logged_in(
 
 /// `catchupFeed` marks a feed's unread entries read and returns `status: OK`.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_catchup_feed_ok(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -195,9 +195,9 @@ async fn test_catchup_feed_ok(
 
 /// `updateArticle` field 0 (`marked`), mode 1 (`true`): mark the entries.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_update_marked(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -230,9 +230,9 @@ async fn test_update_marked(
 
 /// `updateArticle` field 2 (`unread`), mode 0 (`false`): mark read + set `last_read`.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_update_unread_mode0(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -266,9 +266,9 @@ async fn test_update_unread_mode0(
 
 /// `updateArticle` field 0 (`marked`), mode 2 (`toggle`): flip each entry.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_update_toggle(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -310,9 +310,9 @@ async fn test_update_toggle(
 
 /// `updateArticle` field 3 (`note`): store the note text.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_update_note(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -342,9 +342,9 @@ async fn test_update_note(
 
 /// `updateArticle` field 4 (`score`): store the score (rejects `0`).
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_update_score(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -390,9 +390,9 @@ async fn test_update_score(
 
 /// `updateArticle` with no `article_ids` → `INCORRECT_USAGE`.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_update_incorrect_usage_empty(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -411,9 +411,9 @@ async fn test_update_incorrect_usage_empty(
 
 /// `updateArticle` field 0 (`marked`) with a non-0/1/2 mode → `INCORRECT_USAGE`.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_update_incorrect_usage_badmode(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -436,9 +436,9 @@ async fn test_update_incorrect_usage_badmode(
 
 /// `unsubscribeFeed` removes an owned feed (or `E_OPERATION_FAILED` if absent).
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_unsubscribe_ok(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -463,9 +463,9 @@ async fn test_unsubscribe_ok(
 
 /// `setArticleLabel` assign=true attaches label 1 (`label_id = 1026`).
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_set_label_assign(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -495,9 +495,9 @@ async fn test_set_label_assign(
 
 /// `setArticleLabel` assign=false removes label 1 from the entry.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_set_label_remove(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -532,9 +532,9 @@ async fn test_set_label_remove(
 
 /// `setArticleLabel` with an unknown label id → no rows updated.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_set_label_missing(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -556,8 +556,8 @@ async fn test_set_label_missing(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql"
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql"
 ))]
 async fn test_share_to_published_ok(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -605,8 +605,8 @@ async fn test_share_to_published_ok(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql"
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql"
 ))]
 async fn test_share_to_published_invalid_url(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -628,8 +628,8 @@ async fn test_share_to_published_invalid_url(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql"
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql"
 ))]
 async fn test_share_to_published_no_title_or_url(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -651,8 +651,8 @@ async fn test_share_to_published_no_title_or_url(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql"
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql"
 ))]
 async fn test_share_to_published_updates_existing(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -744,9 +744,9 @@ async fn response_bytes(res: axum::response::Response) -> Vec<u8> {
 
 /// `getFeedIcon` with no session → the `NOT_LOGGED_IN` JSON envelope.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_feed_icon_not_logged_in(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -764,9 +764,9 @@ async fn test_get_feed_icon_not_logged_in(
 
 /// `getFeedIcon` for a feed with no cached icon → the `E_NOT_FOUND` envelope.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_feed_icon_not_found(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -783,9 +783,9 @@ async fn test_get_feed_icon_not_found(
 
 /// `getFeedIcon` for a feed with a cached PNG icon → 200 + `image/png` + bytes.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_feed_icon_found_png(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -808,9 +808,9 @@ async fn test_get_feed_icon_found_png(
 
 /// `getFeedIcon` content-type detection: a JPEG icon → `image/jpeg`.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_feed_icon_found_jpeg(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,

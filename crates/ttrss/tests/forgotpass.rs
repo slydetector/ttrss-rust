@@ -72,8 +72,8 @@ async fn stored_token(pool: &sqlx::PgPool, login: &str) -> Option<String> {
 /// The complete flow: request form → validated POST (token stored) → reset link
 /// (password reset, token cleared).
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
 ))]
 async fn test_forgotpass_full_flow(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -211,8 +211,8 @@ async fn test_forgotpass_full_flow(
 
 /// A POST for an unknown login reports "not found" and stores no token.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
 ))]
 async fn test_forgotpass_unknown_user(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -269,8 +269,8 @@ async fn test_forgotpass_unknown_user(
 
 /// `disable_login_form` (or a missing `auth_internal` plugin) → 403.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
 ))]
 async fn test_forgotpass_forbidden(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,

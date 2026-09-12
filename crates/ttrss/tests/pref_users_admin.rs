@@ -72,15 +72,15 @@ fn form(pairs: &[(&str, &str)]) -> Map<String, Value> {
 
 /// Seed a plain user (access_level 0) and return its id.
 async fn seed_plain_user(pool: &sqlx::PgPool, login: &str) -> i32 {
-    let (hash, salt) = ttrss_testing::ssha512_password(login, "password");
-    ttrss_testing::seed_user(pool, login, &hash, &salt, 0)
+    let (hash, salt) = test_db::ssha512_password(login, "password");
+    test_db::seed_user(pool, login, &hash, &salt, 0)
         .await
         .expect("seed user")
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql"
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql"
 ))]
 async fn test_edit(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -122,8 +122,8 @@ async fn read_user(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql"
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql"
 ))]
 async fn test_edit_save_update(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -154,8 +154,8 @@ async fn test_edit_save_update(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql"
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql"
 ))]
 async fn test_edit_save_admin_forced_admin_login(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -181,8 +181,8 @@ async fn test_edit_save_admin_forced_admin_login(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql"
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql"
 ))]
 async fn test_edit_save_empty_login_early_return(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -214,8 +214,8 @@ async fn test_edit_save_empty_login_early_return(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql"
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql"
 ))]
 async fn test_edit_save_password_reset(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -265,8 +265,8 @@ async fn test_edit_save_password_reset(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql"
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql"
 ))]
 async fn test_remove(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -289,8 +289,8 @@ async fn test_remove(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql"
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql"
 ))]
 async fn test_add(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -329,8 +329,8 @@ async fn test_add(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql"
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql"
 ))]
 async fn test_reset_pass(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -354,8 +354,8 @@ async fn test_reset_pass(
 /// rejected for a non-admin session even when the csrf token is valid, and
 /// proceeds for an admin. Exercised through the public `rpc::handler`.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql"
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql"
 ))]
 async fn test_admin_gate_denies_non_admin(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,

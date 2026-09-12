@@ -94,8 +94,8 @@ async fn fetch(db: &Pool) -> Vec<(i32, String, String, String, Option<String>)> 
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql"
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql"
 ))]
 async fn test_generate_app_password(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -143,8 +143,8 @@ async fn test_generate_app_password(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql"
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql"
 ))]
 async fn test_generate_app_password_unique_chars(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -174,8 +174,8 @@ async fn test_generate_app_password_unique_chars(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql"
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql"
 ))]
 async fn test_delete_app_passwords(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -221,8 +221,8 @@ async fn test_delete_app_passwords(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql"
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql"
 ))]
 async fn test_delete_app_passwords_foreign_noop(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -268,8 +268,8 @@ async fn test_delete_app_passwords_foreign_noop(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql"
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql"
 ))]
 async fn test_delete_app_passwords_empty_ids_noop(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -295,8 +295,8 @@ async fn test_delete_app_passwords_empty_ids_noop(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql"
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql"
 ))]
 async fn test_app_password_list_escapes_title(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,

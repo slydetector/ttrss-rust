@@ -50,9 +50,9 @@ fn row_ids(rows: &[sqlx::postgres::PgRow]) -> Vec<i32> {
 
 // PHP: test_get_headlines_return_structure
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_headlines_return_structure(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -81,9 +81,9 @@ async fn test_get_headlines_return_structure(
 
 // PHP: test_get_headlines_by_feed_id
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_headlines_by_feed_id(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -105,9 +105,9 @@ async fn test_get_headlines_by_feed_id(
 
 // PHP: test_get_headlines_by_feed_id_empty
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_headlines_by_feed_id_empty(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -121,9 +121,9 @@ async fn test_get_headlines_by_feed_id_empty(
 
 // PHP: test_get_headlines_by_feed_id_different_owner
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_headlines_by_feed_id_different_owner(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -141,9 +141,9 @@ async fn test_get_headlines_by_feed_id_different_owner(
 
 // PHP: test_get_headlines_feed_all
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_headlines_feed_all(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -161,9 +161,9 @@ async fn test_get_headlines_feed_all(
 
 // PHP: test_get_headlines_feed_starred
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_headlines_feed_starred(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -183,9 +183,9 @@ async fn test_get_headlines_feed_starred(
 
 // PHP: test_get_headlines_feed_fresh
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_headlines_feed_fresh(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -206,9 +206,9 @@ async fn test_get_headlines_feed_fresh(
 
 // PHP: test_get_headlines_feed_recently_read
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_headlines_feed_recently_read(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -251,9 +251,9 @@ async fn test_get_headlines_feed_recently_read(
 
 // PHP: test_get_headlines_view_mode_unread
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_headlines_view_mode_unread(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -273,9 +273,9 @@ async fn test_get_headlines_view_mode_unread(
 
 // PHP: test_get_headlines_view_mode_marked
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_headlines_view_mode_marked(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -296,9 +296,9 @@ async fn test_get_headlines_view_mode_marked(
 
 // PHP: test_get_headlines_view_mode_published
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_headlines_view_mode_published(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -317,9 +317,9 @@ async fn test_get_headlines_view_mode_published(
 
 // PHP: test_get_headlines_limit
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_headlines_limit(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -335,9 +335,9 @@ async fn test_get_headlines_limit(
 
 // PHP: test_get_headlines_offset
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_headlines_offset(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -373,9 +373,9 @@ async fn test_get_headlines_offset(
 
 // PHP: test_get_headlines_since_id
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_headlines_since_id(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -396,9 +396,9 @@ async fn test_get_headlines_since_id(
 
 // PHP: test_get_headlines_cat_view
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_headlines_cat_view(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -417,9 +417,9 @@ async fn test_get_headlines_cat_view(
 
 // PHP: test_get_headlines_cat_view_uncategorized
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_headlines_cat_view_uncategorized(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -439,9 +439,9 @@ async fn test_get_headlines_cat_view_uncategorized(
 
 // PHP: test_get_headlines_metadata_feed
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_headlines_metadata_feed(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -457,9 +457,9 @@ async fn test_get_headlines_metadata_feed(
 
 // PHP: test_get_headlines_metadata_category
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_headlines_metadata_category(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -477,9 +477,9 @@ async fn test_get_headlines_metadata_category(
 
 // PHP: test_get_headlines_columns
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_headlines_columns(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -512,9 +512,9 @@ async fn test_get_headlines_columns(
 
 // PHP: test_get_headlines_feed_not_subscribed
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_headlines_feed_not_subscribed(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,

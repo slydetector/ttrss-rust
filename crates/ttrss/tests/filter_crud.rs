@@ -166,8 +166,8 @@ async fn filter_count(db: &Db) -> i64 {
 
 /// `Pref_Filters::filtersortreset` — every filter's order is reset to 0.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
 ))]
 async fn test_filtersortreset(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -196,8 +196,8 @@ async fn test_filtersortreset(
 /// `Pref_Filters::savefilterorder` — applies the reordered filter list from
 /// the `payload` JSON.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
 ))]
 async fn test_savefilterorder(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -239,8 +239,8 @@ async fn test_savefilterorder(
 /// `Pref_Filters::remove` — deletes the selected owned filters; rules and
 /// actions cascade. A foreign owner's filter is untouched.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
 ))]
 async fn test_remove_filters(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -287,8 +287,8 @@ async fn test_remove_filters(
 /// not tag-stripped) and re-saves its rules/actions. A foreign owner's filter
 /// is untouched.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
 ))]
 async fn test_edit_save(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -363,8 +363,8 @@ async fn test_edit_save(
 /// `Pref_Filters::add` — creates a filter (default enabled from the checkbox)
 /// with the posted rules.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
 ))]
 async fn test_add_filter(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -412,8 +412,8 @@ async fn test_add_filter(
 
 /// `Pref_Filters::add` — a score action's `+N` param is stored as the integer.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
 ))]
 async fn test_add_filter_score_action(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -444,8 +444,8 @@ async fn test_add_filter_score_action(
 /// `Pref_Filters::add` — a tag action's param is normalized (lowercased,
 /// de-duplicated, sorted).
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
 ))]
 async fn test_add_filter_tag_action(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -481,8 +481,8 @@ async fn test_add_filter_tag_action(
 /// `Pref_Filters::clone` — clones a filter with a `Clone of <title>` name,
 /// copies its rules/actions, and disables it.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
 ))]
 async fn test_clone_filters(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -544,8 +544,8 @@ async fn test_clone_filters(
 /// `Pref_Filters::join` — merges the selected filters into the first (base),
 /// moves their rules/actions, sets match_any_rule, and de-dupes.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
 ))]
 async fn test_join_filters(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,

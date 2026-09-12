@@ -46,9 +46,9 @@ fn enclosure(content_type: &str, url: &str) -> Value {
 
 // PHP: test_get_tags_returns_tags_from_cache
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_tags_returns_tags_from_cache(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -64,9 +64,9 @@ async fn test_get_tags_returns_tags_from_cache(
 // NOTE: the PHP test name says "empty" but the seed gives article 2
 // tag_cache 'database|postgresql', so the ported expectation is that tag.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_tags_returns_empty_for_no_tags(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -80,9 +80,9 @@ async fn test_get_tags_returns_empty_for_no_tags(
 
 // PHP: test_get_tags_with_custom_owner_uid
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_tags_with_custom_owner_uid(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -96,9 +96,9 @@ async fn test_get_tags_with_custom_owner_uid(
 
 // PHP: test_get_tags_with_explicit_tag_cache
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_tags_with_explicit_tag_cache(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -114,9 +114,9 @@ async fn test_get_tags_with_explicit_tag_cache(
 
 // PHP: test_get_labels_returns_cached_labels
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_labels_returns_cached_labels(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -131,9 +131,9 @@ async fn test_get_labels_returns_cached_labels(
 
 // PHP: test_get_labels_returns_no_labels_marker
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_labels_returns_no_labels_marker(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -157,9 +157,9 @@ async fn test_get_labels_returns_no_labels_marker(
 
 // PHP: test_get_labels_with_cached_labels
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_labels_with_cached_labels(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -181,9 +181,9 @@ async fn test_get_labels_with_cached_labels(
 
 // PHP: test_get_labels_different_owner
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_labels_different_owner(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -198,9 +198,9 @@ async fn test_get_labels_different_owner(
 
 // PHP: test_catchup_mark_as_read
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_catchup_mark_as_read(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -229,9 +229,9 @@ async fn test_catchup_mark_as_read(
 
 // PHP: test_catchup_mark_as_unread
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_catchup_mark_as_unread(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -260,9 +260,9 @@ async fn test_catchup_mark_as_unread(
 
 // PHP: test_catchup_toggle
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_catchup_toggle(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -293,9 +293,9 @@ async fn test_catchup_toggle(
 
 // PHP: test_catchup_multiple_articles
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_catchup_multiple_articles(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -319,9 +319,9 @@ async fn test_catchup_multiple_articles(
 
 // PHP: test_catchup_custom_owner_uid
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_catchup_custom_owner_uid(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -344,9 +344,9 @@ async fn test_catchup_custom_owner_uid(
 
 // PHP: test_purge_orphans_removes_orphaned_entries
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_purge_orphans_removes_orphaned_entries(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -387,9 +387,9 @@ async fn test_purge_orphans_removes_orphaned_entries(
 
 // PHP: test_purge_orphans_keeps_valid_entries
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_purge_orphans_keeps_valid_entries(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -410,9 +410,9 @@ async fn test_purge_orphans_keeps_valid_entries(
 
 // PHP: test_get_enclosures_returns_enclosures_for_article
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_enclosures_returns_enclosures_for_article(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -434,9 +434,9 @@ async fn test_get_enclosures_returns_enclosures_for_article(
 
 // PHP: test_get_enclosures_returns_empty_for_no_enclosures
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_enclosures_returns_empty_for_no_enclosures(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -452,9 +452,9 @@ async fn test_get_enclosures_returns_empty_for_no_enclosures(
 
 // PHP: test_labels_of_returns_empty_for_empty_array
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_labels_of_returns_empty_for_empty_array(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -467,9 +467,9 @@ async fn test_labels_of_returns_empty_for_empty_array(
 
 // PHP: test_labels_of_returns_unique_labels
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_labels_of_returns_unique_labels(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -484,9 +484,9 @@ async fn test_labels_of_returns_unique_labels(
 
 // PHP: test_feeds_of_returns_empty_for_empty_array
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_feeds_of_returns_empty_for_empty_array(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -499,9 +499,9 @@ async fn test_feeds_of_returns_empty_for_empty_array(
 
 // PHP: test_feeds_of_returns_unique_feeds
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_feeds_of_returns_unique_feeds(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -515,9 +515,9 @@ async fn test_feeds_of_returns_unique_feeds(
 
 // PHP: test_feeds_of_returns_multiple_feeds
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_feeds_of_returns_multiple_feeds(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -537,9 +537,9 @@ async fn test_feeds_of_returns_multiple_feeds(
 
 // PHP: test_get_image_extract_youtube_embed
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_image_extract_youtube_embed(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -557,9 +557,9 @@ async fn test_get_image_extract_youtube_embed(
 
 // PHP: test_get_image_extract_video_poster
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_image_extract_video_poster(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -577,9 +577,9 @@ async fn test_get_image_extract_video_poster(
 
 // PHP: test_get_image_extract_first_image
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_image_extract_first_image(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -597,9 +597,9 @@ async fn test_get_image_extract_first_image(
 
 // PHP: test_get_image_skips_data_uris
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_image_skips_data_uris(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -617,9 +617,9 @@ async fn test_get_image_skips_data_uris(
 
 // PHP: test_get_image_falls_back_to_enclosure_image
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_image_falls_back_to_enclosure_image(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -642,9 +642,9 @@ async fn test_get_image_falls_back_to_enclosure_image(
 
 // PHP: test_get_image_does_not_select_non_image_enclosure
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_image_does_not_select_non_image_enclosure(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -667,9 +667,9 @@ async fn test_get_image_does_not_select_non_image_enclosure(
 
 // PHP: test_get_image_mark_album_with_multiple_enclosures
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_image_mark_album_with_multiple_enclosures(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -694,9 +694,9 @@ async fn test_get_image_mark_album_with_multiple_enclosures(
 
 // PHP: test_get_image_rewrites_relative_urls
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_image_rewrites_relative_urls(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -716,9 +716,9 @@ async fn test_get_image_rewrites_relative_urls(
 
 // PHP: test_format_enclosures_returns_empty_when_no_enclosures
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_format_enclosures_returns_empty_when_no_enclosures(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -732,9 +732,9 @@ async fn test_format_enclosures_returns_empty_when_no_enclosures(
 
 // PHP: test_format_enclosures_can_inline_flag
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_format_enclosures_can_inline_flag(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,

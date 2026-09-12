@@ -77,9 +77,9 @@ async fn insert_filter(db: &Db, title: &str) -> i32 {
 /// `edit` with `id = 0` returns the empty-filter defaults: enabled, no rules /
 /// actions, and the `filter_types` / `action_types` maps (type 5 unsupported).
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql"
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql"
 ))]
 async fn test_edit_new_filter(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -118,9 +118,9 @@ async fn test_edit_new_filter(
 
 /// `edit` on a missing filter (nonzero id, not owned) returns `None`.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql"
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql"
 ))]
 async fn test_edit_not_found(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -135,9 +135,9 @@ async fn test_edit_not_found(
 /// list (with computed names, feed ids, and `inverse` omitted when false), the
 /// action list (with `action_param_label` and names), and the type maps.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql"
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql"
 ))]
 async fn test_edit_existing(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -212,9 +212,9 @@ async fn test_edit_existing(
 /// `printRuleName` renders the HTML rule name; a non-object / invalid JSON
 /// yields the PHP's literal error strings.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql"
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql"
 ))]
 async fn test_print_rule_name(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -256,9 +256,9 @@ async fn test_print_rule_name(
 /// `printActionName` renders the action name; a missing / non-object param
 /// yields the PHP's literal error strings.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql"
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql"
 ))]
 async fn test_print_action_name(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,

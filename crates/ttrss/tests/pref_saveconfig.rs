@@ -95,8 +95,8 @@ async fn last_digest_sent(db: &Pool) -> Option<chrono::NaiveDateTime> {
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql"
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql"
 ))]
 async fn test_saveconfig_sets_prefs(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -129,8 +129,8 @@ async fn test_saveconfig_sets_prefs(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql"
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql"
 ))]
 async fn test_saveconfig_boolean_default(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -164,8 +164,8 @@ async fn test_saveconfig_boolean_default(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql"
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql"
 ))]
 async fn test_saveconfig_ignores_invalid_pref(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -193,8 +193,8 @@ async fn test_saveconfig_ignores_invalid_pref(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql"
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql"
 ))]
 async fn test_saveconfig_blacklisted_tags_normalized(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -219,8 +219,8 @@ async fn test_saveconfig_blacklisted_tags_normalized(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql"
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql"
 ))]
 async fn test_saveconfig_need_reload_on_theme_change(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -245,8 +245,8 @@ async fn test_saveconfig_need_reload_on_theme_change(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql"
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql"
 ))]
 async fn test_saveconfig_no_reload_unchanged(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -267,8 +267,8 @@ async fn test_saveconfig_no_reload_unchanged(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql"
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql"
 ))]
 async fn test_saveconfig_digest_time_resets(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -300,8 +300,8 @@ async fn test_saveconfig_digest_time_resets(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql"
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql"
 ))]
 async fn test_resetconfig_discards_overrides(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,

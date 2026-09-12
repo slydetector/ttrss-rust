@@ -3968,6 +3968,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "test-db"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "ctor",
+ "hex",
+ "sha2",
+ "sqlx",
+ "testcontainers",
+ "testcontainers-modules",
+ "tokio",
+ "url",
+]
+
+[[package]]
 name = "testcontainers"
 version = "0.27.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4437,27 +4452,12 @@ dependencies = [
  "sha1",
  "sha2",
  "sqlx",
+ "test-db",
  "tokio",
  "tracing",
  "tracing-subscriber",
- "ttrss-testing",
  "url",
  "urlencoding",
-]
-
-[[package]]
-name = "ttrss-testing"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "ctor",
- "hex",
- "sha2",
- "sqlx",
- "testcontainers",
- "testcontainers-modules",
- "tokio",
- "url",
 ]
 
 [[package]]

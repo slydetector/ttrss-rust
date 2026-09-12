@@ -64,8 +64,8 @@ fn normalize(s: &str) -> String {
 // ── Pref_Labels::index ───────────────────────────────────────────────────────
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
 ))]
 async fn test_labels_index_structure(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -105,8 +105,8 @@ async fn test_labels_index_structure(
 // ── Pref_Feeds::index ────────────────────────────────────────────────────────
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
 ))]
 async fn test_feeds_index_structure(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -180,8 +180,8 @@ async fn test_feeds_index_structure(
 // and echoed into the search box (HTML-escaped); a later load without the
 // param recalls the cached term. A non-empty term also sets autoExpand=true.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
 ))]
 async fn test_feeds_index_search_term_and_cache(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,

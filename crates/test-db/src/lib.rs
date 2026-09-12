@@ -106,7 +106,7 @@ impl PgServer {
                 Err(e) if attempts < 30 => {
                     // Name collision / transient Docker error: back off and
                     // retry; the next attempt attaches to the existing box.
-                    eprintln!("[ttrss-testing] container start attempt {attempts} failed: {e}; retrying");
+                    eprintln!("[test-db] container start attempt {attempts} failed: {e}; retrying");
                     tokio::time::sleep(Duration::from_millis(500)).await;
                 }
                 Err(e) => {
@@ -169,7 +169,7 @@ pub fn init_database_url() {
     let url = rt
         .block_on(ensure_test_pg())
         .unwrap_or_else(|e| panic!("ctor: dedicated test Postgres unavailable: {e}"));
-    eprintln!("[ttrss-testing] test Postgres ready: {url}");
+    eprintln!("[test-db] test Postgres ready: {url}");
     // `std::env::set_var` is `unsafe` (data race with concurrent readers);
     // safe here: `#[ctor]` runs before any other code in the process.
     unsafe { std::env::set_var("DATABASE_URL", url) };

@@ -32,7 +32,7 @@ async fn setup(
     options: sqlx::postgres::PgConnectOptions,
 ) -> (Db, i32) {
     let db = common::make_db(pool, options).await.expect("test db");
-    let (hash, salt) = ttrss_testing::ssha512_password("testuser", "testpass123");
+    let (hash, salt) = test_db::ssha512_password("testuser", "testpass123");
     let uid: i32 = sqlx::query_scalar(
         "INSERT INTO ttrss_users (login, pwd_hash, salt, access_level)
          VALUES ($1, $2, $3, 0)
@@ -70,9 +70,9 @@ fn expect_failure(outcome: AuthOutcome) -> String {
 
 // PHP: test_correct_credentials_returns_true_and_sets_session
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_correct_credentials_returns_true_and_sets_session(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -96,9 +96,9 @@ async fn test_correct_credentials_returns_true_and_sets_session(
 
 // PHP: test_admin_credentials_work
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_admin_credentials_work(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -125,9 +125,9 @@ async fn test_admin_credentials_work(
 
 // PHP: test_authenticate_updates_last_login
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_authenticate_updates_last_login(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -153,9 +153,9 @@ async fn test_authenticate_updates_last_login(
 
 // PHP: test_wrong_password_returns_false
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_wrong_password_returns_false(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -168,9 +168,9 @@ async fn test_wrong_password_returns_false(
 
 // PHP: test_nonexistent_user_returns_false
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_nonexistent_user_returns_false(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -183,9 +183,9 @@ async fn test_nonexistent_user_returns_false(
 
 // PHP: test_login_is_case_insensitive
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_login_is_case_insensitive(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -203,9 +203,9 @@ async fn test_login_is_case_insensitive(
 
 // PHP: test_disabled_user_cannot_authenticate
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_disabled_user_cannot_authenticate(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,

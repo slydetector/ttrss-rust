@@ -70,9 +70,9 @@ fn request(pairs: &[(&str, Value)]) -> Map<String, Value> {
 /// `auth_pass`), the category `<select>`, the update/purge intervals, the user
 /// access level, and the text-search language list.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_editfeed_basic(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -196,9 +196,9 @@ async fn test_editfeed_basic(
 
 /// `editfeed` returns `null` for an unknown / non-owned feed.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_editfeed_unknown_feed(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -212,9 +212,9 @@ async fn test_editfeed_unknown_feed(
 
 /// Nested categories are indented by level in the category `<select>`.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_editfeed_cats_nested(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -264,9 +264,9 @@ fn test_decrypt_feed_pass_roundtrip() {
 
 /// `get_icon` maps virtual feed ids to Material icon names.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_icon_virtual(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -302,9 +302,9 @@ fn parse_doc(html: &str) -> kuchikiki::NodeRef {
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_editfeeds_overview(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -357,9 +357,9 @@ async fn test_editfeeds_overview(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_editfeeds_general_tab(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -417,9 +417,9 @@ async fn test_editfeeds_general_tab(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_editfeeds_auth_tab(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -460,9 +460,9 @@ async fn test_editfeeds_auth_tab(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_editfeeds_options_tab(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -508,9 +508,9 @@ async fn test_editfeeds_options_tab(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_editfeeds_category_options(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -557,9 +557,9 @@ async fn test_editfeeds_category_options(
 /// JSON object). The frontend's `select_hash` re-sorts the interval keys, so
 /// only the data (not the object key order) matters.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_subscribe_to_feed(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -610,9 +610,9 @@ async fn test_subscribe_to_feed(
 /// the feed is missing, owned by another user, or has an empty/invalid site
 /// URL. Not a JSON method: it returns a raw status + optional `Location` + body.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_opensite(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,

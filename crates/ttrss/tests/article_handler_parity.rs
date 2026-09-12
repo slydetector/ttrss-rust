@@ -95,9 +95,9 @@ async fn tag_row_count(db: &Db) -> i64 {
 
 // PHP: test_set_score_single_article
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_set_score_single_article(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -119,9 +119,9 @@ async fn test_set_score_single_article(
 
 // PHP: test_set_score_multiple_articles
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_set_score_multiple_articles(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -145,9 +145,9 @@ async fn test_set_score_multiple_articles(
 
 // PHP: test_set_score_zero
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_set_score_zero(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -171,9 +171,9 @@ async fn test_set_score_zero(
 
 // PHP: test_set_article_tags_new_tags
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_set_article_tags_new_tags(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -195,9 +195,9 @@ async fn test_set_article_tags_new_tags(
 
 // PHP: test_set_article_tags_replaces_existing
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_set_article_tags_replaces_existing(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -224,9 +224,9 @@ async fn test_set_article_tags_replaces_existing(
 
 // PHP: test_set_article_tags_clears_all
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_set_article_tags_clears_all(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -248,9 +248,9 @@ async fn test_set_article_tags_clears_all(
 
 // PHP: test_set_article_tags_trims_whitespace
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_set_article_tags_trims_whitespace(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -274,9 +274,9 @@ async fn test_set_article_tags_trims_whitespace(
 
 // PHP: test_print_article_tags_existing
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_print_article_tags_existing(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -291,9 +291,9 @@ async fn test_print_article_tags_existing(
 
 // PHP: test_print_article_tags_empty
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_print_article_tags_empty(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -310,9 +310,9 @@ async fn test_print_article_tags_empty(
 
 // PHP: test_complete_tags_returns_matching_tags
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_complete_tags_returns_matching_tags(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -338,9 +338,9 @@ async fn test_complete_tags_returns_matching_tags(
 
 // PHP: test_complete_tags_no_match
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_complete_tags_no_match(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -359,9 +359,9 @@ async fn test_complete_tags_no_match(
 
 // PHP: test_complete_tags_case_sensitive
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_complete_tags_case_sensitive(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -389,9 +389,9 @@ async fn test_complete_tags_case_sensitive(
 
 // PHP: test_assign_to_label
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_assign_to_label(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -415,9 +415,9 @@ async fn test_assign_to_label(
 
 // PHP: test_remove_from_label
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_remove_from_label(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -446,9 +446,9 @@ async fn test_remove_from_label(
 
 // PHP: test_get_metadata_by_id
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_metadata_by_id(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -469,9 +469,9 @@ async fn test_get_metadata_by_id(
 
 // PHP: test_get_metadata_by_id_nonexistent
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_metadata_by_id_nonexistent(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -487,9 +487,9 @@ async fn test_get_metadata_by_id_nonexistent(
 
 // PHP: test_redirect_valid_article
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_redirect_valid_article(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,

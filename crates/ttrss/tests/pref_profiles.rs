@@ -144,8 +144,8 @@ async fn insert_user(db: &Pool, id: i32, login: &str) {
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql"
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql"
 ))]
 async fn test_add_profile(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -176,8 +176,8 @@ async fn test_add_profile(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql"
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql"
 ))]
 async fn test_add_profile_empty_title(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -193,8 +193,8 @@ async fn test_add_profile_empty_title(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql"
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql"
 ))]
 async fn test_save_profile(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -236,8 +236,8 @@ async fn test_save_profile(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql"
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql"
 ))]
 async fn test_remove_profiles(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -259,8 +259,8 @@ async fn test_remove_profiles(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql"
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql"
 ))]
 async fn test_remove_profiles_keeps_active(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -282,8 +282,8 @@ async fn test_remove_profiles_keeps_active(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql"
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql"
 ))]
 async fn test_activate_profile(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -316,8 +316,8 @@ async fn test_activate_profile(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql"
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql"
 ))]
 async fn test_clone_profile_from_default(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -356,8 +356,8 @@ async fn test_clone_profile_from_default(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql"
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql"
 ))]
 async fn test_clone_profile_from_named(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -404,8 +404,8 @@ async fn test_clone_profile_from_named(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql"
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql"
 ))]
 async fn test_clone_profile_bad_input(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,

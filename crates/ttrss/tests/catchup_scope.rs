@@ -127,9 +127,9 @@ fn assert_catchup(before: &[Row], after: &[Row], in_scope: impl Fn(&Row) -> bool
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_catchup_single_feed(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -155,9 +155,9 @@ async fn test_catchup_single_feed(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_catchup_category(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -182,9 +182,9 @@ async fn test_catchup_category(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_catchup_all(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -205,9 +205,9 @@ async fn test_catchup_all(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_catchup_starred(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -237,9 +237,9 @@ async fn test_catchup_starred(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_catchup_published(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -268,9 +268,9 @@ async fn test_catchup_published(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_catchup_label(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -306,9 +306,9 @@ async fn test_catchup_label(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_catchup_cat_labels(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -344,9 +344,9 @@ async fn test_catchup_cat_labels(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_catchup_tag(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -396,9 +396,9 @@ async fn test_catchup_tag(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_catchup_uncategorized(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -500,9 +500,9 @@ async fn add_entry(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_catchup_fresh(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -546,9 +546,9 @@ async fn test_catchup_fresh(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_catchup_mode_1day(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -594,9 +594,9 @@ async fn test_catchup_mode_1day(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_catchup_mode_1week(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,

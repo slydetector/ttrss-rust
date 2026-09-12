@@ -68,8 +68,8 @@ fn normalize(s: &str) -> String {
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql"
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql"
 ))]
 async fn test_index_auth_structure(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -143,8 +143,8 @@ async fn test_index_auth_structure(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql"
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql"
 ))]
 async fn test_index_auth_otp_enabled(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,

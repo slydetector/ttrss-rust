@@ -76,8 +76,8 @@ async fn pref_value(db: &Pool, pref_name: &str) -> Option<String> {
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql"
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql"
 ))]
 async fn test_set_pref_sets_bool(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -108,8 +108,8 @@ async fn test_set_pref_sets_bool(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql"
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql"
 ))]
 async fn test_set_pref_stylesheet_keeps_tags(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -135,8 +135,8 @@ async fn test_set_pref_stylesheet_keeps_tags(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql"
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql"
 ))]
 async fn test_set_pref_strips_tags_other(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -167,8 +167,8 @@ async fn test_set_pref_strips_tags_other(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql"
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql"
 ))]
 async fn test_toggle_pref_flips_bool(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -203,8 +203,8 @@ async fn test_toggle_pref_flips_bool(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql"
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql"
 ))]
 async fn test_set_widescreen(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -230,8 +230,8 @@ async fn test_set_widescreen(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql"
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql"
 ))]
 async fn test_client_log_acks(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -254,8 +254,8 @@ async fn test_client_log_acks(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql"
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql"
 ))]
 async fn test_client_log_empty_noop(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,

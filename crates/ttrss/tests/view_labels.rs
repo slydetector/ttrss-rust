@@ -88,9 +88,9 @@ async fn label_cache(pool: &sqlx::Pool<sqlx::Postgres>, article_id: i64) -> Opti
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql"
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql"
 ))]
 async fn test_view_populates_label_cache(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,

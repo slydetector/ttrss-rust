@@ -83,8 +83,8 @@ fn count_log_rows(html: &str) -> usize {
 
 /// `index` renders the accordion with all four panes (assumes SQL logging).
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
 ))]
 async fn test_index_structure(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -111,8 +111,8 @@ async fn test_index_structure(
 /// E_USER_ERROR (256) and an E_WARNING (2) row; "Errors" (256) shows only the
 /// E_USER_ERROR row; "Everything" (1024) shows both.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
 ))]
 async fn test_log_viewer_severity(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -157,8 +157,8 @@ async fn test_log_viewer_severity(
 
 /// `clearLog` deletes all error-log rows.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
 ))]
 async fn test_clear_log(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -194,8 +194,8 @@ fn test_send_test_email_noop() {
 /// `getphpinfo` surfaces Rust/server diagnostics (version + config), not a PHP
 /// dump, and omits the db password / encryption key.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
 ))]
 async fn test_get_php_info(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,

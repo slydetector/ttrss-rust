@@ -21,7 +21,7 @@ use ttrss::core::db::{Db, SESSION_SETUP};
 
 #[ctor::ctor(unsafe)]
 fn init_test_pg() {
-    ttrss_testing::init_database_url();
+    test_db::init_database_url();
 }
 
 /// Wrap the pool options injected by `#[sqlx::test]` in a core [`Db`],

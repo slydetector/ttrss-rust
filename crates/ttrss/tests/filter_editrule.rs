@@ -124,8 +124,8 @@ fn request(pairs: &[(&str, Value)]) -> Map<String, Value> {
 /// category then its whole subtree then its feeds), the "Uncategorized"
 /// section, and the `<select multiple=<TAB>rue"` opening — byte-for-byte the PHP.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql"
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql"
 ))]
 async fn test_editrule_nested(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -144,8 +144,8 @@ async fn test_editrule_nested(
 /// `editrule` with a selection: `0` (All feeds), feed `11`, and `CAT:3` get
 /// `selected="1"`.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql"
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql"
 ))]
 async fn test_editrule_selected(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -164,8 +164,8 @@ async fn test_editrule_selected(
 
 /// `editrule` with category + feed selection: `CAT:2`, `CAT:4`, and feed `10`.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql"
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql"
 ))]
 async fn test_editrule_cat_selected(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -188,8 +188,8 @@ async fn test_editrule_cat_selected(
 /// `editrule` with `ENABLE_FEED_CATS` disabled: a flat, title-ordered feed list
 /// (no "All feeds", no "Uncategorized", no indentation) inside the same `<select>`.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql"
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql"
 ))]
 async fn test_editrule_flat(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,

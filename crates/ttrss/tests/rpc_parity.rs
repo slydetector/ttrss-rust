@@ -93,9 +93,9 @@ async fn marked_state(db: &Db, ref_id: i32) -> (bool, Option<chrono::NaiveDateTi
 
 // PHP: test_publ_publish_article
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_publ_publish_article(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -128,9 +128,9 @@ async fn test_publ_publish_article(
 
 // PHP: test_publ_unpublish_article
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_publ_unpublish_article(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -170,9 +170,9 @@ async fn test_publ_unpublish_article(
 
 // PHP: test_mark_star_article
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_mark_star_article(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -205,9 +205,9 @@ async fn test_mark_star_article(
 
 // PHP: test_mark_unstar_article
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_mark_unstar_article(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -247,9 +247,9 @@ async fn test_mark_unstar_article(
 
 // PHP: test_publ_updates_last_published_timestamp
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_publ_updates_last_published_timestamp(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -298,9 +298,9 @@ async fn test_publ_updates_last_published_timestamp(
 
 // PHP: test_delete_removes_articles
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_delete_removes_articles(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -337,9 +337,9 @@ async fn test_delete_removes_articles(
 // PHP: test_markSelected_mark_as_read
 #[allow(non_snake_case)]
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_markSelected_mark_as_read(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -370,9 +370,9 @@ async fn test_markSelected_mark_as_read(
 // PHP: test_markSelected_mark_as_unread
 #[allow(non_snake_case)]
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_markSelected_mark_as_unread(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -409,9 +409,9 @@ async fn test_markSelected_mark_as_unread(
 // PHP: test_publishSelected_publish_articles
 #[allow(non_snake_case)]
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_publishSelected_publish_articles(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -441,9 +441,9 @@ async fn test_publishSelected_publish_articles(
 // PHP: test_publishSelected_unpublish_articles
 #[allow(non_snake_case)]
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_publishSelected_unpublish_articles(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,

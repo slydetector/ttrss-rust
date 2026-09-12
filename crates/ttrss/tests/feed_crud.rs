@@ -145,9 +145,9 @@ async fn ref_ids(db: &Db) -> Vec<i32> {
 
 /// `editSave` updates a single feed's columns (owner-scoped).
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_edit_save_single(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -197,9 +197,9 @@ async fn test_edit_save_single(
 
 /// `editSave` with `cat_id = 0` clears the category (`NULL`).
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_edit_save_cat_id_null(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -222,9 +222,9 @@ async fn test_edit_save_cat_id_null(
 
 /// `editSave` on a feed the owner does not own is a no-op.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_edit_save_nonexistent(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -248,9 +248,9 @@ async fn test_edit_save_nonexistent(
 /// `batchEditSave` updates the given columns for each feed in `ids`, leaving
 /// the rest of the owner's feeds untouched.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_batch_edit_save(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -288,9 +288,9 @@ async fn test_batch_edit_save(
 
 /// `batchEditSave` with an empty `ids` is a no-op.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_batch_edit_save_empty_ids(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -318,9 +318,9 @@ async fn test_batch_edit_save_empty_ids(
 /// `batchEditSave` updates `cat_id` only when `ENABLE_FEED_CATS` is on (the
 /// default); with it off the category is left untouched.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_batch_edit_save_cat_respects_pref(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -362,9 +362,9 @@ async fn test_batch_edit_save_cat_respects_pref(
 /// `batchEditSave` stores the auth credentials; with no encryption key the
 /// password is written verbatim and `auth_pass_encrypted` is cleared.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_batch_edit_save_auth_pass(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -402,9 +402,9 @@ async fn test_batch_edit_save_auth_pass(
 /// preserved with `feed_id = NULL` (archived); the non-starred entries cascade
 /// away; the feed's access keys are removed.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_remove_feed(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -450,9 +450,9 @@ async fn test_remove_feed(
 
 /// `remove` (negative id) removes the label (and its assignments + cache).
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_remove_label(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -486,9 +486,9 @@ async fn test_remove_label(
 
 /// `addCat` creates a category; a second call with the same title is a no-op.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_add_cat(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -511,9 +511,9 @@ async fn test_add_cat(
 /// `renameCat` renames an existing category; a missing id or empty title is a
 /// no-op.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_rename_cat(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -558,9 +558,9 @@ async fn test_rename_cat(
 /// `removeCat` deletes the category; the feeds keep their rows but their
 /// `cat_id` is nulled (`ON DELETE SET NULL`).
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_remove_cat(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -629,9 +629,9 @@ async fn access_key_for(db: &Db, feed_id: &str, is_cat: bool) -> Option<String> 
 
 /// `catsortreset` zeroes every category `order_id` for the owner.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_catsortreset(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -656,9 +656,9 @@ async fn test_catsortreset(
 
 /// `feedsortreset` zeroes every feed `order_id` for the owner.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_feedsortreset(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -681,9 +681,9 @@ async fn test_feedsortreset(
 /// `savefeedorder` reorders feeds within a category and categories at the top
 /// level (the dojo `payload` tree).
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_savefeedorder_reorder(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -721,9 +721,9 @@ async fn test_savefeedorder_reorder(
 
 /// `savefeedorder` can move a feed to a different category (its `cat_id`).
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_savefeedorder_move(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -758,9 +758,9 @@ async fn test_savefeedorder_move(
 
 /// `clearKeys` deletes every access key for the owner.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_clear_keys(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -785,9 +785,9 @@ async fn test_clear_keys(
 /// `regenFeedKey` creates a key if absent, and re-rolls it on each call (while
 /// keeping a single row per (feed, is_cat)).
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_regen_feed_key(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -821,9 +821,9 @@ async fn test_regen_feed_key(
 
 /// `getSharedURL` builds the public RSS share URL for a feed (title + link).
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_get_shared_url(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -853,9 +853,9 @@ async fn test_get_shared_url(
 /// `removeIcon` deletes the favicon cache file and resets the feed's
 /// `favicon_*` columns (only when the cached file exists and is removable).
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_remove_icon(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -908,9 +908,9 @@ async fn test_remove_icon(
 }
 
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_upload_icon(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -1018,9 +1018,9 @@ async fn test_upload_icon(
 /// feed for the user (posted cat/login/pass, `update_method = 0`, pass stored
 /// unencrypted).
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_batch_add_feeds(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -1072,9 +1072,9 @@ async fn test_batch_add_feeds(
 /// `batchAddFeeds`: a feed URL the user already has is not re-inserted (only
 /// the new one is added).
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_batch_add_feeds_skip_existing(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -1116,9 +1116,9 @@ async fn test_batch_add_feeds_skip_existing(
 
 /// `batchAddFeeds`: invalid / non-http lines are skipped by `UrlHelper::validate`.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_batch_add_feeds_invalid_skipped(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -1146,9 +1146,9 @@ async fn test_batch_add_feeds_invalid_skipped(
 
 /// `batchAddFeeds`: a read-only user is a no-op (no feeds added).
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_batch_add_feeds_readonly_noop(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -1177,9 +1177,9 @@ async fn test_batch_add_feeds_readonly_noop(
 /// `batchSubscribe`: returns `enable_cats` as an **int** (`1`/`0`, per the PHP
 /// `(int)` cast) + the category `<select>`.
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
-    "../../testing/fixtures/seed.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_batch_subscribe(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
@@ -1211,8 +1211,8 @@ async fn test_batch_subscribe(
 /// `markSelected`, and a mixed-case `getFeedTree` all route to a real handler
 /// (not `E_UNKNOWN_METHOD`).
 #[sqlx::test(fixtures(
-    "../../testing/fixtures/schema.sql",
-    "../../testing/fixtures/baseline.sql",
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
 ))]
 async fn test_dispatch_case_insensitive(
     pool: sqlx::pool::PoolOptions<sqlx::Postgres>,

@@ -4,7 +4,7 @@
 
 #[ctor::ctor(unsafe)]
 fn init_test_pg() {
-    ttrss_testing::init_database_url();
+    test_db::init_database_url();
 }
 
 async fn count(pool: &sqlx::PgPool, table: &str) -> i64 {
@@ -78,8 +78,8 @@ async fn fixture_db_is_fresh_and_writable(pool: sqlx::PgPool) {
     assert_eq!(uid, 0);
 
     // …and is writable (the parity suites mutate state within a test).
-    let (hash, salt) = ttrss_testing::ssha512_password("smokemark", "smoke");
-    let id: i32 = ttrss_testing::seed_user(&pool, "smokemark", &hash, &salt, 0)
+    let (hash, salt) = test_db::ssha512_password("smokemark", "smoke");
+    let id: i32 = test_db::seed_user(&pool, "smokemark", &hash, &salt, 0)
         .await
         .unwrap();
     let row: (i32,) = sqlx::query_as("SELECT access_level FROM ttrss_users WHERE id = $1")

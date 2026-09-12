@@ -10,7 +10,7 @@ path = "src/main.rs"
 
 [dev-dependencies]
 ctor.workspace = true
-ttrss-testing = { path = "../testing" }
+test-db = { path = "../test-db" }
 
 [dependencies]
 anyhow.workspace = true
