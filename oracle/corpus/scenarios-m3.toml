@@ -8,7 +8,7 @@
 #
 # Run with:
 #   TTRSS_HARNESS_DB=postgres://postgres:password@127.0.0.1:5432/postgres \
-#     tt-rust-harness run --base-url http://127.0.0.1:8280/tt-rss \
+#     harness run --base-url http://127.0.0.1:8280/tt-rss \
 #       --scenarios oracle/corpus/scenarios-m3.toml \
 #       --vars oracle/data/ids.json --out <run-dir>
 #

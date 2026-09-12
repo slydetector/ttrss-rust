@@ -109,7 +109,7 @@ python3 oracle/scripts/check_sync.py
 # --- build ---
 if [ "$DO_BUILD" = 1 ]; then
     echo "building server + harness ..."
-    cargo build -q -p ttrss --bin ttrss -p tt-rust-harness
+    cargo build -q -p ttrss --bin ttrss -p harness
 fi
 
 # --- the oracle DB must be reachable ---
@@ -175,7 +175,7 @@ echo "Rust server up: $BASE_URL (pid $SERVER_PID)"
 # --- run the corpus (steps that 404 still write fixtures, so continue) ---
 echo "running corpus -> $OUT"
 set +e
-./target/debug/tt-rust-harness run \
+./target/debug/harness run \
     --base-url "$BASE_URL" \
     --scenarios "$SCENARIOS" \
     --vars "$VARS" \
@@ -186,4 +186,4 @@ set -e
 
 # --- diff against the baseline ---
 echo "diffing $BASELINE vs $OUT"
-./target/debug/tt-rust-harness diff --a "$BASELINE" --b "$OUT"
+./target/debug/harness diff --a "$BASELINE" --b "$OUT"

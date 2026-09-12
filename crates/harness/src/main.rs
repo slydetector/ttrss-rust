@@ -1,4 +1,4 @@
-//! tt-rust-harness: oracle-parity record/diff harness.
+//! harness: oracle-parity record/diff harness.
 //!
 //! Subcommands:
 //!   run  -- execute a scenario file against a base URL, record every HTTP
@@ -25,7 +25,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(name = "tt-rust-harness", version, about)]
+#[command(name = "harness", version, about)]
 struct Cli {
     #[command(subcommand)]
     command: Command,

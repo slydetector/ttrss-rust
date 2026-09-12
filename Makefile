@@ -8,7 +8,7 @@
 .DEFAULT_GOAL := help
 SHELL := /bin/bash
 SCRIPTS     := oracle/scripts
-HARNESS_BIN := ./target/debug/tt-rust-harness
+HARNESS_BIN := ./target/debug/harness
 # Server build profile for `run`. A debug build is ~7x slower per request than
 # the optimized one (and the PHP oracle is compiled/OPcache'd), so the
 # canonical server runs in release; set PROFILE=debug for fast iteration.
@@ -76,7 +76,7 @@ oracle-check: ## verify the golden dataset matches the current seed recipe
 # --- Rust server -------------------------------------------------------------
 .PHONY: build
 build: ## build the debug Rust server + harness (for tests / the differential harness)
-	cargo build -p ttrss --bin ttrss -p tt-rust-harness
+	cargo build -p ttrss --bin ttrss -p harness
 
 .PHONY: build-server
 build-server: ## build the server in $(PROFILE) (used by `run`)

@@ -2,7 +2,7 @@
 # answer identically.
 #
 # Run with:
-#   tt-rust-harness run --base-url http://127.0.0.1:8280/tt-rss \
+#   harness run --base-url http://127.0.0.1:8280/tt-rss \
 #       --scenarios oracle/corpus/scenarios.template.toml \
 #       --vars oracle/data/ids.json --out <run-dir>
 #

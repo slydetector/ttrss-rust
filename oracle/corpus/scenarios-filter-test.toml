@@ -3,7 +3,7 @@
 #
 # Record the oracle baseline, then diff a Rust run against it:
 #   oracle/scripts/reset-db.sh
-#   tt-rust-harness run --base-url http://127.0.0.1:8280/tt-rss \
+#   harness run --base-url http://127.0.0.1:8280/tt-rss \
 #       --scenarios oracle/corpus/scenarios-filter-test.toml \
 #       --vars oracle/data/ids.json --out oracle/data/runs/filter-test-oracle
 #   oracle/scripts/reset-db.sh

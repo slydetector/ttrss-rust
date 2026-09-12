@@ -1,12 +1,12 @@
 [package]
-name = "tt-rust-harness"
-description = "Record/replay/diff harness for tt-rust oracle parity testing"
+name = "harness"
+description = "Record/replay/diff harness for ttrss oracle parity testing"
 license.workspace = true
 version.workspace = true
 edition.workspace = true
 
 [[bin]]
-name = "tt-rust-harness"
+name = "harness"
 path = "src/main.rs"
 
 [dependencies]

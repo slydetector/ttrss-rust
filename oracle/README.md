@@ -142,7 +142,7 @@ marked `skip = true` are kept for re-enablement but not executed or diffed)
 Run it:
 
 ```sh
-tt-rust-harness run --scenarios oracle/corpus/scenarios.template.toml \
+harness run --scenarios oracle/corpus/scenarios.template.toml \
     --vars oracle/data/ids.json --out oracle/data/runs/<name>
 ```
 
@@ -155,9 +155,9 @@ re-derived; `--vars` supplies the stable seeded facts.
 Two runs minutes apart must diff clean after normalization:
 
 ```sh
-tt-rust-harness run ... --out oracle/data/runs/oracle-a
-tt-rust-harness run ... --out oracle/data/runs/oracle-b
-tt-rust-harness diff --a oracle/data/runs/oracle-a --b oracle/data/runs/oracle-b
+harness run ... --out oracle/data/runs/oracle-a
+harness run ... --out oracle/data/runs/oracle-b
+harness diff --a oracle/data/runs/oracle-a --b oracle/data/runs/oracle-b
 # -> 61 exchange(s): 61 match, 0 mismatch
 ```
 
