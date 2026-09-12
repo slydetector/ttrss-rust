@@ -39,6 +39,7 @@ serde_urlencoded = "0.7"
 sha1 = "0.10"
 sha2 = "0.10"
 quick-xml = { version = "0.42", features = ["serialize"] }
+roxmltree = "0.21"
 qrcode = { version = "0.14", default-features = false, features = ["image"] }
 image = { version = "0.25", default-features = false }
 png = "0.18"
