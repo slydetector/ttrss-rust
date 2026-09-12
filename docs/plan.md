@@ -152,6 +152,31 @@ Restructured per `research-report.md` (strangler-fig / vertical-slice / golden-m
 | **M8** | CLI/daemon parity + migrations | All `update.php` subcommands, lockfile semantics, `--update-schema` reusing exact `.sql` files, exit codes |
 | **M9** | Hardening & performance | Fuzz (sanitizer/parser/URL), security matrix, perf vs PHP baseline (target: faster), Docker images, docs, cutover runbook |
 
+### Where we are (current state, 2026-09-11)
+
+> **The single reference for "what's done vs. not done / what's next."** Per-milestone
+> detail lives in the status sections below (M0–M2) and the §3a Phase 4 status bullets
+> (M3–M5); if those drift from this table, **this table wins**. ✅ = complete, ⬜ = not started.
+
+| M | Status | Done | Remaining (tracked in §3a / below) |
+| --- | --- | --- | --- |
+| **M0** | ✅ | Oracle + record/replay/diff harness (golden DB, corpus, normalizers). | — |
+| **M1** | ✅ | Serve static + login/OTP, SPA shell, encrypted DB sessions. | — |
+| **M2** | ✅ | Read-only UI (tree/counters/headlines/content/search/labels), `Feeds::view` + `search`, `RPC::getAllCounters`, level-23 API **reads**, Atom/JSON syndication, feed icons, ETag/304 shells. | Disabled corpus steps (intentional, not bugs): `checkforupdates`, `previewDigest`, web admin logout 051–052, otpuser 058–061. |
+| **M3** | ✅ | Article-state mutations (mark/star/publish/unread, catchup feed/cat/all, score, tags, labels, `getmetadatabyid`, `redirect`) — 21/21 clean vs the M3 `db_state` corpus. | `notes` handler → M7 (plugin). |
+| **M4** | ✅ | `Pref_Prefs` (profiles, app passwords, save+reset, `index`/`index_auth` + OTP writes), feed CRUD + categories + icons + ordering + access keys + OPML, filter CRUD + execution, label CRUD. | `Feeds::add` (subscribe) → M6 (needs fetch/parse). |
+| **M5** | ✅ | Level-23 API **writes** + `logout`, `Pref_Users`, `Pref_System`, password recovery, batch-add-feeds, case-insensitive dispatch. | `updateFeed`/`subscribeToFeed` → M6; plugin management → M7. |
+| **M6** | ⬜ **NEXT** | — | The update engine — decomposed below. |
+
+**Next = M6 (the engine)**, decomposed per `docs/unified-architecture.md` §4:
+- **M6a — parser** (`FeedParser` + `FeedItem_*`) — pure, architecture-independent. **← the next increment**
+- **M6b — deterministic pipeline** (GUID/hash → dedup → upsert → filter → counters) — verified by ported PHP tests + a batch smoke test.
+- **M6c — daemon/scheduler shell** (tokio worker loop, fetch, housekeeping, graceful shutdown).
+
+**M6a (the first increment):** port `tt-rss/classes/FeedParser.php` (247 L) + `FeedItem.php` (24 L) over a namespace-aware DOM crate (`roxmltree` — **not yet a dependency; add it**; the existing `quick-xml` is a pull parser, not a namespace DOM). Handle RDF/RSS/Atom + namespaces + content-encoding/gzip detection. Replicate 1:1: `tests/FeedParserTest` + `tests/FeedItemTest` (pure) + `tests_functional/FeedItem{Atom,Common}Test`.
+
+**Open / deferred (not done, each tracked elsewhere):** the disabled M2 corpus steps above; `notes` handler (M7); plugin management + the `HOOK_*` no-ops (M7); `updateFeed`/`subscribeToFeed` (M6 — need `UrlHelper::fetch` + `FeedParser`); `checkforupdates` is an intentional no-op (no PHP-upstream channel).
+
 ### M0 status: COMPLETE (2026-09-03)
 
 - Oracle stack up: `oracle/` (docker compose: postgres15 + FPM app + updater + nginx),
@@ -755,11 +780,11 @@ before them:
 
 | Remaining PHP coverage | Blocked on (Rust) | Milestone |
 | --- | --- | --- |
-| `Feeds::view` / `Feeds::search` response handlers + `RPC::getAllCounters` (corpus 009/017/018/019/020/056) | `headlines::view`/`search` RPC wiring + `Feeds` branch in `rpc.rs` | **M2** (see the `M2 — Feeds::view` NEXT block below + §3a) |
+| ~~`Feeds::view` / `Feeds::search` + `RPC::getAllCounters`~~ **✅ done 2026-09-11** | `headlines::view`/`search` + `counters::get_all_counters` (wired in the `rpc.rs` `Feeds` branch); corpus 009/017/018/019/020/056 clean | **M2** ✅ |
 | Feed-parser / RSS-utils (fetch/parse/hash/dedup/filters/enclosures) | `FeedParser` + `RSSUtils` ports | **M6** |
 | DiskCache / Scheduler / counter-cache maintenance | DiskCache port + `daemon` tokio workers | **M6** |
 | PluginHost hooks (the `HOOK_*` no-ops left in rows 9–14) | Rust plugin API + first-party plugins | **M7** |
-| External-API write ops + admin (`Pref_Users`, system, OTP/QR) | write/admin handlers (API meta + DB-only writes ✅; `Pref_Users` admin slice ✅; `shareToPublished` ✅; `getFeedIcon` ✅ 2026-09-16; `Pref_System` log/email ✅; batch-add-feeds + case-insensitive dispatch ✅; **password recovery `forgotpass` + API `logout` ✅ 2026-09-17**; OTP/QR shipped M4; `updateFeed`/`subscribeToFeed` → M6) | **M5** (nearly complete) |
+| External-API write ops + admin (`Pref_Users`, system, OTP/QR) | write/admin handlers (API meta + DB-only writes ✅; `Pref_Users` admin slice ✅; `shareToPublished` ✅; `getFeedIcon` ✅; `Pref_System` log/email ✅; batch-add-feeds + case-insensitive dispatch ✅; **password recovery `forgotpass` + API `logout` ✅**; OTP/QR shipped M4; only remaining: `updateFeed`/`subscribeToFeed` → M6) | **M5** ✅ (complete; `updateFeed`/`subscribeToFeed` → M6) |
 | Config CRUD (feed CRUD + categories + icons + OPML, filters, access keys) ✅ | M4 mutation handlers | **M4** (complete 2026-09-16; feed subscribe/create → M6) |
 **M2 close-out test parity (2026-09-16):** porting the `backend.php` read handlers
 surfaced two more PHP suites for already-ported modules, now replicated:
@@ -932,7 +957,7 @@ Infra findings from rows 12–14 (affect all DB-backed tests):
 - Harness `canonical_html` now treats `<p>` as **transparent** (libxml HTML4 auto-wraps
   bare text; html5ever HTML5 doesn't) — reconciles the two without chasing libxml.
 
-**NEXT (not started):** `Feeds::view` (017/018/019/056) + `Feeds::search` (020) +
+**DONE (2026-09-11 — all ported; the plan below is kept for reference):** `Feeds::view` (017/018/019/056) + `Feeds::search` (020) +
 `RPC::getAllCounters` (009). Wire a `"Feeds"` branch in `crates/server/src/rpc.rs` (add
 `Feeds` to `is_protected`; it's CSRF-gated, corpus sends valid token). `Feeds::view`:
 feed-ownership check (label/feed/cat) → else `_generate_error_feed` "Feed not found.";
@@ -987,7 +1012,7 @@ sandboxing, `STRIP_IMAGES`, `highlight_words`.
   (raw content mixes literal chars + numeric `&#8217;` + named forms; the parser
   collapses all to the char model). Since (B), the *named-entity spelling* no
   longer needs to match — only the parsed structure.
-- **Corpus steps still to satisfy:** `009 rpc_counters` (`RPC::getAllCounters`),
+- **Corpus steps (satisfied 2026-09-11):** `009 rpc_counters` (`RPC::getAllCounters`),
   `017/018/019/056` `Feeds::view` (headlines), `020` `Feeds::search` (returns a
   search-UI response, *different* shape — `show_language`/`all_languages`, not a
   headline list). Re-read `tt-rss/classes/Feeds.php::view`(430)/`_get_headlines`(1354)/
