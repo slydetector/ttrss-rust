@@ -13,15 +13,15 @@
 use serde_json::{json, Map, Value};
 use sqlx::Row;
 
-use crate::prefs;
 use crate::cats::{CAT_LABELS, CAT_SPECIAL, CAT_UNCATEGORIZED};
+use crate::prefs;
 use crate::sanitizer;
 use crate::session::Sess;
-use crate::util::{basename, param_to_bool, strip_tags, truncate_string};
 use crate::time::{self, TzCtx};
+use crate::util::{basename, param_to_bool, strip_tags, truncate_string};
 use crate::AppState;
 
-use crate::labels::{feed_to_label_id, label_to_feed_id, LABEL_BASE_INDEX};
+use crate::labels::{feed_to_label_id, LABEL_BASE_INDEX};
 
 // `Feeds::*` (functions.php).
 pub(crate) const FEED_ARCHIVED: i64 = 0;
@@ -67,7 +67,10 @@ pub async fn view(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> 
     let next_unread_feed = extra.get("nuf").cloned().unwrap_or(Value::from(0));
     let offset = extra
         .get("skip")
-        .and_then(|v| v.as_i64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
+        .and_then(|v| {
+            v.as_i64()
+                .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+        })
         .unwrap_or(0);
     let order_by = extra
         .get("order_by")
@@ -76,7 +79,10 @@ pub async fn view(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> 
         .to_string();
     let check_first_id = extra
         .get("fid")
-        .and_then(|v| v.as_i64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
+        .and_then(|v| {
+            v.as_i64()
+                .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+        })
         .unwrap_or(0);
 
     // `if (is_numeric($feed)) $feed = (int) $feed;` (a non-numeric string is a
@@ -126,8 +132,24 @@ pub async fn view(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> 
     }
 
     // `Prefs::set` for the two view prefs (the PHP side effect, Feeds.php).
-    prefs::set(&state.db, "_DEFAULT_VIEW_MODE", &view_mode, uid, profile, true).await;
-    prefs::set(&state.db, "_DEFAULT_VIEW_ORDER_BY", &order_by, uid, profile, true).await;
+    prefs::set(
+        &state.db,
+        "_DEFAULT_VIEW_MODE",
+        &view_mode,
+        uid,
+        profile,
+        true,
+    )
+    .await;
+    prefs::set(
+        &state.db,
+        "_DEFAULT_VIEW_ORDER_BY",
+        &order_by,
+        uid,
+        profile,
+        true,
+    )
+    .await;
 
     // Bump the login timestamp if it's over an hour old.
     if let Some(last_login_update) = data.get_int("last_login_update") {
@@ -209,8 +231,14 @@ pub async fn view(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> 
 
     let mut reply = Map::new();
     let mut headlines = ret.headlines;
-    headlines
-        .insert("id".into(), if nuf_truthy { next_unread_feed } else { feed_value });
+    headlines.insert(
+        "id".into(),
+        if nuf_truthy {
+            next_unread_feed
+        } else {
+            feed_value
+        },
+    );
     headlines.insert("is_cat".into(), json!(cat_view));
     reply.insert("headlines".into(), Value::Object(headlines));
     reply.insert(
@@ -253,7 +281,9 @@ pub async fn search(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -
         all_languages.push(Value::from(s));
     }
 
-    let default_language = prefs::resolve(prefs::DEFAULT_SEARCH_LANGUAGE, &rows, profile).as_str().to_string();
+    let default_language = prefs::resolve(prefs::DEFAULT_SEARCH_LANGUAGE, &rows, profile)
+        .as_str()
+        .to_string();
 
     json!({
         "show_language": true,
@@ -339,7 +369,10 @@ async fn format_headlines_list(
     let disable_cache = !search.is_empty();
 
     let vfeed_group_enabled = prefs::resolve("VFEED_GROUP_BY_FEED", rows, profile).as_bool()
-        && !((feed_num.map(|f| NEVER_GROUP_FEEDS.contains(&f)).unwrap_or(false)) && !cat_view);
+        && !((feed_num
+            .map(|f| NEVER_GROUP_FEEDS.contains(&f))
+            .unwrap_or(false))
+            && !cat_view);
 
     // ---- `_get_headlines` ----
     let q = get_headlines(
@@ -360,9 +393,9 @@ async fn format_headlines_list(
         order_by,
         rows,
         profile,
-        0, // since_id (the SPA `view` call does not paginate by id)
+        0,     // since_id (the SPA `view` call does not paginate by id)
         false, // ignore_vfeed_group (the SPA view path does not set it)
-        "", // start_ts (the SPA view path does not set it)
+        "",    // start_ts (the SPA view path does not set it)
     )
     .await;
 
@@ -380,10 +413,16 @@ async fn format_headlines_list(
     } = q;
 
     let tz = TzCtx {
-        user_tz: prefs::resolve(prefs::USER_TIMEZONE, rows, profile).as_str().to_string(),
+        user_tz: prefs::resolve(prefs::USER_TIMEZONE, rows, profile)
+            .as_str()
+            .to_string(),
         client_tz_offset: data.get_int("clientTzOffset").unwrap_or(0),
-        short_date_format: prefs::resolve(prefs::SHORT_DATE_FORMAT, rows, profile).as_str().to_string(),
-        long_date_format: prefs::resolve(prefs::LONG_DATE_FORMAT, rows, profile).as_str().to_string(),
+        short_date_format: prefs::resolve(prefs::SHORT_DATE_FORMAT, rows, profile)
+            .as_str()
+            .to_string(),
+        long_date_format: prefs::resolve(prefs::LONG_DATE_FORMAT, rows, profile)
+            .as_str()
+            .to_string(),
     };
 
     // `HOOK_HEADLINE_TOOLBAR_*` — no loaded plugins register them.
@@ -393,7 +432,11 @@ async fn format_headlines_list(
     toolbar.insert("error".into(), json!(last_error));
     toolbar.insert(
         "last_updated".into(),
-        json!(time::make_local_datetime(last_updated.as_deref(), false, &tz)),
+        json!(time::make_local_datetime(
+            last_updated.as_deref(),
+            false,
+            &tz
+        )),
     );
     toolbar.insert("plugin_menu_items".into(), json!(""));
     toolbar.insert("plugin_buttons".into(), json!(""));
@@ -470,11 +513,21 @@ async fn format_headlines_list(
         let published: bool = r.get(I_PUBLISHED);
         let link: String = r.get(I_LINK);
         let last_read: Option<chrono::NaiveDateTime> = r.get(I_LAST_READ);
-        let vfeed_title: Option<String> =
-            if is_vfeed_row { r.get::<Option<String>, _>(I_VF_TITLE) } else { None };
-        let favicon_avg_color: Option<String> =
-            if is_vfeed_row { r.get::<Option<String>, _>(I_VF_FAVICON) } else { None };
-        let content_raw: String = r.get(if is_vfeed_row { I_VF_CONTENT } else { I_CONTENT });
+        let vfeed_title: Option<String> = if is_vfeed_row {
+            r.get::<Option<String>, _>(I_VF_TITLE)
+        } else {
+            None
+        };
+        let favicon_avg_color: Option<String> = if is_vfeed_row {
+            r.get::<Option<String>, _>(I_VF_FAVICON)
+        } else {
+            None
+        };
+        let content_raw: String = r.get(if is_vfeed_row {
+            I_VF_CONTENT
+        } else {
+            I_CONTENT
+        });
         let author: String = r.get(if is_vfeed_row { 28 } else { 26 });
         let score: i32 = r.get(if is_vfeed_row { 29 } else { 27 });
         let num_labels: i64 = r.get(if is_vfeed_row { 30 } else { 28 });
@@ -509,7 +562,13 @@ async fn format_headlines_list(
         let labels: Value = if num_labels > 0 {
             let cache = label_cache.trim();
             if cache.is_empty() {
-                get_labels_fallback(pool, uid, id).await
+                // PHP `Article::_get_labels($id)` — the hard path, which also
+                // writes the result back to `label_cache`. A later
+                // `Article::_labels_of` (in the mutation handlers) then sees
+                // the labels, so the per-label counters update on the
+                // post-marking refresh instead of waiting for the next poll.
+                serde_json::from_str(&crate::labels::get_labels_json(pool, uid, id).await)
+                    .unwrap_or(Value::Array(Vec::new()))
             } else {
                 match serde_json::from_str::<Value>(cache) {
                     Ok(v) => {
@@ -545,7 +604,10 @@ async fn format_headlines_list(
         let tags = if tag_cache.is_empty() {
             Vec::new()
         } else {
-            tag_cache.split(',').map(|s| s.to_string()).collect::<Vec<_>>()
+            tag_cache
+                .split(',')
+                .map(|s| s.to_string())
+                .collect::<Vec<_>>()
         };
 
         // `Article::_format_enclosures` (sql_bool_to_bool: NULL → false)
@@ -591,13 +653,12 @@ async fn format_headlines_list(
         line.insert("title".into(), json!(title));
         line.insert(
             "updated".into(),
-            json!(time::make_local_datetime(
-                updated_str.as_deref(),
-                true,
-                &tz
-            )),
+            json!(time::make_local_datetime(updated_str.as_deref(), true, &tz)),
         );
-        line.insert("always_display_enclosures".into(), json!(always_display_enclosures));
+        line.insert(
+            "always_display_enclosures".into(),
+            json!(always_display_enclosures),
+        );
         line.insert("site_url".into(), json!(site_url));
         line.insert("note".into(), json!(note));
         line.insert("num_comments".into(), json!(num_comments));
@@ -628,11 +689,18 @@ async fn format_headlines_list(
             line.insert("feed_title".into(), json!(""));
         }
         line.insert("buttons_left".into(), json!(""));
-        line.insert("buttons".into(), json!(article_buttons(id, int_id, is_shared)));
+        line.insert(
+            "buttons".into(),
+            json!(article_buttons(id, int_id, is_shared)),
+        );
         line.insert("enclosures".into(), enclosures);
         line.insert(
             "updated_long".into(),
-            json!(time::make_local_datetime(updated_str.as_deref(), false, &tz)),
+            json!(time::make_local_datetime(
+                updated_str.as_deref(),
+                false,
+                &tz
+            )),
         );
         line.insert(
             "imported".into(),
@@ -641,8 +709,14 @@ async fn format_headlines_list(
                 time::make_local_datetime(date_entered_str.as_deref(), false, &tz)
             )),
         );
-        line.insert("tags".into(), Value::Array(tags.iter().map(|s| Value::from(s.as_str())).collect()));
-        line.insert("has_icon".into(), json!(has_icon(&state.config.feed_icon_dir, feed_id)));
+        line.insert(
+            "tags".into(),
+            Value::Array(tags.iter().map(|s| Value::from(s.as_str())).collect()),
+        );
+        line.insert(
+            "has_icon".into(),
+            json!(has_icon(&state.config.feed_icon_dir, feed_id)),
+        );
         line.insert(
             "feed_bg_color".into(),
             json!(format!("rgba({rr},{gg},{bb},0.3)")),
@@ -670,16 +744,15 @@ async fn format_headlines_list(
             }
         };
         if offset == 0 && !message.is_empty() {
-            let last_updated: Option<String> =
-                sqlx::query_scalar::<_, String>(
-                    "SELECT SUBSTRING_FOR_DATE(MAX(last_updated), 1, 19) AS last_updated
+            let last_updated: Option<String> = sqlx::query_scalar::<_, String>(
+                "SELECT SUBSTRING_FOR_DATE(MAX(last_updated), 1, 19) AS last_updated
                      FROM ttrss_feeds WHERE owner_uid = $1",
-                )
-                .bind(uid)
-                .fetch_optional(pool)
-                .await
-                .ok()
-                .flatten();
+            )
+            .bind(uid)
+            .fetch_optional(pool)
+            .await
+            .ok()
+            .flatten();
             let num_errors = sqlx::query_scalar::<_, i64>(
                 "SELECT COUNT(id) FROM ttrss_feeds
                  WHERE last_error != '' AND owner_uid = $1 AND update_interval >= 0",
@@ -723,32 +796,6 @@ async fn format_headlines_list(
     }
 }
 
-/// `Article::_get_labels` fallback (only when `label_cache` is empty).
-async fn get_labels_fallback(pool: &sqlx::PgPool, uid: i64, id: i32) -> Value {
-    let rows = sqlx::query(
-        "SELECT DISTINCT label_id, caption, fg_color, bg_color
-         FROM ttrss_labels2, ttrss_user_labels2
-         WHERE id = label_id AND article_id = $1 AND owner_uid = $2
-         ORDER BY caption",
-    )
-    .bind(id)
-    .bind(uid)
-    .fetch_all(pool)
-    .await
-    .unwrap_or_default();
-    let mut out: Vec<Value> = Vec::new();
-    for r in &rows {
-        let label_id = r.get::<i32, _>(0) as i64;
-        out.push(json!([
-            label_to_feed_id(label_id),
-            r.get::<String, _>(1),
-            r.get::<String, _>(2),
-            r.get::<String, _>(3),
-        ]));
-    }
-    Value::Array(out)
-}
-
 /// The three HOOK_ARTICLE_BUTTON plugins in load order (af_psql_trgm, note,
 /// share). The PHP DOM round-trip normalizes the markup (attribute order
 /// preserved, single quotes become double quotes, `data-plugin-name` appended
@@ -788,9 +835,8 @@ async fn format_enclosures(
     .await
     .unwrap_or_default();
 
-    let can_inline = !bw_limit
-        && !strip_images
-        && (always_display_enclosures || !contains_img(article_content));
+    let can_inline =
+        !bw_limit && !strip_images && (always_display_enclosures || !contains_img(article_content));
     let inline_text_only = hide_images && can_inline;
 
     let mut entries: Vec<Value> = Vec::new();
@@ -904,7 +950,11 @@ fn color_unpack(hex: &str) -> (i64, i64, i64) {
         hex.to_string()
     };
     let c = u32::from_str_radix(&hex, 16).unwrap_or(0);
-    (((c >> 16) & 0xFF) as i64, ((c >> 8) & 0xFF) as i64, (c & 0xFF) as i64)
+    (
+        ((c >> 16) & 0xFF) as i64,
+        ((c >> 8) & 0xFF) as i64,
+        (c & 0xFF) as i64,
+    )
 }
 
 // ---- `_get_headlines` ------------------------------------------------------
@@ -1000,7 +1050,10 @@ impl HeadlinesParams {
 /// feeds / categories / virtual feeds / labels / tags). The session profile
 /// is unavailable in this context, so prefs resolve against the default
 /// profile (matching the integration-test session, which carries none).
-pub async fn get_headlines_query(db: &ttrss_core::db::Db, params: &HeadlinesParams) -> HeadlinesQuery {
+pub async fn get_headlines_query(
+    db: &ttrss_core::db::Db,
+    params: &HeadlinesParams,
+) -> HeadlinesQuery {
     let pool = db.pool();
     let feed_num: Option<i64> = params.feed.trim().parse::<i64>().ok();
     let rows = prefs::load_rows(db, params.owner_uid, None).await;
@@ -1105,7 +1158,11 @@ async fn get_headlines(
         _ => view_query_part,
     };
 
-    let limit_query_part = if limit > 0 { format!("LIMIT {limit}") } else { String::new() };
+    let limit_query_part = if limit > 0 {
+        format!("LIMIT {limit}")
+    } else {
+        String::new()
+    };
     let offset_query_part = if limit_query_part.is_empty() {
         String::new()
     } else {
@@ -1121,18 +1178,16 @@ async fn get_headlines(
     // PHP: HOOK_SEARCH (plugins, M7) then `_search_to_sql`, plus a dry-run
     // precheck: an unexecutable fragment becomes `false` with an
     // "Incorrect search syntax: <words>." override message.
-    let (search_query_part, search_words, query_error_override) =
-        if search.is_empty() {
-            (String::new(), Vec::new(), String::new())
-        } else {
-            let parts = crate::search::search_to_sql_cached(
-                pool, rows, uid, profile, search, search_language,
-            )
-            .await;
-            let (qpart, override_msg) =
-                crate::search::dry_run(pool, &parts.query_part, &parts.words).await;
-            (format!("{qpart} AND "), parts.words, override_msg)
-        };
+    let (search_query_part, search_words, query_error_override) = if search.is_empty() {
+        (String::new(), Vec::new(), String::new())
+    } else {
+        let parts =
+            crate::search::search_to_sql_cached(pool, rows, uid, profile, search, search_language)
+                .await;
+        let (qpart, override_msg) =
+            crate::search::dry_run(pool, &parts.query_part, &parts.words).await;
+        (format!("{qpart} AND "), parts.words, override_msg)
+    };
 
     // query strategy per branch
     match feed_num {
@@ -1140,14 +1195,19 @@ async fn get_headlines(
             // browsing by tag
             query_strategy_part = "true".into();
             vfeed_query_part =
-                "(SELECT title FROM ttrss_feeds WHERE\n\t\t\t\t\tid = feed_id) as feed_title,".into();
+                "(SELECT title FROM ttrss_feeds WHERE\n\t\t\t\t\tid = feed_id) as feed_title,"
+                    .into();
         }
         Some(f) if f > 0 => {
             if cat_view {
                 if include_children {
                     let mut subcats: Vec<i64> = child_cats(pool, uid, f).await;
                     subcats.push(f);
-                    let list = subcats.iter().map(|c| c.to_string()).collect::<Vec<_>>().join(",");
+                    let list = subcats
+                        .iter()
+                        .map(|c| c.to_string())
+                        .collect::<Vec<_>>()
+                        .join(",");
                     query_strategy_part = format!("cat_id IN ({list})");
                 } else {
                     query_strategy_part = format!("cat_id = {f}");
@@ -1170,8 +1230,7 @@ async fn get_headlines(
             vfeed_query_part = "ttrss_feeds.title AS feed_title,".into();
             allow_archived = true;
             if override_order.is_empty() {
-                override_order =
-                    "last_marked DESC, date_entered DESC, updated DESC".into();
+                override_order = "last_marked DESC, date_entered DESC, updated DESC".into();
             }
         }
         Some(f) if f == FEED_PUBLISHED || f == CAT_LABELS => {
@@ -1180,14 +1239,14 @@ async fn get_headlines(
                 vfeed_query_part = "ttrss_feeds.title AS feed_title,".into();
                 allow_archived = true;
                 if override_order.is_empty() {
-                    override_order =
-                        "last_published DESC, date_entered DESC, updated DESC".into();
+                    override_order = "last_published DESC, date_entered DESC, updated DESC".into();
                 }
             } else {
                 vfeed_query_part = "ttrss_feeds.title AS feed_title,".into();
                 ext_tables_part = "ttrss_labels2,ttrss_user_labels2,".into();
                 query_strategy_part = "ttrss_labels2.id = ttrss_user_labels2.label_id AND
-\t\t\t\t\tttrss_user_labels2.article_id = ref_id".into();
+\t\t\t\t\tttrss_user_labels2.article_id = ref_id"
+                    .into();
             }
         }
         Some(f) if f == FEED_RECENTLY_READ => {
@@ -1238,46 +1297,60 @@ async fn get_headlines(
     };
 
     // feed title / site url / error / last updated
-    let (feed_title, feed_site_url, last_error, last_updated) =
-        if !search.is_empty() {
-            (format!("Search results: {search}"), String::new(), String::new(), None)
-        } else if cat_view {
-            (cat_title(pool, uid, feed_num.unwrap_or(0)).await, String::new(), String::new(), None)
-        } else if let Some(f) = feed_num {
-            if f > 0 {
-                let row = sqlx::query(
-                    "SELECT title, site_url, last_error, last_updated
+    let (feed_title, feed_site_url, last_error, last_updated) = if !search.is_empty() {
+        (
+            format!("Search results: {search}"),
+            String::new(),
+            String::new(),
+            None,
+        )
+    } else if cat_view {
+        (
+            cat_title(pool, uid, feed_num.unwrap_or(0)).await,
+            String::new(),
+            String::new(),
+            None,
+        )
+    } else if let Some(f) = feed_num {
+        if f > 0 {
+            let row = sqlx::query(
+                "SELECT title, site_url, last_error, last_updated
                      FROM ttrss_feeds WHERE id = $1 AND owner_uid = $2",
+            )
+            .bind(f)
+            .bind(uid)
+            .fetch_optional(pool)
+            .await
+            .ok()
+            .flatten();
+            if let Some(r) = row {
+                (
+                    r.get::<String, _>(0),
+                    r.get::<String, _>(1),
+                    r.get::<String, _>(2),
+                    r.get::<Option<chrono::NaiveDateTime>, _>(3)
+                        .map(|dt| time::naive_to_pg_text(&dt)),
                 )
-                .bind(f)
-                .bind(uid)
-                .fetch_optional(pool)
-                .await
-                .ok()
-                .flatten();
-                if let Some(r) = row {
-                    (
-                        r.get::<String, _>(0),
-                        r.get::<String, _>(1),
-                        r.get::<String, _>(2),
-                        r.get::<Option<chrono::NaiveDateTime>, _>(3)
-                            .map(|dt| time::naive_to_pg_text(&dt)),
-                    )
-                } else {
-                    (format!("Unknown feed ({f})"), String::new(), String::new(), None)
-                }
             } else {
                 (
-                    feed_title_of(f, pool, uid).await,
+                    format!("Unknown feed ({f})"),
                     String::new(),
                     String::new(),
                     None,
                 )
             }
         } else {
-            // tag browsing: the tag name itself
-            (feed.to_string(), String::new(), String::new(), None)
-        };
+            (
+                feed_title_of(f, pool, uid).await,
+                String::new(),
+                String::new(),
+                None,
+            )
+        }
+    } else {
+        // tag browsing: the tag name itself
+        (feed.to_string(), String::new(), String::new(), None)
+    };
 
     // ---- assemble the main query (numeric feed path) ----
     let yyiw_qpart = "to_char(date_entered, 'IYYY-IW') AS yyiw";
@@ -1297,7 +1370,11 @@ async fn get_headlines(
         {
             let mut yyiw_order_qpart = String::new();
             if !((NEVER_GROUP_BY_DATE.contains(&feed)) && !cat_view) {
-                let yyiw_desc = if order_by == "date_reverse" { "" } else { "desc" };
+                let yyiw_desc = if order_by == "date_reverse" {
+                    ""
+                } else {
+                    "desc"
+                };
                 yyiw_order_qpart = format!("yyiw {yyiw_desc}, ");
             }
             let tail = if override_order.is_empty() {
@@ -1368,7 +1445,8 @@ async fn get_headlines(
             );
             if let Ok(Some(r)) = sqlx::query(&query).fetch_optional(pool).await {
                 first_id = r.get::<i32, _>(0) as i64;
-                if offset > 0 && first_id != 0 && check_first_id != 0 && first_id != check_first_id {
+                if offset > 0 && first_id != 0 && check_first_id != 0 && first_id != check_first_id
+                {
                     return HeadlinesQuery {
                         article_rows: Vec::new(),
                         feed_title,
