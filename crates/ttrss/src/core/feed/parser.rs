@@ -14,8 +14,8 @@ use std::rc::Rc;
 use roxmltree::{Document, Node};
 
 use super::{
-    FeedItem, FeedKind, FEED_ATOM, FEED_RDF, FEED_RSS, FEED_UNKNOWN, NS_ATOM, NS_ATOM03,
-    NS_RDF, NS_RSS10,
+    FeedItem, FeedKind, FEED_ATOM, FEED_RDF, FEED_RSS, FEED_UNKNOWN, NS_ATOM, NS_ATOM03, NS_RDF,
+    NS_RSS10,
 };
 use crate::util::{clean_str, php_trim};
 
@@ -43,7 +43,11 @@ impl<'input> FeedParser<'input> {
     /// PHP `FeedParser::__construct(string $data)`.
     pub fn new(data: &'input str) -> Self {
         let (doc, error, errors) = if data.is_empty() {
-            (None, Some("Empty feed data provided".to_string()), Vec::new())
+            (
+                None,
+                Some("Empty feed data provided".to_string()),
+                Vec::new(),
+            )
         } else {
             match Document::parse(data) {
                 Ok(d) => (Some(Rc::new(d)), None, Vec::new()),
@@ -179,9 +183,17 @@ impl<'input> FeedParser<'input> {
         let link = atom_links
             .iter()
             .find(|l| l.attribute("rel").is_none())
-            .or_else(|| atom_links.iter().find(|l| l.attribute("rel") == Some("alternate")))
+            .or_else(|| {
+                atom_links
+                    .iter()
+                    .find(|l| l.attribute("rel") == Some("alternate"))
+            })
             .or_else(|| atom03_links.iter().find(|l| l.attribute("rel").is_none()))
-            .or_else(|| atom03_links.iter().find(|l| l.attribute("rel") == Some("alternate")));
+            .or_else(|| {
+                atom03_links
+                    .iter()
+                    .find(|l| l.attribute("rel") == Some("alternate"))
+            });
         if let Some(href) = link.and_then(|l| l.attribute("href")) {
             if !href.is_empty() {
                 self.link = Some(href.to_string());
@@ -190,16 +202,25 @@ impl<'input> FeedParser<'input> {
         // items: //atom:entry, falling back to //atom03:entry
         let mut entries: Vec<Node> = d
             .descendants()
-            .filter(|n| n.is_element() && n.tag_name().namespace() == Some(NS_ATOM) && n.tag_name().name() == "entry")
+            .filter(|n| {
+                n.is_element()
+                    && n.tag_name().namespace() == Some(NS_ATOM)
+                    && n.tag_name().name() == "entry"
+            })
             .collect();
         if entries.is_empty() {
             entries = d
                 .descendants()
-                .filter(|n| n.is_element() && n.tag_name().namespace() == Some(NS_ATOM03) && n.tag_name().name() == "entry")
+                .filter(|n| {
+                    n.is_element()
+                        && n.tag_name().namespace() == Some(NS_ATOM03)
+                        && n.tag_name().name() == "entry"
+                })
                 .collect();
         }
         for e in entries {
-            self.items.push(FeedItem::new(doc.clone(), e.id(), FeedKind::Atom));
+            self.items
+                .push(FeedItem::new(doc.clone(), e.id(), FeedKind::Atom));
         }
     }
 
@@ -223,7 +244,8 @@ impl<'input> FeedParser<'input> {
             if p.is_element() && p.tag_name().name() == "channel" {
                 for c in p.children() {
                     if c.is_element() && c.tag_name().name() == "item" {
-                        self.items.push(FeedItem::new(doc.clone(), c.id(), FeedKind::Rss));
+                        self.items
+                            .push(FeedItem::new(doc.clone(), c.id(), FeedKind::Rss));
                     }
                 }
             }
@@ -244,8 +266,12 @@ impl<'input> FeedParser<'input> {
         }
         // items: //rssfake:item
         for n in d.descendants() {
-            if n.is_element() && n.tag_name().namespace() == Some(NS_RSS10) && n.tag_name().name() == "item" {
-                self.items.push(FeedItem::new(doc.clone(), n.id(), FeedKind::Rss));
+            if n.is_element()
+                && n.tag_name().namespace() == Some(NS_RSS10)
+                && n.tag_name().name() == "item"
+            {
+                self.items
+                    .push(FeedItem::new(doc.clone(), n.id(), FeedKind::Rss));
             }
         }
     }
@@ -270,14 +296,16 @@ fn is_feed_root(n: &Node) -> bool {
 
 /// PHP `//atom:link` membership (an element in the Atom namespace named `link`).
 fn is_atom_link(n: &Node) -> bool {
-    n.is_element()
-        && n.tag_name().namespace() == Some(NS_ATOM)
-        && n.tag_name().name() == "link"
+    n.is_element() && n.tag_name().namespace() == Some(NS_ATOM) && n.tag_name().name() == "link"
 }
 
 /// PHP `//{ns}:feed/{ns}:{field}` — the first `{field}` child (in `{ns}`) of a
 /// `<feed>` (in `{ns}`), in document order.
-fn feed_child<'a, 'input>(doc: &'a Document<'input>, feed_ns: &str, field: &str) -> Option<Node<'a, 'input>> {
+fn feed_child<'a, 'input>(
+    doc: &'a Document<'input>,
+    feed_ns: &str,
+    field: &str,
+) -> Option<Node<'a, 'input>> {
     for feed in doc.descendants() {
         if feed.is_element()
             && feed.tag_name().namespace() == Some(feed_ns)
@@ -320,10 +348,17 @@ fn feed_links<'a, 'input>(doc: &'a Document<'input>, feed_ns: &str) -> Vec<Node<
 /// PHP `//{parent}/{child}` — the first element with local name `child` whose
 /// parent element has local name `parent` (local names, any namespace), in
 /// document order.
-fn child_of<'a, 'input>(doc: &'a Document<'input>, parent: &str, child: &str) -> Option<Node<'a, 'input>> {
+fn child_of<'a, 'input>(
+    doc: &'a Document<'input>,
+    parent: &str,
+    child: &str,
+) -> Option<Node<'a, 'input>> {
     for p in doc.descendants() {
         if p.is_element() && p.tag_name().name() == parent {
-            if let Some(c) = p.children().find(|c| c.is_element() && c.tag_name().name() == child) {
+            if let Some(c) = p
+                .children()
+                .find(|c| c.is_element() && c.tag_name().name() == child)
+            {
                 return Some(c);
             }
         }
@@ -333,12 +368,14 @@ fn child_of<'a, 'input>(doc: &'a Document<'input>, parent: &str, child: &str) ->
 
 /// PHP `//{ns}:{parent}/{ns}:{child}` — the first `{child}` element (in `ns`)
 /// whose parent element is `{parent}` (in `ns`), in document order.
-fn child_of_ns<'a, 'input>(doc: &'a Document<'input>, ns: &str, parent: &str, child: &str) -> Option<Node<'a, 'input>> {
+fn child_of_ns<'a, 'input>(
+    doc: &'a Document<'input>,
+    ns: &str,
+    parent: &str,
+    child: &str,
+) -> Option<Node<'a, 'input>> {
     for p in doc.descendants() {
-        if p.is_element()
-            && p.tag_name().namespace() == Some(ns)
-            && p.tag_name().name() == parent
-        {
+        if p.is_element() && p.tag_name().namespace() == Some(ns) && p.tag_name().name() == parent {
             if let Some(c) = p.children().find(|c| {
                 c.is_element()
                     && c.tag_name().namespace() == Some(ns)

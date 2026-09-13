@@ -21,12 +21,16 @@
 //! # Status
 //! - **M6a.1** (done): [`FeedParser`] — type detection + feed-level
 //!   title/link + item collection (ported `tests/FeedParserTest`).
-//! - **M6a.2+** (todo): [`FeedItem`] field extraction (RSS / Atom /
-//!   enclosures / dates), per `tests/FeedItemTest` +
+//! - **M6a.2** (done): [`FeedItem`] core field extraction (RSS / Atom
+//!   id/date/link/title/content), per `tests/FeedItemTest`.
+//! - **M6a.2+** (todo): enclosures / `xml:base` rewriting / `c14n()`, per
 //!   `tests_functional/FeedItem*Test`.
 
+pub mod atom;
+pub mod datetime;
 pub mod item;
 pub mod parser;
+pub mod rss;
 
 pub use item::FeedItem;
 pub use parser::FeedParser;
@@ -42,6 +46,8 @@ pub const FEED_ATOM: i32 = 2;
 /// registered in `init`).
 pub const NS_ATOM: &str = "http://www.w3.org/2005/Atom";
 pub const NS_ATOM03: &str = "http://purl.org/atom/ns#";
+pub const NS_CONTENT: &str = "http://purl.org/rss/1.0/modules/content/";
+pub const NS_DC: &str = "http://purl.org/dc/elements/1.1/";
 pub const NS_RSS10: &str = "http://purl.org/rss/1.0/";
 pub const NS_RDF: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#";
 

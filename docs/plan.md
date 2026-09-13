@@ -158,15 +158,18 @@ Restructured per `research-report.md` (strangler-fig / vertical-slice / golden-m
 | **M3** | ✅ | Article-state mutations (mark/star/publish/unread, catchup feed/cat/all, score, tags, labels, `getmetadatabyid`, `redirect`) — 21/21 clean vs the M3 `db_state` corpus. | `notes` handler → M7 (plugin). |
 | **M4** | ✅ | `Pref_Prefs` (profiles, app passwords, save+reset, `index`/`index_auth` + OTP writes), feed CRUD + categories + icons + ordering + access keys + OPML, filter CRUD + execution, label CRUD. | `Feeds::add` (subscribe) → M6 (needs fetch/parse). |
 | **M5** | ✅ | Level-23 API **writes** + `logout`, `Pref_Users`, `Pref_System`, password recovery, batch-add-feeds, case-insensitive dispatch. | `updateFeed`/`subscribeToFeed` → M6; plugin management → M7. |
-| **M6** | ⬜ **NEXT** | — | The update engine — decomposed below. |
+| **M6** | 🚧 M6a in progress | M6a.1 (`FeedParser`, 20 tests) + M6a.2 (`FeedItem` field extraction, 35 tests) green. | The update engine — M6a.3+ (enclosures/`xml:base`/`c14n`), M6b (deterministic pipeline), M6c (daemon). |
 
 **Next = M6 (the engine)**, decomposed per `docs/unified-architecture.md` §4:
 
-- **M6a — parser** (`FeedParser` + `FeedItem_*`) — pure, architecture-independent. **← the next increment**
+- **M6a — parser** (`FeedParser` + `FeedItem_*`) — pure, architecture-independent. **M6a.1 (FeedParser) + M6a.2 (FeedItem id/date/link/title/content) done**; next is M6a.3+ (enclosures, `xml:base` rewriting, `c14n()`).
 - **M6b — deterministic pipeline** (GUID/hash → dedup → upsert → filter → counters) — verified by ported PHP tests + a batch smoke test.
 - **M6c — daemon/scheduler shell** (tokio worker loop, fetch, housekeeping, graceful shutdown).
 
-**M6a (the first increment):** port `tt-rss/classes/FeedParser.php` (247 L) + `FeedItem.php` (24 L) over a namespace-aware DOM crate (`roxmltree` — **not yet a dependency; add it**; the existing `quick-xml` is a pull parser, not a namespace DOM). Handle RDF/RSS/Atom + namespaces + content-encoding/gzip detection. Replicate 1:1: `tests/FeedParserTest` + `tests/FeedItemTest` (pure) + `tests_functional/FeedItem{Atom,Common}Test`.
+**M6a (incremental):** port `tt-rss/classes/FeedParser.php` (247 L) + `FeedItem.php` (24 L) over `roxmltree` (now a dependency; the existing `quick-xml` is a pull parser, not a namespace DOM). Handle RDF/RSS/Atom + namespaces + content-encoding/gzip detection. Replicate 1:1: `tests/FeedParserTest` + `tests/FeedItemTest` (pure) + `tests_functional/FeedItem{Atom,Common}Test`.
+- **M6a.1 ✅** `FeedParser` — type detection + feed-level title/link + item collection (`tests/FeedParserTest`, 20 green).
+- **M6a.2 ✅** `FeedItem` core field extraction — RSS/Atom `get_id`/`get_date`/`get_link`/`get_title`/`get_content` + `normalize_categories` (`tests/FeedItemTest`, 35 green). Feed dates simplified to RFC 2822 / RFC 3339; `xml:base` rewriting + `c14n()` deferred to M6a.4.
+- **M6a.3+ ⬜** enclosures, `xml:base`, `c14n()`, `tests_functional/FeedItem{Atom,Common}Test`, content-encoding/gzip detection.
 
 **Open / deferred (not done, each tracked elsewhere):** the disabled M2 corpus steps above; `notes` handler (M7); plugin management + the `HOOK_*` no-ops (M7); `updateFeed`/`subscribeToFeed` (M6 — need `UrlHelper::fetch` + `FeedParser`); `checkforupdates` is an intentional no-op (no PHP-upstream channel).
 
@@ -764,6 +767,7 @@ tracked were ported 1:1 in `tests/prefs_parity.rs` alongside the `Prefs::set` /
 | 13 | `LabelsTest`/`LabelsIntegrationTest` (15/35) | `server::labels` | ✅ 50/50 ported (15 pure + 35 DB, `tests/labels_parity.rs`). New `server::labels` = the PHP `Labels` class: `label_to_feed_id`/`feed_to_label_id` (canonical i64 home; `article` re-exports), case-insensitive `find_id`/`find_caption`, `get_all`/`get_as_hash`, transactional `create`/`remove` (`remove` binds the varchar `ttrss_access_keys.feed_id` as a **string** — PHP PDO binds ints as strings), `add_article`/`remove_article`, `clear_cache`, `update_cache` + `get_labels_json` (string-level `Article::_get_labels` with the cache-hit-as-is semantics; `article::get_labels` delegates to it) |
 | 14 | `RPCTest` (10) | `server::rpc` | ✅ 10/10 ported (`tests/rpc_parity.rs`). PHP `RPC::mark`/`publ`/`delete` ported to `article::{mark, publ, delete}` (cleaned string params, Postgres-side `$1::boolean` cast like PDO string binding, `pub` request key for `publ`, `Null` output on empty `delete`), dispatched from `rpc.rs`; the `markSelected`/`publishSelected` arms were already present; tests seed a `Sess` with `uid = 1` (PHP `DbTestCase`'s `$_SESSION["uid"]`) |
 | 15 | `ArticleHandlerTest` (17) | `server::article` (handlers) | ✅ 17/17 ported (`tests/article_handler_parity.rs`). PHP `Article` handler methods invoked directly (`invokeHandler('Article', …)`, `$_SESSION["uid"]=1`) ported to the Rust handler functions: `setScore` (3 — single/multi/zero; `ttrss_user_entries.score`), `setArticleTags` (4 — new/replaces/clears/trims; transactional `ttrss_tags` + `tag_cache`), `printArticleTags` (2 — existing/empty), `completeTags` (3 — matching/no-match/case-sensitive; `LIKE 'search%' LIMIT 10`), `assigntolabel`/`removefromlabel` (2 — `ttrss_user_labels2` + `label_cache`), `getmetadatabyid` (2 — `{link,title}` / `[]`), `redirect` (1 — 302 + `Location`). Also fixed a latent `metadata_by_id` SQL bug (a doubled `\\` line-continuation that made the query invalid; masked because the corpus sent the wrong `id` param so both sides returned `[]`) and corrected corpus steps 022/023 to send `id` — the oracle baseline was re-recorded so they now exercise the real path. `util::normalize_categories` gained its own unit test (trim/lower/sort, `t:` numeric prefix, quote-strip, 250-char cap) |
+| 16 | `FeedParserTest` (20) + `FeedItemTest` (35) | `core::feed` | ✅ M6a.1 + M6a.2 (2026-09-16). `FeedParserTest` (20) → `tests/feed_parser.rs` (type detection + feed-level title/link + item collection). `FeedItemTest` (35) → `tests/feed_item.rs` (RSS/Atom `get_id`/`get_date`/`get_link`/`get_title`/`get_content` + `normalize_categories`). XML via `roxmltree` (the XPath→tree-walk translation is documented in `docs/feedparser-spike.md`). Deferred to M6a.3+: enclosures, `xml:base` rewriting, `c14n()`, content-encoding/gzip, + `tests_functional/FeedItem{Atom,Common}Test`. |
 
 #### What's next (after the parity program)
 
@@ -774,7 +778,7 @@ before them:
 | Remaining PHP coverage | Blocked on (Rust) | Milestone |
 | --- | --- | --- |
 | ~~`Feeds::view` / `Feeds::search` + `RPC::getAllCounters`~~ **✅ done 2026-09-11** | `headlines::view`/`search` + `counters::get_all_counters` (wired in the `rpc.rs` `Feeds` branch); corpus 009/017/018/019/020/056 clean | **M2** ✅ |
-| Feed-parser / RSS-utils (fetch/parse/hash/dedup/filters/enclosures) | `FeedParser` + `RSSUtils` ports | **M6** |
+| Feed-parser / RSS-utils (fetch/parse/hash/dedup/filters/enclosures) | `FeedParser` + `RSSUtils` ports (M6a.1 `FeedParser` + M6a.2 `FeedItem` fields done; M6a.3+ enclosures/`xml:base`/`c14n`, then M6b pipeline) | **M6** |
 | DiskCache / Scheduler / counter-cache maintenance | DiskCache port + `daemon` tokio workers | **M6** |
 | PluginHost hooks (the `HOOK_*` no-ops left in rows 9–14) | Rust plugin API + first-party plugins | **M7** |
 | External-API write ops + admin (`Pref_Users`, system, OTP/QR) | write/admin handlers (API meta + DB-only writes ✅; `Pref_Users` admin slice ✅; `shareToPublished` ✅; `getFeedIcon` ✅; `Pref_System` log/email ✅; batch-add-feeds + case-insensitive dispatch ✅; **password recovery `forgotpass` + API `logout` ✅**; OTP/QR shipped M4; only remaining: `updateFeed`/`subscribeToFeed` → M6) | **M5** ✅ (complete; `updateFeed`/`subscribeToFeed` → M6) |
