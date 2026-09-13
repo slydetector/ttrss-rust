@@ -6,8 +6,14 @@
 
 use rand::Rng;
 use serde_json::{Map, Value};
+use sha1::Digest as _;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+/// PHP `sha1($s)` — lowercase hex SHA-1 of `$s`.
+pub fn sha1_hex(s: &str) -> String {
+    format!("{:x}", sha1::Sha1::digest(s.as_bytes()))
+}
 
 /// PHP built-in `strip_tags`: drop HTML/XML tags and comments, keep text
 /// (entity references are left as-is).

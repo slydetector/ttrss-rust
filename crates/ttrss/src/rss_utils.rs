@@ -62,6 +62,28 @@ pub fn make_guid_from_title(title: &str) -> String {
     lower.replace([' ', '"', '\'', ',', '.', ':', ';'], "-")
 }
 
+/// PHP `RSSUtils::calculate_article_hash($article, $pluginhost)` — the dedup
+/// key for an article. Each hashed field contributes `sha1(key . ":" .
+/// sha1(value))` (in `$article` order) to an accumulator; the result is
+/// `sha1(implode(",", plugin_names) . tmp)`. With no plugins (this port) the
+/// plugin-name prefix is empty, so it is just `sha1(tmp)`.
+///
+/// `hashed_fields` are the article's hashed fields as `(key, stringified
+/// value)` pairs in the PHP `$article` order, with the PHP stringification
+/// already applied (`content` stripped of tags; `tags`/`enclosures`
+/// comma-joined). The ignored fields (`feed`, `owner_uid`, `guid`,
+/// `guid_hashed`, `labels`, `force_catchup`) are omitted.
+pub fn calculate_article_hash(hashed_fields: &[(String, String)]) -> String {
+    let mut tmp = String::new();
+    for (k, v) in hashed_fields {
+        tmp.push_str(&crate::util::sha1_hex(&format!(
+            "{k}:{}",
+            crate::util::sha1_hex(v)
+        )));
+    }
+    crate::util::sha1_hex(&tmp)
+}
+
 /// PHP `RSSUtils::decode_srcset($srcset)` — parse an HTML `srcset` attribute
 /// into `{url, size}` items (size is a `w`/`x` descriptor or empty).
 pub fn decode_srcset(srcset: &str) -> Vec<SourceItem> {
@@ -254,6 +276,68 @@ mod tests {
     #[test]
     fn test_make_guid_from_title_preserves_alphanumerics_and_hyphens() {
         assert_eq!(make_guid_from_title("abc123 x y"), "abc123-x-y");
+    }
+
+    // ------------------------------------------------------------------------
+    // calculate_article_hash() — article dedup hash
+    // ------------------------------------------------------------------------
+
+    #[test]
+    fn test_calculate_article_hash_single_field() {
+        // Locked: sha1(sha1("title:" . sha1("Hello"))).
+        assert_eq!(
+            calculate_article_hash(&[("title".into(), "Hello".into())]),
+            "2a939a94456be4fcf1d89a346bb271ae7a98e5c4"
+        );
+    }
+
+    #[test]
+    fn test_calculate_article_hash_two_fields_locked() {
+        // sha1(sha1("title:" . sha1("Test Article")) .
+        //        sha1("content:" . sha1("<b>hi</b>"))).
+        assert_eq!(
+            calculate_article_hash(&[
+                ("title".into(), "Test Article".into()),
+                ("content".into(), "<b>hi</b>".into()),
+            ]),
+            "fbc28cae807004582517434454908c3baf708e19"
+        );
+    }
+
+    #[test]
+    fn test_calculate_article_hash_empty() {
+        // sha1("") — the empty accumulator.
+        assert_eq!(
+            calculate_article_hash(&[]),
+            "da39a3ee5e6b4b0d3255bfef95601890afd80709"
+        );
+    }
+
+    #[test]
+    fn test_calculate_article_hash_deterministic() {
+        let f = [
+            ("title".into(), "Test".into()),
+            ("content".into(), "Body".into()),
+        ];
+        assert_eq!(calculate_article_hash(&f), calculate_article_hash(&f));
+    }
+
+    #[test]
+    fn test_calculate_article_hash_field_order_matters() {
+        let ab =
+            calculate_article_hash(&[("title".into(), "A".into()), ("content".into(), "B".into())]);
+        let ba =
+            calculate_article_hash(&[("content".into(), "B".into()), ("title".into(), "A".into())]);
+        assert_ne!(ab, ba);
+    }
+
+    #[test]
+    fn test_calculate_article_hash_value_change_changes_hash() {
+        let a =
+            calculate_article_hash(&[("title".into(), "A".into()), ("content".into(), "B".into())]);
+        let b =
+            calculate_article_hash(&[("title".into(), "A".into()), ("content".into(), "C".into())]);
+        assert_ne!(a, b);
     }
 
     // ------------------------------------------------------------------------
