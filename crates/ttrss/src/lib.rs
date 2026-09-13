@@ -40,6 +40,7 @@ pub mod settings;
 pub mod syndication;
 pub mod system;
 pub mod time;
+pub mod updates;
 pub mod urlhelper;
 pub mod users;
 pub mod util;
