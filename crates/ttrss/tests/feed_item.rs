@@ -21,7 +21,8 @@ fn cats(list: &[&str]) -> Vec<String> {
 
 #[test]
 fn test_rss_get_id_from_guid() {
-    let items = items(r#"<?xml version="1.0"?>
+    let items = items(
+        r#"<?xml version="1.0"?>
 <rss version="2.0">
     <channel>
         <item>
@@ -29,35 +30,40 @@ fn test_rss_get_id_from_guid() {
             <link>https://example.com/article</link>
         </item>
     </channel>
-</rss>"#);
+</rss>"#,
+    );
     assert_eq!(items.len(), 1);
     assert_eq!(items[0].get_id(), "unique-id-123");
 }
 
 #[test]
 fn test_rss_get_id_falls_back_to_link() {
-    let items = items(r#"<?xml version="1.0"?>
+    let items = items(
+        r#"<?xml version="1.0"?>
 <rss version="2.0">
     <channel>
         <item>
             <link>https://example.com/article</link>
         </item>
     </channel>
-</rss>"#);
+</rss>"#,
+    );
     assert_eq!(items.len(), 1);
     assert_eq!(items[0].get_id(), "https://example.com/article");
 }
 
 #[test]
 fn test_rss_get_date_from_pub_date() {
-    let items = items(r#"<?xml version="1.0"?>
+    let items = items(
+        r#"<?xml version="1.0"?>
 <rss version="2.0">
     <channel>
         <item>
             <pubDate>Mon, 01 Jan 2024 12:00:00 GMT</pubDate>
         </item>
     </channel>
-</rss>"#);
+</rss>"#,
+    );
     assert_eq!(items.len(), 1);
     // 2024-01-01 12:00:00 GMT
     assert_eq!(items[0].get_date(), Some(1704110400));
@@ -65,35 +71,40 @@ fn test_rss_get_date_from_pub_date() {
 
 #[test]
 fn test_rss_get_date_from_dc_date() {
-    let items = items(r#"<?xml version="1.0"?>
+    let items = items(
+        r#"<?xml version="1.0"?>
 <rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/">
     <channel>
         <item>
             <dc:date>2024-01-01T12:00:00Z</dc:date>
         </item>
     </channel>
-</rss>"#);
+</rss>"#,
+    );
     assert_eq!(items.len(), 1);
     assert_eq!(items[0].get_date(), Some(1704110400));
 }
 
 #[test]
 fn test_rss_get_date_returns_none_for_missing_date() {
-    let items = items(r#"<?xml version="1.0"?>
+    let items = items(
+        r#"<?xml version="1.0"?>
 <rss version="2.0">
     <channel>
         <item>
             <title>No date</title>
         </item>
     </channel>
-</rss>"#);
+</rss>"#,
+    );
     assert_eq!(items.len(), 1);
     assert_eq!(items[0].get_date(), None);
 }
 
 #[test]
 fn test_rss_get_link_from_atom_link() {
-    let items = items(r#"<?xml version="1.0"?>
+    let items = items(
+        r#"<?xml version="1.0"?>
 <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
     <channel>
         <item>
@@ -101,14 +112,16 @@ fn test_rss_get_link_from_atom_link() {
             <link>https://example.com/old-link</link>
         </item>
     </channel>
-</rss>"#);
+</rss>"#,
+    );
     assert_eq!(items.len(), 1);
     assert_eq!(items[0].get_link(), "https://example.com/article");
 }
 
 #[test]
 fn test_rss_get_link_from_permalink_guid() {
-    let items = items(r#"<?xml version="1.0"?>
+    let items = items(
+        r#"<?xml version="1.0"?>
 <rss version="2.0">
     <channel>
         <item>
@@ -116,7 +129,8 @@ fn test_rss_get_link_from_permalink_guid() {
             <link>https://example.com/link</link>
         </item>
     </channel>
-</rss>"#);
+</rss>"#,
+    );
     assert_eq!(items.len(), 1);
     // Permalink guid is checked AFTER atom:link but BEFORE <link>; no
     // atom:link here, so the permalink guid is used.
@@ -125,35 +139,40 @@ fn test_rss_get_link_from_permalink_guid() {
 
 #[test]
 fn test_rss_get_link_from_link_element() {
-    let items = items(r#"<?xml version="1.0"?>
+    let items = items(
+        r#"<?xml version="1.0"?>
 <rss version="2.0">
     <channel>
         <item>
             <link>https://example.com/article</link>
         </item>
     </channel>
-</rss>"#);
+</rss>"#,
+    );
     assert_eq!(items.len(), 1);
     assert_eq!(items[0].get_link(), "https://example.com/article");
 }
 
 #[test]
 fn test_rss_get_title() {
-    let items = items(r#"<?xml version="1.0"?>
+    let items = items(
+        r#"<?xml version="1.0"?>
 <rss version="2.0">
     <channel>
         <item>
             <title>  Test Article Title  </title>
         </item>
     </channel>
-</rss>"#);
+</rss>"#,
+    );
     assert_eq!(items.len(), 1);
     assert_eq!(items[0].get_title(), "Test Article Title");
 }
 
 #[test]
 fn test_rss_get_content_from_encoded() {
-    let items = items(r#"<?xml version="1.0"?>
+    let items = items(
+        r#"<?xml version="1.0"?>
 <rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/">
     <channel>
         <item>
@@ -161,7 +180,8 @@ fn test_rss_get_content_from_encoded() {
             <description>Short description</description>
         </item>
     </channel>
-</rss>"#);
+</rss>"#,
+    );
     assert_eq!(items.len(), 1);
     let content = items[0].get_content();
     assert!(content.contains("Full article content"), "got: {content}");
@@ -169,7 +189,8 @@ fn test_rss_get_content_from_encoded() {
 
 #[test]
 fn test_rss_get_content_prefers_longer() {
-    let items = items(r#"<?xml version="1.0"?>
+    let items = items(
+        r#"<?xml version="1.0"?>
 <rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/">
     <channel>
         <item>
@@ -177,7 +198,8 @@ fn test_rss_get_content_prefers_longer() {
             <description>This is a much longer description with more text</description>
         </item>
     </channel>
-</rss>"#);
+</rss>"#,
+    );
     assert_eq!(items.len(), 1);
     let content = items[0].get_content();
     assert!(content.contains("longer description"), "got: {content}");
@@ -187,38 +209,44 @@ fn test_rss_get_content_prefers_longer() {
 
 #[test]
 fn test_atom_get_id_from_id_element() {
-    let items = items(r#"<?xml version="1.0"?>
+    let items = items(
+        r#"<?xml version="1.0"?>
 <feed xmlns="http://www.w3.org/2005/Atom">
     <entry>
         <id>tag:example.com,2024:entry-123</id>
         <link href="https://example.com/article" />
     </entry>
-</feed>"#);
+</feed>"#,
+    );
     assert_eq!(items.len(), 1);
     assert_eq!(items[0].get_id(), "tag:example.com,2024:entry-123");
 }
 
 #[test]
 fn test_atom_get_id_falls_back_to_link() {
-    let items = items(r#"<?xml version="1.0"?>
+    let items = items(
+        r#"<?xml version="1.0"?>
 <feed xmlns="http://www.w3.org/2005/Atom">
     <entry>
         <link href="https://example.com/article" />
     </entry>
-</feed>"#);
+</feed>"#,
+    );
     assert_eq!(items.len(), 1);
     assert_eq!(items[0].get_id(), "https://example.com/article");
 }
 
 #[test]
 fn test_atom_get_date_from_updated() {
-    let items = items(r#"<?xml version="1.0"?>
+    let items = items(
+        r#"<?xml version="1.0"?>
 <feed xmlns="http://www.w3.org/2005/Atom">
     <entry>
         <updated>2024-01-01T12:00:00Z</updated>
         <published>2024-01-01T10:00:00Z</published>
     </entry>
-</feed>"#);
+</feed>"#,
+    );
     assert_eq!(items.len(), 1);
     // the updated time
     assert_eq!(items[0].get_date(), Some(1704110400));
@@ -226,62 +254,72 @@ fn test_atom_get_date_from_updated() {
 
 #[test]
 fn test_atom_get_date_from_published() {
-    let items = items(r#"<?xml version="1.0"?>
+    let items = items(
+        r#"<?xml version="1.0"?>
 <feed xmlns="http://www.w3.org/2005/Atom">
     <entry>
         <published>2024-01-01T12:00:00Z</published>
     </entry>
-</feed>"#);
+</feed>"#,
+    );
     assert_eq!(items.len(), 1);
     assert_eq!(items[0].get_date(), Some(1704110400));
 }
 
 #[test]
 fn test_atom_get_link() {
-    let items = items(r#"<?xml version="1.0"?>
+    let items = items(
+        r#"<?xml version="1.0"?>
 <feed xmlns="http://www.w3.org/2005/Atom">
     <entry>
         <link href="https://example.com/article" rel="alternate" />
         <link href="https://example.com/related" rel="related" />
     </entry>
-</feed>"#);
+</feed>"#,
+    );
     assert_eq!(items.len(), 1);
     assert_eq!(items[0].get_link(), "https://example.com/article");
 }
 
 #[test]
 fn test_atom_get_link_without_rel() {
-    let items = items(r#"<?xml version="1.0"?>
+    let items = items(
+        r#"<?xml version="1.0"?>
 <feed xmlns="http://www.w3.org/2005/Atom">
     <entry>
         <link href="https://example.com/article" />
     </entry>
-</feed>"#);
+</feed>"#,
+    );
     assert_eq!(items.len(), 1);
     assert_eq!(items[0].get_link(), "https://example.com/article");
 }
 
 #[test]
 fn test_atom_get_title() {
-    let items = items(r#"<?xml version="1.0"?>
+    let items = items(
+        r#"<?xml version="1.0"?>
 <feed xmlns="http://www.w3.org/2005/Atom">
     <entry>
         <title>  Atom Entry Title  </title>
     </entry>
-</feed>"#);
+</feed>"#,
+    );
     assert_eq!(items.len(), 1);
     assert_eq!(items[0].get_title(), "Atom Entry Title");
 }
 
 #[test]
 fn test_atom_get_content_from_content() {
-    let items = items(r#"<?xml version="1.0"?>
+    let items = items(
+        r#"<?xml version="1.0"?>
 <feed xmlns="http://www.w3.org/2005/Atom">
     <entry>
         <content type="html"><![CDATA[<p>Full content</p>]]></content>
         <summary>Short summary</summary>
     </entry>
-</feed>"#);
+</feed>"#,
+    );
     assert_eq!(items.len(), 1);
     let content = items[0].get_content();
     assert!(content.contains("Full content"), "got: {content}");
@@ -289,13 +327,15 @@ fn test_atom_get_content_from_content() {
 
 #[test]
 fn test_atom_get_content_returns_content_only() {
-    let items = items(r#"<?xml version="1.0"?>
+    let items = items(
+        r#"<?xml version="1.0"?>
 <feed xmlns="http://www.w3.org/2005/Atom">
     <entry>
         <content type="text">Short</content>
         <summary>This is a much longer summary with more details</summary>
     </entry>
-</feed>"#);
+</feed>"#,
+    );
     assert_eq!(items.len(), 1);
     // Atom get_content() returns only <content>, not <summary>
     assert_eq!(items[0].get_content(), "Short");
@@ -305,12 +345,14 @@ fn test_atom_get_content_returns_content_only() {
 
 #[test]
 fn test_rss_empty_item_returns_empty_strings() {
-    let items = items(r#"<?xml version="1.0"?>
+    let items = items(
+        r#"<?xml version="1.0"?>
 <rss version="2.0">
     <channel>
         <item></item>
     </channel>
-</rss>"#);
+</rss>"#,
+    );
     assert_eq!(items.len(), 1);
     assert_eq!(items[0].get_link(), "");
     assert_eq!(items[0].get_title(), "");
@@ -318,10 +360,12 @@ fn test_rss_empty_item_returns_empty_strings() {
 
 #[test]
 fn test_atom_empty_entry_returns_empty_strings() {
-    let items = items(r#"<?xml version="1.0"?>
+    let items = items(
+        r#"<?xml version="1.0"?>
 <feed xmlns="http://www.w3.org/2005/Atom">
     <entry></entry>
-</feed>"#);
+</feed>"#,
+    );
     assert_eq!(items.len(), 1);
     assert_eq!(items[0].get_link(), "");
     assert_eq!(items[0].get_title(), "");
@@ -437,9 +481,9 @@ fn test_normalize_categories_handles_complex_input() {
         "Tech,News",
         "  PROGRAMMING  ",
         "123",
-        "Tech", // duplicate
-        "tech'news", // special chars
-        "", // empty
+        "Tech",           // duplicate
+        "tech'news",      // special chars
+        "",               // empty
         &"x".repeat(300), // too long
     ]));
     // Should contain: tech, news, programming, t:123, technews, xxx... (250)

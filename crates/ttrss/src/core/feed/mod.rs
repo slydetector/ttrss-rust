@@ -32,7 +32,7 @@ pub mod item;
 pub mod parser;
 pub mod rss;
 
-pub use item::FeedItem;
+pub use item::{FeedEnclosure, FeedItem};
 pub use parser::FeedParser;
 
 /// Feed type constants (mirror `FeedParser::FEED_*`).
@@ -50,7 +50,14 @@ pub const NS_CONTENT: &str = "http://purl.org/rss/1.0/modules/content/";
 pub const NS_DC: &str = "http://purl.org/dc/elements/1.1/";
 pub const NS_RSS10: &str = "http://purl.org/rss/1.0/";
 pub const NS_RDF: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#";
-
+/// Media RSS (the `media:` prefix), used by `get_enclosures`.
+pub const NS_MEDIA: &str = "http://search.yahoo.com/mrss/";
+/// Slash module (the `slash:` prefix), e.g. `slash:comments`.
+pub const NS_SLASH: &str = "http://purl.org/rss/1.0/modules/slash/";
+/// Threading extension (the `thread:` prefix), e.g. `thread:total` / `thread:count`.
+pub const NS_THREAD: &str = "http://purl.org/syndication/thread/1.0";
+/// The reserved `xml:` prefix (e.g. `xml:base`, `xml:lang`).
+pub const NS_XML: &str = "http://www.w3.org/XML/1998/namespace";
 /// The kind of article an item was collected as (RSS vs Atom). Drives which
 /// extraction logic a [`FeedItem`] method uses.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

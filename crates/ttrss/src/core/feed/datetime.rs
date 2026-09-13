@@ -32,7 +32,10 @@ mod tests {
 
     #[test]
     fn parses_rfc2822_pubdate() {
-        assert_eq!(parse_date("Mon, 01 Jan 2024 12:00:00 GMT"), Some(1704110400));
+        assert_eq!(
+            parse_date("Mon, 01 Jan 2024 12:00:00 GMT"),
+            Some(1704110400)
+        );
     }
 
     #[test]

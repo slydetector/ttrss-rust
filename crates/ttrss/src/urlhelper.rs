@@ -7,7 +7,7 @@
 //! to refuse requests to loopback/private/reserved addresses.
 
 use crate::util::clean_str;
-
+use crate::with_trailing_slash;
 /// The components `parse_url` returns (the subset `build_url`/`validate` use).
 #[derive(Clone, Debug, Default)]
 struct ParsedUrl {
@@ -450,4 +450,99 @@ fn is_ipv4(host: &str) -> bool {
 }
 fn is_ipv6(host: &str) -> bool {
     host.parse::<std::net::Ipv6Addr>().is_ok()
+}
+
+/// PHP `UrlHelper::rewrite_relative($base_url, $rel_url)` — resolve a relative
+/// URL against a base (RFC 3986 §5.2.2). An absolute `scheme://host` URL passes
+/// through [`validate`]; a relative path is merged with the base's scheme, host,
+/// and directory. Returns the validated URL, or `None` if it cannot be resolved
+/// (mirrors the PHP `false`).
+pub(crate) fn rewrite_relative(base_url: &str, rel_url: &str) -> Option<String> {
+    let mut rel_parts = parse_url(rel_url)?;
+
+    // Absolute URL (has both a scheme and a host) → validate and return as-is.
+    if !rel_parts.host.is_empty() && !rel_parts.scheme.is_empty() {
+        return validate(rel_url, false);
+    }
+
+    let base_parts = parse_url(base_url)?;
+
+    // Inherit the base's scheme / host / port (a relative URL has none).
+    rel_parts.scheme = base_parts.scheme;
+    rel_parts.host = base_parts.host;
+    rel_parts.port = base_parts.port;
+
+    // Resolve the relative path against the base directory (§5.2.2): if the base
+    // path does not end in `/`, use the `dirname` of it.
+    if !rel_parts.path.is_empty() {
+        let mut base_path = base_parts.path.clone();
+        if !base_path.ends_with('/') {
+            base_path = with_trailing_slash(&php_dirname(&base_path));
+        }
+        if rel_parts.path.starts_with("./") {
+            rel_parts.path = format!("{}{}", base_path, &rel_parts.path[2..]);
+        } else if !rel_parts.path.starts_with('/') {
+            rel_parts.path = format!("{}{}", base_path, rel_parts.path);
+        }
+        // An absolute-relative path (leading `/`) is already document-rooted.
+    }
+
+    validate(&build_url(&rel_parts), false)
+}
+
+/// PHP `dirname($path)` — the directory component (the path up to, excluding, the
+/// final `/`), matching the edge cases the URL rewriter relies on:
+/// `dirname("/base") == ""`, `dirname("base") == "."`, `dirname("/") == "/"`,
+/// `dirname("") == "."`.
+fn php_dirname(path: &str) -> String {
+    if path.is_empty() {
+        return ".".to_string();
+    }
+    let trimmed = path.trim_end_matches('/');
+    if trimmed.is_empty() {
+        return "/".to_string(); // the path was all slashes (e.g. "/")
+    }
+    match trimmed.rfind('/') {
+        Some(0) => String::new(), // "/base" → ""
+        Some(idx) => trimmed[..idx].to_string(), // "/base/dir" → "/base"
+        None => ".".to_string(), // "base" → "."
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rewrite_relative_path() {
+        assert_eq!(
+            rewrite_relative("https://example.com/base/", "relative/path").as_deref(),
+            Some("https://example.com/base/relative/path")
+        );
+        assert_eq!(
+            rewrite_relative("https://cdn.example.com/", "images/photo.jpg").as_deref(),
+            Some("https://cdn.example.com/images/photo.jpg")
+        );
+        assert_eq!(
+            rewrite_relative("https://cdn.example.com/", "relative/audio.mp3").as_deref(),
+            Some("https://cdn.example.com/relative/audio.mp3")
+        );
+    }
+
+    #[test]
+    fn rewrite_relative_absolute_passthrough() {
+        assert_eq!(
+            rewrite_relative("https://example.com/", "https://other.com/x").as_deref(),
+            Some("https://other.com/x")
+        );
+    }
+
+    #[test]
+    fn php_dirname_cases() {
+        assert_eq!(php_dirname("/base"), "");
+        assert_eq!(php_dirname("/base/dir"), "/base");
+        assert_eq!(php_dirname("base"), ".");
+        assert_eq!(php_dirname("/"), "/");
+        assert_eq!(php_dirname(""), ".");
+    }
 }
