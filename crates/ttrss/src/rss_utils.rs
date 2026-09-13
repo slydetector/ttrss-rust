@@ -1,8 +1,9 @@
 //! Port of `tt-rss/classes/RSSUtils.php` — the feed-update engine helpers.
 //!
-//! **M6a.4** adds the content-encoding / gzip helpers. The rest of the class —
-//! the deterministic update pipeline (fetch, hash, dedup, upsert, filter,
-//! counters) — lands in **M6b**.
+//! **M6a.4** adds the content-encoding / gzip helpers. **M6b** adds the
+//! deterministic pipeline's *pure* helpers (GUID, srcset, filter evaluation,
+//! score, labels); the DB-backed pipeline (`update_rss_feed`: hash/dedup/upsert/
+//! counters) and the fetch/daemon shell land later in M6b/M6c.
 //!
 //! # Gzip
 //!
@@ -14,6 +15,8 @@
 //! header): detect it by magic bytes, then decompress.
 
 use std::io::Read;
+
+use regex::Regex;
 
 /// PHP `RSSUtils::is_gzipped($feed_data)` — true if the data begins with the
 /// gzip magic header `\x1f\x8b\x08`.
@@ -30,6 +33,75 @@ pub fn gzip_decode(data: &[u8]) -> anyhow::Result<Vec<u8>> {
     let mut out = Vec::new();
     flate2::read::GzDecoder::new(data).read_to_end(&mut out)?;
     Ok(out)
+}
+
+// =========================================================================
+// M6b — the deterministic pipeline (pure helpers)
+// =========================================================================
+
+/// A user label (`Article::_get_labels()` shape: `[feed_id, caption, fg, bg]`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Label {
+    pub feed_id: i64,
+    pub caption: String,
+    pub fg_color: String,
+    pub bg_color: String,
+}
+
+/// A parsed `srcset` subitem (PHP `['url' => …, 'size' => …]`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct SourceItem {
+    pub url: String,
+    pub size: String,
+}
+
+/// PHP `RSSUtils::make_guid_from_title($title)` — lowercase a tag-stripped
+/// title, replacing the set `[space " ' , . : ;]` with `-`.
+pub fn make_guid_from_title(title: &str) -> String {
+    let lower = crate::util::strip_tags(title).to_lowercase();
+    lower.replace([' ', '"', '\'', ',', '.', ':', ';'], "-")
+}
+
+/// PHP `RSSUtils::decode_srcset($srcset)` — parse an HTML `srcset` attribute
+/// into `{url, size}` items (size is a `w`/`x` descriptor or empty).
+pub fn decode_srcset(srcset: &str) -> Vec<SourceItem> {
+    let re = Regex::new(r"^\s*(\S+)(?:\s+(\d+w|\d+(?:\.\d+)?(?:[eE][+-]?\d+)?x))?\s*$").unwrap();
+    srcset
+        .split(',')
+        .filter_map(|tok| {
+            let caps = re.captures(tok)?;
+            Some(SourceItem {
+                url: caps[1].to_string(),
+                size: caps
+                    .get(2)
+                    .map(|m| m.as_str().to_string())
+                    .unwrap_or_default(),
+            })
+        })
+        .collect()
+}
+
+/// PHP `RSSUtils::encode_srcset($matches)` — reconstruct a `srcset` attribute
+/// from parsed items.
+pub fn encode_srcset(items: &[SourceItem]) -> String {
+    items
+        .iter()
+        .map(|m| format!("{} {}", m.url.trim(), m.size.trim()))
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+/// PHP `RSSUtils::function_enabled($func)` — true unless the function is in
+/// PHP's `disable_functions`. Rust has no such list, so this is always `true`
+/// (mirrors the test expectations).
+pub fn function_enabled(_func: &str) -> bool {
+    true
+}
+
+/// PHP `RSSUtils::labels_contains_caption($labels, $caption)` — true if any
+/// label's caption (index 1) exactly equals `$caption` (case-sensitive).
+pub fn labels_contains_caption(labels: &[Label], caption: &str) -> bool {
+    labels.iter().any(|l| l.caption == caption)
 }
 
 #[cfg(test)]
@@ -105,5 +177,271 @@ mod tests {
         let compressed = encoder.finish().unwrap();
         let result = gzip_decode(&compressed).unwrap();
         assert_eq!(&result[..], original);
+    }
+    // ------------------------------------------------------------------------
+    // Shared test fixtures
+    // ------------------------------------------------------------------------
+
+    fn make_label(feed_id: i64, caption: &str) -> Label {
+        Label {
+            feed_id,
+            caption: caption.into(),
+            fg_color: "#ff0000".into(),
+            bg_color: "#ffffff".into(),
+        }
+    }
+
+    // ------------------------------------------------------------------------
+    // make_guid_from_title() — GUID derivation from an article title
+    // (tt-rss/tests_functional/RSSUtilsTest.php)
+    // ------------------------------------------------------------------------
+
+    #[test]
+    fn test_make_guid_from_title_simple() {
+        assert_eq!(make_guid_from_title("Test Article"), "test-article");
+    }
+
+    #[test]
+    fn test_make_guid_from_title_lowercase() {
+        assert_eq!(
+            make_guid_from_title("Already Lowercase"),
+            "already-lowercase"
+        );
+    }
+
+    #[test]
+    fn test_make_guid_from_title_strips_html_tags() {
+        // strip_tags removes the tags (not their content), then chars are replaced
+        assert_eq!(make_guid_from_title("<b>bold</b> article"), "bold-article");
+    }
+
+    #[test]
+    fn test_make_guid_from_title_replaces_special_chars() {
+        // 5 special chars each replaced by '-'
+        assert_eq!(make_guid_from_title(" ,':;"), "-----");
+    }
+
+    #[test]
+    fn test_make_guid_from_title_replaces_spaces() {
+        assert_eq!(make_guid_from_title("Hello World"), "hello-world");
+    }
+
+    #[test]
+    fn test_make_guid_from_title_handles_unicode() {
+        let result = make_guid_from_title("Café Résumé");
+        assert!(result.contains("café"));
+        assert!(result.contains("résumé"));
+    }
+
+    #[test]
+    fn test_make_guid_from_title_empty_string() {
+        assert_eq!(make_guid_from_title(""), "");
+    }
+
+    #[test]
+    fn test_make_guid_from_title_only_spaces() {
+        assert_eq!(make_guid_from_title("   "), "---");
+    }
+
+    #[test]
+    fn test_make_guid_from_title_nested_tags() {
+        assert_eq!(
+            make_guid_from_title("<div><p><b>hello</b> <i>world</i></p></div>"),
+            "hello-world"
+        );
+    }
+
+    #[test]
+    fn test_make_guid_from_title_preserves_alphanumerics_and_hyphens() {
+        assert_eq!(make_guid_from_title("abc123 x y"), "abc123-x-y");
+    }
+
+    // ------------------------------------------------------------------------
+    // decode_srcset() — HTML srcset attribute parsing
+    // ------------------------------------------------------------------------
+
+    #[test]
+    fn test_decode_srcset_single_entry() {
+        let result = decode_srcset("image.jpg 1x");
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].url, "image.jpg");
+        assert_eq!(result[0].size, "1x");
+    }
+
+    #[test]
+    fn test_decode_srcset_multiple_entries() {
+        let result = decode_srcset("small.jpg 1x, medium.jpg 2x, large.jpg 3x");
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0].url, "small.jpg");
+        assert_eq!(result[0].size, "1x");
+        assert_eq!(result[1].url, "medium.jpg");
+        assert_eq!(result[1].size, "2x");
+        assert_eq!(result[2].url, "large.jpg");
+        assert_eq!(result[2].size, "3x");
+    }
+
+    #[test]
+    fn test_decode_srcset_width_descriptors() {
+        let result = decode_srcset("small.jpg 480w, medium.jpg 800w, large.jpg 1200w");
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0].size, "480w");
+        assert_eq!(result[1].size, "800w");
+        assert_eq!(result[2].size, "1200w");
+    }
+
+    #[test]
+    fn test_decode_srcset_leading_comma() {
+        let result = decode_srcset(", image.jpg 1x");
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].url, "image.jpg");
+    }
+
+    #[test]
+    fn test_decode_srcset_trailing_comma() {
+        let result = decode_srcset("image.jpg 1x,");
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].url, "image.jpg");
+    }
+
+    #[test]
+    fn test_decode_srcset_empty_string() {
+        assert_eq!(decode_srcset("").len(), 0);
+    }
+
+    #[test]
+    fn test_decode_srcset_no_size_descriptor() {
+        let result = decode_srcset("image.jpg");
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].url, "image.jpg");
+        assert_eq!(result[0].size, "");
+    }
+
+    #[test]
+    fn test_decode_srcset_decimal_descriptor() {
+        let result = decode_srcset("image.jpg 1.5x");
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].size, "1.5x");
+    }
+
+    #[test]
+    fn test_decode_srcset_whitespace_handling() {
+        let result = decode_srcset("  small.jpg   1x  ,   large.jpg   2x  ");
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].url, "small.jpg");
+        assert_eq!(result[0].size, "1x");
+        assert_eq!(result[1].url, "large.jpg");
+        assert_eq!(result[1].size, "2x");
+    }
+
+    // ------------------------------------------------------------------------
+    // encode_srcset() — srcset reconstruction from parsed data
+    // ------------------------------------------------------------------------
+
+    #[test]
+    fn test_encode_srcset_single_entry() {
+        let input = [SourceItem {
+            url: "image.jpg".into(),
+            size: "1x".into(),
+        }];
+        assert_eq!(encode_srcset(&input), "image.jpg 1x");
+    }
+
+    #[test]
+    fn test_encode_srcset_multiple_entries() {
+        let input = [
+            SourceItem {
+                url: "small.jpg".into(),
+                size: "1x".into(),
+            },
+            SourceItem {
+                url: "large.jpg".into(),
+                size: "2x".into(),
+            },
+        ];
+        assert_eq!(encode_srcset(&input), "small.jpg 1x,large.jpg 2x");
+    }
+
+    #[test]
+    fn test_encode_srcset_empty_array() {
+        assert_eq!(encode_srcset(&[]), "");
+    }
+
+    #[test]
+    fn test_encode_srcset_no_size() {
+        let input = [SourceItem {
+            url: "image.jpg".into(),
+            size: String::new(),
+        }];
+        assert_eq!(encode_srcset(&input), "image.jpg ");
+    }
+
+    #[test]
+    fn test_encode_srcset_roundtrip() {
+        let original = "small.jpg 1x, medium.jpg 2x, large.jpg 3x";
+        let decoded = decode_srcset(original);
+        let encoded = encode_srcset(&decoded);
+        // Round-trip should produce equivalent output (whitespace may differ).
+        let decoded_again = decode_srcset(&encoded);
+        assert_eq!(decoded_again.len(), 3);
+        assert_eq!(decoded[0].url, decoded_again[0].url);
+        assert_eq!(decoded[1].url, decoded_again[1].url);
+        assert_eq!(decoded[2].url, decoded_again[2].url);
+    }
+
+    // ------------------------------------------------------------------------
+    // function_enabled() — PHP disable_functions check
+    // ------------------------------------------------------------------------
+
+    #[test]
+    fn test_function_enabled_common_functions() {
+        // Rust has no disable_functions — every function is "enabled".
+        assert!(function_enabled("strlen"));
+        assert!(function_enabled("phpinfo"));
+    }
+
+    #[test]
+    fn test_function_enabled_nonexistent() {
+        // Non-existent functions are still "enabled" (not in any disabled list).
+        assert!(function_enabled("this_function_does_not_exist_xyz"));
+    }
+
+    // ------------------------------------------------------------------------
+    // labels_contains_caption() — label caption lookup
+    // ------------------------------------------------------------------------
+
+    #[test]
+    fn test_labels_contains_caption_found() {
+        let labels = [make_label(1, "Important"), make_label(2, "News")];
+        assert!(labels_contains_caption(&labels, "Important"));
+    }
+
+    #[test]
+    fn test_labels_contains_caption_not_found() {
+        let labels = [make_label(1, "Important"), make_label(2, "News")];
+        assert!(!labels_contains_caption(&labels, "Archive"));
+    }
+
+    #[test]
+    fn test_labels_contains_caption_empty_array() {
+        assert!(!labels_contains_caption(&[], "Any"));
+    }
+
+    #[test]
+    fn test_labels_contains_caption_case_sensitive() {
+        let labels = [make_label(1, "Important")];
+        // Caption matching is case-sensitive (exact string comparison).
+        assert!(!labels_contains_caption(&labels, "important"));
+    }
+
+    #[test]
+    fn test_labels_contains_caption_special_chars() {
+        let labels = [make_label(1, "Tag: News (2024)")];
+        assert!(labels_contains_caption(&labels, "Tag: News (2024)"));
+    }
+
+    #[test]
+    fn test_labels_contains_caption_empty_caption() {
+        let labels = [make_label(1, "")];
+        assert!(labels_contains_caption(&labels, ""));
     }
 }

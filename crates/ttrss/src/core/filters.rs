@@ -304,6 +304,37 @@ pub fn eval_article_filters(
     out
 }
 
+/// PHP `RSSUtils::has_article_filter_action($filter_actions, $type)` — true if
+/// any matched action has the given type.
+pub fn has_article_filter_action(actions: &[FilterAction], action_type: &str) -> bool {
+    actions
+        .iter()
+        .any(|a| a.action_type.as_deref() == Some(action_type))
+}
+
+/// PHP `RSSUtils::find_article_filter_actions($filter_actions, $type)` — the
+/// actions whose type exactly equals `$type` (re-indexed from zero).
+pub fn find_article_filter_actions(
+    actions: &[FilterAction],
+    action_type: &str,
+) -> Vec<FilterAction> {
+    actions
+        .iter()
+        .filter(|a| a.action_type.as_deref() == Some(action_type))
+        .cloned()
+        .collect()
+}
+
+/// PHP `RSSUtils::calculate_article_score($filter_actions)` — the sum of the
+/// `param` (as an int) of every `score` action.
+pub fn calculate_article_score(actions: &[FilterAction]) -> i64 {
+    actions
+        .iter()
+        .filter(|a| a.action_type.as_deref() == Some("score"))
+        .map(|a| a.param.as_deref().unwrap_or("").parse::<i64>().unwrap_or(0))
+        .sum()
+}
+
 #[cfg(test)]
 mod tests {
     //! 1:1 ports of `tt-rss/tests_functional/RSSUtilsTest.php`
@@ -776,5 +807,131 @@ mod tests {
         let out = eval_article_filters(&filters, "the Word here", "word in content", "", "", &[]);
         assert_eq!(out.actions.len(), 1);
         assert_eq!(out.matched_rules[0].regexp_matches[0], "Word");
+    }
+
+    // ------------------------------------------------------------------------
+    // has_article_filter_action() — filter action type check
+    // ------------------------------------------------------------------------
+
+    #[test]
+    fn has_article_filter_action_found() {
+        let actions = [action("label", "Important"), action("score", "10")];
+        assert!(has_article_filter_action(&actions, "label"));
+    }
+
+    #[test]
+    fn has_article_filter_action_not_found() {
+        let actions = [action("label", "Important"), action("score", "10")];
+        assert!(!has_article_filter_action(&actions, "publish"));
+    }
+
+    #[test]
+    fn has_article_filter_action_empty_array() {
+        assert!(!has_article_filter_action(&[], "label"));
+    }
+
+    #[test]
+    fn has_article_filter_action_type_case_sensitive() {
+        let actions = [action("label", "Important")];
+        assert!(!has_article_filter_action(&actions, "Label"));
+    }
+
+    #[test]
+    fn has_article_filter_action_multiple_types() {
+        let actions = [
+            action("label", "A"),
+            action("tag", "B"),
+            action("catchup", ""),
+        ];
+        assert!(has_article_filter_action(&actions, "catchup"));
+        assert!(!has_article_filter_action(&actions, "mark"));
+    }
+
+    // ------------------------------------------------------------------------
+    // find_article_filter_actions() — filter action type filtering
+    // ------------------------------------------------------------------------
+
+    #[test]
+    fn find_article_filter_actions_single_match() {
+        let actions = [action("label", "Important"), action("score", "10")];
+        let result = find_article_filter_actions(&actions, "label");
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].action_type.as_deref(), Some("label"));
+        assert_eq!(result[0].param.as_deref(), Some("Important"));
+    }
+
+    #[test]
+    fn find_article_filter_actions_multiple_matches() {
+        let actions = [
+            action("score", "5"),
+            action("label", "A"),
+            action("score", "10"),
+        ];
+        let result = find_article_filter_actions(&actions, "score");
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].param.as_deref(), Some("5"));
+        assert_eq!(result[1].param.as_deref(), Some("10"));
+    }
+
+    #[test]
+    fn find_article_filter_actions_no_match() {
+        let actions = [action("label", "Important"), action("score", "10")];
+        let result = find_article_filter_actions(&actions, "publish");
+        assert_eq!(result.len(), 0);
+    }
+
+    #[test]
+    fn find_article_filter_actions_empty_input() {
+        let result = find_article_filter_actions(&[], "label");
+        assert_eq!(result.len(), 0);
+    }
+
+    // ------------------------------------------------------------------------
+    // calculate_article_score() — score modifier summation
+    // ------------------------------------------------------------------------
+
+    #[test]
+    fn calculate_article_score_single_modifier() {
+        let actions = [action("score", "10")];
+        assert_eq!(calculate_article_score(&actions), 10);
+    }
+
+    #[test]
+    fn calculate_article_score_multiple_modifiers() {
+        let actions = [
+            action("score", "5"),
+            action("label", "Important"),
+            action("score", "15"),
+        ];
+        assert_eq!(calculate_article_score(&actions), 20);
+    }
+
+    #[test]
+    fn calculate_article_score_negative_modifier() {
+        let actions = [action("score", "10"), action("score", "-5")];
+        assert_eq!(calculate_article_score(&actions), 5);
+    }
+
+    #[test]
+    fn calculate_article_score_empty_array() {
+        assert_eq!(calculate_article_score(&[]), 0);
+    }
+
+    #[test]
+    fn calculate_article_score_no_score_actions() {
+        let actions = [action("label", "Important"), action("tag", "news")];
+        assert_eq!(calculate_article_score(&actions), 0);
+    }
+
+    #[test]
+    fn calculate_article_score_zero_modifier() {
+        let actions = [action("score", "0")];
+        assert_eq!(calculate_article_score(&actions), 0);
+    }
+
+    #[test]
+    fn calculate_article_score_large_values() {
+        let actions = [action("score", "1000"), action("score", "-500")];
+        assert_eq!(calculate_article_score(&actions), 500);
     }
 }
