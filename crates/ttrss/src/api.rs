@@ -290,10 +290,10 @@ async fn get_config(state: &AppState, uid: Option<i64>) -> Value {
             .await
             .unwrap_or(0);
     // `_get_custom_sort_types` (no plugin sort hooks) → `[]`; `daemon_is_running`
-    // is a file lock (no daemon in this deployment) → false.
+    // is true — the updater runs in-process, always on (D1 = B; D6 = c).
     json!({
         "custom_sort_types": Value::Array(vec![]),
-        "daemon_is_running": false,
+        "daemon_is_running": true,
         "icons_url": format!("{}/public.php", state.config.self_url_rtrim()),
         "num_feeds": num_feeds,
     })

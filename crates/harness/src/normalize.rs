@@ -19,8 +19,8 @@ pub const VOLATILE_JSON_KEYS: &[&str] = &[
     // server-side counters that grow with request history, not comparable
     // across runs/servers
     "recent_log_events",
-    // live update-daemon state (present when an updater is running; the Rust
-    // test server has no daemon) — environment, not app behavior
+    // update-daemon state (the Rust server emits these stubbed, D6 = c) —
+    // environment/volatile (the stamp is a moving timestamp), not app behavior
     "daemon_is_running",
     "daemon_stamp",
     "daemon_stamp_ok",

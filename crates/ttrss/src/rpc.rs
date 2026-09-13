@@ -785,78 +785,28 @@ pub(crate) async fn make_runtime_info(state: &AppState, sess: &Sess) -> Value {
         out.insert("recent_log_events".into(), Value::from(cid));
     }
 
-    // Update-daemon state (LOCK_DIRECTORY defaults to `lock` under the doc
-    // root). Absent on the daemon-less Rust test server; the harness drops
-    // these volatile keys anyway.
-    let lock_dir = state.config.docroot.join("lock");
-    if lock_dir.join("update_daemon.lock").exists() {
-        out.insert(
-            "daemon_is_running".into(),
-            Value::from(file_is_locked(&lock_dir.join("update_daemon.lock")) as i64),
-        );
-        let now = chrono::Utc::now().timestamp();
-        let stamp_check = data.get_int("daemon_stamp_check").unwrap_or(0);
-        if now - stamp_check > 30 {
-            let stamp = std::fs::read_to_string(lock_dir.join("update_daemon.stamp"))
-                .ok()
-                .and_then(|s| s.trim().parse::<i64>().ok())
-                .unwrap_or(0);
-            if stamp != 0 {
-                let delta = now - stamp;
-                let stamp_ok = if delta > 1800 { 0 } else { 1 };
-                if stamp_ok == 1 {
-                    sess.with_mut(|s| {
-                        s.set("daemon_stamp_check", crate::core::phpser::Value::Int(now));
-                    });
-                }
-                out.insert("daemon_stamp_ok".into(), Value::from(stamp_ok));
-                // `date("Y.m.d, G:i", $stamp)` (G = 24h clock, no leading zero)
-                out.insert(
-                    "daemon_stamp".into(),
-                    Value::from(
-                        chrono::DateTime::from_timestamp(stamp, 0)
-                            .map(|dt| {
-                                format!(
-                                    "{:04}.{:02}.{:02}, {}:{:02}",
-                                    dt.year(),
-                                    dt.month(),
-                                    dt.day(),
-                                    dt.hour(),
-                                    dt.minute()
-                                )
-                            })
-                            .unwrap_or_default(),
-                    ),
-                );
-            }
-        }
-    }
+    // Update-daemon state (D6 = c): the updater runs in-process (D1 = B), so
+    // it is always running; the 30-min "not updating feeds" stale-check is
+    // dropped. Emit the fields the SPA reads — `daemon_is_running` and
+    // `daemon_stamp_ok` as JSON *integers* so the UI's strict `v !== 1` check
+    // passes — with their steady-state values, plus a current `daemon_stamp`.
+    // This fakes the updater-health indicator without the `.lock`/`.stamp`
+    // file mechanism; the harness normalizer drops these volatile keys.
+    let now = chrono::Utc::now();
+    out.insert("daemon_is_running".into(), Value::from(1_i64));
+    out.insert("daemon_stamp_ok".into(), Value::from(1_i64));
+    out.insert(
+        "daemon_stamp".into(),
+        Value::from(format!(
+            "{:04}.{:02}.{:02}, {}:{:02}",
+            now.year(),
+            now.month(),
+            now.day(),
+            now.hour(),
+            now.minute(),
+        )),
+    );
     Value::Object(out)
-}
-
-/// PHP `file_is_locked`: is another process holding an exclusive `flock` on
-/// the file? A non-blocking exclusive lock attempt succeeds iff it's free.
-#[cfg(unix)]
-fn file_is_locked(path: &std::path::Path) -> bool {
-    use std::os::fd::AsRawFd;
-    extern "C" {
-        fn flock(fd: i32, operation: i32) -> i32;
-    }
-    const LOCK_EX: i32 = 2;
-    const LOCK_NB: i32 = 4;
-    match std::fs::OpenOptions::new()
-        .read(true)
-        .write(true)
-        .open(path)
-    {
-        Ok(f) => unsafe { flock(f.as_raw_fd(), LOCK_EX | LOCK_NB) == -1 },
-        Err(_) => false,
-    }
-}
-
-#[cfg(not(unix))]
-fn file_is_locked(_path: &std::path::Path) -> bool {
-    false
 }
 
 /// `RPC::_make_init_params`.
