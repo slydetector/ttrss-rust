@@ -29,6 +29,7 @@ pub mod pref_ui;
 pub mod pref_timezones;
 pub mod render;
 pub mod rpc;
+pub mod rss_utils;
 pub mod search;
 pub mod sanitizer;
 pub mod search_date;
