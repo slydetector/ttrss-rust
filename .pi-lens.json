@@ -1,5 +1,7 @@
 {
   "ignore": [
     "oracle/scripts/seed.py"
-  ]
+  ],
+  "format": { "enabled": false },
+  "autofix": { "enabled": false }
 }
