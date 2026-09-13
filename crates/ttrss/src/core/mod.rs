@@ -7,6 +7,7 @@
 pub mod config;
 pub mod crypt;
 pub mod db;
+pub mod feed;
 pub mod filters;
 pub mod phpser;
 pub mod session;
