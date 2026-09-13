@@ -883,7 +883,7 @@ async fn cats_of(pool: &sqlx::PgPool, uid: i64, feeds: &[i64], with_parents: boo
 }
 
 /// `Feeds::_get_parent_cats` (recursive).
-async fn parent_cats(pool: &sqlx::PgPool, uid: i64, cat: i64) -> Vec<i64> {
+pub(crate) async fn parent_cats(pool: &sqlx::PgPool, uid: i64, cat: i64) -> Vec<i64> {
     let mut rv = Vec::new();
     let rows = sqlx::query(
         "SELECT parent_cat FROM ttrss_feed_categories

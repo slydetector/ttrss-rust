@@ -24,14 +24,19 @@
 
 use anyhow::{bail, Context, Result};
 use chrono::{NaiveDateTime, Utc};
-use serde_json::json;
+use serde_json::{json, Value};
 use sqlx::{PgPool, Row};
 
 use crate::core::feed::{FeedItem, FeedParser};
+use crate::core::filters::{
+    calculate_article_score, eval_article_filters, has_article_filter_action, EvalFilter, EvalRule,
+    FilterAction, RuleType,
+};
 use crate::core::user::ACCESS_LEVEL_READONLY;
+use crate::counters::parent_cats;
 use crate::rss_utils::{calculate_article_hash, make_guid_from_title};
 use crate::urlhelper::rewrite_relative;
-use crate::util::{clean_str, sha1_hex, strip_tags};
+use crate::util::{clean_str, normalize_categories, sha1_hex, strip_tags};
 
 /// The subset of `ttrss_feeds` the pipeline reads.
 #[derive(Debug, Clone)]
@@ -157,6 +162,10 @@ pub async fn process_feed(
     }
 
     let date_feed_processed = Utc::now().format("%Y-%m-%d %H:%M").to_string();
+    // M6b.2c — the owner's enabled article filters (scoped to this feed) and the
+    // user's blacklisted tags, each loaded once per feed update.
+    let filters = load_filters(pool, feed.id, feed.owner_uid).await?;
+    let blacklisted = blacklisted_tags(pool, feed.owner_uid).await;
     let mut new_articles = 0;
     for item in &items {
         new_articles += upsert_article(
@@ -166,6 +175,8 @@ pub async fn process_feed(
             &feed_language,
             &date_feed_processed,
             item,
+            &filters,
+            &blacklisted,
         )
         .await?;
     }
@@ -206,6 +217,177 @@ async fn stamp_success(pool: &PgPool, feed_id: i32) -> Result<()> {
     Ok(())
 }
 
+/// `RSSUtils::load_filters($feed_id, $owner_uid)` — the owner's enabled article
+/// filters, scoped to this feed (a rule naming the feed directly, one naming a
+/// category in its chain, or an unrestricted rule) in the shape
+/// `eval_article_filters` consumes. A filter is kept only when it has at least
+/// one applicable rule and at least one action.
+pub(crate) async fn load_filters(
+    pool: &PgPool,
+    feed_id: i32,
+    owner_uid: i32,
+) -> Result<Vec<EvalFilter>> {
+    // `Feeds::_cat_of`: the feed's `cat_id` (0 when uncategorized/NULL; -1 when
+    // the feed no longer exists — only reachable if called for a deleted feed).
+    let cat_id: i64 = sqlx::query_scalar("SELECT cat_id FROM ttrss_feeds WHERE id = $1")
+        .bind(feed_id)
+        .fetch_optional(pool)
+        .await
+        .context("look up feed category")?
+        .map(|v: Option<i32>| v.unwrap_or(0) as i64)
+        .unwrap_or(-1);
+
+    // `($cat_id) ? '' : 'cat_id IS NULL OR'` (the PHP has no trailing space).
+    let null_cat_qpart = if cat_id == 0 { "cat_id IS NULL OR" } else { "" };
+
+    // `$check_cats = [..._get_parent_cats($cat_id, $owner_uid), $cat_id]`.
+    let mut check_cats: Vec<i64> = if cat_id > 0 {
+        parent_cats(pool, owner_uid as i64, cat_id).await
+    } else {
+        Vec::new()
+    };
+    check_cats.push(cat_id);
+    let check_cats_str = check_cats
+        .iter()
+        .map(|c| c.to_string())
+        .collect::<Vec<_>>()
+        .join(",");
+    let check_cats_fullids: Vec<String> = check_cats.iter().map(|c| format!("CAT:{c}")).collect();
+
+    let filter_rows = sqlx::query(
+        "SELECT id, match_any_rule, inverse FROM ttrss_filters2 \
+         WHERE owner_uid = $1 AND enabled = true ORDER BY order_id, title",
+    )
+    .bind(owner_uid)
+    .fetch_all(pool)
+    .await
+    .context("load owner filters")?;
+
+    let mut filters: Vec<EvalFilter> = Vec::new();
+    for row in &filter_rows {
+        let filter_id: i32 = row.get(0);
+        let match_any_rule: bool = row.get(1);
+        let inverse: bool = row.get(2);
+
+        let rule_q = format!(
+            "SELECT reg_exp, inverse, match_on, filter_type FROM ttrss_filters2_rules \
+             WHERE (match_on IS NOT NULL OR \
+                    (({null_cat_qpart} (cat_id IS NULL AND cat_filter = false) OR cat_id IN ({check_cats_str})) AND \
+                    (feed_id IS NULL OR feed_id = $1))) AND filter_id = $2"
+        );
+        let rule_rows = sqlx::query(&rule_q)
+            .bind(feed_id)
+            .bind(filter_id)
+            .fetch_all(pool)
+            .await
+            .context("load filter rules")?;
+
+        let mut rules: Vec<EvalRule> = Vec::new();
+        for r in &rule_rows {
+            let reg_exp: String = r.get(0);
+            let rule_inverse: bool = r.get(1);
+            let match_on: Option<String> = r.get(2);
+            let filter_type: i32 = r.get(3);
+            let rule_type = RuleType::from_id(filter_type);
+
+            // `if ($rule_line["match_on"])` — a non-empty `match_on` restricts the
+            // rule to the feeds/categories listed in that JSON array.
+            let match_on = match_on.as_deref().unwrap_or("");
+            if !match_on.is_empty() {
+                let forms: Vec<String> = serde_json::from_str::<Vec<Value>>(match_on)
+                    .unwrap_or_default()
+                    .iter()
+                    .filter_map(|v| match v {
+                        Value::Number(n) => Some(n.to_string()),
+                        Value::String(s) => Some(s.clone()),
+                        _ => None,
+                    })
+                    .collect();
+                let matches_feed = forms.contains(&"0".to_string())
+                    || forms.contains(&feed_id.to_string())
+                    || check_cats_fullids.iter().any(|ci| forms.contains(ci));
+                if matches_feed {
+                    rules.push(EvalRule {
+                        reg_exp,
+                        rule_type,
+                        inverse: rule_inverse,
+                    });
+                } else if !match_any_rule {
+                    rules.clear();
+                    break;
+                }
+            } else {
+                rules.push(EvalRule {
+                    reg_exp,
+                    rule_type,
+                    inverse: rule_inverse,
+                });
+            }
+        }
+
+        if rules.is_empty() {
+            continue;
+        }
+
+        let action_rows = sqlx::query(
+            "SELECT a.action_param, t.name AS type_name \
+             FROM ttrss_filters2_actions AS a, ttrss_filter_actions AS t \
+             WHERE t.id = a.action_id AND a.filter_id = $1",
+        )
+        .bind(filter_id)
+        .fetch_all(pool)
+        .await
+        .context("load filter actions")?;
+
+        let actions: Vec<FilterAction> = action_rows
+            .iter()
+            .map(|a| {
+                let action_param: String = a.get(0);
+                let type_name: String = a.get(1);
+                FilterAction {
+                    action_type: Some(type_name),
+                    param: Some(action_param),
+                }
+            })
+            .collect();
+
+        if actions.is_empty() {
+            continue;
+        }
+
+        filters.push(EvalFilter {
+            match_any_rule,
+            inverse,
+            rules,
+            actions,
+        });
+    }
+
+    Ok(filters)
+}
+
+/// `Prefs::get(BLACKLISTED_TAGS, $owner_uid)` — the user's blacklisted tags as a
+/// normalized set (the PHP default for the pref is the empty string, i.e. no
+/// blacklist).
+async fn blacklisted_tags(pool: &PgPool, owner_uid: i32) -> std::collections::BTreeSet<String> {
+    let raw: Option<String> = sqlx::query_scalar(
+        "SELECT value FROM ttrss_user_prefs2 \
+         WHERE owner_uid = $1 AND pref_name = $2 AND profile IS NULL",
+    )
+    .bind(owner_uid)
+    .bind(crate::prefs::BLACKLISTED_TAGS)
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten();
+    let items: Vec<String> = raw
+        .unwrap_or_default()
+        .split(',')
+        .map(|s| s.to_string())
+        .collect();
+    normalize_categories(&items).into_iter().collect()
+}
+
 /// The PHP `$article` field values, in hash order, with the PHP stringification
 /// applied (`content` stripped of tags; `tags`/`enclosures` comma-joined).
 fn article_hashed_fields(
@@ -236,6 +418,7 @@ fn article_hashed_fields(
 
 /// Collect + upsert a single feed item (the deterministic core of the PHP's
 /// per-article loop). Returns 1 if a new `ttrss_entries` row was created, else 0.
+#[allow(clippy::too_many_arguments)] // the per-article upsert context (mirrors the PHP's many locals)
 async fn upsert_article(
     pool: &PgPool,
     feed: &FeedRow,
@@ -243,6 +426,8 @@ async fn upsert_article(
     feed_language: &str,
     date_feed_processed: &str,
     item: &FeedItem<'_>,
+    filters: &[EvalFilter],
+    blacklisted: &std::collections::BTreeSet<String>,
 ) -> Result<i32> {
     let owner = feed.owner_uid;
 
@@ -360,6 +545,16 @@ async fn upsert_article(
         return Ok(0);
     }
 
+    // M6b.2c — run the article through the loaded filters.
+    let outcome = eval_article_filters(
+        filters,
+        &entry_title,
+        &entry_content,
+        &entry_link,
+        &entry_author,
+        &existing_tags,
+    );
+
     // --- resolve the base entry (create it if missing) ---
     let base_record_created = base_entry_id.is_none();
     let ref_id: i32 = match base_entry_id {
@@ -393,13 +588,20 @@ async fn upsert_article(
             id
         }
     };
+    // A `filter` action drops the article: the base record is kept, but no user
+    // entry is created (PHP `continue`s here).
+    if has_article_filter_action(&outcome.actions, "filter") {
+        return Ok(if base_record_created { 1 } else { 0 });
+    }
 
-    // --- user entry (score/marked/published are filter-driven; no filters →
-    //     score 0 → unread, unmarked, unpublished) ---
-    let score: i64 = 0;
-    let unread = score >= -500; // no catchup action, no force_catchup
-    let marked = score > 1000; // no `mark` action
-    let published = false; // no `publish` action
+    // --- user entry state, driven by the matched filter actions ---
+    // `$score = calculate_article_score($actions) + $entry_score_modifier`
+    // (`score_modifier` is 0 here — no plugin recalculation).
+    let score = calculate_article_score(&outcome.actions);
+    let has_catchup = has_article_filter_action(&outcome.actions, "catchup");
+    let unread = score >= -500 && !has_catchup; // no `force_catchup` in this pass
+    let marked = has_article_filter_action(&outcome.actions, "mark") || score > 1000;
+    let published = has_article_filter_action(&outcome.actions, "publish");
     let last_marked: Option<NaiveDateTime> = if marked {
         Some(Utc::now().naive_utc())
     } else {
@@ -477,9 +679,84 @@ async fn upsert_article(
         .await;
     }
 
-    // --- article tags (no filters → just the feed's categories) ---
-    if !existing_tags.is_empty() {
-        for tag in &existing_tags {
+    // --- re-score + mark-unread-on-update (applied whether or not the base
+    //     record was just created; no `force_catchup` in this pass) ---
+    let _ = sqlx::query(
+        "UPDATE ttrss_user_entries SET score = $1 WHERE ref_id = $2 AND owner_uid = $3",
+    )
+    .bind(score)
+    .bind(ref_id)
+    .bind(owner)
+    .execute(pool)
+    .await;
+    if feed.mark_unread_on_update && !has_catchup {
+        let _ = sqlx::query(
+            "UPDATE ttrss_user_entries SET last_read = NULL, unread = true \
+             WHERE ref_id = $1 AND owner_uid = $2",
+        )
+        .bind(ref_id)
+        .bind(owner)
+        .execute(pool)
+        .await;
+    }
+
+    // --- labels [other]: re-apply the article's existing labels, then [filters]:
+    //     every `label` action's caption (the PHP adds both unconditionally — its
+    //     `in_array` guard is a no-op; `add_article` is idempotent and skips
+    //     unknown labels) ---
+    let article_labels =
+        crate::article::get_labels(pool, owner as i64, ref_id, Some(owner as i64)).await;
+    for label in &article_labels {
+        if let Some(caption) = label.get(1).and_then(Value::as_str) {
+            crate::labels::add_article(pool, ref_id, caption, owner as i64).await;
+        }
+    }
+    for fa in &outcome.actions {
+        if fa.action_type.as_deref() == Some("label") {
+            if let Some(param) = fa.param.as_deref() {
+                crate::labels::add_article(pool, ref_id, param, owner as i64).await;
+            }
+        }
+    }
+
+    // --- article tags: feed categories + filter `tag`/`ignore-tag`, minus the
+    //     user's blacklisted tags (the whole set is re-normalized at the end) ---
+    let mut final_tags: Vec<String> = existing_tags.clone();
+    for fa in &outcome.actions {
+        if fa.action_type.as_deref() == Some("tag") {
+            let raw: Vec<String> = fa
+                .param
+                .as_deref()
+                .unwrap_or("")
+                .split(',')
+                .map(|s| s.to_string())
+                .collect();
+            final_tags.extend(normalize_categories(&raw));
+        }
+    }
+    for fa in &outcome.actions {
+        if fa.action_type.as_deref() == Some("ignore-tag") {
+            let raw: Vec<String> = fa
+                .param
+                .as_deref()
+                .unwrap_or("")
+                .split(',')
+                .map(|s| s.to_string())
+                .collect();
+            let remove: std::collections::BTreeSet<String> =
+                normalize_categories(&raw).into_iter().collect();
+            final_tags.retain(|t| !remove.contains(t));
+        }
+    }
+    let final_tags: Vec<String> = final_tags
+        .iter()
+        .filter(|t| !blacklisted.contains(t.as_str()))
+        .cloned()
+        .collect();
+    let final_tags = normalize_categories(&final_tags);
+
+    if !final_tags.is_empty() {
+        for tag in &final_tags {
             let exists: Option<i32> = sqlx::query_scalar(
                 "SELECT id FROM ttrss_tags WHERE tag_name = $1 AND post_int_id = $2 AND owner_uid = $3 LIMIT 1",
             )
@@ -503,7 +780,7 @@ async fn upsert_article(
         let _ = sqlx::query(
             "UPDATE ttrss_user_entries SET tag_cache = $1 WHERE ref_id = $2 AND owner_uid = $3",
         )
-        .bind(existing_tags.join(","))
+        .bind(final_tags.join(","))
         .bind(ref_id)
         .bind(owner)
         .execute(pool)
