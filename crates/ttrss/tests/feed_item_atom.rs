@@ -245,7 +245,10 @@ fn test_get_link_xml_base() {
   </entry>
 </feed>"#,
     );
-    assert_eq!(items[0].get_link(), "https://example.com/base/relative/path");
+    assert_eq!(
+        items[0].get_link(),
+        "https://example.com/base/relative/path"
+    );
 }
 
 #[test]
@@ -404,7 +407,10 @@ fn test_get_content_rewrites_relative_urls() {
 </feed>"#,
     );
     let content = items[0].get_content();
-    assert!(content.contains("https://cdn.example.com/images/photo.jpg"), "content = {content:?}");
+    assert!(
+        content.contains("https://cdn.example.com/images/photo.jpg"),
+        "content = {content:?}"
+    );
 }
 
 // =========================================================================

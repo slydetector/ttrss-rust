@@ -373,7 +373,10 @@ fn test_rss_get_author_author_element_no_name_or_email() {
 #[test]
 fn test_rss_get_comments_url() {
     let items = items(RSS2_ITEM_COMMENTS);
-    assert_eq!(items[0].get_comments_url(), "https://example.com/7/comments");
+    assert_eq!(
+        items[0].get_comments_url(),
+        "https://example.com/7/comments"
+    );
 }
 
 #[test]
@@ -385,7 +388,10 @@ fn test_rss_get_comments_url_none() {
 #[test]
 fn test_atom_get_comments_url_replies() {
     let items = items(ATOM1_ITEM_REPLIES);
-    assert_eq!(items[0].get_comments_url(), "https://example.com/atom/2/replies");
+    assert_eq!(
+        items[0].get_comments_url(),
+        "https://example.com/atom/2/replies"
+    );
 }
 
 // =========================================================================
@@ -599,7 +605,10 @@ fn cats(list: &[&str]) -> Vec<String> {
 #[test]
 fn test_normalize_categories_simple() {
     let result = ttrss::util::normalize_categories(&cats(&["Technology", "Programming"]));
-    assert_eq!(result, vec!["programming".to_string(), "technology".to_string()]);
+    assert_eq!(
+        result,
+        vec!["programming".to_string(), "technology".to_string()]
+    );
 }
 
 #[test]
@@ -611,7 +620,15 @@ fn test_normalize_categories_csv_split() {
 #[test]
 fn test_normalize_categories_csv_multiple() {
     let result = ttrss::util::normalize_categories(&cats(&["A, B", "C, D"]));
-    assert_eq!(result, vec!["a".to_string(), "b".to_string(), "c".to_string(), "d".to_string()]);
+    assert_eq!(
+        result,
+        vec![
+            "a".to_string(),
+            "b".to_string(),
+            "c".to_string(),
+            "d".to_string()
+        ]
+    );
 }
 
 #[test]
@@ -623,7 +640,10 @@ fn test_normalize_categories_numeric_prefix() {
 #[test]
 fn test_normalize_categories_lowercase() {
     let result = ttrss::util::normalize_categories(&cats(&["Technology", "PROGRAMMING"]));
-    assert_eq!(result, vec!["programming".to_string(), "technology".to_string()]);
+    assert_eq!(
+        result,
+        vec!["programming".to_string(), "technology".to_string()]
+    );
 }
 
 #[test]
@@ -666,7 +686,15 @@ fn test_normalize_categories_dedup() {
 #[test]
 fn test_normalize_categories_mixed() {
     let result = ttrss::util::normalize_categories(&cats(&["News, Politics", "world", "123"]));
-    assert_eq!(result, vec!["news".to_string(), "politics".to_string(), "t:123".to_string(), "world".to_string()]);
+    assert_eq!(
+        result,
+        vec![
+            "news".to_string(),
+            "politics".to_string(),
+            "t:123".to_string(),
+            "world".to_string()
+        ]
+    );
 }
 
 // =========================================================================
@@ -682,7 +710,8 @@ fn test_count_children_empty() {
 
 #[test]
 fn test_count_children_with_siblings() {
-    let doc = roxmltree::Document::parse(r#"<parent><child1/><child2/><child3/></parent>"#).unwrap();
+    let doc =
+        roxmltree::Document::parse(r#"<parent><child1/><child2/><child3/></parent>"#).unwrap();
     let parent = doc.root_element();
     assert_eq!(ttrss::core::feed::item::count_children(parent), 3);
 }
@@ -695,7 +724,10 @@ fn test_count_children_with_siblings() {
 fn test_subtree_or_text_leaf_node() {
     let doc = roxmltree::Document::parse(r#"<title>Simple Title</title>"#).unwrap();
     let node = doc.root_element();
-    assert_eq!(ttrss::core::feed::item::subtree_or_text(node), "Simple Title");
+    assert_eq!(
+        ttrss::core::feed::item::subtree_or_text(node),
+        "Simple Title"
+    );
 }
 
 #[test]
@@ -746,14 +778,29 @@ fn test_constructor_removes_source_element() {
 fn test_rss_get_categories() {
     let items = items(RSS2_ITEM_CATEGORIES);
     let cats = items[0].get_categories();
-    assert_eq!(cats, vec!["design".to_string(), "programming".to_string(), "technology".to_string(), "web".to_string()]);
+    assert_eq!(
+        cats,
+        vec![
+            "design".to_string(),
+            "programming".to_string(),
+            "technology".to_string(),
+            "web".to_string()
+        ]
+    );
 }
 
 #[test]
 fn test_atom_get_categories() {
     let items = items(ATOM1_ITEM_CATEGORIES);
     let cats = items[0].get_categories();
-    assert_eq!(cats, vec!["news".to_string(), "politics".to_string(), "world".to_string()]);
+    assert_eq!(
+        cats,
+        vec![
+            "news".to_string(),
+            "politics".to_string(),
+            "world".to_string()
+        ]
+    );
 }
 
 // =========================================================================
@@ -797,5 +844,8 @@ fn test_rss_get_comments_url_atom_replies() {
   </channel>
 </rss>"#;
     let items = items(xml);
-    assert_eq!(items[0].get_comments_url(), "https://example.com/atom-replies/comments");
+    assert_eq!(
+        items[0].get_comments_url(),
+        "https://example.com/atom-replies/comments"
+    );
 }
