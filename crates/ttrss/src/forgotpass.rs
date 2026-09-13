@@ -75,7 +75,10 @@ pub async fn forgotpass(state: &AppState, sess: &session::Sess, p: &Params<'_>) 
     // `if (empty($_SESSION['csrf_token'])) $_SESSION['csrf_token'] = bin2hex(get_random_bytes(16));`
     if sess.data().csrf_token().is_none() {
         sess.with_mut(|d| {
-            d.set("csrf_token", Value::Bytes(random_hex(16).into_bytes()));
+            d.set(
+                "csrf_token",
+                Value::Bytes(util::random_hex(16).into_bytes()),
+            );
         });
     }
 
@@ -327,14 +330,6 @@ fn go_back_form(class: &str) -> String {
 fn rand_range(lo: i64, hi: i64) -> i64 {
     use rand::Rng;
     rand::thread_rng().gen_range(lo..=hi)
-}
-
-/// 16 random bytes as 32 lowercase hex chars (PHP `bin2hex(get_random_bytes(16))`).
-fn random_hex(n: usize) -> String {
-    let mut b = vec![0u8; n];
-    use rand::RngCore;
-    rand::thread_rng().fill_bytes(&mut b);
-    b.iter().map(|x| format!("{x:02x}")).collect()
 }
 
 /// `sha1(…)` as lowercase hex (PHP `sha1(get_random_bytes(128))`).

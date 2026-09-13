@@ -28,8 +28,10 @@ use serde_json::{json, Map, Value};
 use sqlx::Row;
 
 use crate::article;
+use crate::feeds::{FEED_PUBLISHED, FEED_STARRED};
 use crate::headlines::{
-    get_headlines_query, order_to_override_query, HeadlinesParams, FEED_PUBLISHED, FEED_STARRED,
+    get_headlines_query, order_to_override_query, HeadlinesParams, I_CONTENT, I_DATE_ENTERED,
+    I_LINK, I_NOTE, I_SITE_URL, I_TAG_CACHE, I_TITLE, I_UPDATED, I_VF_CONTENT, I_VF_TITLE,
     PLUGIN_FEED_BASE_INDEX,
 };
 use crate::labels::LABEL_BASE_INDEX;
@@ -167,20 +169,9 @@ async fn generate_feed(state: &AppState, owner_uid: i64, req: &RssRequest<'_>) -
         .map(|d| d.join("images"))
         .unwrap_or_default();
 
-    // `SELECT` column indices (same layout as the view path): non-vfeed rows
-    // have 30 columns; vfeed rows add `feed_title` + `favicon_avg_color`
-    // after `last_published` (32 cols).
+    // Column 0 of the shared article-row layout; the remaining indices are
+    // imported from `headlines` (same query shape).
     const I_ID: usize = 0;
-    const I_DATE_ENTERED: usize = 1;
-    const I_TITLE: usize = 4;
-    const I_UPDATED: usize = 5;
-    const I_TAG_CACHE: usize = 7;
-    const I_SITE_URL: usize = 9;
-    const I_NOTE: usize = 10;
-    const I_LINK: usize = 21;
-    const I_VF_TITLE: usize = 25;
-    const I_CONTENT: usize = 25; // non-vfeed
-    const I_VF_CONTENT: usize = 27;
 
     let mut articles_atom: Vec<Value> = Vec::new();
     let mut articles_json: Vec<Value> = Vec::new();

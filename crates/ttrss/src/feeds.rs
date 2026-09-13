@@ -23,19 +23,19 @@ use crate::cats::{CAT_LABELS, CAT_SPECIAL};
 use crate::controls;
 use crate::util;
 
+use crate::labels::LABEL_BASE_INDEX;
 use crate::prefs;
 use crate::session::Sess;
 use crate::time::TzCtx;
 use crate::AppState;
 
-// `Feeds::*` / `LABEL_BASE_INDEX` (functions.php).
-const LABEL_BASE_INDEX: i64 = -1024;
-const FEED_ARCHIVED: i64 = 0;
-const FEED_STARRED: i64 = -1;
-const FEED_PUBLISHED: i64 = -2;
-const FEED_FRESH: i64 = -3;
-const FEED_ALL: i64 = -4;
-const FEED_RECENTLY_READ: i64 = -6;
+// `Feeds::*` virtual-feed pseudo-ids (functions.php).
+pub(crate) const FEED_ARCHIVED: i64 = 0;
+pub(crate) const FEED_STARRED: i64 = -1;
+pub(crate) const FEED_PUBLISHED: i64 = -2;
+pub(crate) const FEED_FRESH: i64 = -3;
+pub(crate) const FEED_ALL: i64 = -4;
+pub(crate) const FEED_RECENTLY_READ: i64 = -6;
 
 /// `clean($_REQUEST['mode'] ?? 0) == 2`.
 fn is_mode_2(extra: &Map<String, Value>) -> bool {

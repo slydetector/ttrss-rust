@@ -12,22 +12,16 @@ use serde_json::{json, Map, Value};
 use sqlx::Row;
 
 use crate::cats::CAT_LABELS;
+use crate::feeds::{
+    FEED_ALL, FEED_ARCHIVED, FEED_FRESH, FEED_PUBLISHED, FEED_RECENTLY_READ, FEED_STARRED,
+};
 use crate::headlines::PLUGIN_FEED_BASE_INDEX;
 use crate::labels::{feed_to_label_id, label_to_feed_id, LABEL_BASE_INDEX};
 use crate::prefs;
 use crate::session::Sess;
 use crate::time::TzCtx;
-use crate::util::{php_int_cast, scalar_str};
+use crate::util::{php_int_cast, scalar_str, truncate_string};
 use crate::AppState;
-
-// `Feeds::*` (functions.php).
-
-const FEED_ARCHIVED: i64 = 0;
-const FEED_STARRED: i64 = -1;
-const FEED_PUBLISHED: i64 = -2;
-const FEED_FRESH: i64 = -3;
-const FEED_ALL: i64 = -4;
-const FEED_RECENTLY_READ: i64 = -6;
 
 /// `RPC::getAllCounters`.
 pub async fn get_all_counters(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Value {
@@ -395,7 +389,10 @@ async fn get_feeds(
             };
             let mut out = Map::new();
             out.insert("id".into(), json!(feed_id));
-            out.insert("title".into(), json!(truncate_string(&title, 30)));
+            out.insert(
+                "title".into(),
+                json!(truncate_string(&title, 30, "&hellip;")),
+            );
             out.insert("error".into(), json!(last_error));
             out.insert("updated".into(), json!(updated));
             out.insert("counter".into(), json!(count));
@@ -903,16 +900,6 @@ async fn parent_cats(pool: &sqlx::PgPool, uid: i64, cat: i64) -> Vec<i64> {
         rv.extend(Box::pin(parent_cats(pool, uid, p)).await);
     }
     rv
-}
-
-/// `truncate_string($str, 30)` — `&hellip;` suffix.
-fn truncate_string(s: &str, max_len: usize) -> String {
-    if s.chars().count() > max_len {
-        let cut: String = s.chars().take(max_len).collect();
-        format!("{cut}&hellip;")
-    } else {
-        s.to_string()
-    }
 }
 
 #[cfg(test)]

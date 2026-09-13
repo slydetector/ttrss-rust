@@ -10,7 +10,7 @@ use roxmltree::{Document, Node, NodeId};
 use super::{atom, rss, FeedKind, NS_ATOM, NS_DC, NS_MEDIA, NS_SLASH, NS_THREAD, NS_XML};
 
 use crate::urlhelper::rewrite_relative;
-use crate::util::{clean_str, php_str_truthy};
+use crate::util::{clean_str, is_numeric, php_str_truthy};
 #[derive(Clone)]
 pub struct FeedItem<'input> {
     /// The document the item lives in (shared with the parser).
@@ -505,12 +505,4 @@ fn media_content_enclosure<'a, 'input>(content: Node<'a, 'input>) -> FeedEnclosu
         enc.title = clean_str(&text_content(desc));
     }
     enc
-}
-
-/// PHP `is_numeric($s)`: true when `$s` is a numeric string (integer or float).
-fn is_numeric(s: &str) -> bool {
-    if s.is_empty() {
-        return false;
-    }
-    s.parse::<i64>().is_ok() || s.parse::<f64>().is_ok()
 }

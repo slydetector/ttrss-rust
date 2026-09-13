@@ -21,21 +21,47 @@ use crate::time::{self, TzCtx};
 use crate::util::{basename, param_to_bool, strip_tags, truncate_string};
 use crate::AppState;
 
+use crate::feeds::{
+    FEED_ALL, FEED_ARCHIVED, FEED_FRESH, FEED_PUBLISHED, FEED_RECENTLY_READ, FEED_STARRED,
+};
 use crate::labels::{feed_to_label_id, LABEL_BASE_INDEX};
 
-// `Feeds::*` (functions.php).
-pub(crate) const FEED_ARCHIVED: i64 = 0;
-pub(crate) const FEED_STARRED: i64 = -1;
-pub(crate) const FEED_PUBLISHED: i64 = -2;
-pub(crate) const FEED_FRESH: i64 = -3;
-pub(crate) const FEED_ALL: i64 = -4;
-pub(crate) const FEED_RECENTLY_READ: i64 = -6;
+// `Feeds::FEED_ERROR` (functions.php): the virtual "error feed" pseudo-id.
 pub(crate) const FEED_ERROR: i64 = -7;
 /// `PLUGIN_FEED_BASE_INDEX` (functions.php): virtual plugin feeds occupy
 /// `(LABEL_BASE_INDEX, PLUGIN_FEED_BASE_INDEX)`.
 pub(crate) const PLUGIN_FEED_BASE_INDEX: i64 = -128;
 const NEVER_GROUP_FEEDS: &[i64] = &[FEED_RECENTLY_READ, FEED_ARCHIVED];
 const NEVER_GROUP_BY_DATE: &[i64] = &[FEED_PUBLISHED, FEED_STARRED, FEED_FRESH];
+
+// `SELECT` column indices for the shared headlines article-row query (built by
+// `get_headlines_query`). Non-vfeed rows have 30 columns; vfeed rows add
+// `feed_title` + `favicon_avg_color` after `last_published` (32 cols).
+// `syndication` reuses the same layout.
+pub(crate) const I_DATE_ENTERED: usize = 1;
+pub(crate) const I_TITLE: usize = 4;
+pub(crate) const I_UPDATED: usize = 5;
+pub(crate) const I_LABEL_CACHE: usize = 6;
+pub(crate) const I_TAG_CACHE: usize = 7;
+pub(crate) const I_ALWAYS_ENC: usize = 8;
+pub(crate) const I_SITE_URL: usize = 9;
+pub(crate) const I_NOTE: usize = 10;
+pub(crate) const I_NUM_COMMENTS: usize = 11;
+pub(crate) const I_COMMENTS: usize = 12;
+pub(crate) const I_INT_ID: usize = 13;
+pub(crate) const I_UUID: usize = 14;
+pub(crate) const I_LANG: usize = 15;
+pub(crate) const I_HIDE_IMAGES: usize = 16;
+pub(crate) const I_UNREAD: usize = 17;
+pub(crate) const I_FEED_ID: usize = 18;
+pub(crate) const I_MARKED: usize = 19;
+pub(crate) const I_PUBLISHED: usize = 20;
+pub(crate) const I_LINK: usize = 21;
+pub(crate) const I_LAST_READ: usize = 22;
+pub(crate) const I_VF_TITLE: usize = 25;
+pub(crate) const I_VF_FAVICON: usize = 26;
+pub(crate) const I_CONTENT: usize = 25; // non-vfeed
+pub(crate) const I_VF_CONTENT: usize = 27;
 
 /// `Feeds::view`.
 pub async fn view(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Value {
@@ -452,33 +478,6 @@ async fn format_headlines_list(
     let mut headlines_count = 0i64;
     let mut rgba_cache: std::collections::HashMap<i64, (i64, i64, i64)> =
         std::collections::HashMap::new();
-
-    // `SELECT` column indices. Non-vfeed rows have 30 columns; vfeed rows add
-    // `feed_title` + `favicon_avg_color` after `last_published` (32 cols).
-    const I_DATE_ENTERED: usize = 1;
-    const I_TITLE: usize = 4;
-    const I_UPDATED: usize = 5;
-    const I_LABEL_CACHE: usize = 6;
-    const I_TAG_CACHE: usize = 7;
-    const I_ALWAYS_ENC: usize = 8;
-    const I_SITE_URL: usize = 9;
-    const I_NOTE: usize = 10;
-    const I_NUM_COMMENTS: usize = 11;
-    const I_COMMENTS: usize = 12;
-    const I_INT_ID: usize = 13;
-    const I_UUID: usize = 14;
-    const I_LANG: usize = 15;
-    const I_HIDE_IMAGES: usize = 16;
-    const I_UNREAD: usize = 17;
-    const I_FEED_ID: usize = 18;
-    const I_MARKED: usize = 19;
-    const I_PUBLISHED: usize = 20;
-    const I_LINK: usize = 21;
-    const I_LAST_READ: usize = 22;
-    const I_VF_TITLE: usize = 25;
-    const I_VF_FAVICON: usize = 26;
-    const I_CONTENT: usize = 25; // non-vfeed
-    const I_VF_CONTENT: usize = 27;
 
     let show_content_preview = prefs::resolve("SHOW_CONTENT_PREVIEW", rows, profile).as_bool();
     let strip_images = prefs::resolve(prefs::STRIP_IMAGES, rows, profile).as_bool();

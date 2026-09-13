@@ -347,6 +347,15 @@ pub fn get_random_bytes(length: usize) -> Vec<u8> {
     buf
 }
 
+/// Lowercase-hex encoding of `$n` cryptographically random bytes (PHP
+/// `bin2hex(random_bytes($n))`).
+pub fn random_hex(n: usize) -> String {
+    use rand::RngCore;
+    let mut b = vec![0u8; n];
+    rand::thread_rng().fill_bytes(&mut b);
+    b.iter().map(|x| format!("{x:02x}")).collect()
+}
+
 /// A PHP `vsprintf()`: consume the pre-stringified args in order for the
 /// value specifiers (`%s`/`%d`/…); `%` escapes and non-value specifiers are
 /// kept literally. Unmatched trailing args are ignored (PHP does the same).

@@ -19,9 +19,8 @@ use crate::core::db::Db;
 use crate::core::phpser::Value;
 use crate::core::session::{self as core_session, Session};
 use crate::core::user;
-use crate::util::now_unix;
+use crate::util::{now_unix, random_hex};
 use chrono::NaiveDateTime;
-use rand::Rng;
 use sqlx::Row;
 
 /// `AUTH_MIN_INTERVAL` (seconds) — minimum gap between failed login attempts.
@@ -262,12 +261,4 @@ pub fn build_login_session(
     data.set("bw_limit", Value::Bool(bw_limit));
     data.set("safe_mode", Value::Bool(safe_mode));
     (core_session::new_session_id(), data)
-}
-
-/// 16 random bytes as 32 lowercase hex chars (PHP-style csrf/session ids).
-fn random_hex(n_bytes: usize) -> String {
-    let mut rng = rand::thread_rng();
-    (0..n_bytes)
-        .map(|_| format!("{:02x}", rng.gen_range(0u8..=255)))
-        .collect()
 }
