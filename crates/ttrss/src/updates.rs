@@ -599,7 +599,11 @@ async fn upsert_article(
     // (`score_modifier` is 0 here — no plugin recalculation).
     let score = calculate_article_score(&outcome.actions);
     let has_catchup = has_article_filter_action(&outcome.actions, "catchup");
-    let unread = score >= -500 && !has_catchup; // no `force_catchup` in this pass
+    // NOTE: the PHP's `!$entry_force_catchup` guard is omitted. That flag is
+    // the plugin "force catchup" hook (the `$article["force_catchup"]` "ugly
+    // hack") and is always `false` with no plugins loaded, so both of its uses
+    // (here and `mark_unread_on_update` below) are no-ops until plugins (M7).
+    let unread = score >= -500 && !has_catchup;
     let marked = has_article_filter_action(&outcome.actions, "mark") || score > 1000;
     let published = has_article_filter_action(&outcome.actions, "publish");
     let last_marked: Option<NaiveDateTime> = if marked {
@@ -680,7 +684,8 @@ async fn upsert_article(
     }
 
     // --- re-score + mark-unread-on-update (applied whether or not the base
-    //     record was just created; no `force_catchup` in this pass) ---
+    //     record was just created; the PHP's `!$entry_force_catchup` guard is
+    //     a no-op here — see the NOTE at the unread calculation above) ---
     let _ = sqlx::query(
         "UPDATE ttrss_user_entries SET score = $1 WHERE ref_id = $2 AND owner_uid = $3",
     )
