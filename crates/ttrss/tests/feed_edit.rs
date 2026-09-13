@@ -205,8 +205,7 @@ async fn test_editfeed_unknown_feed(
     options: sqlx::postgres::PgConnectOptions,
 ) {
     let (state, sess) = setup(pool, options).await;
-    let result =
-        ttrss::feeds::editfeed(&state, &sess, &request(&[("id", json!(9999))])).await;
+    let result = ttrss::feeds::editfeed(&state, &sess, &request(&[("id", json!(9999))])).await;
     assert!(result.is_null(), "expected null, got {result}");
 }
 
@@ -256,10 +255,7 @@ fn test_decrypt_feed_pass_roundtrip() {
         "plain-pass"
     );
     // No key → returned unchanged.
-    assert_eq!(
-        ttrss::feeds::decrypt_feed_pass(&encoded, None),
-        encoded
-    );
+    assert_eq!(ttrss::feeds::decrypt_feed_pass(&encoded, None), encoded);
 }
 
 /// `get_icon` maps virtual feed ids to Material icon names.
@@ -311,8 +307,7 @@ async fn test_editfeeds_overview(
     options: sqlx::postgres::PgConnectOptions,
 ) {
     let (state, sess) = setup(pool, options).await;
-    let html =
-        ttrss::feeds::editfeeds(&state, &sess, &request(&[("ids", json!("1,2"))])).await;
+    let html = ttrss::feeds::editfeeds(&state, &sess, &request(&[("ids", json!("1,2"))])).await;
     let doc = parse_doc(&html);
 
     // The three hidden fields (the form's identity).
@@ -366,8 +361,7 @@ async fn test_editfeeds_general_tab(
     options: sqlx::postgres::PgConnectOptions,
 ) {
     let (state, sess) = setup(pool, options).await;
-    let html =
-        ttrss::feeds::editfeeds(&state, &sess, &request(&[("ids", json!("1,2"))])).await;
+    let html = ttrss::feeds::editfeeds(&state, &sess, &request(&[("ids", json!("1,2"))])).await;
     let doc = parse_doc(&html);
 
     // The General tab's four selects, each paired with a "Check to enable
@@ -426,8 +420,7 @@ async fn test_editfeeds_auth_tab(
     options: sqlx::postgres::PgConnectOptions,
 ) {
     let (state, sess) = setup(pool, options).await;
-    let html =
-        ttrss::feeds::editfeeds(&state, &sess, &request(&[("ids", json!("1,2"))])).await;
+    let html = ttrss::feeds::editfeeds(&state, &sess, &request(&[("ids", json!("1,2"))])).await;
     let doc = parse_doc(&html);
 
     // The Authentication tab's login + password inputs (disabled, autocomplete).
@@ -469,8 +462,7 @@ async fn test_editfeeds_options_tab(
     options: sqlx::postgres::PgConnectOptions,
 ) {
     let (state, sess) = setup(pool, options).await;
-    let html =
-        ttrss::feeds::editfeeds(&state, &sess, &request(&[("ids", json!("1,2"))])).await;
+    let html = ttrss::feeds::editfeeds(&state, &sess, &request(&[("ids", json!("1,2"))])).await;
     let doc = parse_doc(&html);
 
     // The five boolean options, each a disabled checkbox + caption + toggle.
@@ -517,8 +509,7 @@ async fn test_editfeeds_category_options(
     options: sqlx::postgres::PgConnectOptions,
 ) {
     let (state, sess) = setup(pool, options).await;
-    let html =
-        ttrss::feeds::editfeeds(&state, &sess, &request(&[("ids", json!("1,2"))])).await;
+    let html = ttrss::feeds::editfeeds(&state, &sess, &request(&[("ids", json!("1,2"))])).await;
     let doc = parse_doc(&html);
 
     let options: Vec<(String, bool, bool)> = doc

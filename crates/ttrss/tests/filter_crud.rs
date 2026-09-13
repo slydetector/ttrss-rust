@@ -258,13 +258,9 @@ async fn test_remove_filters(
     .unwrap();
     sqlx::query("INSERT INTO ttrss_filters2_actions (filter_id, action_id, action_param) VALUES ($1, 1, '')").bind(id).execute(db.pool()).await.unwrap();
 
-    ttrss::filters::remove_filters(
-        &state,
-        &sess,
-        &request(&[("ids", json!(id.to_string()))]),
-    )
-    .await
-    .expect("remove");
+    ttrss::filters::remove_filters(&state, &sess, &request(&[("ids", json!(id.to_string()))]))
+        .await
+        .expect("remove");
 
     assert!(filter_row(db, id).await.is_none());
     assert_eq!(rule_count(db, id).await, 0);
@@ -494,13 +490,9 @@ async fn test_clone_filters(
     sqlx::query("INSERT INTO ttrss_filters2_rules (filter_id, reg_exp, filter_type) VALUES ($1, 'rule1', 1)").bind(src).execute(db.pool()).await.unwrap();
     sqlx::query("INSERT INTO ttrss_filters2_actions (filter_id, action_id, action_param) VALUES ($1, 2, '')").bind(src).execute(db.pool()).await.unwrap();
 
-    ttrss::filters::clone_filters(
-        &state,
-        &sess,
-        &request(&[("ids", json!(src.to_string()))]),
-    )
-    .await
-    .expect("clone");
+    ttrss::filters::clone_filters(&state, &sess, &request(&[("ids", json!(src.to_string()))]))
+        .await
+        .expect("clone");
 
     assert_eq!(filter_count(db).await, 2);
     let clone_id: i32 =

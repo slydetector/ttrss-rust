@@ -1,10 +1,10 @@
 //! `Pref_Prefs` backend read handlers (the settings/preferences UI in
 //! `backend.php?op=Pref_Prefs`).
 
+use crate::core::phpser::Value as PValue;
 use minijinja::Environment;
 use serde_json::{json, Map, Value};
 use sqlx::Row;
-use crate::core::phpser::Value as PValue;
 
 use crate::auth;
 use crate::controls;
@@ -45,13 +45,12 @@ pub async fn get_profiles(state: &AppState, sess: &Sess) -> Value {
         let id: i32 = row.get(0);
         let title: String = row.get(1);
         let owner_uid: i32 = row.get(2);
-        let count: i64 = sqlx::query_scalar(
-            "SELECT count(*) FROM ttrss_user_prefs2 WHERE profile = $1",
-        )
-        .bind(id as i64)
-        .fetch_one(pool)
-        .await
-        .unwrap_or(0);
+        let count: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM ttrss_user_prefs2 WHERE profile = $1")
+                .bind(id as i64)
+                .fetch_one(pool)
+                .await
+                .unwrap_or(0);
         rv.push(json!({
             "id": id,
             "title": title,
@@ -284,12 +283,9 @@ pub async fn generate_app_password(
     let title = util::clean_str(extra.get("title").and_then(Value::as_str).unwrap_or(""));
     let new_password = util::make_password(16);
     let new_salt = crate::core::user::get_salt();
-    let new_password_hash = crate::core::user::hash_password(
-        &new_password,
-        &new_salt,
-        crate::core::user::ALGO_SSHA512,
-    )
-    .expect("hash_password");
+    let new_password_hash =
+        crate::core::user::hash_password(&new_password, &new_salt, crate::core::user::ALGO_SSHA512)
+            .expect("hash_password");
 
     sqlx::query(
         "INSERT INTO ttrss_app_passwords (title, owner_uid, pwd_hash, service, created) \
@@ -358,7 +354,10 @@ pub async fn saveconfig(state: &AppState, sess: &Sess, extra: &Map<String, Value
     // `$_POST[boolean_prefs]`: comma-separated boolean pref names, each
     // defaulting to "false" when absent from the form (`??=`).
     let boolean_names: Vec<String> = util::clean_str(
-        extra.get("boolean_prefs").and_then(Value::as_str).unwrap_or(""),
+        extra
+            .get("boolean_prefs")
+            .and_then(Value::as_str)
+            .unwrap_or(""),
     )
     .split(',')
     .map(|s| s.trim().to_string())
@@ -386,14 +385,17 @@ pub async fn saveconfig(state: &AppState, sess: &Sess, extra: &Map<String, Value
                 if prefs::resolve(prefs::DIGEST_PREFERRED_TIME, &rows, profile).as_str()
                     != value_str.as_str()
                 {
-                    let _ = sqlx::query("UPDATE ttrss_users SET last_digest_sent = NULL WHERE id = $1")
-                        .bind(uid)
-                        .execute(pool)
-                        .await;
+                    let _ =
+                        sqlx::query("UPDATE ttrss_users SET last_digest_sent = NULL WHERE id = $1")
+                            .bind(uid)
+                            .execute(pool)
+                            .await;
                 }
             }
             prefs::USER_CSS_THEME | prefs::USER_LANGUAGE => {
-                if !need_reload && prefs::resolve(name, &rows, profile).as_str() != value_str.as_str() {
+                if !need_reload
+                    && prefs::resolve(name, &rows, profile).as_str() != value_str.as_str()
+                {
                     need_reload = true;
                 }
             }
@@ -436,13 +438,12 @@ pub async fn change_personal_data(
 ) -> String {
     let pool = state.db.pool();
     let uid = sess.data().uid().unwrap_or(0);
-    let exists: Option<String> =
-        sqlx::query_scalar("SELECT login FROM ttrss_users WHERE id = $1")
-            .bind(uid)
-            .fetch_optional(pool)
-            .await
-            .ok()
-            .flatten();
+    let exists: Option<String> = sqlx::query_scalar("SELECT login FROM ttrss_users WHERE id = $1")
+        .bind(uid)
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten();
     if exists.is_some() {
         let new_full = util::clean_str(&str_extra(extra, "full_name"));
         let new_email = util::clean_str(&str_extra(extra, "email"));
@@ -540,13 +541,19 @@ pub async fn customize_css(state: &AppState, sess: &Sess) -> Value {
     let uid = sess.data().uid().unwrap_or(0);
     let profile = sess.data().profile().map(|p| p as i32);
     let rows = prefs::load_rows(&state.db, uid, profile).await;
-    let value = prefs::resolve(prefs::USER_STYLESHEET, &rows, profile).as_str().to_string();
+    let value = prefs::resolve(prefs::USER_STYLESHEET, &rows, profile)
+        .as_str()
+        .to_string();
     json!({ "value": value.replace("<br/>", "\n") })
 }
 
 /// A string form field, or `""` when absent (PHP's `$_POST[name]` reads).
 fn str_extra(extra: &Map<String, Value>, key: &str) -> String {
-    extra.get(key).and_then(Value::as_str).unwrap_or("").to_string()
+    extra
+        .get(key)
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string()
 }
 
 /// A raw request value as a string: strings as-is, other JSON values via their
@@ -566,8 +573,15 @@ pub async fn set_pref(state: &AppState, sess: &Sess, extra: &Map<String, Value>)
     let profile = sess.data().profile().map(|p| p as i32);
     let key = util::clean_str(&str_extra(extra, "key"));
     let value = raw_extra(extra, "value");
-    let _ =
-        prefs::set(&state.db, &key, &value, uid, profile, key != prefs::USER_STYLESHEET).await;
+    let _ = prefs::set(
+        &state.db,
+        &key,
+        &value,
+        uid,
+        profile,
+        key != prefs::USER_STYLESHEET,
+    )
+    .await;
     json!({ "param": key, "value": value })
 }
 
@@ -578,7 +592,15 @@ pub async fn toggle_pref(state: &AppState, sess: &Sess, extra: &Map<String, Valu
     let key = util::clean_str(&str_extra(extra, "key"));
     let rows = prefs::load_rows(&state.db, uid, profile).await;
     let negated = !prefs::resolve(&key, &rows, profile).as_bool();
-    let _ = prefs::set(&state.db, &key, if negated { "1" } else { "" }, uid, profile, true).await;
+    let _ = prefs::set(
+        &state.db,
+        &key,
+        if negated { "1" } else { "" },
+        uid,
+        profile,
+        true,
+    )
+    .await;
     let rows = prefs::load_rows(&state.db, uid, profile).await;
     json!({ "param": key, "value": prefs::resolve(&key, &rows, profile).to_json() })
 }
@@ -588,8 +610,15 @@ pub async fn set_widescreen(state: &AppState, sess: &Sess, extra: &Map<String, V
     let uid = sess.data().uid().unwrap_or(0);
     let profile = sess.data().profile().map(|p| p as i32);
     let wide = util::clean_int(extra.get("wide"));
-    let _ =
-        prefs::set(&state.db, prefs::WIDESCREEN_MODE, &wide.to_string(), uid, profile, true).await;
+    let _ = prefs::set(
+        &state.db,
+        prefs::WIDESCREEN_MODE,
+        &wide.to_string(),
+        uid,
+        profile,
+        true,
+    )
+    .await;
     json!({ "wide": wide })
 }
 
@@ -613,5 +642,3 @@ pub async fn client_log(_state: &AppState, _sess: &Sess, extra: &Map<String, Val
     );
     json!({ "message": "HOST_ERROR_LOGGED" })
 }
-
-

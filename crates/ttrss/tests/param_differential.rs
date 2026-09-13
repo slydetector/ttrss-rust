@@ -78,7 +78,10 @@ fn param_to_bool_matches_php() {
             .as_bool()
             .unwrap_or_else(|| panic!("case {i}: 'out' not a bool"));
         let got = run_param_to_bool(input);
-        assert_eq!(got, expected, "case {i}: input {input} → got {got}, PHP expected {expected}");
+        assert_eq!(
+            got, expected,
+            "case {i}: input {input} → got {got}, PHP expected {expected}"
+        );
     }
 }
 
@@ -93,7 +96,10 @@ fn clean_str_matches_php() {
         let input = case["in"].as_str().expect("string input");
         let expected = case["out"].as_str().expect("string out");
         let got = clean_str(input);
-        assert_eq!(got, expected, "case {i}: input {input:?} → got {got:?}, PHP expected {expected:?}");
+        assert_eq!(
+            got, expected,
+            "case {i}: input {input:?} → got {got:?}, PHP expected {expected:?}"
+        );
     }
 }
 
@@ -109,6 +115,9 @@ fn php_int_cast_matches_php() {
         let input = case["in"].as_str().expect("string input");
         let expected = case["out"].as_i64().expect("int out");
         let got = php_int_cast(input);
-        assert_eq!(got, expected, "case {i}: input {input:?} → got {got}, PHP expected {expected}");
+        assert_eq!(
+            got, expected,
+            "case {i}: input {input:?} → got {got}, PHP expected {expected}"
+        );
     }
 }

@@ -70,9 +70,9 @@ pub fn php_trim(s: &str) -> &str {
 pub fn clean(v: &Value) -> Value {
     match v {
         Value::Array(items) => Value::Array(items.iter().map(clean).collect()),
-        Value::Object(map) => Value::Object(
-            map.iter().map(|(k, val)| (k.clone(), clean(val))).collect(),
-        ),
+        Value::Object(map) => {
+            Value::Object(map.iter().map(|(k, val)| (k.clone(), clean(val))).collect())
+        }
         Value::String(s) => Value::String(clean_str(s)),
         other => other.clone(),
     }
@@ -238,7 +238,12 @@ pub fn format_error(msg: &str, id: &str) -> String {
 
 /// PHP `mb_substr_replace()` (`include/functions.php`): character-wise
 /// (UTF-8) replacement of `[position, position+length)` with `replacement`.
-pub fn mb_substr_replace(original: &str, replacement: &str, position: usize, length: usize) -> String {
+pub fn mb_substr_replace(
+    original: &str,
+    replacement: &str,
+    position: usize,
+    length: usize,
+) -> String {
     let chars: Vec<char> = original.chars().collect();
     let start: String = chars.iter().take(position).collect();
     let end: String = chars.iter().skip(position.saturating_add(length)).collect();
@@ -359,7 +364,10 @@ fn vsprintf(format: &str, args: &[String]) -> String {
         let bytes = after.as_bytes();
         let mut j = 0;
         while j < bytes.len()
-            && matches!(bytes[j], b'-' | b'+' | b'#' | b'0' | b' ' | b'!' | b'.' | b'0'..=b'9')
+            && matches!(
+                bytes[j],
+                b'-' | b'+' | b'#' | b'0' | b' ' | b'!' | b'.' | b'0'..=b'9'
+            )
         {
             j += 1;
         }
@@ -390,7 +398,10 @@ fn vsprintf(format: &str, args: &[String]) -> String {
 /// no catalog loaded. Args are pre-stringified (PHP coerces them to strings
 /// for `%s`/`%d` alike in the test surface).
 pub fn t_sprintf(format: &str, args: &[&str]) -> String {
-    vsprintf(format, &args.iter().map(|s| s.to_string()).collect::<Vec<_>>())
+    vsprintf(
+        format,
+        &args.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
+    )
 }
 
 /// PHP `T_nsprintf($singular, $plural, $number, ...args)`: picks the plural
@@ -398,7 +409,10 @@ pub fn t_sprintf(format: &str, args: &[&str]) -> String {
 /// vsprintfs it.
 pub fn t_nsprintf(singular: &str, plural: &str, number: i64, args: &[&str]) -> String {
     let chosen = if number != 1 { plural } else { singular };
-    vsprintf(chosen, &args.iter().map(|s| s.to_string()).collect::<Vec<_>>())
+    vsprintf(
+        chosen,
+        &args.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
+    )
 }
 
 /// PHP `gzdecode()`: inflate a gzip-compressed buffer.
@@ -431,9 +445,7 @@ pub fn scalar_str(v: &Value) -> Option<String> {
 /// A comma-delimited string is split; any non-int token rejects the whole
 /// input (returns an empty vec).
 pub fn param_int_array(extra: &Map<String, Value>, name: &str) -> Vec<i32> {
-    let raw = extra
-        .get(&format!("{name}[]"))
-        .or_else(|| extra.get(name));
+    let raw = extra.get(&format!("{name}[]")).or_else(|| extra.get(name));
     let Some(raw) = raw else {
         return Vec::new();
     };
@@ -533,9 +545,7 @@ mod tests {
     #[allow(clippy::approx_constant)]
     fn clean_array_and_passthrough() {
         // test_clean_string_array
-        let list: Value = serde_json::json!(
-            ["<b>bold</b>", "  plain  ", "<script>bad</script>"]
-        );
+        let list: Value = serde_json::json!(["<b>bold</b>", "  plain  ", "<script>bad</script>"]);
         assert_eq!(clean(&list), serde_json::json!(["bold", "plain", "bad"]));
         // test_clean_string_array_preserves_keys
         let map: Value = serde_json::json!({"a": "<b>bold</b>", "b": " plain "});
@@ -636,16 +646,25 @@ mod tests {
         // test_arr_qmarks_two_elements
         assert_eq!(arr_qmarks(&[json!("a"), json!("b")]), "'a','b'");
         // test_arr_qmarks_three_elements
-        assert_eq!(arr_qmarks(&[json!("a"), json!("b"), json!("c")]), "'a','b','c'");
+        assert_eq!(
+            arr_qmarks(&[json!("a"), json!("b"), json!("c")]),
+            "'a','b','c'"
+        );
         // test_arr_qmarks_five_elements
         assert_eq!(
             arr_qmarks(&[json!("a"), json!("b"), json!("c"), json!("d"), json!("e")]),
             "'a','b','c','d','e'"
         );
         // test_arr_qmarks_string_values
-        assert_eq!(arr_qmarks(&[json!("1"), json!("2"), json!("3")]), "'1','2','3'");
+        assert_eq!(
+            arr_qmarks(&[json!("1"), json!("2"), json!("3")]),
+            "'1','2','3'"
+        );
         // test_arr_qmarks_mixed_values — PHP stringifies int/float elements
-        assert_eq!(arr_qmarks(&[json!(1), json!("two"), json!(3.5)]), "'1','two','3.5'");
+        assert_eq!(
+            arr_qmarks(&[json!(1), json!("two"), json!(3.5)]),
+            "'1','two','3.5'"
+        );
     }
 
     #[test]
@@ -654,7 +673,11 @@ mod tests {
         let id = uniqid_short();
         assert!(!id.is_empty());
         // test_uniqid_short_alphanumeric
-        assert!(id.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit()), "got: {id}");
+        assert!(
+            id.chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit()),
+            "got: {id}"
+        );
         // test_uniqid_short_uniqueness
         let mut seen = std::collections::HashSet::new();
         for _ in 0..10_000 {
@@ -692,12 +715,12 @@ mod tests {
         // test_t_nsprintf_no_placeholders — the singular/plural selection is
         // the observable behavior (gettext short-circuits: n == 1 → singular).
         assert_eq!(t_nsprintf("One item", "Multiple items", 1, &[]), "One item");
-        assert_eq!(t_nsprintf("One item", "Multiple items", 5, &[]), "Multiple items");
-        // with placeholders, both forms are vsprintfed
         assert_eq!(
-            t_nsprintf("%d item", "%d items", 3, &["3"]),
-            "3 items"
+            t_nsprintf("One item", "Multiple items", 5, &[]),
+            "Multiple items"
         );
+        // with placeholders, both forms are vsprintfed
+        assert_eq!(t_nsprintf("%d item", "%d items", 3, &["3"]), "3 items");
     }
 
     #[test]
@@ -734,21 +757,13 @@ mod tests {
     #[test]
     fn normalize_categories_matches_php() {
         // test_set_article_tags_trims_whitespace: trims + lowercases + sorts
-        let out = normalize_categories(&[
-            "  tag-a  ".into(),
-            "  Tag-B  ".into(),
-        ]);
+        let out = normalize_categories(&["  tag-a  ".into(), "  Tag-B  ".into()]);
         assert_eq!(out, vec!["tag-a", "tag-b"]);
         // numeric tags get the `t:` prefix and sort as strings
         let out = normalize_categories(&["2".into(), "10".into(), "a".into()]);
         assert_eq!(out, vec!["a", "t:10", "t:2"]);
         // commas split tags; quotes stripped inside tags, empties dropped, dups removed
-        let out = normalize_categories(&[
-            "a,b".into(),
-            "a".into(),
-            ",".into(),
-            "it's".into(),
-        ]);
+        let out = normalize_categories(&["a,b".into(), "a".into(), ",".into(), "it's".into()]);
         assert_eq!(out, vec!["a", "b", "its"]);
         // 250-char cap (chars, not bytes)
         let long = normalize_categories(&["é".repeat(300)]);

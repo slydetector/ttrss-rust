@@ -134,8 +134,7 @@ async fn test_editrule_nested(
     let (state, sess) = setup(pool, options).await;
     insert_nested_dataset(state.db.pool()).await;
 
-    let result =
-        ttrss::filters::editrule(&state, &sess, &request(&[("ids", json!(""))])).await;
+    let result = ttrss::filters::editrule(&state, &sess, &request(&[("ids", json!(""))])).await;
     let got = result["multiselect"].as_str().unwrap();
     let want = expected_nested(&[]);
     assert_eq!(got, &want, "nested multi-select mismatch");
@@ -155,8 +154,7 @@ async fn test_editrule_selected(
     insert_nested_dataset(state.db.pool()).await;
 
     let result =
-        ttrss::filters::editrule(&state, &sess, &request(&[("ids", json!("0,11,CAT:3"))]))
-            .await;
+        ttrss::filters::editrule(&state, &sess, &request(&[("ids", json!("0,11,CAT:3"))])).await;
     let got = result["multiselect"].as_str().unwrap();
     let want = expected_nested(&["0", "11", "CAT:3"]);
     assert_eq!(got, &want, "selected multi-select mismatch");
@@ -174,12 +172,9 @@ async fn test_editrule_cat_selected(
     let (state, sess) = setup(pool, options).await;
     insert_nested_dataset(state.db.pool()).await;
 
-    let result = ttrss::filters::editrule(
-        &state,
-        &sess,
-        &request(&[("ids", json!("CAT:2,CAT:4,10"))]),
-    )
-    .await;
+    let result =
+        ttrss::filters::editrule(&state, &sess, &request(&[("ids", json!("CAT:2,CAT:4,10"))]))
+            .await;
     let got = result["multiselect"].as_str().unwrap();
     let want = expected_nested(&["CAT:2", "CAT:4", "10"]);
     assert_eq!(got, &want, "cat-selected multi-select mismatch");
@@ -207,8 +202,7 @@ async fn test_editrule_flat(
     .await
     .unwrap();
 
-    let result =
-        ttrss::filters::editrule(&state, &sess, &request(&[("ids", json!("11"))])).await;
+    let result = ttrss::filters::editrule(&state, &sess, &request(&[("ids", json!("11"))])).await;
     let got = result["multiselect"].as_str().unwrap();
 
     // Flat list, title order: All feeds (include_all_feeds) then Feed A1, Feed A2,

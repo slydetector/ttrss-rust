@@ -256,12 +256,9 @@ async fn test_saveconfig_no_reload_unchanged(
 
     // Saving an unchanged `USER_CSS_THEME` (still the default "") does not
     // trigger a reload.
-    let msg = ttrss::settings::saveconfig(
-        &state,
-        &sess,
-        &request(&[("USER_CSS_THEME", json!(""))]),
-    )
-    .await;
+    let msg =
+        ttrss::settings::saveconfig(&state, &sess, &request(&[("USER_CSS_THEME", json!(""))]))
+            .await;
 
     assert_eq!(msg, "The configuration was saved.");
 }

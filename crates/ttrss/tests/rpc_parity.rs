@@ -319,8 +319,7 @@ async fn test_delete_removes_articles(
     assert_eq!(2, count);
 
     // Delete articles with ref_id 4 and 5
-    let result =
-        ttrss::article::delete(&state, &sess, &request(&[("ids", json!("4,5"))])).await;
+    let result = ttrss::article::delete(&state, &sess, &request(&[("ids", json!("4,5"))])).await;
 
     assert_eq!("UPDATE_COUNTERS", message(&result));
 

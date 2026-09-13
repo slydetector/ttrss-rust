@@ -42,8 +42,15 @@ pub async fn search_to_sql(
     search_language: &str,
 ) -> SearchParts {
     let rows = prefs::load_rows(db, owner_uid, profile).await;
-    search_to_sql_cached(db.pool(), &rows, owner_uid, profile, search, search_language)
-        .await
+    search_to_sql_cached(
+        db.pool(),
+        &rows,
+        owner_uid,
+        profile,
+        search,
+        search_language,
+    )
+    .await
 }
 
 /// The same conversion over an already-loaded prefs row set (callers that
@@ -58,7 +65,9 @@ pub async fn search_to_sql_cached(
     search_language: &str,
 ) -> SearchParts {
     // PHP: the date branch reads USER_TIMEZONE without a profile.
-    let user_tz = prefs::resolve(prefs::USER_TIMEZONE, rows, None).as_str().to_string();
+    let user_tz = prefs::resolve(prefs::USER_TIMEZONE, rows, None)
+        .as_str()
+        .to_string();
 
     // Quote grouping so command pairs tokenize as one keyword:
     //   keyword:"foo bar" -> "keyword:foo bar"
@@ -155,7 +164,9 @@ pub async fn search_to_sql_cached(
                     _ => {}
                 },
                 "label" => {
-                    let sql_start = format!("(ttrss_entries.id {not} IN (SELECT article_id FROM ttrss_user_labels2");
+                    let sql_start = format!(
+                        "(ttrss_entries.id {not} IN (SELECT article_id FROM ttrss_user_labels2"
+                    );
                     let sql_end = "))";
                     if value == "true" {
                         query_keywords.push(format!("{sql_start}{sql_end}"));
@@ -164,7 +175,8 @@ pub async fn search_to_sql_cached(
                     } else {
                         let label_id = labels::find_id(pool, value, owner_uid).await;
                         if label_id != 0 {
-                            query_keywords.push(format!("{sql_start} WHERE label_id = {label_id}{sql_end}"));
+                            query_keywords
+                                .push(format!("{sql_start} WHERE label_id = {label_id}{sql_end}"));
                         } else {
                             query_keywords.push(if not.is_empty() {
                                 "(false)".to_string()
@@ -176,7 +188,9 @@ pub async fn search_to_sql_cached(
                     valid_keyword_processed = true;
                 }
                 "tag" => {
-                    let sql_start = format!("(ttrss_user_entries.int_id {not} IN (SELECT post_int_id FROM ttrss_tags");
+                    let sql_start = format!(
+                        "(ttrss_user_entries.int_id {not} IN (SELECT post_int_id FROM ttrss_tags"
+                    );
                     let sql_end = "))";
                     if value == "true" {
                         query_keywords.push(format!("{sql_start}{sql_end}"));
@@ -256,7 +270,9 @@ pub async fn search_to_sql_cached(
         // `$search_language ?: Prefs::get(DEFAULT_SEARCH_LANGUAGE, …)` —
         // PHP truthiness: "" and "0" are falsy.
         let lang = if search_language.is_empty() || search_language == "0" {
-            prefs::resolve(prefs::DEFAULT_SEARCH_LANGUAGE, rows, profile).as_str().to_string()
+            prefs::resolve(prefs::DEFAULT_SEARCH_LANGUAGE, rows, profile)
+                .as_str()
+                .to_string()
         } else {
             search_language.to_string()
         };
@@ -282,7 +298,9 @@ pub async fn search_to_sql_cached(
 /// `keyword:"foo bar"` -> `"keyword:foo bar"`, `-"hello world"` -> `-"hello
 /// world"`, `@"last Tuesday"` -> `@"last Tuesday"`.
 pub(crate) fn preprocess(search: &str) -> String {
-    let s = RE_KV_QUOTE.replace_all(search.trim(), "\"$1:$2\"").into_owned();
+    let s = RE_KV_QUOTE
+        .replace_all(search.trim(), "\"$1:$2\"")
+        .into_owned();
     let s = RE_NEG_QUOTE.replace_all(&s, "\"-$1\"").into_owned();
     RE_AT_QUOTE.replace_all(&s, "\"$1$2\"").into_owned()
 }
@@ -291,11 +309,7 @@ pub(crate) fn preprocess(search: &str) -> String {
 /// ttrss_user_entries WHERE id = ref_id limit 1`. Returns the (possibly
 /// replaced) query part plus the "Incorrect search syntax" message when the
 /// fragment is not executable.
-pub async fn dry_run(
-    pool: &sqlx::PgPool,
-    query_part: &str,
-    words: &[String],
-) -> (String, String) {
+pub async fn dry_run(pool: &sqlx::PgPool, query_part: &str, words: &[String]) -> (String, String) {
     let sql = format!(
         "select {query_part}
 \t\t\t\tFROM ttrss_entries, ttrss_user_entries WHERE id = ref_id limit 1"
@@ -510,8 +524,7 @@ fn str_getcsv_space(s: &str) -> Vec<String> {
 static RE_KV_QUOTE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r###"(-?[a-zA-Z0-9_]+):"([^"]+?)""###).unwrap());
 // `-"([^"]+?)"`
-static RE_NEG_QUOTE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r###"-"([^"]+?)""###).unwrap());
+static RE_NEG_QUOTE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r###"-"([^"]+?)""###).unwrap());
 // `(-?\@)"([^"]+?)"`
 static RE_AT_QUOTE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r###"(-?@)"([^"]+?)""###).unwrap());
@@ -522,7 +535,6 @@ static RE_FTS_OP: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[&|!()]").unwr
 // `^[&|!()]$`
 static RE_BARE_OP: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[&|!()]$").unwrap());
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -532,150 +544,159 @@ mod tests {
     // a byte-exact C port of php_fgetcsv (8.5) and the live oracle both
     // reproduce this table. PHP's `[null]` for empty input is modelled as
     // `[""]` (identical behavior downstream in the keyword loop).
-const TOKENIZER_CASES: &[(&str, &[&str])] = &[
-    ("", &[""]),
-    ("a", &["a"]),
-    ("a ", &["a", ""]),
-    (" a", &["", "a"]),
-    ("  ", &["", "", ""]),
-    ("   ", &["", "", "", ""]),
-    ("a b c", &["a", "b", "c"]),
-    ("-a -b", &["-a", "-b"]),
-    ("-a:1", &["-a:1"]),
-    ("-a:b", &["-a:b"]),
-    ("-a:b:", &["-a:b:"]),
-    ("\"-\"", &["-"]),
-    ("\"-a\" b", &["-a", "b"]),
-    ("\"a b\" c", &["a b", "c"]),
-    ("\"a b\"\" c", &["a b\" c"]),
-    ("\"a\"\" \"b\"", &["a\" b\""]),
-    ("\"a b\" \"\"", &["a b", ""]),
-    ("\"a\" \"\"", &["a", ""]),
-    ("\"a\"b", &["ab"]),
-    ("\"a\"\"b\"", &["a\"b"]),
-    ("\"a\" \"\"b\"", &["a", "b\""]),
-    ("\"a b\"\" \"c d\"", &["a b\" c", "d\""]),
-    ("\"a\"\"b\"\" c", &["a\"b\" c"]),
-    ("\"a b\"\" c\"\"", &["a b\" c\""]),
-    ("\"a\" \"b\" c", &["a", "b", "c"]),
-    ("\"\"", &[""]),
-    ("\"\\\"\"", &["\\\""]),
-    ("\"a b\"\"", &["a b\""]),
-    ("\"a b\" c\"\"", &["a b", "c\"\""]),
-    ("\"a b\" c\" d\"\"", &["a b", "c\"", "d\"\""]),
-    ("\"a\"b\" \"c\" d\"", &["ab\"", "c", "d\""]),
-    ("\"a\"b\" c\" \"", &["ab\"", "c\"", ""]),
-    ("\"a\" b\"\"", &["a", "b\"\""]),
-    ("\"\"\"c\"\"", &["\"c\""]),
-    ("\"\"\" c\"\"", &["\" c\""]),
-    ("\"a\" \"\"", &["a", ""]),
-    ("-\"a\"b c", &["-\"a\"b", "c"]),
-    ("\"-\"x", &["-x"]),
-    ("x \"a\"b y", &["x", "ab", "y"]),
-    ("\"a\"\" ", &["a\" "]),
-    ("a b \"c d\"", &["a", "b", "c d"]),
-    ("a\"b ", &["a\"b", ""]),
-    ("\"a\"\" \"", &["a\" "]),
-    ("\"a b\"\"c\"", &["a b\"c"]),
-    ("\"x\"y z\"w\"", &["xy", "z\"w\""]),
-    ("\"a\" b\"c\" d", &["a", "b\"c\"", "d"]),
-    ("\"a\" c\"", &["a", "c\""]),
-    ("\"q\"r s\" t\"", &["qr", "s\"", "t\""]),
-    ("\"a\"b\" c\" d\" e\"", &["ab\"", "c\"", "d\"", "e\""]),
-    ("\"a\"b\" c\"d\"", &["ab\"", "c\"d\""]),
-    ("\"a\"b\" c\"\"", &["ab\"", "c\"\""]),
-    ("\"a\"b\" \"c\"", &["ab\"", "c"]),
-    ("\"a\"b\" c\" d\"", &["ab\"", "c\"", "d\""]),
-    ("\"a\"\" \"b\" c\"", &["a\" b\"", "c\""]),
-    ("\"a\"b\"c", &["ab\"c"]),
-    ("\"a\"b c", &["ab", "c"]),
-    ("\"a\"b\"", &["ab\""]),
-    ("\"a\" \"b\"", &["a", "b"]),
-    ("\"abc", &["abc"]),
-    ("\"", &[""]),
-    ("\"\"a\"", &["a\""]),
-    ("\"a\" ", &["a", ""]),
-    ("\"a\"  ", &["a", "", ""]),
-    ("a  b", &["a", "", "b"]),
-    ("a\tx", &["a\tx"]),
-    ("\"a\"b\t", &["ab\t"]),
-    ("a \t", &["a", "\t"]),
-    ("a\t", &["a\t"]),
-    ("\"a\"\t ", &["a\t", ""]),
-    ("tab\there x", &["tab\there", "x"]),
-    ("\"a\nc\" d", &["a\nc", "d"]),
-    ("a\nb", &["a\nb"]),
-    ("\"a\"b\"\tc\" d\"", &["ab\"\tc\"", "d\""]),
-    ("  \"a\"  b", &["", "", "a", "", "b"]),
-    ("\" a\" b", &[" a", "b"]),
-    (" \"a\" b", &["", "a", "b"]),
-    ("\" a b\" c", &[" a b", "c"]),
-    ("\"a  b\"", &["a  b"]),
-    ("a b  c", &["a", "b", "", "c"]),
-    ("\"a b\"  c", &["a b", "", "c"]),
-    ("\"a\" \"b\" \"c\"", &["a", "b", "c"]),
-    ("\"a\"b\"c\"d", &["ab\"c\"d"]),
-    ("\"a\"\"b\"\"c\"", &["a\"b\"c"]),
-    ("\"a\"\"\" b\"", &["a\"", "b\""]),
-    ("\"a b\"\"\" c\"", &["a b\"", "c\""]),
-    ("\"a b\" c\"\"\" d\"", &["a b", "c\"\"\"", "d\""]),
-    ("\"\"\"\"\"", &["\"\""]),
-    ("\"a\"\"\"\"", &["a\"\""]),
-    ("\"a\"\"\"\" b\"", &["a\"\" b"]),
-    ("\"a b c\" d\" e\"", &["a b c", "d\"", "e\""]),
-    ("\"a\"b\"\" c\" d\" e\"", &["ab\"\"", "c\"", "d\"", "e\""]),
-    ("a\"b\"c\"d", &["a\"b\"c\"d"]),
-    ("\"a\" \"b\" \"c\" \"d\"", &["a", "b", "c", "d"]),
-    ("\"a\"\"\"\"\" b\"", &["a\"\"", "b\""]),
-    ("\"a b\" \"c d\" \"e f\"", &["a b", "c d", "e f"]),
-    ("\"a b\"\" \"c d\"", &["a b\" c", "d\""]),
-    ("\"a b\" \"c d\"\"", &["a b", "c d\""]),
-    ("x y\" z", &["x", "y\"", "z"]),
-    ("x\" y z", &["x\"", "y", "z"]),
-    ("\"x y\" z\"", &["x y", "z\""]),
-    ("\"x\"\" y z\"", &["x\" y z"]),
-    ("\"x y\"\" z\"", &["x y\" z"]),
-    ("a\" b\" c", &["a\"", "b\"", "c"]),
-    ("\"a\"b\"c d\"e\"", &["ab\"c", "d\"e\""]),
-    ("\"a\"\"b c\" d\"\"e\"", &["a\"b c", "d\"\"e\""]),
-    ("  a  b  ", &["", "", "a", "", "b", "", ""]),
-    ("a \", b", &["a", ", b"]),
-    ("a , b", &["a", ",", "b"]),
-    ("\"a,b\" c", &["a,b", "c"]),
-    ("\"a ,b\" c", &["a ,b", "c"]),
-    ("a\t\"b\"\tc", &["a\t\"b\"\tc"]),
-    ("\"a\"\t\"b\"", &["a\t\"b\""]),
-    ("\"a\" \t\"b\"", &["a", "b"]),
-    ("\t\"a\"", &["a"]),
-    ("\"a\"\t", &["a\t"]),
-    ("a\tb\tc", &["a\tb\tc"]),
-    ("\"a\"b\tc\"d\"", &["ab\tc\"d\""]),
-    ("\"a\"b\t\"c\"", &["ab\t\"c\""]),
-    ("\"a b\"\t\"c d\"", &["a b\t\"c", "d\""]),
-    ("\r\"a\"", &["a"]),
-    ("\"a\"\r", &["a"]),
-    ("a\rb c", &["a\rb", "c"]),
-    ("\"a b\"\r c\"", &["a b\r", "c\""]),
-    ("\"a\" b\r", &["a", "b"]),
-    ("\"a\r\" b\"", &["a\r", "b\""]),
-    ("\"a\" \"b\"c \"d\"", &["a", "bc", "d"]),
-    ("\"a\"\" \"b\"\" c\"", &["a\" b\"\"", "c\""]),
-    ("\"\"\"\"\"\" \"a\"", &["\"\"", "a"]),
-    ("\"a\"\"\"\"\"\" \"b\"", &["a\"\"\" b\""]),
-    ("\"a b\"\"\"\"\"\" c\"", &["a b\"\"\" c"]),
-    ("\"a\"\"\"\"\" b c\"", &["a\"\"", "b", "c\""]),
-    ("\"a b c d\" e f g\"", &["a b c d", "e", "f", "g\""]),
-    ("\"a\"\"b\"\" c\"\"d\" e\"", &["a\"b\" c\"d", "e\""]),
-    ("\"a\"\"b\"\"c\" d\" e\"\"f\"", &["a\"b\"c", "d\"", "e\"\"f\""]),
-    ("\"a b\"\"\" c\"\" d\"", &["a b\"", "c\"\"", "d\""]),
-    ("\"a\"b\"\"\" c\"", &["ab\"\"\"", "c\""]),
-    ("\"a\"\"b\"\" c\" d\" e\" f\"", &["a\"b\" c", "d\"", "e\"", "f\""]),
-    ("\"a\"\"\"\"b\"\"\"\"c\"", &["a\"\"b\"\"c"]),
-    ("\"a b\"\" c\"\" d\"", &["a b\" c\" d"]),
-    ("\"a b c\"\" d e\" f\"", &["a b c\" d e", "f\""]),
-    ("\"a\"b c\"d e\"f g\"", &["ab", "c\"d", "e\"f", "g\""]),
-    ("\"a\"b\" c\"d\" e\"f\" g\"", &["ab\"", "c\"d\"", "e\"f\"", "g\""]),
-];
+    const TOKENIZER_CASES: &[(&str, &[&str])] = &[
+        ("", &[""]),
+        ("a", &["a"]),
+        ("a ", &["a", ""]),
+        (" a", &["", "a"]),
+        ("  ", &["", "", ""]),
+        ("   ", &["", "", "", ""]),
+        ("a b c", &["a", "b", "c"]),
+        ("-a -b", &["-a", "-b"]),
+        ("-a:1", &["-a:1"]),
+        ("-a:b", &["-a:b"]),
+        ("-a:b:", &["-a:b:"]),
+        ("\"-\"", &["-"]),
+        ("\"-a\" b", &["-a", "b"]),
+        ("\"a b\" c", &["a b", "c"]),
+        ("\"a b\"\" c", &["a b\" c"]),
+        ("\"a\"\" \"b\"", &["a\" b\""]),
+        ("\"a b\" \"\"", &["a b", ""]),
+        ("\"a\" \"\"", &["a", ""]),
+        ("\"a\"b", &["ab"]),
+        ("\"a\"\"b\"", &["a\"b"]),
+        ("\"a\" \"\"b\"", &["a", "b\""]),
+        ("\"a b\"\" \"c d\"", &["a b\" c", "d\""]),
+        ("\"a\"\"b\"\" c", &["a\"b\" c"]),
+        ("\"a b\"\" c\"\"", &["a b\" c\""]),
+        ("\"a\" \"b\" c", &["a", "b", "c"]),
+        ("\"\"", &[""]),
+        ("\"\\\"\"", &["\\\""]),
+        ("\"a b\"\"", &["a b\""]),
+        ("\"a b\" c\"\"", &["a b", "c\"\""]),
+        ("\"a b\" c\" d\"\"", &["a b", "c\"", "d\"\""]),
+        ("\"a\"b\" \"c\" d\"", &["ab\"", "c", "d\""]),
+        ("\"a\"b\" c\" \"", &["ab\"", "c\"", ""]),
+        ("\"a\" b\"\"", &["a", "b\"\""]),
+        ("\"\"\"c\"\"", &["\"c\""]),
+        ("\"\"\" c\"\"", &["\" c\""]),
+        ("\"a\" \"\"", &["a", ""]),
+        ("-\"a\"b c", &["-\"a\"b", "c"]),
+        ("\"-\"x", &["-x"]),
+        ("x \"a\"b y", &["x", "ab", "y"]),
+        ("\"a\"\" ", &["a\" "]),
+        ("a b \"c d\"", &["a", "b", "c d"]),
+        ("a\"b ", &["a\"b", ""]),
+        ("\"a\"\" \"", &["a\" "]),
+        ("\"a b\"\"c\"", &["a b\"c"]),
+        ("\"x\"y z\"w\"", &["xy", "z\"w\""]),
+        ("\"a\" b\"c\" d", &["a", "b\"c\"", "d"]),
+        ("\"a\" c\"", &["a", "c\""]),
+        ("\"q\"r s\" t\"", &["qr", "s\"", "t\""]),
+        ("\"a\"b\" c\" d\" e\"", &["ab\"", "c\"", "d\"", "e\""]),
+        ("\"a\"b\" c\"d\"", &["ab\"", "c\"d\""]),
+        ("\"a\"b\" c\"\"", &["ab\"", "c\"\""]),
+        ("\"a\"b\" \"c\"", &["ab\"", "c"]),
+        ("\"a\"b\" c\" d\"", &["ab\"", "c\"", "d\""]),
+        ("\"a\"\" \"b\" c\"", &["a\" b\"", "c\""]),
+        ("\"a\"b\"c", &["ab\"c"]),
+        ("\"a\"b c", &["ab", "c"]),
+        ("\"a\"b\"", &["ab\""]),
+        ("\"a\" \"b\"", &["a", "b"]),
+        ("\"abc", &["abc"]),
+        ("\"", &[""]),
+        ("\"\"a\"", &["a\""]),
+        ("\"a\" ", &["a", ""]),
+        ("\"a\"  ", &["a", "", ""]),
+        ("a  b", &["a", "", "b"]),
+        ("a\tx", &["a\tx"]),
+        ("\"a\"b\t", &["ab\t"]),
+        ("a \t", &["a", "\t"]),
+        ("a\t", &["a\t"]),
+        ("\"a\"\t ", &["a\t", ""]),
+        ("tab\there x", &["tab\there", "x"]),
+        ("\"a\nc\" d", &["a\nc", "d"]),
+        ("a\nb", &["a\nb"]),
+        ("\"a\"b\"\tc\" d\"", &["ab\"\tc\"", "d\""]),
+        ("  \"a\"  b", &["", "", "a", "", "b"]),
+        ("\" a\" b", &[" a", "b"]),
+        (" \"a\" b", &["", "a", "b"]),
+        ("\" a b\" c", &[" a b", "c"]),
+        ("\"a  b\"", &["a  b"]),
+        ("a b  c", &["a", "b", "", "c"]),
+        ("\"a b\"  c", &["a b", "", "c"]),
+        ("\"a\" \"b\" \"c\"", &["a", "b", "c"]),
+        ("\"a\"b\"c\"d", &["ab\"c\"d"]),
+        ("\"a\"\"b\"\"c\"", &["a\"b\"c"]),
+        ("\"a\"\"\" b\"", &["a\"", "b\""]),
+        ("\"a b\"\"\" c\"", &["a b\"", "c\""]),
+        ("\"a b\" c\"\"\" d\"", &["a b", "c\"\"\"", "d\""]),
+        ("\"\"\"\"\"", &["\"\""]),
+        ("\"a\"\"\"\"", &["a\"\""]),
+        ("\"a\"\"\"\" b\"", &["a\"\" b"]),
+        ("\"a b c\" d\" e\"", &["a b c", "d\"", "e\""]),
+        ("\"a\"b\"\" c\" d\" e\"", &["ab\"\"", "c\"", "d\"", "e\""]),
+        ("a\"b\"c\"d", &["a\"b\"c\"d"]),
+        ("\"a\" \"b\" \"c\" \"d\"", &["a", "b", "c", "d"]),
+        ("\"a\"\"\"\"\" b\"", &["a\"\"", "b\""]),
+        ("\"a b\" \"c d\" \"e f\"", &["a b", "c d", "e f"]),
+        ("\"a b\"\" \"c d\"", &["a b\" c", "d\""]),
+        ("\"a b\" \"c d\"\"", &["a b", "c d\""]),
+        ("x y\" z", &["x", "y\"", "z"]),
+        ("x\" y z", &["x\"", "y", "z"]),
+        ("\"x y\" z\"", &["x y", "z\""]),
+        ("\"x\"\" y z\"", &["x\" y z"]),
+        ("\"x y\"\" z\"", &["x y\" z"]),
+        ("a\" b\" c", &["a\"", "b\"", "c"]),
+        ("\"a\"b\"c d\"e\"", &["ab\"c", "d\"e\""]),
+        ("\"a\"\"b c\" d\"\"e\"", &["a\"b c", "d\"\"e\""]),
+        ("  a  b  ", &["", "", "a", "", "b", "", ""]),
+        ("a \", b", &["a", ", b"]),
+        ("a , b", &["a", ",", "b"]),
+        ("\"a,b\" c", &["a,b", "c"]),
+        ("\"a ,b\" c", &["a ,b", "c"]),
+        ("a\t\"b\"\tc", &["a\t\"b\"\tc"]),
+        ("\"a\"\t\"b\"", &["a\t\"b\""]),
+        ("\"a\" \t\"b\"", &["a", "b"]),
+        ("\t\"a\"", &["a"]),
+        ("\"a\"\t", &["a\t"]),
+        ("a\tb\tc", &["a\tb\tc"]),
+        ("\"a\"b\tc\"d\"", &["ab\tc\"d\""]),
+        ("\"a\"b\t\"c\"", &["ab\t\"c\""]),
+        ("\"a b\"\t\"c d\"", &["a b\t\"c", "d\""]),
+        ("\r\"a\"", &["a"]),
+        ("\"a\"\r", &["a"]),
+        ("a\rb c", &["a\rb", "c"]),
+        ("\"a b\"\r c\"", &["a b\r", "c\""]),
+        ("\"a\" b\r", &["a", "b"]),
+        ("\"a\r\" b\"", &["a\r", "b\""]),
+        ("\"a\" \"b\"c \"d\"", &["a", "bc", "d"]),
+        ("\"a\"\" \"b\"\" c\"", &["a\" b\"\"", "c\""]),
+        ("\"\"\"\"\"\" \"a\"", &["\"\"", "a"]),
+        ("\"a\"\"\"\"\"\" \"b\"", &["a\"\"\" b\""]),
+        ("\"a b\"\"\"\"\"\" c\"", &["a b\"\"\" c"]),
+        ("\"a\"\"\"\"\" b c\"", &["a\"\"", "b", "c\""]),
+        ("\"a b c d\" e f g\"", &["a b c d", "e", "f", "g\""]),
+        ("\"a\"\"b\"\" c\"\"d\" e\"", &["a\"b\" c\"d", "e\""]),
+        (
+            "\"a\"\"b\"\"c\" d\" e\"\"f\"",
+            &["a\"b\"c", "d\"", "e\"\"f\""],
+        ),
+        ("\"a b\"\"\" c\"\" d\"", &["a b\"", "c\"\"", "d\""]),
+        ("\"a\"b\"\"\" c\"", &["ab\"\"\"", "c\""]),
+        (
+            "\"a\"\"b\"\" c\" d\" e\" f\"",
+            &["a\"b\" c", "d\"", "e\"", "f\""],
+        ),
+        ("\"a\"\"\"\"b\"\"\"\"c\"", &["a\"\"b\"\"c"]),
+        ("\"a b\"\" c\"\" d\"", &["a b\" c\" d"]),
+        ("\"a b c\"\" d e\" f\"", &["a b c\" d e", "f\""]),
+        ("\"a\"b c\"d e\"f g\"", &["ab", "c\"d", "e\"f", "g\""]),
+        (
+            "\"a\"b\" c\"d\" e\"f\" g\"",
+            &["ab\"", "c\"d\"", "e\"f\"", "g\""],
+        ),
+    ];
 
     #[test]
     fn tokenizer_matches_php() {
@@ -691,71 +712,74 @@ const TOKENIZER_CASES: &[(&str, &[&str])] = &[
         // Oracle-verified: exact `preg_replace` sequence from `_search_to_sql`
         // (Feeds.php 2097-2099) run on the live PHP 8.5 oracle.
         let cases: &[(&str, &str)] = &[
-    ("", ""),
-    ("   ", ""),
-    ("title:\"a b\" c", "\"title:a b\" c"),
-    ("title:\"a b\" c d", "\"title:a b\" c d"),
-    ("-a \"b c\"", "-a \"b c\""),
-    ("-title:a b\"", "-title:a b\""),
-    ("a:1 b:2", "a:1 b:2"),
-    ("a:1 \"b c\"", "a:1 \"b c\""),
-    ("\"-a b\" c", "\"-a b\" c"),
-    ("-a:1 \"b c\"", "-a:1 \"b c\""),
-    ("@\"a b\"", "\"@a b\""),
-    ("-\"a b\"", "\"-a b\""),
-    ("-a \"@b c\"", "-a \"@b c\""),
-    ("a \"b c\" d", "a \"b c\" d"),
-    ("title:\"\" x", "title:\"\" x"),
-    ("title:\"", "title:\""),
-    ("\"title\" x", "\"title\" x"),
-    ("key:\"a:b\" c", "\"key:a:b\" c"),
-    ("-key:\"a:b\" c", "\"-key:a:b\" c"),
-    ("a-\"b c\" d", "a\"-b c\" d"),
-    ("x-\"y z\"", "x\"-y z\""),
-    ("@date:\"yesterday\" x", "\"@date:yesterday\" x"),
-    ("foo@bar \"b c\"", "foo@bar \"b c\""),
-    ("-@\"b c\"", "\"-@b c\""),
-    ("a:1 \"b c\" d:2", "a:1 \"b c\" d:2"),
-    ("k:\"v\" k:\"w\"", "\"k:v\" \"k:w\""),
-    ("\"a\" \"b\" \"c\"", "\"a\" \"b\" \"c\""),
-    ("title:\"a b\" c:\"d e\"", "\"title:a b\" \"c:d e\""),
-    ("-title:\"a b\" -x:\"c d\"", "\"-title:a b\" \"-x:c d\""),
-    ("@date:yesterday @time:today", "@date:yesterday @time:today"),
-    ("plain words here", "plain words here"),
-    ("  leading and trailing  ", "leading and trailing"),
-    ("a  double  space", "a  double  space"),
-    ("tab\there and \"quoted\" x", "tab\there and \"quoted\" x"),
-    ("new\nline here", "new\nline here"),
-    ("a\"b c\"d e", "a\"b c\"d e"),
-    ("\"unclosed a b", "\"unclosed a b"),
-    ("a \"b c\" d \"e f\"", "a \"b c\" d \"e f\""),
-    ("-x \"a b\" y \"c d\" z", "-x \"a b\" y \"c d\" z"),
-    ("w:\"1 2\" -y:\"3 4\" z", "\"w:1 2\" \"-y:3 4\" z"),
-    ("@\"@\" q", "\"@@\" q"),
-    ("title:plain -tag:\"has space\"", "title:plain \"-tag:has space\""),
-    ("a-\"b\" c", "a\"-b\" c"),
-    ("--\"a b\"", "-\"-a b\""),
-    ("- -\"a b\"", "- \"-a b\""),
-    ("k:\"v\"x", "\"k:v\"x"),
-    ("k: \"v\" x", "k: \"v\" x"),
-    ("k : \"v\" x", "k : \"v\" x"),
-    ("k_1:\"a b\" c", "\"k_1:a b\" c"),
-    ("9:\"x\" y", "\"9:x\" y"),
-    ("-9:\"x y\" z", "\"-9:x y\" z"),
-    ("a:b \"c:d\" e", "a:b \"c:d\" e"),
-    ("title:\"a\" b:\"c\"", "\"title:a\" \"b:c\""),
-    ("@\"last Tuesday\" x", "\"@last Tuesday\" x"),
-    ("\"@date\" x", "\"@date\" x"),
-    ("-@date:\"last Monday\"", "\"-@date:last Monday\""),
-    ("x @\"a b\" y \"c d\" z", "x \"@a b\" y \"c d\" z"),
-    ("\"title:a b\" c", "\"title:a b\" c"),
-    ("\"-a b\" c", "\"-a b\" c"),
-    ("a:-\"b c\"", "a:\"-b c\""),
-    (":-\"a b\"", ":\"-a b\""),
-    ("a:\"\" b:\"\"", "a:\"\" b:\"\""),
-    ("k:\"v\" \"w x\" y", "\"k:v\" \"w x\" y"),
-    ("k:v \"w x\" y", "k:v \"w x\" y"),
-    ("k: v\"w x\" y", "k: v\"w x\" y"),
+            ("", ""),
+            ("   ", ""),
+            ("title:\"a b\" c", "\"title:a b\" c"),
+            ("title:\"a b\" c d", "\"title:a b\" c d"),
+            ("-a \"b c\"", "-a \"b c\""),
+            ("-title:a b\"", "-title:a b\""),
+            ("a:1 b:2", "a:1 b:2"),
+            ("a:1 \"b c\"", "a:1 \"b c\""),
+            ("\"-a b\" c", "\"-a b\" c"),
+            ("-a:1 \"b c\"", "-a:1 \"b c\""),
+            ("@\"a b\"", "\"@a b\""),
+            ("-\"a b\"", "\"-a b\""),
+            ("-a \"@b c\"", "-a \"@b c\""),
+            ("a \"b c\" d", "a \"b c\" d"),
+            ("title:\"\" x", "title:\"\" x"),
+            ("title:\"", "title:\""),
+            ("\"title\" x", "\"title\" x"),
+            ("key:\"a:b\" c", "\"key:a:b\" c"),
+            ("-key:\"a:b\" c", "\"-key:a:b\" c"),
+            ("a-\"b c\" d", "a\"-b c\" d"),
+            ("x-\"y z\"", "x\"-y z\""),
+            ("@date:\"yesterday\" x", "\"@date:yesterday\" x"),
+            ("foo@bar \"b c\"", "foo@bar \"b c\""),
+            ("-@\"b c\"", "\"-@b c\""),
+            ("a:1 \"b c\" d:2", "a:1 \"b c\" d:2"),
+            ("k:\"v\" k:\"w\"", "\"k:v\" \"k:w\""),
+            ("\"a\" \"b\" \"c\"", "\"a\" \"b\" \"c\""),
+            ("title:\"a b\" c:\"d e\"", "\"title:a b\" \"c:d e\""),
+            ("-title:\"a b\" -x:\"c d\"", "\"-title:a b\" \"-x:c d\""),
+            ("@date:yesterday @time:today", "@date:yesterday @time:today"),
+            ("plain words here", "plain words here"),
+            ("  leading and trailing  ", "leading and trailing"),
+            ("a  double  space", "a  double  space"),
+            ("tab\there and \"quoted\" x", "tab\there and \"quoted\" x"),
+            ("new\nline here", "new\nline here"),
+            ("a\"b c\"d e", "a\"b c\"d e"),
+            ("\"unclosed a b", "\"unclosed a b"),
+            ("a \"b c\" d \"e f\"", "a \"b c\" d \"e f\""),
+            ("-x \"a b\" y \"c d\" z", "-x \"a b\" y \"c d\" z"),
+            ("w:\"1 2\" -y:\"3 4\" z", "\"w:1 2\" \"-y:3 4\" z"),
+            ("@\"@\" q", "\"@@\" q"),
+            (
+                "title:plain -tag:\"has space\"",
+                "title:plain \"-tag:has space\"",
+            ),
+            ("a-\"b\" c", "a\"-b\" c"),
+            ("--\"a b\"", "-\"-a b\""),
+            ("- -\"a b\"", "- \"-a b\""),
+            ("k:\"v\"x", "\"k:v\"x"),
+            ("k: \"v\" x", "k: \"v\" x"),
+            ("k : \"v\" x", "k : \"v\" x"),
+            ("k_1:\"a b\" c", "\"k_1:a b\" c"),
+            ("9:\"x\" y", "\"9:x\" y"),
+            ("-9:\"x y\" z", "\"-9:x y\" z"),
+            ("a:b \"c:d\" e", "a:b \"c:d\" e"),
+            ("title:\"a\" b:\"c\"", "\"title:a\" \"b:c\""),
+            ("@\"last Tuesday\" x", "\"@last Tuesday\" x"),
+            ("\"@date\" x", "\"@date\" x"),
+            ("-@date:\"last Monday\"", "\"-@date:last Monday\""),
+            ("x @\"a b\" y \"c d\" z", "x \"@a b\" y \"c d\" z"),
+            ("\"title:a b\" c", "\"title:a b\" c"),
+            ("\"-a b\" c", "\"-a b\" c"),
+            ("a:-\"b c\"", "a:\"-b c\""),
+            (":-\"a b\"", ":\"-a b\""),
+            ("a:\"\" b:\"\"", "a:\"\" b:\"\""),
+            ("k:\"v\" \"w x\" y", "\"k:v\" \"w x\" y"),
+            ("k:v \"w x\" y", "k:v \"w x\" y"),
+            ("k: v\"w x\" y", "k: v\"w x\" y"),
         ];
         for (input, want) in cases {
             assert_eq!(preprocess(input), *want, "input: {input:?}");

@@ -37,10 +37,7 @@ fn url_validate_matches_php() {
             Some(_) => valid_count += 1,
             None => invalid_count += 1,
         }
-        assert_eq!(
-            got, expected,
-            "case {i}: input {input:?} (ext={extended})"
-        );
+        assert_eq!(got, expected, "case {i}: input {input:?} (ext={extended})");
     }
     // sanity: the battery exercises both outcomes
     assert!(valid_count > 0 && invalid_count > 0);

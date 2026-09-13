@@ -4,9 +4,14 @@ use ttrss::core::session;
 
 fn main() {
     let mut args = std::env::args().skip(1);
-    let path = args.next().expect("usage: dump_session <data-file> <hex-key>");
+    let path = args
+        .next()
+        .expect("usage: dump_session <data-file> <hex-key>");
     let key_hex = args.next().expect("hex key");
-    let data = std::fs::read_to_string(&path).expect("read data").trim().to_string();
+    let data = std::fs::read_to_string(&path)
+        .expect("read data")
+        .trim()
+        .to_string();
     let key_bytes = hex::decode(&key_hex).expect("decode key hex");
     let key: [u8; ttrss::core::crypt::KEY_LEN] =
         key_bytes.as_slice().try_into().expect("key length");

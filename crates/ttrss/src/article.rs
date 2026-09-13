@@ -15,15 +15,15 @@ use axum::http::StatusCode;
 use std::collections::HashSet;
 use std::sync::OnceLock;
 
+use crate::core::db::Db;
+use crate::core::phpser::Value as PValue;
+use crate::core::session::Session;
+use crate::util::{basename, param_int_array, scalar_str};
 use kuchikiki::traits::TendrilSink;
 use kuchikiki::{parse_html, NodeRef};
 use serde_json::{json, Map, Value};
 use sha1::Digest as _;
 use sqlx::Row;
-use crate::core::db::Db;
-use crate::core::phpser::Value as PValue;
-use crate::core::session::Session;
-use crate::util::{basename, param_int_array, scalar_str};
 
 use crate::prefs;
 use crate::sanitizer::rewrite_relative;
@@ -53,7 +53,10 @@ fn cmode_of(extra: &Map<String, Value>) -> i32 {
 
 /// `$n` placeholders for a `ref_id IN (…)` clause over `ids`.
 fn in_placeholders(ids: &[i32]) -> String {
-    (1..=ids.len()).map(|i| format!("${i}")).collect::<Vec<_>>().join(",")
+    (1..=ids.len())
+        .map(|i| format!("${i}"))
+        .collect::<Vec<_>>()
+        .join(",")
 }
 
 fn bind_ids<'a>(
@@ -93,7 +96,10 @@ pub async fn catchup_by_id(
         in_placeholders(ids),
         ids.len() + 1
     );
-    let _ = bind_ids(sqlx::query(&sql), ids).bind(uid).execute(pool).await;
+    let _ = bind_ids(sqlx::query(&sql), ids)
+        .bind(uid)
+        .execute(pool)
+        .await;
 }
 
 /// `RPC::markArticlesById`: star / unstar / toggle the given articles.
@@ -112,7 +118,10 @@ async fn mark_articles_by_id(pool: &sqlx::PgPool, ids: &[i32], cmode: i32, uid: 
         in_placeholders(ids),
         ids.len() + 1
     );
-    let _ = bind_ids(sqlx::query(&sql), ids).bind(uid).execute(pool).await;
+    let _ = bind_ids(sqlx::query(&sql), ids)
+        .bind(uid)
+        .execute(pool)
+        .await;
 }
 
 /// `RPC::publishArticlesById`: publish / unpublish / toggle the given articles.
@@ -132,7 +141,10 @@ async fn publish_articles_by_id(pool: &sqlx::PgPool, ids: &[i32], cmode: i32, ui
         in_placeholders(ids),
         ids.len() + 1
     );
-    let _ = bind_ids(sqlx::query(&sql), ids).bind(uid).execute(pool).await;
+    let _ = bind_ids(sqlx::query(&sql), ids)
+        .bind(uid)
+        .execute(pool)
+        .await;
 }
 
 /// `Article::_get_tags`: the tags of article `id` for `owner_uid` (the
@@ -271,27 +283,29 @@ pub async fn get_enclosures(pool: &sqlx::PgPool, id: i32) -> Vec<Map<String, Val
         "SELECT id, content_url, content_type, title, duration, width, height, post_id
          FROM ttrss_enclosures WHERE post_id = $1",
     )
-        .bind(id)
-        .fetch_all(pool)
-        .await
-        .unwrap_or_default();
+    .bind(id)
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default();
 
     rows.into_iter()
-        .map(|(enc_id, url, ctype, title, duration, width, height, post_id)| {
-            json!({
-                "id": enc_id,
-                "content_url": url,
-                "content_type": ctype,
-                "title": title,
-                "duration": duration,
-                "width": width,
-                "height": height,
-                "post_id": post_id,
-            })
-            .as_object()
-            .unwrap()
-            .clone()
-        })
+        .map(
+            |(enc_id, url, ctype, title, duration, width, height, post_id)| {
+                json!({
+                    "id": enc_id,
+                    "content_url": url,
+                    "content_type": ctype,
+                    "title": title,
+                    "duration": duration,
+                    "width": width,
+                    "height": height,
+                    "post_id": post_id,
+                })
+                .as_object()
+                .unwrap()
+                .clone()
+            },
+        )
         .collect()
 }
 
@@ -462,7 +476,10 @@ fn html_to_text(content: &str) -> String {
     while let Some(node) = stack.pop() {
         if let Some(el) = node.as_element() {
             let tag = el.name.local.to_string().to_ascii_lowercase();
-            if matches!(tag.as_str(), "script" | "style" | "noscript" | "template" | "head") {
+            if matches!(
+                tag.as_str(),
+                "script" | "style" | "noscript" | "template" | "head"
+            ) {
                 continue;
             }
         }
@@ -541,17 +558,20 @@ pub async fn create_published_article(
 
     let mut rc = false;
     if let Some(ref_id) = existing {
-        let _ = sqlx::query("UPDATE ttrss_entries SET content = $1, content_hash = $2 WHERE id = $3")
-            .bind(content)
-            .bind(&content_hash)
-            .bind(ref_id)
-            .execute(&mut *tx)
-            .await;
-        let _ = sqlx::query("UPDATE ttrss_entries SET tsvector_combined = to_tsvector($1) WHERE id = $2")
-            .bind(html_to_text(content))
-            .bind(ref_id)
-            .execute(&mut *tx)
-            .await;
+        let _ =
+            sqlx::query("UPDATE ttrss_entries SET content = $1, content_hash = $2 WHERE id = $3")
+                .bind(content)
+                .bind(&content_hash)
+                .bind(ref_id)
+                .execute(&mut *tx)
+                .await;
+        let _ = sqlx::query(
+            "UPDATE ttrss_entries SET tsvector_combined = to_tsvector($1) WHERE id = $2",
+        )
+        .bind(html_to_text(content))
+        .bind(ref_id)
+        .execute(&mut *tx)
+        .await;
         let int_id: Option<i32> = sqlx::query_scalar(
             "SELECT int_id FROM ttrss_user_entries WHERE ref_id = $1 AND owner_uid = $2 LIMIT 1",
         )
@@ -593,11 +613,13 @@ pub async fn create_published_article(
         .ok()
         .flatten();
         if let Some(ref_id) = ref_id {
-            let _ = sqlx::query("UPDATE ttrss_entries SET tsvector_combined = to_tsvector($1) WHERE id = $2")
-                .bind(html_to_text(content))
-                .bind(ref_id)
-                .execute(&mut *tx)
-                .await;
+            let _ = sqlx::query(
+                "UPDATE ttrss_entries SET tsvector_combined = to_tsvector($1) WHERE id = $2",
+            )
+            .bind(html_to_text(content))
+            .bind(ref_id)
+            .execute(&mut *tx)
+            .await;
             insert_shared_user_entry(&mut tx, ref_id, owner_uid).await;
             for label in &labels {
                 crate::labels::add_article(pool, ref_id, label.trim(), owner_uid).await;
@@ -764,11 +786,7 @@ fn update_counters(labels: Vec<i64>, feeds: Vec<i64>) -> Value {
 }
 
 /// `RPC::catchupSelected`.
-pub async fn catchup_selected(
-    state: &AppState,
-    sess: &Sess,
-    extra: &Map<String, Value>,
-) -> Value {
+pub async fn catchup_selected(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Value {
     let uid = sess.data().uid().unwrap_or(0);
     let pool = state.db.pool();
     let ids = param_int_array(extra, "ids");
@@ -782,11 +800,7 @@ pub async fn catchup_selected(
 }
 
 /// `RPC::markSelected`.
-pub async fn mark_selected(
-    state: &AppState,
-    sess: &Sess,
-    extra: &Map<String, Value>,
-) -> Value {
+pub async fn mark_selected(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Value {
     let uid = sess.data().uid().unwrap_or(0);
     let pool = state.db.pool();
     let ids = param_int_array(extra, "ids");
@@ -800,11 +814,7 @@ pub async fn mark_selected(
 }
 
 /// `RPC::publishSelected`.
-pub async fn publish_selected(
-    state: &AppState,
-    sess: &Sess,
-    extra: &Map<String, Value>,
-) -> Value {
+pub async fn publish_selected(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Value {
     let uid = sess.data().uid().unwrap_or(0);
     let pool = state.db.pool();
     let ids = param_int_array(extra, "ids");
@@ -1018,7 +1028,8 @@ pub async fn label_ops(
     let label_id = cleaned_str(extra, "lid");
     // PHP passes the cleaned string to `Labels::find_caption` (typed `int`
     // — PHP's string→int coercion is the leading-integer prefix).
-    let label = crate::labels::find_caption(pool, crate::util::php_int_cast(&label_id) as i32, uid).await;
+    let label =
+        crate::labels::find_caption(pool, crate::util::php_int_cast(&label_id) as i32, uid).await;
     let mut labels_for: Vec<Value> = Vec::new();
     if !label.is_empty() {
         for &id in &ids {

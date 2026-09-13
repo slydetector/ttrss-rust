@@ -171,26 +171,18 @@ async fn test_add_label(
     let (state, sess) = setup(pool, options).await;
     let db = &state.db;
 
-    let out =
-        ttrss::labels::add_label(&state, &sess, &request(&[("caption", json!("My Label"))]))
-            .await
-            .expect("add");
+    let out = ttrss::labels::add_label(&state, &sess, &request(&[("caption", json!("My Label"))]))
+        .await
+        .expect("add");
     assert_eq!(out, "Created label <b>My Label</b>");
-    assert_eq!(
-        ttrss::labels::find_id(db.pool(), "My Label", 1).await,
-        3
-    );
+    assert_eq!(ttrss::labels::find_id(db.pool(), "My Label", 1).await, 3);
 
     // A duplicate caption is not created (case-insensitive) and returns empty.
-    let out =
-        ttrss::labels::add_label(&state, &sess, &request(&[("caption", json!("my label"))]))
-            .await
-            .expect("add dup");
+    let out = ttrss::labels::add_label(&state, &sess, &request(&[("caption", json!("my label"))]))
+        .await
+        .expect("add dup");
     assert_eq!(out, "");
-    assert_eq!(
-        ttrss::labels::find_id(db.pool(), "my label", 1).await,
-        3
-    );
+    assert_eq!(ttrss::labels::find_id(db.pool(), "my label", 1).await, 3);
 
     // An empty caption creates nothing.
     let out = ttrss::labels::add_label(&state, &sess, &request(&[("caption", json!(""))]))
@@ -221,10 +213,7 @@ async fn test_add_label_output_suppress(
     .await
     .expect("add");
     assert_eq!(out, "");
-    assert_eq!(
-        ttrss::labels::find_id(db.pool(), "Quiet Label", 1).await,
-        3
-    );
+    assert_eq!(ttrss::labels::find_id(db.pool(), "Quiet Label", 1).await, 3);
 }
 
 /// `Pref_Labels::remove`: removes the label, its access key, and clears the

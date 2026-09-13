@@ -9,6 +9,7 @@
 
 use sqlx::Row;
 
+use crate::core::user;
 use crate::session::Sess;
 use crate::time::{make_local_datetime, TzCtx};
 use crate::util::{
@@ -16,7 +17,6 @@ use crate::util::{
 };
 use crate::AppState;
 use serde_json::{json, Map, Value};
-use crate::core::user;
 
 /// `UserHelper::ACCESS_LEVEL_*` → display name (the `$access_level_names` map
 /// built in `backend.php`).

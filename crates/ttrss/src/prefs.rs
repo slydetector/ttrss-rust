@@ -8,10 +8,10 @@
 //! `ttrss_user_prefs2` override for `(uid, effective_profile)`, else the PHP
 //! default, and casts the string to the pref's type hint (`Config::cast_to`).
 
-use sqlx::Row;
 use crate::core::config::sql_bool_to_bool;
 use crate::core::db::Db;
 use serde_json::{json, Value};
+use sqlx::Row;
 
 /// Pref-name constants (mirror `Prefs::*` in classes/Prefs.php).
 pub const ENABLE_FEED_CATS: &str = "ENABLE_FEED_CATS";
@@ -115,60 +115,235 @@ pub struct PrefDef {
 /// (the order `Prefs::_get_all` emits entries).
 pub fn all_defs() -> &'static [PrefDef] {
     &[
-        PrefDef { name: "PURGE_OLD_DAYS", default: "60", ty: Type::Int },
-        PrefDef { name: "DEFAULT_UPDATE_INTERVAL", default: "30", ty: Type::Int },
-        PrefDef { name: "ENABLE_FEED_CATS", default: "true", ty: Type::Bool },
-        PrefDef { name: "SHOW_CONTENT_PREVIEW", default: "true", ty: Type::Bool },
-        PrefDef { name: "SHORT_DATE_FORMAT", default: "M d, G:i", ty: Type::Str },
-        PrefDef { name: "LONG_DATE_FORMAT", default: "D, M d Y - G:i", ty: Type::Str },
-        PrefDef { name: "COMBINED_DISPLAY_MODE", default: "true", ty: Type::Bool },
-        PrefDef { name: "HIDE_READ_FEEDS", default: "false", ty: Type::Bool },
-        PrefDef { name: "ON_CATCHUP_SHOW_NEXT_FEED", default: "false", ty: Type::Bool },
-        PrefDef { name: "FEEDS_SORT_BY_UNREAD", default: "false", ty: Type::Bool },
-        PrefDef { name: "REVERSE_HEADLINES", default: "false", ty: Type::Bool },
-        PrefDef { name: "DIGEST_ENABLE", default: "false", ty: Type::Bool },
-        PrefDef { name: "CONFIRM_FEED_CATCHUP", default: "true", ty: Type::Bool },
-        PrefDef { name: "CDM_AUTO_CATCHUP", default: "false", ty: Type::Bool },
-        PrefDef { name: "_DEFAULT_VIEW_MODE", default: "adaptive", ty: Type::Str },
-        PrefDef { name: "_DEFAULT_VIEW_LIMIT", default: "30", ty: Type::Int },
+        PrefDef {
+            name: "PURGE_OLD_DAYS",
+            default: "60",
+            ty: Type::Int,
+        },
+        PrefDef {
+            name: "DEFAULT_UPDATE_INTERVAL",
+            default: "30",
+            ty: Type::Int,
+        },
+        PrefDef {
+            name: "ENABLE_FEED_CATS",
+            default: "true",
+            ty: Type::Bool,
+        },
+        PrefDef {
+            name: "SHOW_CONTENT_PREVIEW",
+            default: "true",
+            ty: Type::Bool,
+        },
+        PrefDef {
+            name: "SHORT_DATE_FORMAT",
+            default: "M d, G:i",
+            ty: Type::Str,
+        },
+        PrefDef {
+            name: "LONG_DATE_FORMAT",
+            default: "D, M d Y - G:i",
+            ty: Type::Str,
+        },
+        PrefDef {
+            name: "COMBINED_DISPLAY_MODE",
+            default: "true",
+            ty: Type::Bool,
+        },
+        PrefDef {
+            name: "HIDE_READ_FEEDS",
+            default: "false",
+            ty: Type::Bool,
+        },
+        PrefDef {
+            name: "ON_CATCHUP_SHOW_NEXT_FEED",
+            default: "false",
+            ty: Type::Bool,
+        },
+        PrefDef {
+            name: "FEEDS_SORT_BY_UNREAD",
+            default: "false",
+            ty: Type::Bool,
+        },
+        PrefDef {
+            name: "REVERSE_HEADLINES",
+            default: "false",
+            ty: Type::Bool,
+        },
+        PrefDef {
+            name: "DIGEST_ENABLE",
+            default: "false",
+            ty: Type::Bool,
+        },
+        PrefDef {
+            name: "CONFIRM_FEED_CATCHUP",
+            default: "true",
+            ty: Type::Bool,
+        },
+        PrefDef {
+            name: "CDM_AUTO_CATCHUP",
+            default: "false",
+            ty: Type::Bool,
+        },
+        PrefDef {
+            name: "_DEFAULT_VIEW_MODE",
+            default: "adaptive",
+            ty: Type::Str,
+        },
+        PrefDef {
+            name: "_DEFAULT_VIEW_LIMIT",
+            default: "30",
+            ty: Type::Int,
+        },
         PrefDef {
             name: "BLACKLISTED_TAGS",
             default: "main, generic, misc, uncategorized, blog, blogroll, general, news",
             ty: Type::Str,
         },
-        PrefDef { name: "FRESH_ARTICLE_MAX_AGE", default: "24", ty: Type::Int },
-        PrefDef { name: "RECENTLY_READ_MAX_AGE", default: "24", ty: Type::Int },
-        PrefDef { name: "DIGEST_CATCHUP", default: "false", ty: Type::Bool },
-        PrefDef { name: "CDM_EXPANDED", default: "true", ty: Type::Bool },
-        PrefDef { name: "PURGE_UNREAD_ARTICLES", default: "true", ty: Type::Bool },
-        PrefDef { name: "HIDE_READ_SHOWS_SPECIAL", default: "true", ty: Type::Bool },
-        PrefDef { name: "VFEED_GROUP_BY_FEED", default: "false", ty: Type::Bool },
-        PrefDef { name: "STRIP_IMAGES", default: "false", ty: Type::Bool },
-        PrefDef { name: "_DEFAULT_VIEW_ORDER_BY", default: "default", ty: Type::Str },
-        PrefDef { name: "ENABLE_API_ACCESS", default: "false", ty: Type::Bool },
-        PrefDef { name: "ENABLE_API_ACCESS_BROWSER", default: "false", ty: Type::Bool },
-        PrefDef { name: "USER_TIMEZONE", default: "Automatic", ty: Type::Str },
-        PrefDef { name: "USER_STYLESHEET", default: "", ty: Type::Str },
-        PrefDef { name: "SSL_CERT_SERIAL", default: "", ty: Type::Str },
-        PrefDef { name: "DIGEST_PREFERRED_TIME", default: "00:00", ty: Type::Str },
-        PrefDef { name: "_DEFAULT_INCLUDE_CHILDREN", default: "false", ty: Type::Bool },
-        PrefDef { name: "_ENABLED_PLUGINS", default: "", ty: Type::Str },
-        PrefDef { name: "USER_CSS_THEME", default: "", ty: Type::Str },
-        PrefDef { name: "USER_LANGUAGE", default: "", ty: Type::Str },
-        PrefDef { name: "DEFAULT_SEARCH_LANGUAGE", default: "", ty: Type::Str },
-        PrefDef { name: "_PREFS_MIGRATED", default: "false", ty: Type::Bool },
-        PrefDef { name: "HEADLINES_NO_DISTINCT", default: "false", ty: Type::Bool },
-        PrefDef { name: "DEBUG_HEADLINE_IDS", default: "false", ty: Type::Bool },
-        PrefDef { name: "DISABLE_CONDITIONAL_COUNTERS", default: "false", ty: Type::Bool },
-        PrefDef { name: "WIDESCREEN_MODE", default: "false", ty: Type::Bool },
-        PrefDef { name: "CDM_ENABLE_GRID", default: "false", ty: Type::Bool },
-        PrefDef { name: "DIGEST_MIN_SCORE", default: "0", ty: Type::Int },
+        PrefDef {
+            name: "FRESH_ARTICLE_MAX_AGE",
+            default: "24",
+            ty: Type::Int,
+        },
+        PrefDef {
+            name: "RECENTLY_READ_MAX_AGE",
+            default: "24",
+            ty: Type::Int,
+        },
+        PrefDef {
+            name: "DIGEST_CATCHUP",
+            default: "false",
+            ty: Type::Bool,
+        },
+        PrefDef {
+            name: "CDM_EXPANDED",
+            default: "true",
+            ty: Type::Bool,
+        },
+        PrefDef {
+            name: "PURGE_UNREAD_ARTICLES",
+            default: "true",
+            ty: Type::Bool,
+        },
+        PrefDef {
+            name: "HIDE_READ_SHOWS_SPECIAL",
+            default: "true",
+            ty: Type::Bool,
+        },
+        PrefDef {
+            name: "VFEED_GROUP_BY_FEED",
+            default: "false",
+            ty: Type::Bool,
+        },
+        PrefDef {
+            name: "STRIP_IMAGES",
+            default: "false",
+            ty: Type::Bool,
+        },
+        PrefDef {
+            name: "_DEFAULT_VIEW_ORDER_BY",
+            default: "default",
+            ty: Type::Str,
+        },
+        PrefDef {
+            name: "ENABLE_API_ACCESS",
+            default: "false",
+            ty: Type::Bool,
+        },
+        PrefDef {
+            name: "ENABLE_API_ACCESS_BROWSER",
+            default: "false",
+            ty: Type::Bool,
+        },
+        PrefDef {
+            name: "USER_TIMEZONE",
+            default: "Automatic",
+            ty: Type::Str,
+        },
+        PrefDef {
+            name: "USER_STYLESHEET",
+            default: "",
+            ty: Type::Str,
+        },
+        PrefDef {
+            name: "SSL_CERT_SERIAL",
+            default: "",
+            ty: Type::Str,
+        },
+        PrefDef {
+            name: "DIGEST_PREFERRED_TIME",
+            default: "00:00",
+            ty: Type::Str,
+        },
+        PrefDef {
+            name: "_DEFAULT_INCLUDE_CHILDREN",
+            default: "false",
+            ty: Type::Bool,
+        },
+        PrefDef {
+            name: "_ENABLED_PLUGINS",
+            default: "",
+            ty: Type::Str,
+        },
+        PrefDef {
+            name: "USER_CSS_THEME",
+            default: "",
+            ty: Type::Str,
+        },
+        PrefDef {
+            name: "USER_LANGUAGE",
+            default: "",
+            ty: Type::Str,
+        },
+        PrefDef {
+            name: "DEFAULT_SEARCH_LANGUAGE",
+            default: "",
+            ty: Type::Str,
+        },
+        PrefDef {
+            name: "_PREFS_MIGRATED",
+            default: "false",
+            ty: Type::Bool,
+        },
+        PrefDef {
+            name: "HEADLINES_NO_DISTINCT",
+            default: "false",
+            ty: Type::Bool,
+        },
+        PrefDef {
+            name: "DEBUG_HEADLINE_IDS",
+            default: "false",
+            ty: Type::Bool,
+        },
+        PrefDef {
+            name: "DISABLE_CONDITIONAL_COUNTERS",
+            default: "false",
+            ty: Type::Bool,
+        },
+        PrefDef {
+            name: "WIDESCREEN_MODE",
+            default: "false",
+            ty: Type::Bool,
+        },
+        PrefDef {
+            name: "CDM_ENABLE_GRID",
+            default: "false",
+            ty: Type::Bool,
+        },
+        PrefDef {
+            name: "DIGEST_MIN_SCORE",
+            default: "0",
+            ty: Type::Int,
+        },
     ]
 }
 
 /// The PHP `Prefs::_DEFAULTS` lookup: (default, type hint) for a known pref.
 pub fn default_for(name: &str) -> Option<(&'static str, Type)> {
-    all_defs().iter().find(|d| d.name == name).map(|d| (d.default, d.ty))
+    all_defs()
+        .iter()
+        .find(|d| d.name == name)
+        .map(|d| (d.default, d.ty))
 }
 
 /// PHP `(int)` cast: optional leading whitespace + sign, then decimal
@@ -194,7 +369,10 @@ fn php_int(s: &str) -> i64 {
     }
     let mut v = 0i64;
     for d in &b[start..i] {
-        v = v.checked_mul(10).and_then(|v| v.checked_add((d - b'0') as i64)).unwrap_or(0);
+        v = v
+            .checked_mul(10)
+            .and_then(|v| v.checked_add((d - b'0') as i64))
+            .unwrap_or(0);
     }
     if neg {
         -v
@@ -230,7 +408,11 @@ fn stored_string(v: &Pref) -> String {
 /// (null) profile in one query (mirrors `Prefs::cache_all`).
 ///
 /// Returns `(pref_name, profile, value)` rows.
-pub async fn load_rows(db: &Db, uid: i64, profile: Option<i32>) -> Vec<(String, Option<i32>, String)> {
+pub async fn load_rows(
+    db: &Db,
+    uid: i64,
+    profile: Option<i32>,
+) -> Vec<(String, Option<i32>, String)> {
     let rows = sqlx::query(
         "SELECT pref_name, profile, value FROM ttrss_user_prefs2
          WHERE owner_uid = $1 AND (profile = $2 OR profile IS NULL)",
@@ -264,11 +446,12 @@ pub fn resolve(name: &str, rows: &[(String, Option<i32>, String)], profile: Opti
         profile
     };
     if let Some((_, p, value)) = rows.iter().find(|(n, p, _)| {
-        n == name && match (effective, *p) {
-            (Some(e), Some(a)) => e == a,
-            (None, None) => true,
-            _ => false,
-        }
+        n == name
+            && match (effective, *p) {
+                (Some(e), Some(a)) => e == a,
+                (None, None) => true,
+                _ => false,
+            }
     }) {
         let _ = p;
         cast(value, ty)
@@ -374,7 +557,10 @@ pub async fn reset(db: &Db, owner_uid: i64, profile: Option<i32>) {
 /// `Prefs::get_all`: every pref in `_DEFAULTS` (declaration order) with the
 /// resolved value for (uid, profile) and its `Config::T_*` type hint.
 /// `rows` is the output of [`load_rows`].
-pub fn get_all(rows: &[(String, Option<i32>, String)], profile: Option<i32>) -> Vec<(String, Pref, Type)> {
+pub fn get_all(
+    rows: &[(String, Option<i32>, String)],
+    profile: Option<i32>,
+) -> Vec<(String, Pref, Type)> {
     all_defs()
         .iter()
         .map(|d| (d.name.to_string(), resolve(d.name, rows, profile), d.ty))
@@ -466,21 +652,27 @@ mod tests {
     #[test]
     fn get_default_values() {
         // test_get_default_returns_default_values
-        assert_eq!(
-            resolve("PURGE_OLD_DAYS", &[], None),
-            Pref::Int(60)
-        );
+        assert_eq!(resolve("PURGE_OLD_DAYS", &[], None), Pref::Int(60));
         assert_eq!(resolve("DEFAULT_UPDATE_INTERVAL", &[], None), Pref::Int(30));
         assert_eq!(resolve("ENABLE_FEED_CATS", &[], None), Pref::Bool(true));
         assert_eq!(resolve("REVERSE_HEADLINES", &[], None), Pref::Bool(false));
-        assert_eq!(resolve("SHORT_DATE_FORMAT", &[], None), Pref::Str("M d, G:i".into()));
-        assert_eq!(resolve("_DEFAULT_VIEW_MODE", &[], None), Pref::Str("adaptive".into()));
+        assert_eq!(
+            resolve("SHORT_DATE_FORMAT", &[], None),
+            Pref::Str("M d, G:i".into())
+        );
+        assert_eq!(
+            resolve("_DEFAULT_VIEW_MODE", &[], None),
+            Pref::Str("adaptive".into())
+        );
     }
 
     #[test]
     fn get_default_unknown_pref() {
         // test_get_default_returns_null_for_unknown_pref
-        assert_eq!(resolve("NONEXISTENT_PREF", &[], None), Pref::Str(String::new()));
+        assert_eq!(
+            resolve("NONEXISTENT_PREF", &[], None),
+            Pref::Str(String::new())
+        );
     }
 
     // ── get — defaults (no DB row) ──────────────────────────────────────────
@@ -508,8 +700,14 @@ mod tests {
     #[test]
     fn get_correct_types_string_prefs() {
         // test_get_returns_correct_types_for_string_prefs
-        assert_eq!(resolve("SHORT_DATE_FORMAT", &[], None), Pref::Str("M d, G:i".into()));
-        assert_eq!(resolve("USER_TIMEZONE", &[], None), Pref::Str("Automatic".into()));
+        assert_eq!(
+            resolve("SHORT_DATE_FORMAT", &[], None),
+            Pref::Str("M d, G:i".into())
+        );
+        assert_eq!(
+            resolve("USER_TIMEZONE", &[], None),
+            Pref::Str("Automatic".into())
+        );
     }
 
     // ── get — from database (override rows) ─────────────────────────────────
@@ -525,7 +723,10 @@ mod tests {
     fn get_with_empty_string_value_for_string_pref() {
         // test_get_with_empty_string_value_for_string_pref
         let rows = vec![row("SHORT_DATE_FORMAT", None, "")];
-        assert_eq!(resolve("SHORT_DATE_FORMAT", &rows, None), Pref::Str(String::new()));
+        assert_eq!(
+            resolve("SHORT_DATE_FORMAT", &rows, None),
+            Pref::Str(String::new())
+        );
     }
 
     // ── cast ────────────────────────────────────────────────────────────────
@@ -564,7 +765,10 @@ mod tests {
         // test_set_and_get_profile_specific_pref: a non-blacklisted pref with a
         // profile resolves to the profile-specific row.
         let rows = vec![row("REVERSE_HEADLINES", Some(5), "1")];
-        assert_eq!(resolve("REVERSE_HEADLINES", &rows, Some(5)), Pref::Bool(true));
+        assert_eq!(
+            resolve("REVERSE_HEADLINES", &rows, Some(5)),
+            Pref::Bool(true)
+        );
     }
 
     #[test]
@@ -577,7 +781,10 @@ mod tests {
             row("REVERSE_HEADLINES", Some(5), "1"),
         ];
         assert_eq!(resolve("REVERSE_HEADLINES", &rows, None), Pref::Bool(false));
-        assert_eq!(resolve("REVERSE_HEADLINES", &rows, Some(5)), Pref::Bool(true));
+        assert_eq!(
+            resolve("REVERSE_HEADLINES", &rows, Some(5)),
+            Pref::Bool(true)
+        );
     }
 
     #[test]

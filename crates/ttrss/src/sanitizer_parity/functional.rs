@@ -4,8 +4,8 @@
 
 use crate::sanitizer::{highlight_words, highlight_words_str, serialize_for_tests};
 use crate::sanitizer_parity::count;
-use kuchikiki::traits::TendrilSink;
 use kuchikiki::parse_html;
+use kuchikiki::traits::TendrilSink;
 
 /// True if the element node has local name `name`.
 fn is_el(node: &kuchikiki::NodeRef, name: &str) -> bool {

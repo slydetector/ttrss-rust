@@ -330,8 +330,7 @@ async fn test_complete_tags_returns_matching_tags(
         .expect("insert tag");
 
     let result =
-        ttrss::article::complete_tags(&state, &sess, &request(&[("search", json!("test"))]))
-            .await;
+        ttrss::article::complete_tags(&state, &sess, &request(&[("search", json!("test"))])).await;
     let tags = result.as_array().expect("array");
     assert!(tags.contains(&json!("testing-complete")));
 }
@@ -379,8 +378,7 @@ async fn test_complete_tags_case_sensitive(
         .expect("insert tag");
 
     let result =
-        ttrss::article::complete_tags(&state, &sess, &request(&[("search", json!("T"))]))
-            .await;
+        ttrss::article::complete_tags(&state, &sess, &request(&[("search", json!("T"))])).await;
     let tags = result.as_array().expect("array");
     assert!(tags.contains(&json!("TagUppercase")));
 }

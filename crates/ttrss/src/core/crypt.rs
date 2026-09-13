@@ -8,7 +8,7 @@
 
 use aead::{Aead, KeyInit};
 use anyhow::{anyhow, Result};
-use chacha20poly1305::{XNonce, XChaCha20Poly1305};
+use chacha20poly1305::{XChaCha20Poly1305, XNonce};
 use rand::RngCore;
 
 pub const ALGO: &str = "xchacha20poly1305_ietf";
@@ -49,8 +49,7 @@ pub fn random_nonce(rng: &mut impl RngCore) -> Vec<u8> {
 pub fn encrypt(key: &[u8; KEY_LEN], plaintext: &[u8]) -> Result<EncryptedData> {
     let mut rng = rand::thread_rng();
     let nonce = random_nonce(&mut rng);
-    let cipher = XChaCha20Poly1305::new_from_slice(key)
-        .map_err(|e| anyhow!("invalid key: {e}"))?;
+    let cipher = XChaCha20Poly1305::new_from_slice(key).map_err(|e| anyhow!("invalid key: {e}"))?;
     let payload = cipher
         .encrypt(XNonce::from_slice(&nonce), plaintext)
         .map_err(|e| anyhow!("encrypt failed: {e}"))?;
@@ -63,8 +62,7 @@ pub fn encrypt(key: &[u8; KEY_LEN], plaintext: &[u8]) -> Result<EncryptedData> {
 
 /// Decrypt an envelope's payload back to plaintext.
 pub fn decrypt(key: &[u8; KEY_LEN], nonce: &[u8], payload: &[u8]) -> Result<Vec<u8>> {
-    let cipher = XChaCha20Poly1305::new_from_slice(key)
-        .map_err(|e| anyhow!("invalid key: {e}"))?;
+    let cipher = XChaCha20Poly1305::new_from_slice(key).map_err(|e| anyhow!("invalid key: {e}"))?;
     let out = cipher
         .decrypt(XNonce::from_slice(nonce), payload)
         .map_err(|e| anyhow!("decrypt failed: {e}"))?;
@@ -174,7 +172,10 @@ mod tests {
         // test_decrypt_string_roundtrip
         let key = hex_key(KEY).unwrap();
         let enc = encrypt(&key, b"hello world").unwrap();
-        assert_eq!(decrypt(&key, &enc.nonce, &enc.payload).unwrap(), b"hello world");
+        assert_eq!(
+            decrypt(&key, &enc.nonce, &enc.payload).unwrap(),
+            b"hello world"
+        );
     }
 
     #[test]

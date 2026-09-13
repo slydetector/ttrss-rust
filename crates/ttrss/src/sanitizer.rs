@@ -18,7 +18,6 @@ use kuchikiki::{parse_html, ElementData, NodeData, NodeRef};
 use regex::Regex;
 use std::collections::BTreeSet;
 
-
 use crate::with_trailing_slash;
 
 const HTML_NS: &str = "http://www.w3.org/1999/xhtml";
@@ -39,35 +38,111 @@ fn el_name(el: &ElementData) -> String {
 /// `Sanitizer::$allowed_elements` (Sanitizer.php). `iframe` is added when the
 /// client has a sandbox (see `sanitize`).
 const ALLOWED_ELEMENTS: &[&str] = &[
-    "a", "abbr", "address", "acronym", "audio", "article", "aside",
-    "b", "bdi", "bdo", "big", "blockquote", "body", "br",
-    "caption", "cite", "center", "code", "col", "colgroup",
-    "data", "dd", "del", "details", "description", "dfn", "div", "dl", "font",
-    "dt", "em", "footer", "figure", "figcaption",
-    "h1", "h2", "h3", "h4", "h5", "h6", "header", "hr", "html", "i",
-    "img", "ins", "kbd", "li", "main", "mark", "nav", "noscript",
-    "ol", "p", "picture", "pre", "q", "ruby", "rp", "rt", "s", "samp", "section",
-    "small", "source", "span", "strike", "strong", "sub", "summary",
-    "sup", "table", "tbody", "td", "tfoot", "th", "thead", "time",
-    "tr", "track", "tt", "u", "ul", "var", "wbr", "video", "xml:namespace",
+    "a",
+    "abbr",
+    "address",
+    "acronym",
+    "audio",
+    "article",
+    "aside",
+    "b",
+    "bdi",
+    "bdo",
+    "big",
+    "blockquote",
+    "body",
+    "br",
+    "caption",
+    "cite",
+    "center",
+    "code",
+    "col",
+    "colgroup",
+    "data",
+    "dd",
+    "del",
+    "details",
+    "description",
+    "dfn",
+    "div",
+    "dl",
+    "font",
+    "dt",
+    "em",
+    "footer",
+    "figure",
+    "figcaption",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "header",
+    "hr",
+    "html",
+    "i",
+    "img",
+    "ins",
+    "kbd",
+    "li",
+    "main",
+    "mark",
+    "nav",
+    "noscript",
+    "ol",
+    "p",
+    "picture",
+    "pre",
+    "q",
+    "ruby",
+    "rp",
+    "rt",
+    "s",
+    "samp",
+    "section",
+    "small",
+    "source",
+    "span",
+    "strike",
+    "strong",
+    "sub",
+    "summary",
+    "sup",
+    "table",
+    "tbody",
+    "td",
+    "tfoot",
+    "th",
+    "thead",
+    "time",
+    "tr",
+    "track",
+    "tt",
+    "u",
+    "ul",
+    "var",
+    "wbr",
+    "video",
+    "xml:namespace",
 ];
 
 /// `Sanitizer::$disallowed_attributes` (Sanitizer.php).
-const DISALLOWED_ATTRIBUTES: &[&str] = &["id", "style", "class", "width", "height", "allow", "srcdoc"];
+const DISALLOWED_ATTRIBUTES: &[&str] =
+    &["id", "style", "class", "width", "height", "allow", "srcdoc"];
 
 /// HTML void elements (no closing tag) — for the serializer.
 const VOID_ELEMENTS: &[&str] = &[
-    "area", "base", "br", "col", "embed", "hr", "img", "input",
-    "link", "meta", "param", "source", "track", "wbr",
+    "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source",
+    "track", "wbr",
 ];
 
 /// `UrlHelper::EXTRA_HREF_SCHEMES`.
 const EXTRA_HREF_SCHEMES: &[&str] = &["magnet", "mailto", "tel"];
 
 /// `UrlHelper::EXTRA_SCHEMES_BY_CONTENT_TYPE`.
-const EXTRA_SCHEMES_BY_CONTENT_TYPE: &[(&str, &[&str])] = &[
-    ("application/x-bittorrent", &["magnet"]),
-];
+const EXTRA_SCHEMES_BY_CONTENT_TYPE: &[(&str, &[&str])] =
+    &[("application/x-bittorrent", &["magnet"])];
 
 /// Data-URI allowlist for `<img src>` (PHP regex on the URL *path*):
 /// `^image/(webp|gif|jpg|png|svg);base64,`.
@@ -115,7 +190,11 @@ fn lower(s: &str) -> String {
 fn build_element(name: &str, attrs: &[(String, String)]) -> NodeRef {
     let el = NodeRef::new_element(qualname(name), vec![]);
     for (k, v) in attrs {
-        el.as_element().unwrap().attributes.borrow_mut().insert(k.clone(), v.clone());
+        el.as_element()
+            .unwrap()
+            .attributes
+            .borrow_mut()
+            .insert(k.clone(), v.clone());
     }
     el
 }
@@ -123,10 +202,38 @@ fn build_element(name: &str, attrs: &[(String, String)]) -> NodeRef {
 /// Elements that close libxml2's implicit `<p>` (block-level, i.e. not
 /// phrasing content in the HTML DTD).
 const IMPLICIT_P_BLOCK_ELEMENTS: &[&str] = &[
-    "address", "article", "aside", "blockquote", "center", "details", "div",
-    "dd", "dl", "dt", "fieldset", "figure", "figcaption", "footer", "form",
-    "h1", "h2", "h3", "h4", "h5", "h6", "header", "hr", "main", "nav", "ol",
-    "p", "pre", "section", "summary", "table", "ul",
+    "address",
+    "article",
+    "aside",
+    "blockquote",
+    "center",
+    "details",
+    "div",
+    "dd",
+    "dl",
+    "dt",
+    "fieldset",
+    "figure",
+    "figcaption",
+    "footer",
+    "form",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "header",
+    "hr",
+    "main",
+    "nav",
+    "ol",
+    "p",
+    "pre",
+    "section",
+    "summary",
+    "table",
+    "ul",
 ];
 
 /// Emulate libxml2 (PHP `DOMDocument::loadHTML`) implicit markup handling,
@@ -252,7 +359,13 @@ pub fn sanitize(
     let rewrite_base = site_url.unwrap_or("http://domain.invalid/");
 
     // 1. Rewrite links/images (a[@href], img/source[src|srcset], video[poster]).
-    rewrite_url_elements(&body, rewrite_base, force_remove_images, strip_images, bw_limit);
+    rewrite_url_elements(
+        &body,
+        rewrite_base,
+        force_remove_images,
+        strip_images,
+        bw_limit,
+    );
 
     // 2. iframes: sandbox.
     process_iframes(&body);
@@ -350,8 +463,12 @@ fn rewrite_single_element(
                 el.attributes.borrow_mut().insert("href", String::new());
             }
         }
-        el.attributes.borrow_mut().insert("rel", "noopener noreferrer".to_string());
-        el.attributes.borrow_mut().insert("target", "_blank".to_string());
+        el.attributes
+            .borrow_mut()
+            .insert("rel", "noopener noreferrer".to_string());
+        el.attributes
+            .borrow_mut()
+            .insert("target", "_blank".to_string());
     }
 
     let mut should_replace_element = false;
@@ -382,7 +499,9 @@ fn rewrite_single_element(
             }
         }
         if !validated.is_empty() {
-            el.attributes.borrow_mut().insert("srcset", encode_srcset(&validated));
+            el.attributes
+                .borrow_mut()
+                .insert("srcset", encode_srcset(&validated));
             should_replace_element = false;
         } else {
             el.attributes.borrow_mut().remove("srcset");
@@ -406,8 +525,12 @@ fn rewrite_single_element(
     }
 
     if name == "img" {
-        el.attributes.borrow_mut().insert("referrerpolicy", "no-referrer".to_string());
-        el.attributes.borrow_mut().insert("loading", "lazy".to_string());
+        el.attributes
+            .borrow_mut()
+            .insert("referrerpolicy", "no-referrer".to_string());
+        el.attributes
+            .borrow_mut()
+            .insert("loading", "lazy".to_string());
     }
 
     if let Some(poster) = poster {
@@ -425,7 +548,12 @@ fn rewrite_single_element(
     // <p><a href=src>src</a></p>.
     let has_src = el.attributes.borrow().get("src").is_some();
     if has_src && (strip_images || force_remove_images || bw_limit) {
-        let src = el.attributes.borrow().get("src").map(|s| s.to_string()).unwrap_or_default();
+        let src = el
+            .attributes
+            .borrow()
+            .get("src")
+            .map(|s| s.to_string())
+            .unwrap_or_default();
         let a = build_element(
             "a",
             &[
@@ -458,7 +586,9 @@ fn process_iframes(root: &NodeRef) {
             if el_name(el) == "iframe" {
                 // No HOOK_IFRAME_WHITELISTED plugins are relevant here, so use
                 // the restrictive sandbox (Sanitizer.php).
-                el.attributes.borrow_mut().insert("sandbox", "allow-scripts".to_string());
+                el.attributes
+                    .borrow_mut()
+                    .insert("sandbox", "allow-scripts".to_string());
             }
         }
         for c in node.children() {
@@ -487,7 +617,10 @@ fn wrap_iframes_in_div(root: &NodeRef) {
     let mut stack = vec![root.clone()];
     let mut iframes: Vec<NodeRef> = Vec::new();
     while let Some(n) = stack.pop() {
-        if n.as_element().map(|e| el_name(e) == "iframe").unwrap_or(false) {
+        if n.as_element()
+            .map(|e| el_name(e) == "iframe")
+            .unwrap_or(false)
+        {
             iframes.push(n.clone());
         }
         for c in n.children() {
@@ -584,10 +717,7 @@ fn ci_find(hay: &str, needle: &str) -> Option<(usize, usize)> {
     // Fallback for non-length-preserving folds: char-level, 1-to-1 folding.
     let h: Vec<char> = hay.chars().collect();
     let n: Vec<char> = needle.chars().collect();
-    let hl: Vec<char> = h
-        .iter()
-        .map(|c| c.to_lowercase().next().unwrap())
-        .collect();
+    let hl: Vec<char> = h.iter().map(|c| c.to_lowercase().next().unwrap()).collect();
     for i in 0..=h.len().saturating_sub(n.len()) {
         if hl[i..i + n.len()] == n[..] {
             let byte_pos: usize = h[..i].iter().map(|c| c.len_utf8()).sum();
@@ -628,10 +758,7 @@ pub fn highlight_words(root: &NodeRef, words: &[String]) -> bool {
             while let Some((pos, len)) = ci_find(&rest, &w) {
                 frag.push(NodeRef::new_text(rest[..pos].to_string()));
                 let matched = &rest[pos..pos + len];
-                let highlight = build_element(
-                    "span",
-                    &[("class".into(), "highlight".into())],
-                );
+                let highlight = build_element("span", &[("class".into(), "highlight".into())]);
                 highlight.append(NodeRef::new_text(matched.to_string()));
                 frag.push(highlight);
                 rest = rest[pos + len..].to_string();
@@ -709,16 +836,14 @@ fn parse_url(url: &str) -> Option<UrlParts> {
     }
 
     // Authority present: `scheme://...` or `//...`.
-    let scheme_end = rest
-        .find(':')
-        .filter(|&i| {
-            let pre = &rest[..i];
-            !pre.is_empty()
-                && pre.bytes().next().unwrap().is_ascii_alphabetic()
-                && pre[1..]
-                    .bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || b == b'+' || b == b'-' || b == b'.')
-        });
+    let scheme_end = rest.find(':').filter(|&i| {
+        let pre = &rest[..i];
+        !pre.is_empty()
+            && pre.bytes().next().unwrap().is_ascii_alphabetic()
+            && pre[1..]
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'+' || b == b'-' || b == b'.')
+    });
     let has_authority = match scheme_end {
         Some(i) => rest[i + 1..].starts_with("//"),
         None => rest.starts_with("//"),
@@ -763,13 +888,19 @@ fn parse_url(url: &str) -> Option<UrlParts> {
                 // PHP parses "[::1/" leniently (host "[:", port "1"): treat
                 // the first ':' after '[' as the port separator.
                 None => match hostport.find(':') {
-                    Some(i) => (hostport[..i].to_string(), Some(hostport[i + 1..].to_string())),
+                    Some(i) => (
+                        hostport[..i].to_string(),
+                        Some(hostport[i + 1..].to_string()),
+                    ),
                     None => (hostport.to_string(), None),
                 },
             }
         } else {
             match hostport.find(':') {
-                Some(i) => (hostport[..i].to_string(), Some(hostport[i + 1..].to_string())),
+                Some(i) => (
+                    hostport[..i].to_string(),
+                    Some(hostport[i + 1..].to_string()),
+                ),
                 None => (hostport.to_string(), None),
             }
         };
@@ -876,7 +1007,11 @@ fn rawurldecode(s: &str) -> String {
     let mut out = Vec::with_capacity(b.len());
     let mut i = 0;
     while i < b.len() {
-        if b[i] == b'%' && i + 2 < b.len() && b[i + 1].is_ascii_hexdigit() && b[i + 2].is_ascii_hexdigit() {
+        if b[i] == b'%'
+            && i + 2 < b.len()
+            && b[i + 1].is_ascii_hexdigit()
+            && b[i + 2].is_ascii_hexdigit()
+        {
             out.push(u8::from_str_radix(&s[i + 1..i + 3], 16).unwrap());
             i += 3;
         } else {
@@ -903,11 +1038,7 @@ pub(crate) fn rewrite_relative(
     }
     let mut rel = parse_url(rel_url)?;
 
-    if rel
-        .host
-        .as_deref()
-        .filter(|h| !h.is_empty())
-        .is_some()
+    if rel.host.as_deref().filter(|h| !h.is_empty()).is_some()
         && rel.scheme.as_deref().filter(|s| !s.is_empty()).is_some()
     {
         return validate(rel_url);
@@ -917,10 +1048,7 @@ pub(crate) fn rewrite_relative(
     }
     let scheme = rel.scheme.as_deref().unwrap_or("");
     // Extra schemes for <a href>.
-    if EXTRA_HREF_SCHEMES.contains(&scheme)
-        && owner_element == "a"
-        && owner_attribute == "href"
-    {
+    if EXTRA_HREF_SCHEMES.contains(&scheme) && owner_element == "a" && owner_attribute == "href" {
         return Some(rel_url.to_string());
     }
     // Extra schemes for links with a feed-specified content type (enclosures).
@@ -933,7 +1061,8 @@ pub(crate) fn rewrite_relative(
     }
     // Limited subset of inline base64-encoded images for <img src>.
     if scheme == "data"
-        && rel.path
+        && rel
+            .path
             .as_deref()
             .is_some_and(|p| data_uri_re().is_match(p))
         && owner_element == "img"
@@ -1076,15 +1205,13 @@ fn strict_ip_literal(host: &str) -> Option<std::net::IpAddr> {
     if host.contains('.') && !host.contains(':') {
         let parts: Vec<&str> = host.split('.').collect();
         if parts.len() == 4
-            && parts
-                .iter()
-                .all(|p| {
-                    !p.is_empty()
-                        && p.len() <= 3
-                        && p.bytes().all(|b| b.is_ascii_digit())
-                        && (p.len() == 1 || !p.starts_with('0'))
-                        && p.parse::<u8>().is_ok()
-                })
+            && parts.iter().all(|p| {
+                !p.is_empty()
+                    && p.len() <= 3
+                    && p.bytes().all(|b| b.is_ascii_digit())
+                    && (p.len() == 1 || !p.starts_with('0'))
+                    && p.parse::<u8>().is_ok()
+            })
         {
             let v4: [u8; 4] = parts
                 .iter()
@@ -1115,14 +1242,17 @@ fn canonicalize_ipv4_literal(host: &str) -> Option<std::net::Ipv4Addr> {
     let n = parts.len();
     let mut val: u64 = 0;
     for (i, part) in parts.iter().enumerate() {
-        let octet: u64 = if let Some(hex) =
-            part.strip_prefix("0x").or_else(|| part.strip_prefix("0X"))
-        {
-            u64::from_str_radix(hex, 16).ok()?
+        let octet: u64 =
+            if let Some(hex) = part.strip_prefix("0x").or_else(|| part.strip_prefix("0X")) {
+                u64::from_str_radix(hex, 16).ok()?
+            } else {
+                part.parse::<u64>().ok()?
+            };
+        let max = if i == n - 1 {
+            (1 << (8 * (5 - n))) - 1
         } else {
-            part.parse::<u64>().ok()?
+            255
         };
-        let max = if i == n - 1 { (1 << (8 * (5 - n))) - 1 } else { 255 };
         if octet > max {
             return None;
         }
@@ -1145,9 +1275,7 @@ fn v4_disallowed(v4: &std::net::Ipv4Addr, is_standard_port: bool) -> bool {
     }
     // Private (non-standard ports only): 10/8, 172.16/12, 192.168/16.
     if !is_standard_port
-        && (o[0] == 10
-            || (o[0] == 172 && (8..=15).contains(&o[1]))
-            || (o[0] == 192 && o[1] == 168))
+        && (o[0] == 10 || (o[0] == 172 && (8..=15).contains(&o[1])) || (o[0] == 192 && o[1] == 168))
     {
         return true;
     }
@@ -1266,67 +1394,249 @@ fn write_start_tag(el: &ElementData, name: &str, out: &mut String) {
 // (the oracle's serializer), derived from the frozen PHP reference (243 entries:
 // ISO-8859-1 + Latin-1 Supplement + Latin Ext-A + Greek + HTML4 "special" entities).
 const HTML_NAMED_ENTITIES: &[(u32, &str)] = &[
-    (160, "nbsp"), (161, "iexcl"), (162, "cent"), (163, "pound"),
-    (164, "curren"), (165, "yen"), (166, "brvbar"), (167, "sect"),
-    (168, "uml"), (169, "copy"), (170, "ordf"), (171, "laquo"),
-    (172, "not"), (173, "shy"), (174, "reg"), (175, "macr"),
-    (176, "deg"), (177, "plusmn"), (178, "sup2"), (179, "sup3"),
-    (180, "acute"), (181, "micro"), (182, "para"), (183, "middot"),
-    (184, "cedil"), (185, "sup1"), (186, "ordm"), (187, "raquo"),
-    (188, "frac14"), (189, "frac12"), (190, "frac34"), (191, "iquest"),
-    (192, "Agrave"), (193, "Aacute"), (194, "Acirc"), (195, "Atilde"),
-    (196, "Auml"), (197, "Aring"), (198, "AElig"), (199, "Ccedil"),
-    (200, "Egrave"), (201, "Eacute"), (202, "Ecirc"), (203, "Euml"),
-    (204, "Igrave"), (205, "Iacute"), (206, "Icirc"), (207, "Iuml"),
-    (208, "ETH"), (209, "Ntilde"), (210, "Ograve"), (211, "Oacute"),
-    (212, "Ocirc"), (213, "Otilde"), (214, "Ouml"), (215, "times"),
-    (216, "Oslash"), (217, "Ugrave"), (218, "Uacute"), (219, "Ucirc"),
-    (220, "Uuml"), (221, "Yacute"), (222, "THORN"), (223, "szlig"),
-    (224, "agrave"), (225, "aacute"), (226, "acirc"), (227, "atilde"),
-    (228, "auml"), (229, "aring"), (230, "aelig"), (231, "ccedil"),
-    (232, "egrave"), (233, "eacute"), (234, "ecirc"), (235, "euml"),
-    (236, "igrave"), (237, "iacute"), (238, "icirc"), (239, "iuml"),
-    (240, "eth"), (241, "ntilde"), (242, "ograve"), (243, "oacute"),
-    (244, "ocirc"), (245, "otilde"), (246, "ouml"), (247, "divide"),
-    (248, "oslash"), (249, "ugrave"), (250, "uacute"), (251, "ucirc"),
-    (252, "uuml"), (253, "yacute"), (254, "thorn"), (255, "yuml"),
-    (338, "OElig"), (339, "oelig"), (352, "Scaron"), (353, "scaron"),
-    (376, "Yuml"), (402, "fnof"), (710, "circ"), (732, "tilde"),
-    (913, "Alpha"), (914, "Beta"), (915, "Gamma"), (916, "Delta"),
-    (917, "Epsilon"), (918, "Zeta"), (919, "Eta"), (920, "Theta"),
-    (921, "Iota"), (922, "Kappa"), (923, "Lambda"), (924, "Mu"),
-    (925, "Nu"), (926, "Xi"), (927, "Omicron"), (928, "Pi"),
-    (929, "Rho"), (931, "Sigma"), (932, "Tau"), (933, "Upsilon"),
-    (934, "Phi"), (935, "Chi"), (936, "Psi"), (937, "Omega"),
-    (945, "alpha"), (946, "beta"), (947, "gamma"), (948, "delta"),
-    (949, "epsilon"), (950, "zeta"), (951, "eta"), (952, "theta"),
-    (953, "iota"), (954, "kappa"), (955, "lambda"), (956, "mu"),
-    (957, "nu"), (958, "xi"), (959, "omicron"), (960, "pi"),
-    (961, "rho"), (962, "sigmaf"), (963, "sigma"), (964, "tau"),
-    (965, "upsilon"), (966, "phi"), (967, "chi"), (968, "psi"),
-    (969, "omega"), (977, "thetasym"), (978, "upsih"), (982, "piv"),
-    (8194, "ensp"), (8195, "emsp"), (8201, "thinsp"), (8204, "zwnj"),
-    (8205, "zwj"), (8206, "lrm"), (8207, "rlm"), (8211, "ndash"),
-    (8212, "mdash"), (8216, "lsquo"), (8217, "rsquo"), (8218, "sbquo"),
-    (8220, "ldquo"), (8221, "rdquo"), (8222, "bdquo"), (8224, "dagger"),
-    (8225, "Dagger"), (8226, "bull"), (8230, "hellip"), (8240, "permil"),
-    (8242, "prime"), (8243, "Prime"), (8249, "lsaquo"), (8250, "rsaquo"),
-    (8254, "oline"), (8260, "frasl"), (8364, "euro"), (8465, "image"),
-    (8472, "weierp"), (8476, "real"), (8482, "trade"), (8501, "alefsym"),
-    (8592, "larr"), (8593, "uarr"), (8594, "rarr"), (8595, "darr"),
-    (8596, "harr"), (8629, "crarr"), (8656, "lArr"), (8657, "uArr"),
-    (8658, "rArr"), (8659, "dArr"), (8660, "hArr"), (8704, "forall"),
-    (8706, "part"), (8707, "exist"), (8709, "empty"), (8711, "nabla"),
-    (8712, "isin"), (8713, "notin"), (8715, "ni"), (8719, "prod"),
-    (8721, "sum"), (8722, "minus"), (8727, "lowast"), (8730, "radic"),
-    (8733, "prop"), (8734, "infin"), (8736, "ang"), (8743, "and"),
-    (8744, "or"), (8745, "cap"), (8746, "cup"), (8747, "int"),
-    (8756, "there4"), (8764, "sim"), (8773, "cong"), (8776, "asymp"),
-    (8800, "ne"), (8801, "equiv"), (8804, "le"), (8805, "ge"),
-    (8834, "sub"), (8835, "sup"), (8836, "nsub"), (8838, "sube"),
-    (8839, "supe"), (8853, "oplus"), (8855, "otimes"), (8869, "perp"),
-    (8901, "sdot"), (8968, "lceil"), (8969, "rceil"), (8970, "lfloor"),
-    (8971, "rfloor"), (9001, "lang"), (9002, "rang"),
+    (160, "nbsp"),
+    (161, "iexcl"),
+    (162, "cent"),
+    (163, "pound"),
+    (164, "curren"),
+    (165, "yen"),
+    (166, "brvbar"),
+    (167, "sect"),
+    (168, "uml"),
+    (169, "copy"),
+    (170, "ordf"),
+    (171, "laquo"),
+    (172, "not"),
+    (173, "shy"),
+    (174, "reg"),
+    (175, "macr"),
+    (176, "deg"),
+    (177, "plusmn"),
+    (178, "sup2"),
+    (179, "sup3"),
+    (180, "acute"),
+    (181, "micro"),
+    (182, "para"),
+    (183, "middot"),
+    (184, "cedil"),
+    (185, "sup1"),
+    (186, "ordm"),
+    (187, "raquo"),
+    (188, "frac14"),
+    (189, "frac12"),
+    (190, "frac34"),
+    (191, "iquest"),
+    (192, "Agrave"),
+    (193, "Aacute"),
+    (194, "Acirc"),
+    (195, "Atilde"),
+    (196, "Auml"),
+    (197, "Aring"),
+    (198, "AElig"),
+    (199, "Ccedil"),
+    (200, "Egrave"),
+    (201, "Eacute"),
+    (202, "Ecirc"),
+    (203, "Euml"),
+    (204, "Igrave"),
+    (205, "Iacute"),
+    (206, "Icirc"),
+    (207, "Iuml"),
+    (208, "ETH"),
+    (209, "Ntilde"),
+    (210, "Ograve"),
+    (211, "Oacute"),
+    (212, "Ocirc"),
+    (213, "Otilde"),
+    (214, "Ouml"),
+    (215, "times"),
+    (216, "Oslash"),
+    (217, "Ugrave"),
+    (218, "Uacute"),
+    (219, "Ucirc"),
+    (220, "Uuml"),
+    (221, "Yacute"),
+    (222, "THORN"),
+    (223, "szlig"),
+    (224, "agrave"),
+    (225, "aacute"),
+    (226, "acirc"),
+    (227, "atilde"),
+    (228, "auml"),
+    (229, "aring"),
+    (230, "aelig"),
+    (231, "ccedil"),
+    (232, "egrave"),
+    (233, "eacute"),
+    (234, "ecirc"),
+    (235, "euml"),
+    (236, "igrave"),
+    (237, "iacute"),
+    (238, "icirc"),
+    (239, "iuml"),
+    (240, "eth"),
+    (241, "ntilde"),
+    (242, "ograve"),
+    (243, "oacute"),
+    (244, "ocirc"),
+    (245, "otilde"),
+    (246, "ouml"),
+    (247, "divide"),
+    (248, "oslash"),
+    (249, "ugrave"),
+    (250, "uacute"),
+    (251, "ucirc"),
+    (252, "uuml"),
+    (253, "yacute"),
+    (254, "thorn"),
+    (255, "yuml"),
+    (338, "OElig"),
+    (339, "oelig"),
+    (352, "Scaron"),
+    (353, "scaron"),
+    (376, "Yuml"),
+    (402, "fnof"),
+    (710, "circ"),
+    (732, "tilde"),
+    (913, "Alpha"),
+    (914, "Beta"),
+    (915, "Gamma"),
+    (916, "Delta"),
+    (917, "Epsilon"),
+    (918, "Zeta"),
+    (919, "Eta"),
+    (920, "Theta"),
+    (921, "Iota"),
+    (922, "Kappa"),
+    (923, "Lambda"),
+    (924, "Mu"),
+    (925, "Nu"),
+    (926, "Xi"),
+    (927, "Omicron"),
+    (928, "Pi"),
+    (929, "Rho"),
+    (931, "Sigma"),
+    (932, "Tau"),
+    (933, "Upsilon"),
+    (934, "Phi"),
+    (935, "Chi"),
+    (936, "Psi"),
+    (937, "Omega"),
+    (945, "alpha"),
+    (946, "beta"),
+    (947, "gamma"),
+    (948, "delta"),
+    (949, "epsilon"),
+    (950, "zeta"),
+    (951, "eta"),
+    (952, "theta"),
+    (953, "iota"),
+    (954, "kappa"),
+    (955, "lambda"),
+    (956, "mu"),
+    (957, "nu"),
+    (958, "xi"),
+    (959, "omicron"),
+    (960, "pi"),
+    (961, "rho"),
+    (962, "sigmaf"),
+    (963, "sigma"),
+    (964, "tau"),
+    (965, "upsilon"),
+    (966, "phi"),
+    (967, "chi"),
+    (968, "psi"),
+    (969, "omega"),
+    (977, "thetasym"),
+    (978, "upsih"),
+    (982, "piv"),
+    (8194, "ensp"),
+    (8195, "emsp"),
+    (8201, "thinsp"),
+    (8204, "zwnj"),
+    (8205, "zwj"),
+    (8206, "lrm"),
+    (8207, "rlm"),
+    (8211, "ndash"),
+    (8212, "mdash"),
+    (8216, "lsquo"),
+    (8217, "rsquo"),
+    (8218, "sbquo"),
+    (8220, "ldquo"),
+    (8221, "rdquo"),
+    (8222, "bdquo"),
+    (8224, "dagger"),
+    (8225, "Dagger"),
+    (8226, "bull"),
+    (8230, "hellip"),
+    (8240, "permil"),
+    (8242, "prime"),
+    (8243, "Prime"),
+    (8249, "lsaquo"),
+    (8250, "rsaquo"),
+    (8254, "oline"),
+    (8260, "frasl"),
+    (8364, "euro"),
+    (8465, "image"),
+    (8472, "weierp"),
+    (8476, "real"),
+    (8482, "trade"),
+    (8501, "alefsym"),
+    (8592, "larr"),
+    (8593, "uarr"),
+    (8594, "rarr"),
+    (8595, "darr"),
+    (8596, "harr"),
+    (8629, "crarr"),
+    (8656, "lArr"),
+    (8657, "uArr"),
+    (8658, "rArr"),
+    (8659, "dArr"),
+    (8660, "hArr"),
+    (8704, "forall"),
+    (8706, "part"),
+    (8707, "exist"),
+    (8709, "empty"),
+    (8711, "nabla"),
+    (8712, "isin"),
+    (8713, "notin"),
+    (8715, "ni"),
+    (8719, "prod"),
+    (8721, "sum"),
+    (8722, "minus"),
+    (8727, "lowast"),
+    (8730, "radic"),
+    (8733, "prop"),
+    (8734, "infin"),
+    (8736, "ang"),
+    (8743, "and"),
+    (8744, "or"),
+    (8745, "cap"),
+    (8746, "cup"),
+    (8747, "int"),
+    (8756, "there4"),
+    (8764, "sim"),
+    (8773, "cong"),
+    (8776, "asymp"),
+    (8800, "ne"),
+    (8801, "equiv"),
+    (8804, "le"),
+    (8805, "ge"),
+    (8834, "sub"),
+    (8835, "sup"),
+    (8836, "nsub"),
+    (8838, "sube"),
+    (8839, "supe"),
+    (8853, "oplus"),
+    (8855, "otimes"),
+    (8869, "perp"),
+    (8901, "sdot"),
+    (8968, "lceil"),
+    (8969, "rceil"),
+    (8970, "lfloor"),
+    (8971, "rfloor"),
+    (9001, "lang"),
+    (9002, "rang"),
 ];
 
 /// `DOMDocument::saveHTML()` text-node serialization: `&`, `<`, `>` are
@@ -1404,8 +1714,7 @@ mod tests {
         assert_eq!(san("<!-- c -->text"), "<p>text</p>");
         assert_eq!(san("   <div>x</div>"), "<div>x</div>");
         // Inline elements first → no implicit `<p>`.
-        assert_eq!(san("<b>a</b>text<b>c</b>"),
-                   "<b>a</b>text<b>c</b>");
+        assert_eq!(san("<b>a</b>text<b>c</b>"), "<b>a</b>text<b>c</b>");
         // Text first → `<p>` absorbs inline nodes until a block starts.
         assert_eq!(
             san("text <b>x</b> <div>d</div> tail"),
@@ -1419,8 +1728,10 @@ mod tests {
         assert_eq!(san("text<br>more"), "<p>text<br>more</p>");
         // Already-blocked content is untouched.
         assert_eq!(san("<p>already</p>"), "<p>already</p>");
-        assert_eq!(san("<div>a</div>  <div>b</div>"),
-                   "<div>a</div>  <div>b</div>");
+        assert_eq!(
+            san("<div>a</div>  <div>b</div>"),
+            "<div>a</div>  <div>b</div>"
+        );
         assert_eq!(san("  <p>leading p</p>  "), "<p>leading p</p>");
     }
 
@@ -1507,19 +1818,40 @@ mod tests {
     fn validate_cases() {
         // Ported from the PHP UrlHelper::validate expectations (no trailing
         // slash is added; scheme/host case is preserved, as in PHP).
-        assert_eq!(validate("http://example.com"), Some("http://example.com".into()));
-        assert_eq!(validate("https://example.com"), Some("https://example.com".into()));
+        assert_eq!(
+            validate("http://example.com"),
+            Some("http://example.com".into())
+        );
+        assert_eq!(
+            validate("https://example.com"),
+            Some("https://example.com".into())
+        );
         // protocol-relative is normalized to https:// (PHP `validate` fixes it).
-        assert_eq!(validate("//example.com"), Some("https://example.com".into()));
+        assert_eq!(
+            validate("//example.com"),
+            Some("https://example.com".into())
+        );
         // Empty port is dropped on rebuild (PHP parse_url drops it).
-        assert_eq!(validate("http://domain.invalid:/img.png"), Some("http://domain.invalid/img.png".into()));
+        assert_eq!(
+            validate("http://domain.invalid:/img.png"),
+            Some("http://domain.invalid/img.png".into())
+        );
         // Scheme/host case is preserved.
-        assert_eq!(validate("HTTP://EXAMPLE.COM"), Some("HTTP://EXAMPLE.COM".into()));
+        assert_eq!(
+            validate("HTTP://EXAMPLE.COM"),
+            Some("HTTP://EXAMPLE.COM".into())
+        );
         // Raw (non-encoded) path chars are preserved (filter gate uses the
         // encoded variant only).
-        assert_eq!(validate("https://example.com/hello world"), Some("https://example.com/hello world".into()));
+        assert_eq!(
+            validate("https://example.com/hello world"),
+            Some("https://example.com/hello world".into())
+        );
         // IDN host -> punycode.
-        assert_eq!(validate("http://m\u{fc}nchen.example.com/"), Some("http://xn--mnchen-3ya.example.com/".into()));
+        assert_eq!(
+            validate("http://m\u{fc}nchen.example.com/"),
+            Some("http://xn--mnchen-3ya.example.com/".into())
+        );
         // test_validate_rejects_ftp / _mailto / _javascript / _empty / _no_host / _malformed
         assert_eq!(validate("ftp://ftp.example.com"), None);
         assert_eq!(validate("mailto:test@example.com"), None);
@@ -1533,37 +1865,104 @@ mod tests {
         assert_eq!(validate("http://x:abc/"), None);
         assert_eq!(validate("http://example.com:99999/"), None);
         // Port 0 is accepted (PHP filter_var allows it).
-        assert_eq!(validate("http://example.com:0/"), Some("http://example.com:0/".into()));
+        assert_eq!(
+            validate("http://example.com:0/"),
+            Some("http://example.com:0/".into())
+        );
     }
 
     #[test]
     fn rewrite_relative_cases() {
         // Ground-truth values from the PHP oracle (base http://domain.invalid/).
         let base = "http://domain.invalid/";
-        assert_eq!(rewrite_relative(base, "img.png", "img", "src", ""), Some("http://domain.invalid/img.png".into()));
-        assert_eq!(rewrite_relative(base, "#section", "a", "href", ""), Some("http://domain.invalid#section".into()));
-        assert_eq!(rewrite_relative(base, "?q=1", "a", "href", ""), Some("http://domain.invalid?q=1".into()));
-        assert_eq!(rewrite_relative(base, "data:text/html,<script>alert(1)</script>", "img", "src", ""), Some("http://domain.invalid/text/html,alert(1)".into()));
-        assert_eq!(rewrite_relative(base, "javascript :alert(1)", "a", "href", ""), Some("http://domain.invalid/javascript :alert(1)".into()));
-        assert_eq!(rewrite_relative(base, "HTTP://EXAMPLE.COM", "a", "href", ""), Some("HTTP://EXAMPLE.COM".into()));
-        assert_eq!(rewrite_relative(base, "vbscript:msgbox(1)", "a", "href", ""), Some("http://domain.invalid/msgbox(1)".into()));
-        assert_eq!(rewrite_relative(base, "//example.com/page", "a", "href", ""), Some("https://example.com/page".into()));
-        assert_eq!(rewrite_relative(base, "", "a", "href", ""), Some(base.to_string()));
+        assert_eq!(
+            rewrite_relative(base, "img.png", "img", "src", ""),
+            Some("http://domain.invalid/img.png".into())
+        );
+        assert_eq!(
+            rewrite_relative(base, "#section", "a", "href", ""),
+            Some("http://domain.invalid#section".into())
+        );
+        assert_eq!(
+            rewrite_relative(base, "?q=1", "a", "href", ""),
+            Some("http://domain.invalid?q=1".into())
+        );
+        assert_eq!(
+            rewrite_relative(
+                base,
+                "data:text/html,<script>alert(1)</script>",
+                "img",
+                "src",
+                ""
+            ),
+            Some("http://domain.invalid/text/html,alert(1)".into())
+        );
+        assert_eq!(
+            rewrite_relative(base, "javascript :alert(1)", "a", "href", ""),
+            Some("http://domain.invalid/javascript :alert(1)".into())
+        );
+        assert_eq!(
+            rewrite_relative(base, "HTTP://EXAMPLE.COM", "a", "href", ""),
+            Some("HTTP://EXAMPLE.COM".into())
+        );
+        assert_eq!(
+            rewrite_relative(base, "vbscript:msgbox(1)", "a", "href", ""),
+            Some("http://domain.invalid/msgbox(1)".into())
+        );
+        assert_eq!(
+            rewrite_relative(base, "//example.com/page", "a", "href", ""),
+            Some("https://example.com/page".into())
+        );
+        assert_eq!(
+            rewrite_relative(base, "", "a", "href", ""),
+            Some(base.to_string())
+        );
         // mailto: on an img src is NOT an extra scheme (owner a/href only).
-        assert_eq!(rewrite_relative(base, "mailto:x@y.z", "img", "src", ""), Some("http://domain.invalid/x@y.z".into()));
+        assert_eq!(
+            rewrite_relative(base, "mailto:x@y.z", "img", "src", ""),
+            Some("http://domain.invalid/x@y.z".into())
+        );
         // magnet: on an a href is preserved.
-        assert_eq!(rewrite_relative(base, "magnet:?xt=1", "a", "href", ""), Some("magnet:?xt=1".into()));
+        assert_eq!(
+            rewrite_relative(base, "magnet:?xt=1", "a", "href", ""),
+            Some("magnet:?xt=1".into())
+        );
         // data: image URI on an img src is preserved verbatim.
-        assert_eq!(rewrite_relative(base, "data:image/png;base64,AAA", "img", "src", ""), Some("data:image/png;base64,AAA".into()));
+        assert_eq!(
+            rewrite_relative(base, "data:image/png;base64,AAA", "img", "src", ""),
+            Some("data:image/png;base64,AAA".into())
+        );
 
         // Base with a port and a non-trailing-slash path: RFC 3986 dirname()
         // of the base path is appended (no dot-segment resolution).
-        assert_eq!(rewrite_relative("http://domain.invalid:8080/feed/", "article.html", "a", "href", ""), Some("http://domain.invalid:8080/feed/article.html".into()));
-        assert_eq!(rewrite_relative("http://domain.invalid:8080/feed", "article.html", "a", "href", ""), Some("http://domain.invalid:8080/article.html".into()));
-        assert_eq!(rewrite_relative(base, "./x.html", "a", "href", ""), Some("http://domain.invalid/x.html".into()));
+        assert_eq!(
+            rewrite_relative(
+                "http://domain.invalid:8080/feed/",
+                "article.html",
+                "a",
+                "href",
+                ""
+            ),
+            Some("http://domain.invalid:8080/feed/article.html".into())
+        );
+        assert_eq!(
+            rewrite_relative(
+                "http://domain.invalid:8080/feed",
+                "article.html",
+                "a",
+                "href",
+                ""
+            ),
+            Some("http://domain.invalid:8080/article.html".into())
+        );
+        assert_eq!(
+            rewrite_relative(base, "./x.html", "a", "href", ""),
+            Some("http://domain.invalid/x.html".into())
+        );
         // ../ is NOT resolved (PHP leaves dot-segments as-is).
-        assert_eq!(rewrite_relative("http://domain.invalid/feed/", "../x.html", "a", "href", ""), Some("http://domain.invalid/feed/../x.html".into()));
+        assert_eq!(
+            rewrite_relative("http://domain.invalid/feed/", "../x.html", "a", "href", ""),
+            Some("http://domain.invalid/feed/../x.html".into())
+        );
     }
 }
-
-

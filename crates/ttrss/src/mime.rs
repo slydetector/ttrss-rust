@@ -133,10 +133,19 @@ mod tests {
 
     #[test]
     fn matches_nginx() {
-        assert_eq!(mime_for_path(Path::new("js/common.js")), "application/javascript");
+        assert_eq!(
+            mime_for_path(Path::new("js/common.js")),
+            "application/javascript"
+        );
         assert_eq!(mime_for_path(Path::new("themes/light.css")), "text/css");
-        assert_eq!(mime_for_path(Path::new("images/three-dots.svg")), "image/svg+xml");
+        assert_eq!(
+            mime_for_path(Path::new("images/three-dots.svg")),
+            "image/svg+xml"
+        );
         assert_eq!(mime_for_path(Path::new("fonts/x.woff2")), "font/woff2");
-        assert_eq!(mime_for_path(Path::new("data.bin")), "application/octet-stream");
+        assert_eq!(
+            mime_for_path(Path::new("data.bin")),
+            "application/octet-stream"
+        );
     }
 }

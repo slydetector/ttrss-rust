@@ -253,10 +253,7 @@ async fn test_otp_enable(
         .execute(db)
         .await
         .unwrap();
-    let code = user::totp_at(
-        known_secret.as_bytes(),
-        ttrss::util::now_unix() as u64,
-    );
+    let code = user::totp_at(known_secret.as_bytes(), ttrss::util::now_unix() as u64);
 
     // Wrong password.
     let out = ttrss::settings::otp_enable(
@@ -303,8 +300,7 @@ async fn test_otp_disable(
     let db = state.db.pool();
 
     // Wrong password first.
-    let out =
-        ttrss::settings::otp_disable(&state, &sess, &form(&[("password", "wrong")])).await;
+    let out = ttrss::settings::otp_disable(&state, &sess, &form(&[("password", "wrong")])).await;
     assert_eq!(out, "ERROR: Incorrect password");
     let still: bool = sqlx::query_scalar("SELECT otp_enabled FROM ttrss_users WHERE id = 1")
         .fetch_one(db)
@@ -317,9 +313,7 @@ async fn test_otp_disable(
         .execute(db)
         .await
         .unwrap();
-    let out =
-        ttrss::settings::otp_disable(&state, &sess, &form(&[("password", "password")]))
-            .await;
+    let out = ttrss::settings::otp_disable(&state, &sess, &form(&[("password", "password")])).await;
     assert_eq!(out, "OK");
     let (enabled, secret): (bool, Option<String>) =
         sqlx::query_as("SELECT otp_enabled, otp_secret FROM ttrss_users WHERE id = 1")

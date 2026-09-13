@@ -86,8 +86,7 @@ async fn test_edit_new_filter(
     options: sqlx::postgres::PgConnectOptions,
 ) {
     let (state, sess) = setup(pool, options).await;
-    let Some(json) =
-        ttrss::filters::edit(&state, &sess, &request(&[("id", json!(0))])).await
+    let Some(json) = ttrss::filters::edit(&state, &sess, &request(&[("id", json!(0))])).await
     else {
         panic!("expected Some for a new filter");
     };
@@ -168,8 +167,7 @@ async fn test_edit_existing(
     .await
     .unwrap();
 
-    let Some(json) =
-        ttrss::filters::edit(&state, &sess, &request(&[("id", json!(fid))])).await
+    let Some(json) = ttrss::filters::edit(&state, &sess, &request(&[("id", json!(fid))])).await
     else {
         panic!("expected Some");
     };
@@ -239,17 +237,13 @@ async fn test_print_rule_name(
 
     // A non-object JSON decodes to "invalid rule JSON".
     let name =
-        ttrss::filters::print_rule_name(&state, &sess, &request(&[("rule", json!("123"))]))
-            .await;
+        ttrss::filters::print_rule_name(&state, &sess, &request(&[("rule", json!("123"))])).await;
     assert_eq!(name, "invalid rule JSON");
 
     // An unparseable string is "malformed rule JSON".
-    let name = ttrss::filters::print_rule_name(
-        &state,
-        &sess,
-        &request(&[("rule", json!("{not json"))]),
-    )
-    .await;
+    let name =
+        ttrss::filters::print_rule_name(&state, &sess, &request(&[("rule", json!("{not json"))]))
+            .await;
     assert_eq!(name, "malformed rule JSON");
 }
 
@@ -286,11 +280,8 @@ async fn test_print_action_name(
     assert_eq!(name, "Assign label: Work");
 
     // A non-object JSON decodes to "invalid action JSON".
-    let name = ttrss::filters::print_action_name(
-        &state,
-        &sess,
-        &request(&[("action", json!("42"))]),
-    )
-    .await;
+    let name =
+        ttrss::filters::print_action_name(&state, &sess, &request(&[("action", json!("42"))]))
+            .await;
     assert_eq!(name, "invalid action JSON");
 }

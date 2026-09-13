@@ -14,12 +14,12 @@
 //! stored and the flow completes up to delivery, and the user still sees the new
 //! password on the "Completed." page. This mirrors `Pref_System::sendTestEmail`.
 
+use crate::core::config::Config;
+use crate::core::phpser::Value;
 use axum::body::Body;
 use axum::http::{header, StatusCode};
 use axum::response::Response;
 use sqlx::PgPool;
-use crate::core::config::Config;
-use crate::core::phpser::Value;
 
 use crate::render;
 use crate::session;

@@ -392,8 +392,7 @@ async fn test_admin_gate_denies_non_admin(
     }
 
     async fn call(state: &AppState, sess: Sess, body: &str) -> String {
-        let res =
-            ttrss::rpc::handler(State(state.clone()), Extension(sess), req(body)).await;
+        let res = ttrss::rpc::handler(State(state.clone()), Extension(sess), req(body)).await;
         let bytes = to_bytes(res.into_body(), 10 * 1024 * 1024)
             .await
             .expect("body");

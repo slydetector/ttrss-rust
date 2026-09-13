@@ -5,18 +5,18 @@
 //! handle to handlers, and persist it back after the request if it changed.
 //! Anonymous requests (no cookie) never touch the database.
 
-use axum::extract::{Request, State};
-use axum::http::header;
-use axum::middleware::Next;
-use axum::response::Response;
-use base64::Engine as _;
-use std::sync::{Arc, Mutex};
-use sqlx::{PgPool, Row};
 use crate::core::db::Db;
 use crate::core::phpser::Value;
 use crate::core::session::{self, Session};
 use crate::core::user;
 use crate::util::now_unix;
+use axum::extract::{Request, State};
+use axum::http::header;
+use axum::middleware::Next;
+use axum::response::Response;
+use base64::Engine as _;
+use sqlx::{PgPool, Row};
+use std::sync::{Arc, Mutex};
 
 use crate::AppState;
 
@@ -113,12 +113,13 @@ pub fn cookie_sid(req: &Request) -> Option<String> {
 
 /// `Sessions::exists`.
 pub async fn exists(pool: &PgPool, id: &str) -> bool {
-    let found: Option<i64> = sqlx::query_scalar("SELECT COUNT(*) FROM ttrss_sessions WHERE id = $1")
-        .bind(id)
-        .fetch_optional(pool)
-        .await
-        .ok()
-        .flatten();
+    let found: Option<i64> =
+        sqlx::query_scalar("SELECT COUNT(*) FROM ttrss_sessions WHERE id = $1")
+            .bind(id)
+            .fetch_optional(pool)
+            .await
+            .ok()
+            .flatten();
     found.unwrap_or(0) > 0
 }
 
@@ -152,14 +153,13 @@ async fn read_bytes(pool: &PgPool, key: Option<&[u8; 32]>, id: &str) -> Option<V
         }
         None => {
             // PHP: INSERT INTO ttrss_sessions (id, data, expire) VALUES (?, '', ?)
-            let created = sqlx::query(
-                "INSERT INTO ttrss_sessions (id, data, expire) VALUES ($1, '', $2)",
-            )
-            .bind(id)
-            .bind(now_unix() + STORE_EXPIRE)
-            .execute(pool)
-            .await
-            .is_ok();
+            let created =
+                sqlx::query("INSERT INTO ttrss_sessions (id, data, expire) VALUES ($1, '', $2)")
+                    .bind(id)
+                    .bind(now_unix() + STORE_EXPIRE)
+                    .execute(pool)
+                    .await
+                    .is_ok();
             created.then(Vec::new)
         }
     }
@@ -221,11 +221,7 @@ pub async fn destroy(pool: &PgPool, id: &str) -> bool {
 /// On failure `login_error_msg` is set on `sess` (PHP `$_SESSION`). PHP's
 /// `HOOK_VALIDATE_SESSION` plugin-hook chain defaults to `true` (the Rust
 /// server has no plugin host yet).
-pub async fn validate_session(
-    pool: &PgPool,
-    single_user: bool,
-    sess: &mut Session,
-) -> bool {
+pub async fn validate_session(pool: &PgPool, single_user: bool, sess: &mut Session) -> bool {
     if single_user {
         return true;
     }
@@ -279,7 +275,9 @@ pub async fn load(db: &Db, key: Option<[u8; 32]>, id: &str) -> Session {
     if raw.is_empty() {
         return Session::new();
     }
-    session::decode_data(&raw).map(Session::from_items).unwrap_or_default()
+    session::decode_data(&raw)
+        .map(Session::from_items)
+        .unwrap_or_default()
 }
 
 /// Persist a session to the DB (upsert), matching PHP `Sessions::write`.
@@ -352,11 +350,10 @@ pub async fn session_middleware(
         (g.destroyed, g.dirty, g.id.clone())
     };
     if destroyed && !id.is_empty() {
-        if let Err(e) =
-            sqlx::query("DELETE FROM ttrss_sessions WHERE id = $1")
-                .bind(&id)
-                .execute(state.db.pool())
-                .await
+        if let Err(e) = sqlx::query("DELETE FROM ttrss_sessions WHERE id = $1")
+            .bind(&id)
+            .execute(state.db.pool())
+            .await
         {
             tracing::error!(error = %e, "failed to destroy session");
         }

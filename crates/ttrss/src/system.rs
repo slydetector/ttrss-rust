@@ -38,7 +38,11 @@ pub async fn getscheduledtasks(state: &AppState, sess: &Sess) -> String {
         let last_run: String = r.get(2);
         let last_duration: i32 = r.get(3);
         let last_rc: i32 = r.get(4);
-        let row_style = if last_rc == 0 { "text-success" } else { "text-error" };
+        let row_style = if last_rc == 0 {
+            "text-success"
+        } else {
+            "text-error"
+        };
         out.push_str(&format!(
             "<tr>\n<td class=\"{row_style}\">{}</td>\n<td>{}</td>\n<td>{}</td>\n<td>{}</td>\n<td>{}</td>\n</tr>\n",
             htmlspecialchars(&task_name),
@@ -98,7 +102,11 @@ async fn log_viewer(state: &AppState, sess: &Sess, page: i64, severity: i64) -> 
     let where_sql = match severity_errno_filter(severity) {
         Some(errnos) => format!(
             "errno IN ({})",
-            errnos.iter().map(|n| n.to_string()).collect::<Vec<_>>().join(", ")
+            errnos
+                .iter()
+                .map(|n| n.to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
         ),
         None => "true".to_string(),
     };
@@ -144,12 +152,8 @@ async fn log_viewer(state: &AppState, sess: &Sess, page: i64, severity: i64) -> 
     );
 
     let mut out = String::new();
-    out.push_str(
-        "<div dojoType='dijit.layout.BorderContainer' gutters='false'>\n",
-    );
-    out.push_str(
-        "\t\t<div region='top' dojoType='fox.Toolbar'>\n",
-    );
+    out.push_str("<div dojoType='dijit.layout.BorderContainer' gutters='false'>\n");
+    out.push_str("\t\t<div region='top' dojoType='fox.Toolbar'>\n");
     out.push_str(&format!(
         "\t\t\t<button dojoType='dijit.form.Button' onclick='Helpers.EventLog.refresh()'>Refresh</button>\n\
          \t\t\t<button dojoType='dijit.form.Button' {prev_disabled} onclick='Helpers.EventLog.prevPage()'>&lt;&lt;</button>\n\
@@ -181,7 +185,11 @@ async fn log_viewer(state: &AppState, sess: &Sess, page: i64, severity: i64) -> 
         let created_at: String = r.get(4);
         let login: Option<String> = r.get(5);
         let context: String = r.get(6);
-        let message = format!("{}\n{}", htmlspecialchars(&errstr), htmlspecialchars(&context));
+        let message = format!(
+            "{}\n{}",
+            htmlspecialchars(&errstr),
+            htmlspecialchars(&context)
+        );
         out.push_str(&format!(
             "\t\t\t\t<tr>\n\
              \t\t\t\t\t<td class='errno'>{name} ({errno})</td>\n\
@@ -343,8 +351,15 @@ pub fn send_test_email() -> Value {
 pub fn get_php_info(state: &AppState) -> String {
     use std::env::consts;
     let c = &state.config;
-    let cpus = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(0);
-    let target = format!("{}/{} (family {})", consts::OS, consts::ARCH, consts::FAMILY);
+    let cpus = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(0);
+    let target = format!(
+        "{}/{} (family {})",
+        consts::OS,
+        consts::ARCH,
+        consts::FAMILY
+    );
     let crate_id = concat!(env!("CARGO_PKG_NAME"), " v", env!("CARGO_PKG_VERSION"));
 
     let mut out = String::new();
@@ -357,11 +372,18 @@ pub fn get_php_info(state: &AppState) -> String {
         ));
     };
     let head = |out: &mut String, title: &str| {
-        out.push_str(&format!("<tr><th colspan=\"2\" style=\"background:#e8e8e8\">{}</th></tr>\n", htmlspecialchars(title)));
+        out.push_str(&format!(
+            "<tr><th colspan=\"2\" style=\"background:#e8e8e8\">{}</th></tr>\n",
+            htmlspecialchars(title)
+        ));
     };
 
     head(&mut out, "Server");
-    row(&mut out, "tt-rss (Rust) version", crate::core::config::VERSION);
+    row(
+        &mut out,
+        "tt-rss (Rust) version",
+        crate::core::config::VERSION,
+    );
     row(&mut out, "Server crate", crate_id);
     row(&mut out, "Build target", &target);
     row(&mut out, "Available parallelism", &cpus.to_string());
@@ -370,10 +392,22 @@ pub fn get_php_info(state: &AppState) -> String {
     row(&mut out, "Self URL", &c.self_url);
     row(&mut out, "Listen", &c.listen.to_string());
     row(&mut out, "Doc root", &c.docroot.display().to_string());
-    row(&mut out, "Feed icons dir", &c.feed_icon_dir.display().to_string());
-    row(&mut out, "Single-user mode", &c.single_user_mode.to_string());
+    row(
+        &mut out,
+        "Feed icons dir",
+        &c.feed_icon_dir.display().to_string(),
+    );
+    row(
+        &mut out,
+        "Single-user mode",
+        &c.single_user_mode.to_string(),
+    );
     row(&mut out, "Plugins", &c.plugins);
-    row(&mut out, "Max favicon size (bytes)", &c.max_favicon_file_size.to_string());
+    row(
+        &mut out,
+        "Max favicon size (bytes)",
+        &c.max_favicon_file_size.to_string(),
+    );
 
     head(&mut out, "Database");
     row(&mut out, "Host", &c.db_host);

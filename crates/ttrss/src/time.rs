@@ -10,8 +10,8 @@
 //! The M2 callers never pass `no_smart_dt`, so only the smart-date path is
 //! ported here.
 
-use chrono::{DateTime, Datelike, NaiveDateTime, Timelike, Utc};
 use crate::prefs;
+use chrono::{DateTime, Datelike, NaiveDateTime, Timelike, Utc};
 
 /// A `timestamp without time zone` value (stored as UTC) to its PG text
 /// representation, e.g. `2026-09-04 12:36:12` or `…12.975486` (fraction only
@@ -68,7 +68,10 @@ impl TzCtx {
     /// Build the context for the current session (loads the owner's date/time
     /// prefs once). Handlers that render dates via `make_local_datetime` use
     /// this instead of inlining the `prefs::load_rows` + `resolve` sequence.
-    pub async fn for_session(state: &crate::AppState, data: &crate::core::session::Session) -> Self {
+    pub async fn for_session(
+        state: &crate::AppState,
+        data: &crate::core::session::Session,
+    ) -> Self {
         let uid = data.uid().unwrap_or(0);
         let profile = data.profile().map(|p| p as i32);
         let rows = crate::prefs::load_rows(&state.db, uid, profile).await;
@@ -86,7 +89,6 @@ impl TzCtx {
         }
     }
 }
-
 
 /// `TimeHelper::make_local_datetime($timestamp, …, $eta_min)` — smart-date path.
 pub fn make_local_datetime(timestamp: Option<&str>, eta_min: bool, ctx: &TzCtx) -> String {
@@ -156,12 +158,28 @@ const MONTHS_SHORT: &[&str; 12] = &[
     "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
 ];
 const MONTHS_LONG: &[&str; 12] = &[
-    "January", "February", "March", "April", "May", "June", "July", "August", "September",
-    "October", "November", "December",
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
 ];
 const DAYS_SHORT: &[&str; 7] = &["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const DAYS_LONG: &[&str; 7] = &[
-    "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
+    "Sunday",
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
 ];
 
 /// A `date($format, $ts)` subset — the characters the tt-rss date-format prefs
@@ -249,9 +267,11 @@ mod tests {
         );
         assert!(
             // `G` is 24-hour with no leading zero, so the hour may be 1–2 digits.
-            regex::Regex::new(r"^\d{1,2} (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec), \d{1,2}:\d{2}$")
-                .unwrap()
-                .is_match(&s),
+            regex::Regex::new(
+                r"^\d{1,2} (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec), \d{1,2}:\d{2}$"
+            )
+            .unwrap()
+            .is_match(&s),
             "got: {s}"
         );
     }
@@ -265,11 +285,10 @@ mod tests {
             .timestamp();
         assert_eq!(date_fmt("H:i", ts), "13:00");
         assert_eq!(date_fmt("G:i", ts), "13:00");
-        let ts3 =
-            NaiveDateTime::parse_from_str("2026-08-20 03:05:00", "%Y-%m-%d %H:%M:%S")
-                .unwrap()
-                .and_utc()
-                .timestamp();
+        let ts3 = NaiveDateTime::parse_from_str("2026-08-20 03:05:00", "%Y-%m-%d %H:%M:%S")
+            .unwrap()
+            .and_utc()
+            .timestamp();
         assert_eq!(date_fmt("G:i", ts3), "3:05");
         assert_eq!(date_fmt("g:i a", ts3), "3:05 am");
         assert_eq!(date_fmt("j M, G:i", ts), "20 Aug, 13:00");
@@ -282,8 +301,9 @@ mod tests {
         assert_eq!(naive_to_pg_text(&dt), "2026-09-04 12:36:12");
         let dt = dt + chrono::Duration::microseconds(975_486);
         assert_eq!(naive_to_pg_text(&dt), "2026-09-04 12:36:12.975486");
-        let dt = NaiveDateTime::parse_from_str("2026-09-04 12:36:12.500000", "%Y-%m-%d %H:%M:%S%.f")
-            .unwrap();
+        let dt =
+            NaiveDateTime::parse_from_str("2026-09-04 12:36:12.500000", "%Y-%m-%d %H:%M:%S%.f")
+                .unwrap();
         assert_eq!(naive_to_pg_text(&dt), "2026-09-04 12:36:12.5");
     }
 
@@ -344,7 +364,9 @@ mod tests {
         ctx.short_date_format = "M d, g:i a".into();
         let r = smart_date_time(now, 0, false, &ctx);
         assert!(
-            regex::Regex::new(r"^\d{1,2}:\d{2} [ap]m$").unwrap().is_match(&r),
+            regex::Regex::new(r"^\d{1,2}:\d{2} [ap]m$")
+                .unwrap()
+                .is_match(&r),
             "got: {r}"
         );
         assert_eq!(r, date_fmt("g:i a", now));
@@ -354,7 +376,10 @@ mod tests {
     fn smart_same_year() {
         // test_smart_date_time_same_year: earlier this year → "Jan 15, 10:00".
         let this_year = Utc::now().year();
-        assert_eq!(smart_date_time(ts(this_year, 1, 15, 10, 0), 0, false, &php_ctx()), "Jan 15, 10:00");
+        assert_eq!(
+            smart_date_time(ts(this_year, 1, 15, 10, 0), 0, false, &php_ctx()),
+            "Jan 15, 10:00"
+        );
     }
 
     #[test]
@@ -393,7 +418,10 @@ mod tests {
         // test_smart_date_time_zero_tz_offset: same day with zero offset.
         let now = Utc::now().timestamp();
         let r = smart_date_time(now, 0, false, &php_ctx());
-        assert!(regex::Regex::new(r"^\d{1,2}:\d{2}$").unwrap().is_match(&r), "got: {r}");
+        assert!(
+            regex::Regex::new(r"^\d{1,2}:\d{2}$").unwrap().is_match(&r),
+            "got: {r}"
+        );
     }
 
     #[test]
@@ -436,7 +464,10 @@ mod tests {
         let now = Utc::now().timestamp();
         let s = date_fmt("Y-m-d H:i:s", now);
         let r = make_local_datetime(Some(&s), false, &php_ctx());
-        assert!(regex::Regex::new(r"^\d{1,2}:\d{2}$").unwrap().is_match(&r), "got: {r}");
+        assert!(
+            regex::Regex::new(r"^\d{1,2}:\d{2}$").unwrap().is_match(&r),
+            "got: {r}"
+        );
     }
 
     #[test]
@@ -452,7 +483,11 @@ mod tests {
         // test_make_local_datetime_with_fixed_timezone: a real IANA zone renders.
         let mut ctx = php_ctx();
         ctx.user_tz = "Europe/London".into();
-        let r = make_local_datetime(Some(&date_fmt("Y-m-d H:i:s", Utc::now().timestamp())), false, &ctx);
+        let r = make_local_datetime(
+            Some(&date_fmt("Y-m-d H:i:s", Utc::now().timestamp())),
+            false,
+            &ctx,
+        );
         assert!(!r.is_empty());
     }
 
@@ -461,7 +496,11 @@ mod tests {
         // test_make_local_datetime_with_invalid_timezone_fallback: unknown zone → UTC.
         let mut ctx = php_ctx();
         ctx.user_tz = "Invalid/Zone".into();
-        let r = make_local_datetime(Some(&date_fmt("Y-m-d H:i:s", Utc::now().timestamp())), false, &ctx);
+        let r = make_local_datetime(
+            Some(&date_fmt("Y-m-d H:i:s", Utc::now().timestamp())),
+            false,
+            &ctx,
+        );
         assert!(!r.is_empty());
     }
 
@@ -471,7 +510,11 @@ mod tests {
         let mut ctx = php_ctx();
         ctx.user_tz = "Automatic".into();
         ctx.client_tz_offset = 0;
-        let r = make_local_datetime(Some(&date_fmt("Y-m-d H:i:s", Utc::now().timestamp())), false, &ctx);
+        let r = make_local_datetime(
+            Some(&date_fmt("Y-m-d H:i:s", Utc::now().timestamp())),
+            false,
+            &ctx,
+        );
         assert!(!r.is_empty());
     }
 

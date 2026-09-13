@@ -143,8 +143,7 @@ async fn test_catchup_single_feed(
     // `RPC::catchupFeed` with `feed_id = 1`: the single-feed arm of
     // `Feeds::_catchup` — only that feed's UNREAD entries are marked read.
     let result =
-        ttrss::feeds::catchup_feed(&state, &sess, &request(&[("feed_id", json!("1"))]))
-            .await;
+        ttrss::feeds::catchup_feed(&state, &sess, &request(&[("feed_id", json!("1"))])).await;
     assert!(
         result.get("counters").is_some(),
         "expected a counters reply, got {result}"
@@ -196,8 +195,7 @@ async fn test_catchup_all(
 
     // `feed_id = -4` (FEED_ALL): every owner-1 entry is in scope.
     let result =
-        ttrss::feeds::catchup_feed(&state, &sess, &request(&[("feed_id", json!("-4"))]))
-            .await;
+        ttrss::feeds::catchup_feed(&state, &sess, &request(&[("feed_id", json!("-4"))])).await;
     assert!(result.get("counters").is_some(), "got {result}");
 
     let after = entry_rows(db).await;
@@ -228,8 +226,7 @@ async fn test_catchup_starred(
     // `feed_id = -1` (FEED_STARRED): the Starred view — only starred entries
     // are marked read.
     let result =
-        ttrss::feeds::catchup_feed(&state, &sess, &request(&[("feed_id", json!("-1"))]))
-            .await;
+        ttrss::feeds::catchup_feed(&state, &sess, &request(&[("feed_id", json!("-1"))])).await;
     assert!(result.get("counters").is_some(), "got {result}");
 
     let after = entry_rows(db).await;
@@ -259,8 +256,7 @@ async fn test_catchup_published(
 
     // `feed_id = -2` (FEED_PUBLISHED): the Published view.
     let result =
-        ttrss::feeds::catchup_feed(&state, &sess, &request(&[("feed_id", json!("-2"))]))
-            .await;
+        ttrss::feeds::catchup_feed(&state, &sess, &request(&[("feed_id", json!("-2"))])).await;
     assert!(result.get("counters").is_some(), "got {result}");
 
     let after = entry_rows(db).await;
@@ -297,8 +293,7 @@ async fn test_catchup_label(
 
     // `feed_id = -1026` = `LABEL_BASE_INDEX - 1 - 1`: label 1's virtual feed.
     let result =
-        ttrss::feeds::catchup_feed(&state, &sess, &request(&[("feed_id", json!("-1026"))]))
-            .await;
+        ttrss::feeds::catchup_feed(&state, &sess, &request(&[("feed_id", json!("-1026"))])).await;
     assert!(result.get("counters").is_some(), "got {result}");
 
     let after = entry_rows(db).await;
@@ -387,8 +382,7 @@ async fn test_catchup_tag(
 
     // Non-numeric `feed_id`: the tag arm.
     let result =
-        ttrss::feeds::catchup_feed(&state, &sess, &request(&[("feed_id", json!("rust"))]))
-            .await;
+        ttrss::feeds::catchup_feed(&state, &sess, &request(&[("feed_id", json!("rust"))])).await;
     assert!(result.get("counters").is_some(), "got {result}");
 
     let after = entry_rows(db).await;
@@ -537,8 +531,7 @@ async fn test_catchup_fresh(
     // `feed_id = -3` (FEED_FRESH): the Fresh view — entries entered within
     // the last `FRESH_ARTICLE_MAX_AGE` hours (default 24) with score >= 0.
     let result =
-        ttrss::feeds::catchup_feed(&state, &sess, &request(&[("feed_id", json!("-3"))]))
-            .await;
+        ttrss::feeds::catchup_feed(&state, &sess, &request(&[("feed_id", json!("-3"))])).await;
     assert!(result.get("counters").is_some(), "got {result}");
 
     let after = entry_rows(db).await;

@@ -124,7 +124,10 @@ pub fn send_file(path: &Path) -> Response {
 
     Response::builder()
         .status(StatusCode::OK)
-        .header(header::CONTENT_DISPOSITION, format!("inline; filename=\"{disp}\""))
+        .header(
+            header::CONTENT_DISPOSITION,
+            format!("inline; filename=\"{disp}\""),
+        )
         .header(header::CONTENT_TYPE, effective)
         .header(header::CONTENT_LENGTH, bytes.len())
         .header(header::EXPIRES, http_date(mtime + 86400 * CACHE_MAX_DAYS))
@@ -195,7 +198,9 @@ pub fn rewrite_urls(html: &str, image_cache_dir: &Path, self_url: &str) -> Strin
                 }
             }
             if any {
-                el.attributes.borrow_mut().insert("srcset", encode_srcset(&items));
+                el.attributes
+                    .borrow_mut()
+                    .insert("srcset", encode_srcset(&items));
                 changed = true;
             }
         }
@@ -220,13 +225,11 @@ pub fn rewrite_urls(html: &str, image_cache_dir: &Path, self_url: &str) -> Strin
 fn cached_file_url(image_cache_dir: &Path, url: &str, self_url: &str) -> Option<String> {
     let mut h = Sha1::new();
     h.update(url.as_bytes());
-    let name: String = h
-        .finalize()
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect();
+    let name: String = h.finalize().iter().map(|b| format!("{b:02x}")).collect();
     if image_cache_dir.join(&name).is_file() {
-        Some(format!("{self_url}/public.php?op=cached&file=images/{name}"))
+        Some(format!(
+            "{self_url}/public.php?op=cached&file=images/{name}"
+        ))
     } else {
         None
     }
@@ -285,12 +288,15 @@ mod tests {
             sniff_mime(&[0x00, 0x00, 0x01, 0x00, 0x01, 0x00]),
             "image/vnd.microsoft.icon"
         );
+        assert_eq!(sniff_mime(b"RIFF\x00\x00\x00\x00WEBPVP8 "), "image/webp");
         assert_eq!(
-            sniff_mime(b"RIFF\x00\x00\x00\x00WEBPVP8 "),
-            "image/webp"
+            sniff_mime(b"<?xml version=\"1.0\"?>\n<svg/>"),
+            "image/svg+xml"
         );
-        assert_eq!(sniff_mime(b"<?xml version=\"1.0\"?>\n<svg/>"), "image/svg+xml");
-        assert_eq!(sniff_mime(b"\x00\x01\x02random"), "application/octet-stream");
+        assert_eq!(
+            sniff_mime(b"\x00\x01\x02random"),
+            "application/octet-stream"
+        );
     }
 
     #[test]
@@ -326,14 +332,10 @@ mod tests {
     fn sha1_hex(s: &str) -> String {
         let mut h = Sha1::new();
         h.update(s.as_bytes());
-        h.finalize()
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect()
+        h.finalize().iter().map(|b| format!("{b:02x}")).collect()
     }
 
-    static TMP_COUNTER: std::sync::atomic::AtomicUsize =
-        std::sync::atomic::AtomicUsize::new(0);
+    static TMP_COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
     /// A fresh temp dir with cached copies for each URL in `urls`.
     fn temp_cache(urls: &[&str]) -> PathBuf {
@@ -352,8 +354,14 @@ mod tests {
         let html = r#"<img src="http://a.com/1.jpg"><img src="http://b.com/2.jpg">"#;
         let res = rewrite_urls(html, &dir, "http://self");
         assert!(res.contains("public.php"), "rewritten: {res}");
-        assert!(res.contains(&sha1_hex("http://a.com/1.jpg")), "first img: {res}");
-        assert!(res.contains(&sha1_hex("http://b.com/2.jpg")), "second img: {res}");
+        assert!(
+            res.contains(&sha1_hex("http://a.com/1.jpg")),
+            "first img: {res}"
+        );
+        assert!(
+            res.contains(&sha1_hex("http://b.com/2.jpg")),
+            "second img: {res}"
+        );
     }
 
     #[test]
@@ -361,7 +369,10 @@ mod tests {
         let dir = temp_cache(&["http://example.com/poster.jpg"]);
         let html = r#"<video poster="http://example.com/poster.jpg"></video>"#;
         let res = rewrite_urls(html, &dir, "http://self");
-        assert!(res.contains(&sha1_hex("http://example.com/poster.jpg")), "poster: {res}");
+        assert!(
+            res.contains(&sha1_hex("http://example.com/poster.jpg")),
+            "poster: {res}"
+        );
     }
 
     #[test]
@@ -369,7 +380,10 @@ mod tests {
         let dir = temp_cache(&["http://example.com/video.mp4"]);
         let html = r#"<video src="http://example.com/video.mp4"></video>"#;
         let res = rewrite_urls(html, &dir, "http://self");
-        assert!(res.contains(&sha1_hex("http://example.com/video.mp4")), "video src: {res}");
+        assert!(
+            res.contains(&sha1_hex("http://example.com/video.mp4")),
+            "video src: {res}"
+        );
     }
 
     #[test]
@@ -385,7 +399,10 @@ mod tests {
         let dir = temp_cache(&[]);
         let html = "<p>Some text content with no images</p>";
         let res = rewrite_urls(html, &dir, "http://self");
-        assert!(res.contains("Some text content with no images"), "text: {res}");
+        assert!(
+            res.contains("Some text content with no images"),
+            "text: {res}"
+        );
     }
 
     #[test]
@@ -408,7 +425,10 @@ mod tests {
         assert!(res.contains("<div>"), "div: {res}");
         assert!(res.contains("<p>"), "p: {res}");
         assert!(res.contains("</div>"), "closing div: {res}");
-        assert!(res.contains(&sha1_hex("http://example.com/img.png")), "img: {res}");
+        assert!(
+            res.contains(&sha1_hex("http://example.com/img.png")),
+            "img: {res}"
+        );
     }
 
     #[test]
@@ -416,9 +436,7 @@ mod tests {
         // A cached `src` also drops the element's `srcset`.
         let url = "http://example.com/pic.jpg";
         let dir = temp_cache(&[url]);
-        let html = format!(
-            r#"<img src="{url}" srcset="http://a.com/1x.jpg 1x">"#
-        );
+        let html = format!(r#"<img src="{url}" srcset="http://a.com/1x.jpg 1x">"#);
         let res = rewrite_urls(&html, &dir, "http://self");
         assert!(!res.contains("srcset"), "srcset dropped: {res}");
         assert!(res.contains(&sha1_hex(url)), "src rewritten: {res}");

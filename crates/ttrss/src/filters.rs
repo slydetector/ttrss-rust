@@ -3,14 +3,14 @@
 
 use minijinja::Environment;
 use serde_json::{json, Map, Value};
-use std::collections::HashMap;
 use sqlx::Row;
+use std::collections::HashMap;
 
 use crate::prefs;
-use crate::time::{make_local_datetime, TzCtx};
 use crate::session::Sess;
-use crate::util::{htmlspecialchars, t_sprintf};
+use crate::time::{make_local_datetime, TzCtx};
 use crate::util;
+use crate::util::{htmlspecialchars, t_sprintf};
 use crate::AppState;
 
 // `Pref_Filters` action / type constants.
@@ -75,7 +75,12 @@ fn action_name(action_id: i64, action_param: &str) -> String {
 /// `Pref_Filters::_get_rule_name` — the `… on TYPE in FEED (inverse)` name for a
 /// rule's `feed_id` list, `filter_type`, `reg_exp`, and `inverse` key presence.
 /// `html_format` wraps the parts in the `filterRule`/`field`/`feed` spans.
-async fn get_rule_name(pool: &sqlx::PgPool, uid: i64, rule: &Map<String, Value>, html_format: bool) -> String {
+async fn get_rule_name(
+    pool: &sqlx::PgPool,
+    uid: i64,
+    rule: &Map<String, Value>,
+    html_format: bool,
+) -> String {
     let feeds = rule.get("feed_id").cloned().unwrap_or(Value::Null);
     let feeds_vec: Vec<Value> = match feeds {
         Value::Array(v) => v,
@@ -101,35 +106,47 @@ async fn get_rule_name(pool: &sqlx::PgPool, uid: i64, rule: &Map<String, Value>,
     let inverse = rule.get("inverse").is_some();
     let inverse_text = if inverse { "(inverse)" } else { "" };
     if html_format {
-        let reg_exp = rule.get("reg_exp").and_then(Value::as_str).unwrap_or("").to_string();
+        let reg_exp = rule
+            .get("reg_exp")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
         let inner = t_sprintf(
             "%s on %s in %s %s",
             &[
                 &htmlspecialchars(&reg_exp),
-                &format!("<span class='field'>{}</span>", htmlspecialchars(filter_type_desc)),
+                &format!(
+                    "<span class='field'>{}</span>",
+                    htmlspecialchars(filter_type_desc)
+                ),
                 &format!("<span class='feed'>{}</span>", htmlspecialchars(&feed)),
                 inverse_text,
             ],
         );
-        format!("<span class='filterRule {}'>{inner}</span>", if inverse { "inverse" } else { "" })
+        format!(
+            "<span class='filterRule {}'>{inner}</span>",
+            if inverse { "inverse" } else { "" }
+        )
     } else {
         let reg_exp = rule.get("reg_exp").and_then(Value::as_str).unwrap_or("");
-        t_sprintf("%s on %s in %s %s", &[reg_exp, filter_type_desc, &feed, inverse_text])
+        t_sprintf(
+            "%s on %s in %s %s",
+            &[reg_exp, filter_type_desc, &feed, inverse_text],
+        )
     }
 }
 /// `Pref_Filters::_get_details` — `{title_summary, actions_summary}` for a filter.
 async fn filter_details(pool: &sqlx::PgPool, id: i32) -> (String, String) {
-    let (title, match_any, inverse, num_rules): (String, bool, bool, i64) =
-        sqlx::query_as(
-            "SELECT f.title, f.match_any_rule, f.inverse, COUNT(DISTINCT r.id) \
+    let (title, match_any, inverse, num_rules): (String, bool, bool, i64) = sqlx::query_as(
+        "SELECT f.title, f.match_any_rule, f.inverse, COUNT(DISTINCT r.id) \
              FROM ttrss_filters2 AS f \
              LEFT JOIN ttrss_filters2_rules AS r ON r.filter_id = f.id \
              WHERE f.id = $1 GROUP BY f.title, f.match_any_rule, f.inverse",
-        )
-        .bind(id)
-        .fetch_one(pool)
-        .await
-        .unwrap_or_else(|_| ("[No caption]".to_string(), false, false, 0));
+    )
+    .bind(id)
+    .fetch_one(pool)
+    .await
+    .unwrap_or_else(|_| ("[No caption]".to_string(), false, false, 0));
 
     let title = if title.is_empty() {
         "[No caption]".to_string()
@@ -172,7 +189,10 @@ async fn filter_details(pool: &sqlx::PgPool, id: i32) -> (String, String) {
             cumulative_score += action_param.parse::<i64>().unwrap_or(0);
             continue;
         }
-        summary.push(format!("<li>{}</li>", htmlspecialchars(&action_name(action_id, &action_param))));
+        summary.push(format!(
+            "<li>{}</li>",
+            htmlspecialchars(&action_name(action_id, &action_param))
+        ));
     }
     if cumulative_score != 0 {
         summary.insert(
@@ -186,7 +206,11 @@ async fn filter_details(pool: &sqlx::PgPool, id: i32) -> (String, String) {
     if summary.len() > MAX_ACTIONS_TO_DISPLAY {
         let not_shown = summary.len() - MAX_ACTIONS_TO_DISPLAY;
         summary.truncate(MAX_ACTIONS_TO_DISPLAY);
-        let noun = if not_shown == 1 { "(+%d action)" } else { "(+%d actions)" };
+        let noun = if not_shown == 1 {
+            "(+%d action)"
+        } else {
+            "(+%d actions)"
+        };
         summary.push(format!(
             "<li class=\"text-muted\"><em>{}</em></li>",
             t_sprintf(noun, &[&not_shown.to_string()])
@@ -231,7 +255,11 @@ async fn rules_list(pool: &sqlx::PgPool, filter_id: i32, uid: i64) -> String {
                     &htmlspecialchars(&reg_exp),
                     desc,
                     &htmlspecialchars(&where_str),
-                    &if inverse { "(inverse)".to_string() } else { String::new() },
+                    &if inverse {
+                        "(inverse)".to_string()
+                    } else {
+                        String::new()
+                    },
                 ]
             )
         ));
@@ -258,14 +286,14 @@ async fn rule_where(
                     if let Some(fid) = f.as_str() {
                         if let Some(rest) = fid.strip_prefix("CAT:") {
                             parts.push(
-                                crate::feeds::category_title(pool, rest.parse().unwrap_or(0), uid).await,
+                                crate::feeds::category_title(pool, rest.parse().unwrap_or(0), uid)
+                                    .await,
                             );
                         } else if fid.is_empty() {
                             parts.push("All feeds".to_string());
                         } else {
                             parts.push(
-                                crate::feeds::feed_title(pool, fid.parse().unwrap_or(0), uid)
-                                    .await,
+                                crate::feeds::feed_title(pool, fid.parse().unwrap_or(0), uid).await,
                             );
                         }
                     }
@@ -289,7 +317,10 @@ pub async fn get_filter_tree(state: &AppState, sess: &Sess) -> Value {
     let data = sess.data();
     let uid = data.uid().unwrap_or(0);
     let profile = data.profile().map(|p| p as i32);
-    let filter_search = data.get_str("prefs_filter_search").unwrap_or("").to_string();
+    let filter_search = data
+        .get_str("prefs_filter_search")
+        .unwrap_or("")
+        .to_string();
 
     let filters = sqlx::query(
         "SELECT id, title, match_any_rule, inverse, enabled, \n         to_char(last_triggered, 'YYYY-MM-DD HH24:MI:SS') AS last_triggered \n         FROM ttrss_filters2 WHERE owner_uid = $1 ORDER BY order_id, title",
@@ -314,7 +345,11 @@ pub async fn get_filter_tree(state: &AppState, sess: &Sess) -> Value {
             }
         }
 
-        let bare_name = if title.is_empty() { "[No caption]".to_string() } else { title };
+        let bare_name = if title.is_empty() {
+            "[No caption]".to_string()
+        } else {
+            title
+        };
         let (title_summary, actions_summary) = filter_details(pool, id).await;
         let rules = rules_list(pool, id, uid).await;
 
@@ -322,10 +357,16 @@ pub async fn get_filter_tree(state: &AppState, sess: &Sess) -> Value {
             Some(ts) => {
                 let rows = prefs::load_rows(&state.db, uid, profile).await;
                 let tz = TzCtx {
-                    user_tz: prefs::resolve(prefs::USER_TIMEZONE, &rows, profile).as_str().to_string(),
+                    user_tz: prefs::resolve(prefs::USER_TIMEZONE, &rows, profile)
+                        .as_str()
+                        .to_string(),
                     client_tz_offset: data.get_int("clientTzOffset").unwrap_or(0),
-                    short_date_format: prefs::resolve(prefs::SHORT_DATE_FORMAT, &rows, profile).as_str().to_string(),
-                    long_date_format: prefs::resolve(prefs::LONG_DATE_FORMAT, &rows, profile).as_str().to_string(),
+                    short_date_format: prefs::resolve(prefs::SHORT_DATE_FORMAT, &rows, profile)
+                        .as_str()
+                        .to_string(),
+                    long_date_format: prefs::resolve(prefs::LONG_DATE_FORMAT, &rows, profile)
+                        .as_str()
+                        .to_string(),
                 };
                 Value::String(make_local_datetime(Some(ts), false, &tz))
             }
@@ -447,7 +488,11 @@ pub async fn edit(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> 
             // as a one-element string array (so `in_array` treats it as a string).
             match match_on.as_deref().filter(|m| !m.is_empty()) {
                 Some(mo) => {
-                    rule.insert("feed_id".into(), serde_json::from_str(mo).unwrap_or(Value::Array(vec![Value::String(String::new())])));
+                    rule.insert(
+                        "feed_id".into(),
+                        serde_json::from_str(mo)
+                            .unwrap_or(Value::Array(vec![Value::String(String::new())])),
+                    );
                 }
                 None => {
                     let fid = if cat_filter {
@@ -480,8 +525,14 @@ pub async fn edit(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> 
             let mut action = Map::new();
             action.insert("action_id".into(), Value::from(action_id));
             action.insert("action_param".into(), Value::String(action_param.clone()));
-            action.insert("action_param_label".into(), Value::String(action_param.clone()));
-            action.insert("name".into(), Value::String(action_name(action_id as i64, &action_param)));
+            action.insert(
+                "action_param_label".into(),
+                Value::String(action_param.clone()),
+            );
+            action.insert(
+                "name".into(),
+                Value::String(action_name(action_id as i64, &action_param)),
+            );
             actions.push(Value::Object(action));
         }
     }
@@ -524,7 +575,11 @@ pub async fn print_rule_name(state: &AppState, sess: &Sess, extra: &Map<String, 
 }
 
 /// `Pref_Filters::printActionName` — the action name for a single action JSON.
-pub async fn print_action_name(_state: &AppState, _sess: &Sess, extra: &Map<String, Value>) -> String {
+pub async fn print_action_name(
+    _state: &AppState,
+    _sess: &Sess,
+    extra: &Map<String, Value>,
+) -> String {
     let Some(raw) = extra.get("action") else {
         return "malformed action JSON".to_string();
     };
@@ -538,7 +593,11 @@ pub async fn print_action_name(_state: &AppState, _sess: &Sess, extra: &Map<Stri
     match val.as_object() {
         Some(action) => {
             let action_id = util::clean_int(action.get("action_id"));
-            let action_param = action.get("action_param").and_then(Value::as_str).unwrap_or("").to_string();
+            let action_param = action
+                .get("action_param")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
             action_name(action_id, &action_param)
         }
         None => "invalid action JSON".to_string(),
@@ -568,10 +627,17 @@ async fn feed_multi_select(
     // Open the `<select>` (top level only — the recursive calls nest inside it).
     rv.push_str(&format!(
         "<select multiple={tab}rue\" id=\"{}\" name=\"{}\" {}>",
-        id, id, attributes, tab = '\t'
+        id,
+        id,
+        attributes,
+        tab = '\t'
     ));
     if include_all_feeds {
-        let sel = if default_ids.contains(&"0".to_string()) { "selected=\"1\"" } else { "" };
+        let sel = if default_ids.contains(&"0".to_string()) {
+            "selected=\"1\""
+        } else {
+            ""
+        };
         rv.push_str(&format!("<option {} value=\"0\">All feeds</option>", sel));
     }
 
@@ -588,22 +654,27 @@ async fn feed_multi_select(
         .unwrap_or_default();
         let mut by_parent: HashMap<Option<i32>, Vec<(i32, String)>> = HashMap::new();
         for (cid, title, parent) in &cats {
-            by_parent.entry(*parent).or_default().push((*cid, title.clone()));
+            by_parent
+                .entry(*parent)
+                .or_default()
+                .push((*cid, title.clone()));
         }
         for v in by_parent.values_mut() {
             v.sort_by(|a, b| a.1.cmp(&b.1));
         }
 
-        let feeds: Vec<(i32, String, Option<i32>)> = sqlx::query_as(
-            "SELECT id, title, cat_id FROM ttrss_feeds WHERE owner_uid = $1",
-        )
-        .bind(uid)
-        .fetch_all(pool)
-        .await
-        .unwrap_or_default();
+        let feeds: Vec<(i32, String, Option<i32>)> =
+            sqlx::query_as("SELECT id, title, cat_id FROM ttrss_feeds WHERE owner_uid = $1")
+                .bind(uid)
+                .fetch_all(pool)
+                .await
+                .unwrap_or_default();
         let mut feeds_by_cat: HashMap<Option<i32>, Vec<(i32, String)>> = HashMap::new();
         for (fid, title, cat) in &feeds {
-            feeds_by_cat.entry(*cat).or_default().push((*fid, title.clone()));
+            feeds_by_cat
+                .entry(*cat)
+                .or_default()
+                .push((*fid, title.clone()));
         }
         for v in feeds_by_cat.values_mut() {
             v.sort_by(|a, b| a.1.cmp(&b.1));
@@ -633,7 +704,12 @@ async fn feed_multi_select(
         }
         let mut stack: Vec<Task> = by_parent
             .get(&None)
-            .map(|top| top.iter().rev().map(|(cid, _)| Task::ProcessCat(*cid, 0)).collect())
+            .map(|top| {
+                top.iter()
+                    .rev()
+                    .map(|(cid, _)| Task::ProcessCat(*cid, 0))
+                    .collect()
+            })
             .unwrap_or_default();
 
         while let Some(task) = stack.pop() {
@@ -681,8 +757,15 @@ async fn feed_multi_select(
         }
 
         // "Uncategorized" category + uncategorized feeds (top level only).
-        let sel = if default_ids.contains(&"CAT:0".to_string()) { "selected=\"1\"" } else { "" };
-        rv.push_str(&format!("<option {} value='CAT:0'>Uncategorized</option>", sel));
+        let sel = if default_ids.contains(&"CAT:0".to_string()) {
+            "selected=\"1\""
+        } else {
+            ""
+        };
+        rv.push_str(&format!(
+            "<option {} value='CAT:0'>Uncategorized</option>",
+            sel
+        ));
         if let Some(feeds) = feeds_by_cat.get(&None) {
             for (fid, ftitle) in feeds {
                 let sel = if default_ids.contains(&fid.to_string()) {
@@ -701,13 +784,12 @@ async fn feed_multi_select(
         }
     } else {
         // No categories: a flat, title-ordered feed list (no indentation).
-        let feeds: Vec<(i32, String)> = sqlx::query_as(
-            "SELECT id, title FROM ttrss_feeds WHERE owner_uid = $1 ORDER BY title",
-        )
-        .bind(uid)
-        .fetch_all(pool)
-        .await
-        .unwrap_or_default();
+        let feeds: Vec<(i32, String)> =
+            sqlx::query_as("SELECT id, title FROM ttrss_feeds WHERE owner_uid = $1 ORDER BY title")
+                .bind(uid)
+                .fetch_all(pool)
+                .await
+                .unwrap_or_default();
         for (fid, ftitle) in feeds {
             let sel = if default_ids.contains(&fid.to_string()) {
                 "selected=\"1\""
@@ -766,7 +848,10 @@ struct PostedRule {
 
 impl PostedRule {
     fn from_json(v: &Value) -> Self {
-        let reg_exp = v.get("reg_exp").and_then(util::scalar_str).unwrap_or_default();
+        let reg_exp = v
+            .get("reg_exp")
+            .and_then(util::scalar_str)
+            .unwrap_or_default();
         let filter_type = util::clean_int(v.get("filter_type"));
         // `$rule['inverse'] ??= false;` — truthy-checked by the engine.
         let inverse = v.get("inverse").map(json_truthy).unwrap_or(false);
@@ -873,15 +958,15 @@ pub async fn test_filter_do(
             scope_qparts.join(if match_any_rule { " OR " } else { " AND " })
         ));
     }
-    sql.push_str(&format!(" ORDER BY e.date_entered DESC LIMIT {limit} OFFSET {offset}"));
+    sql.push_str(&format!(
+        " ORDER BY e.date_entered DESC LIMIT {limit} OFFSET {offset}"
+    ));
 
     let rows = match sqlx::query(&sql).fetch_all(pool).await {
         Ok(r) => r,
         // A SQL failure (e.g. a negative LIMIT) degrades to an empty result
         // (PHP would 500; the SPA only sends non-negative values).
-        Err(_) => {
-            return Ok(json!({ "pre_filtering_count": 0, "items": [] }))
-        }
+        Err(_) => return Ok(json!({ "pre_filtering_count": 0, "items": [] })),
     };
 
     let empty_map = Map::new();
@@ -912,7 +997,9 @@ pub async fn test_filter_do(
             for fid in &pr.feed_ids {
                 let in_scope = fid == cat_str.as_str()
                     || (fid == "CAT:0" && cat_id.is_none())
-                    || feed_id.map(|f| util::php_int_cast(fid) == f as i64).unwrap_or(false)
+                    || feed_id
+                        .map(|f| util::php_int_cast(fid) == f as i64)
+                        .unwrap_or(false)
                     || fid == "0";
                 if in_scope {
                     entry_rules.push(pr);
@@ -944,7 +1031,10 @@ pub async fn test_filter_do(
         // on (mirrors the content/both preview path in
         // `RSSUtils::eval_article_filters`).
         let content_flat: String = util::strip_tags(
-            &content.chars().filter(|c| !matches!(c, '\r' | '\n' | '\t')).collect::<String>(),
+            &content
+                .chars()
+                .filter(|c| !matches!(c, '\r' | '\n' | '\t'))
+                .collect::<String>(),
         );
         let mut content_preview = String::new();
         let mut matches: Vec<String> = Vec::new();
@@ -954,7 +1044,8 @@ pub async fn test_filter_do(
         for mr in &outcome.matched_rules {
             // `mb_substr(strip_tags($rule['regexp_matches'][0]), 0, 200)`
             let full_match = mr.regexp_matches.first().cloned().unwrap_or_default();
-            let rule_regexp_match: String = util::strip_tags(&full_match).chars().take(200).collect();
+            let rule_regexp_match: String =
+                util::strip_tags(&full_match).chars().take(200).collect();
             matches.push(rule_regexp_match.clone());
 
             let mut raw_map = mr
@@ -994,7 +1085,10 @@ pub async fn test_filter_do(
                 crate::core::filters::RuleType::Link => link.clone(),
                 crate::core::filters::RuleType::Author => author.clone(),
                 crate::core::filters::RuleType::Tag => {
-                    format!("<i class=\"material-icons\">label_outline</i> {}", tags.join(", "))
+                    format!(
+                        "<i class=\"material-icons\">label_outline</i> {}",
+                        tags.join(", ")
+                    )
                 }
                 _ => "&mdash;".to_string(),
             };
@@ -1066,7 +1160,10 @@ pub async fn index(_state: &AppState, sess: &Sess, extra: &Map<String, Value>) -
         });
         s
     } else {
-        sess.data().get_str("prefs_filter_search").unwrap_or("").to_string()
+        sess.data()
+            .get_str("prefs_filter_search")
+            .unwrap_or("")
+            .to_string()
     };
 
     let mut ctx: Map<String, Value> = Map::new();
@@ -1087,8 +1184,11 @@ fn filters_index_env() -> &'static Environment<'static> {
     static ENV: std::sync::OnceLock<Environment<'static>> = std::sync::OnceLock::new();
     ENV.get_or_init(|| {
         let mut env = Environment::new();
-        env.add_template("filters_index", include_str!("../templates/filters_index.html.jinja"))
-            .expect("valid filters_index template");
+        env.add_template(
+            "filters_index",
+            include_str!("../templates/filters_index.html.jinja"),
+        )
+        .expect("valid filters_index template");
         env
     })
 }
@@ -1111,7 +1211,11 @@ pub async fn filtersortreset(state: &AppState, sess: &Sess) -> Result<(), sqlx::
 
 /// `Pref_Filters::savefilterorder` — apply the reordered filter list (the
 /// `payload` JSON: `{items: [{items: [{_reference: "FILTER:n"}, …]}, …]}`).
-pub async fn savefilterorder(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Result<(), sqlx::Error> {
+pub async fn savefilterorder(
+    state: &AppState,
+    sess: &Sess,
+    extra: &Map<String, Value>,
+) -> Result<(), sqlx::Error> {
     let uid = sess.data().uid().unwrap_or(0);
     let pool = state.db.pool();
     let Some(payload) = extra.get("payload").and_then(Value::as_str) else {
@@ -1128,7 +1232,11 @@ pub async fn savefilterorder(state: &AppState, sess: &Sess, extra: &Map<String, 
     let Some(items_arr) = items.and_then(|v| v.as_array().cloned()) else {
         return Ok(());
     };
-    let Some(inner) = items_arr.first().and_then(|f| f.get("items")).and_then(Value::as_array) else {
+    let Some(inner) = items_arr
+        .first()
+        .and_then(|f| f.get("items"))
+        .and_then(Value::as_array)
+    else {
         return Ok(());
     };
     let mut index = 0;
@@ -1149,7 +1257,11 @@ pub async fn savefilterorder(state: &AppState, sess: &Sess, extra: &Map<String, 
 }
 
 /// `Pref_Filters::remove` — delete the selected filters (rules/actions cascade).
-pub async fn remove_filters(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Result<(), sqlx::Error> {
+pub async fn remove_filters(
+    state: &AppState,
+    sess: &Sess,
+    extra: &Map<String, Value>,
+) -> Result<(), sqlx::Error> {
     let uid = sess.data().uid().unwrap_or(0);
     let pool = state.db.pool();
     let ids = util::param_int_array(extra, "ids");
@@ -1187,7 +1299,9 @@ fn parse_json_objects(extra: &Map<String, Value>, name: &str) -> Vec<Value> {
     let mut out: Vec<Value> = Vec::new();
     for it in items {
         let Some(s) = it.as_str() else { continue };
-        let Ok(val) = serde_json::from_str::<Value>(s) else { continue };
+        let Ok(val) = serde_json::from_str::<Value>(s) else {
+            continue;
+        };
         if !matches!(val, Value::Object(_) | Value::Array(_)) {
             continue; // PHP: if (!is_array($rule)) continue;
         }
@@ -1227,10 +1341,18 @@ async fn save_rules_and_actions(
         if !json_truthy(rule) {
             continue;
         }
-        let reg_exp = rule.get("reg_exp").and_then(Value::as_str).unwrap_or("").trim().to_string();
+        let reg_exp = rule
+            .get("reg_exp")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim()
+            .to_string();
         let inverse = rule.get("inverse").is_some_and(|v| !v.is_null()); // isset($rule["inverse"])
         let filter_type = util::clean_int(rule.get("filter_type")) as i32;
-        let match_on = rule.get("feed_id").map(|v| v.to_string()).unwrap_or_else(|| "null".to_string());
+        let match_on = rule
+            .get("feed_id")
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| "null".to_string());
         sqlx::query("INSERT INTO ttrss_filters2_rules (filter_id, reg_exp, filter_type, feed_id, cat_id, match_on, inverse) VALUES ($1, $2, $3, NULL, NULL, $4, $5)")
             .bind(filter_id)
             .bind(&reg_exp)
@@ -1245,8 +1367,16 @@ async fn save_rules_and_actions(
             continue;
         }
         let action_id = util::clean_int(action.get("action_id")) as i32;
-        let action_param = action.get("action_param").and_then(Value::as_str).unwrap_or("").to_string();
-        let action_param_label = action.get("action_param_label").and_then(Value::as_str).unwrap_or("").to_string();
+        let action_param = action
+            .get("action_param")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let action_param_label = action
+            .get("action_param_label")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
         let action_param = match action_id as i64 {
             ACTION_LABEL => action_param_label,
             ACTION_SCORE => util::php_int_cast(&action_param.replace('+', "")).to_string(),
@@ -1268,13 +1398,22 @@ async fn save_rules_and_actions(
 
 /// `Pref_Filters::editSave` — update the filter row and re-save its rules and
 /// actions. (Matches PHP: no owner check on the `id`.)
-pub async fn edit_save(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Result<(), sqlx::Error> {
+pub async fn edit_save(
+    state: &AppState,
+    sess: &Sess,
+    extra: &Map<String, Value>,
+) -> Result<(), sqlx::Error> {
     let uid = sess.data().uid().unwrap_or(0);
     let pool = state.db.pool();
     let mut tx = pool.begin().await?;
     let filter_id = util::clean_int(extra.get("id")) as i32;
     if filter_id > 0 {
-        let title = extra.get("title").and_then(util::scalar_str).unwrap_or_default().trim().to_string();
+        let title = extra
+            .get("title")
+            .and_then(util::scalar_str)
+            .unwrap_or_default()
+            .trim()
+            .to_string();
         let enabled = util::checkbox(extra, "enabled");
         let match_any = util::checkbox(extra, "match_any_rule");
         let inverse = util::checkbox(extra, "inverse");
@@ -1348,21 +1487,37 @@ async fn do_add(
 }
 
 /// `Pref_Filters::add` — create a new filter from the posted params.
-pub async fn add_filter(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Result<(), sqlx::Error> {
+pub async fn add_filter(
+    state: &AppState,
+    sess: &Sess,
+    extra: &Map<String, Value>,
+) -> Result<(), sqlx::Error> {
     let uid = sess.data().uid().unwrap_or(0);
     let pool = state.db.pool();
-    let title = extra.get("title").and_then(util::scalar_str).unwrap_or_default().trim().to_string();
+    let title = extra
+        .get("title")
+        .and_then(util::scalar_str)
+        .unwrap_or_default()
+        .trim()
+        .to_string();
     let enabled = util::checkbox(extra, "enabled");
     let match_any = util::checkbox(extra, "match_any_rule");
     let inverse = util::checkbox(extra, "inverse");
     let mut tx = pool.begin().await?;
-    do_add(&mut tx, uid, None, &title, enabled, match_any, inverse, extra).await?;
+    do_add(
+        &mut tx, uid, None, &title, enabled, match_any, inverse, extra,
+    )
+    .await?;
     tx.commit().await?;
     Ok(())
 }
 
 /// `Pref_Filters::clone` — clone the selected filters (one transaction each).
-pub async fn clone_filters(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Result<(), sqlx::Error> {
+pub async fn clone_filters(
+    state: &AppState,
+    sess: &Sess,
+    extra: &Map<String, Value>,
+) -> Result<(), sqlx::Error> {
     let uid = sess.data().uid().unwrap_or(0);
     let pool = state.db.pool();
     let ids = util::param_int_array(extra, "ids");
@@ -1370,7 +1525,10 @@ pub async fn clone_filters(state: &AppState, sess: &Sess, extra: &Map<String, Va
         return Ok(());
     }
     let new_title = if ids.len() == 1 {
-        extra.get("new_filter_title").and_then(util::scalar_str).map(|s| s.trim().to_string())
+        extra
+            .get("new_filter_title")
+            .and_then(util::scalar_str)
+            .map(|s| s.trim().to_string())
     } else {
         None
     };
@@ -1384,9 +1542,21 @@ pub async fn clone_filters(state: &AppState, sess: &Sess, extra: &Map<String, Va
         let src_title: String = s.get(1);
         let src_match_any: bool = s.get(2);
         let src_inverse: bool = s.get(3);
-        let title = new_title.clone().unwrap_or_else(|| format!("Clone of {src_title}"));
+        let title = new_title
+            .clone()
+            .unwrap_or_else(|| format!("Clone of {src_title}"));
         let mut tx = pool.begin().await?;
-        do_add(&mut tx, uid, Some(src_id), &title, false, src_match_any, src_inverse, &Map::new()).await?;
+        do_add(
+            &mut tx,
+            uid,
+            Some(src_id),
+            &title,
+            false,
+            src_match_any,
+            src_inverse,
+            &Map::new(),
+        )
+        .await?;
         tx.commit().await?;
     }
     Ok(())
@@ -1394,7 +1564,11 @@ pub async fn clone_filters(state: &AppState, sess: &Sess, extra: &Map<String, Va
 
 /// `Pref_Filters::join` — merge the selected filters into the first one (the
 /// base), then dedupe its rules/actions.
-pub async fn join_filters(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Result<(), sqlx::Error> {
+pub async fn join_filters(
+    state: &AppState,
+    sess: &Sess,
+    extra: &Map<String, Value>,
+) -> Result<(), sqlx::Error> {
     let uid = sess.data().uid().unwrap_or(0);
     let pool = state.db.pool();
     let ids = util::param_int_array(extra, "ids");
@@ -1445,7 +1619,16 @@ pub async fn join_filters(state: &AppState, sess: &Sess, extra: &Map<String, Val
 async fn optimize(pool: &sqlx::PgPool, id: i32) -> Result<(), sqlx::Error> {
     use std::collections::HashSet;
     /// The rule dedupe signature (all non-id columns).
-    type RuleSig = (i32, String, bool, i32, Option<i32>, Option<i32>, Option<String>, bool);
+    type RuleSig = (
+        i32,
+        String,
+        bool,
+        i32,
+        Option<i32>,
+        Option<i32>,
+        Option<String>,
+        bool,
+    );
     let mut tx = pool.begin().await?;
 
     // actions: unique on (filter_id, action_id, action_param).
@@ -1493,7 +1676,16 @@ async fn optimize(pool: &sqlx::PgPool, id: i32) -> Result<(), sqlx::Error> {
         let cat_id: Option<i32> = r.get(6);
         let match_on: Option<String> = r.get(7);
         let cat_filter: bool = r.get(8);
-        if !seen.insert((filter_id, reg_exp, inverse, filter_type, feed_id, cat_id, match_on, cat_filter)) {
+        if !seen.insert((
+            filter_id,
+            reg_exp,
+            inverse,
+            filter_type,
+            feed_id,
+            cat_id,
+            match_on,
+            cat_filter,
+        )) {
             dupe_ids.push(rid);
         }
     }
@@ -1507,4 +1699,3 @@ async fn optimize(pool: &sqlx::PgPool, id: i32) -> Result<(), sqlx::Error> {
     tx.commit().await?;
     Ok(())
 }
-

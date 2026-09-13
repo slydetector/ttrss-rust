@@ -74,9 +74,7 @@ async fn test_index_structure(
 ) {
     let (state, sess) = setup(pool, options).await;
 
-    let html = ttrss::pref_ui::index(&state, &sess)
-        .await
-        .expect("render");
+    let html = ttrss::pref_ui::index(&state, &sess).await.expect("render");
     let n = normalize(&html);
 
     // The accordion + the three panes (titles + the lazy loaders).
@@ -165,9 +163,7 @@ async fn test_index_profile_hides_blacklisted(
         sess.replace("test-sid".to_string(), data);
     }
 
-    let html = ttrss::pref_ui::index(&state, &sess)
-        .await
-        .expect("render");
+    let html = ttrss::pref_ui::index(&state, &sess).await.expect("render");
     let n = normalize(&html);
 
     // The profile notice is shown.

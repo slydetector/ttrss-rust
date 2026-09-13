@@ -79,7 +79,9 @@ async fn test_set_inserts_new_row_into_db(
 
     assert!(result, "set() should return true on success");
     assert_eq!(
-        get_raw_pref(&db, "PURGE_OLD_DAYS", uid, None).await.as_deref(),
+        get_raw_pref(&db, "PURGE_OLD_DAYS", uid, None)
+            .await
+            .as_deref(),
         Some("120"),
         "Value should be stored in the database"
     );
@@ -106,7 +108,9 @@ async fn test_set_updates_existing_row(
 
     prefs::set(&db, "PURGE_OLD_DAYS", &value2.to_string(), uid, None, true).await;
     assert_eq!(
-        get_raw_pref(&db, "PURGE_OLD_DAYS", uid, None).await.as_deref(),
+        get_raw_pref(&db, "PURGE_OLD_DAYS", uid, None)
+            .await
+            .as_deref(),
         Some("200"),
         "set() should UPDATE when row already exists"
     );
@@ -130,7 +134,9 @@ async fn test_set_stores_bool_as_string_in_db(
     // ENABLE_FEED_CATS defaults to true, so set false first to force a DB row.
     prefs::set(&db, "ENABLE_FEED_CATS", "", uid, None, true).await;
     assert_eq!(
-        get_raw_pref(&db, "ENABLE_FEED_CATS", uid, None).await.as_deref(),
+        get_raw_pref(&db, "ENABLE_FEED_CATS", uid, None)
+            .await
+            .as_deref(),
         Some(""),
         "false should be stored as empty string in DB"
     );
@@ -138,7 +144,9 @@ async fn test_set_stores_bool_as_string_in_db(
     // Now set true — this is a change from the DB value.
     prefs::set(&db, "ENABLE_FEED_CATS", "1", uid, None, true).await;
     assert_eq!(
-        get_raw_pref(&db, "ENABLE_FEED_CATS", uid, None).await.as_deref(),
+        get_raw_pref(&db, "ENABLE_FEED_CATS", uid, None)
+            .await
+            .as_deref(),
         Some("1"),
         "true should be stored as \"1\" in DB"
     );
@@ -160,7 +168,9 @@ async fn test_set_stores_string_in_db(
 
     prefs::set(&db, "SHORT_DATE_FORMAT", value, uid, None, true).await;
     assert_eq!(
-        get_raw_pref(&db, "SHORT_DATE_FORMAT", uid, None).await.as_deref(),
+        get_raw_pref(&db, "SHORT_DATE_FORMAT", uid, None)
+            .await
+            .as_deref(),
         Some(value)
     );
 }
@@ -300,9 +310,14 @@ async fn test_set_profile_blacklisted_pref_returns_false(
     // PURGE_OLD_DAYS is in _PROFILE_BLACKLIST.
     let result = prefs::set(&db, "PURGE_OLD_DAYS", "999", uid, Some(profile_id), true).await;
 
-    assert!(!result, "set() should return false for blacklisted pref with profile");
     assert!(
-        get_raw_pref(&db, "PURGE_OLD_DAYS", uid, Some(profile_id)).await.is_none(),
+        !result,
+        "set() should return false for blacklisted pref with profile"
+    );
+    assert!(
+        get_raw_pref(&db, "PURGE_OLD_DAYS", uid, Some(profile_id))
+            .await
+            .is_none(),
         "Blacklisted pref should not be stored in the database"
     );
 }
@@ -323,11 +338,24 @@ async fn test_set_non_blacklisted_pref_works_with_profile(
     assert!(profile_id > 0, "create_profile should succeed");
     // REVERSE_HEADLINES is not in the blacklist.
 
-    let result = prefs::set(&db, "REVERSE_HEADLINES", "1", uid, Some(profile_id as i32), true).await;
+    let result = prefs::set(
+        &db,
+        "REVERSE_HEADLINES",
+        "1",
+        uid,
+        Some(profile_id as i32),
+        true,
+    )
+    .await;
 
-    assert!(result, "set() should succeed for non-blacklisted pref with profile");
+    assert!(
+        result,
+        "set() should succeed for non-blacklisted pref with profile"
+    );
     assert_eq!(
-        get_raw_pref(&db, "REVERSE_HEADLINES", uid, Some(profile_id as i32)).await.as_deref(),
+        get_raw_pref(&db, "REVERSE_HEADLINES", uid, Some(profile_id as i32))
+            .await
+            .as_deref(),
         Some("1")
     );
 }
@@ -353,13 +381,12 @@ async fn test_reset_clears_all_user_prefs(
     prefs::set(&db, "USER_TIMEZONE", "America/New_York", uid, None, true).await;
 
     // Verify they exist.
-    let count_before: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM ttrss_user_prefs2 WHERE owner_uid = $1",
-    )
-    .bind(uid)
-    .fetch_one(db.pool())
-    .await
-    .expect("count before");
+    let count_before: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM ttrss_user_prefs2 WHERE owner_uid = $1")
+            .bind(uid)
+            .fetch_one(db.pool())
+            .await
+            .expect("count before");
     assert!(count_before >= 3);
 
     prefs::reset(&db, uid, None).await;
@@ -425,7 +452,10 @@ async fn test_set_returns_false_for_invalid_pref_name(
     // the PHP test); the Rust port simply returns false.
     let result = prefs::set(&db, "INVALID_PREF_NAME", "value", uid, None, true).await;
 
-    assert!(!result, "set() should return false for an invalid pref name");
+    assert!(
+        !result,
+        "set() should return false for an invalid pref name"
+    );
 }
 
 /// PHP: test_multiple_users_have_isolated_prefs
@@ -447,6 +477,12 @@ async fn test_multiple_users_have_isolated_prefs(
 
     let rows1 = prefs::load_rows(&db, uid1, None).await;
     let rows2 = prefs::load_rows(&db, uid2, None).await;
-    assert_eq!(prefs::resolve("PURGE_OLD_DAYS", &rows1, None), Pref::Int(100));
-    assert_eq!(prefs::resolve("PURGE_OLD_DAYS", &rows2, None), Pref::Int(200));
+    assert_eq!(
+        prefs::resolve("PURGE_OLD_DAYS", &rows1, None),
+        Pref::Int(100)
+    );
+    assert_eq!(
+        prefs::resolve("PURGE_OLD_DAYS", &rows2, None),
+        Pref::Int(200)
+    );
 }

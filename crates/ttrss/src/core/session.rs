@@ -155,7 +155,10 @@ use crate::core::crypt;
 pub fn encrypt_envelope(data: &[u8], key: &[u8; crypt::KEY_LEN]) -> Result<Vec<u8>> {
     let enc = crypt::encrypt(key, data)?;
     let envelope = Value::Array(vec![
-        (Key::Bytes(b"algo".to_vec()), Value::Bytes(enc.algo.as_bytes().to_vec())),
+        (
+            Key::Bytes(b"algo".to_vec()),
+            Value::Bytes(enc.algo.as_bytes().to_vec()),
+        ),
         (Key::Bytes(b"nonce".to_vec()), Value::Bytes(enc.nonce)),
         (Key::Bytes(b"payload".to_vec()), Value::Bytes(enc.payload)),
     ]);
@@ -234,7 +237,10 @@ mod tests {
         s.set("uid", Value::Int(1));
         s.set("last_login_update", Value::Int(1788473616));
         s.set("ip_address", Value::Bytes(b"172.18.0.1".to_vec()));
-        s.set("csrf_token", Value::Bytes(b"4e2e86d00a426322856d2722d1d98e4e".to_vec()));
+        s.set(
+            "csrf_token",
+            Value::Bytes(b"4e2e86d00a426322856d2722d1d98e4e".to_vec()),
+        );
         s.set("auth_module", Value::Bytes(b"auth_internal".to_vec()));
         s.set("name", Value::Bytes(b"admin".to_vec()));
         s.set("access_level", Value::Int(10));
@@ -274,11 +280,15 @@ mod tests {
 
     #[test]
     fn roundtrip_encrypted() {
-        let key = crypt::hex_key("9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08").unwrap();
+        let key =
+            crypt::hex_key("9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08")
+                .unwrap();
         let s = sample_session();
         let stored = to_stored(s.items(), Some(&key)).unwrap();
         // stored is base64 of a:3:{s:4:"algo";...} (contains raw nonce/payload bytes)
-        let decoded_inner = base64::engine::general_purpose::STANDARD.decode(&stored).unwrap();
+        let decoded_inner = base64::engine::general_purpose::STANDARD
+            .decode(&stored)
+            .unwrap();
         assert!(decoded_inner.starts_with(b"a:3:{s:4:\"algo\";"));
         let back = from_stored(&stored, Some(&key)).unwrap();
         assert_eq!(back.uid(), Some(1));

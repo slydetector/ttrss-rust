@@ -45,11 +45,10 @@ pub fn otp_qrcode_data_uri(otpurl: &str) -> Option<String> {
 
 /// `UserHelper::is_otp_enabled`.
 pub async fn is_otp_enabled(db: &PgPool, uid: i64) -> Result<bool, sqlx::Error> {
-    let row: Option<(bool,)> =
-        sqlx::query_as("SELECT otp_enabled FROM ttrss_users WHERE id = $1")
-            .bind(uid)
-            .fetch_optional(db)
-            .await?;
+    let row: Option<(bool,)> = sqlx::query_as("SELECT otp_enabled FROM ttrss_users WHERE id = $1")
+        .bind(uid)
+        .fetch_optional(db)
+        .await?;
     Ok(row.map(|r| r.0).unwrap_or(false))
 }
 
@@ -109,7 +108,12 @@ pub async fn get_otp_secret(
 /// `UserHelper::enable_otp`: verify the 6-digit code against the current
 /// secret (`TOTP::now()`, no ±1 window) and, on a match, set `otp_enabled =
 /// true`. Returns false when the code is wrong or the user is missing.
-pub async fn enable_otp(db: &PgPool, uid: i64, otp_code: &str, t_secs: u64) -> Result<bool, sqlx::Error> {
+pub async fn enable_otp(
+    db: &PgPool,
+    uid: i64,
+    otp_code: &str,
+    t_secs: u64,
+) -> Result<bool, sqlx::Error> {
     let Some((_otp_enabled, secret)) = otp_state(db, uid).await? else {
         return Ok(false);
     };
@@ -127,10 +131,11 @@ pub async fn enable_otp(db: &PgPool, uid: i64, otp_code: &str, t_secs: u64) -> R
 /// (schema >= 143) so a fresh one is generated on the next enable. Returns
 /// false when the user does not exist.
 pub async fn disable_otp(db: &PgPool, uid: i64) -> Result<bool, sqlx::Error> {
-    let exists: Option<bool> = sqlx::query_scalar("SELECT otp_enabled FROM ttrss_users WHERE id = $1")
-        .bind(uid)
-        .fetch_optional(db)
-        .await?;
+    let exists: Option<bool> =
+        sqlx::query_scalar("SELECT otp_enabled FROM ttrss_users WHERE id = $1")
+            .bind(uid)
+            .fetch_optional(db)
+            .await?;
     if exists.is_none() {
         return Ok(false);
     }
@@ -159,28 +164,24 @@ mod tests {
 
     #[test]
     fn format_groups_by_four() {
-        assert_eq!(
-            format_otp_secret("MZXW6YTBOI"),
-            "MZXW 6YTB OI"
-        );
-        assert_eq!(
-            format_otp_secret("ABCDEFGHIJKLMNOP"),
-            "ABCD EFGH IJKL MNOP"
-        );
+        assert_eq!(format_otp_secret("MZXW6YTBOI"), "MZXW 6YTB OI");
+        assert_eq!(format_otp_secret("ABCDEFGHIJKLMNOP"), "ABCD EFGH IJKL MNOP");
     }
 
     #[test]
     fn qrcode_is_png_data_uri() {
-        let uri = otp_qrcode_data_uri(
-            "otpauth://totp/admin?secret=MZXW6YTBOI&issuer=Tiny+Tiny+RSS",
-        )
-        .expect("qr");
+        let uri =
+            otp_qrcode_data_uri("otpauth://totp/admin?secret=MZXW6YTBOI&issuer=Tiny+Tiny+RSS")
+                .expect("qr");
         assert!(uri.starts_with("data:image/png;base64,"), "uri: {uri}");
         let b64 = uri.strip_prefix("data:image/png;base64,").unwrap();
         let bytes = base64::engine::general_purpose::STANDARD
             .decode(b64)
             .expect("valid base64");
         // PNG signature.
-        assert_eq!(&bytes[0..8], &[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]);
+        assert_eq!(
+            &bytes[0..8],
+            &[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]
+        );
     }
 }

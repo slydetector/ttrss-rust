@@ -8,10 +8,10 @@
 
 use std::collections::HashMap;
 
-use serde_json::{json, Map, Value};
-use minijinja::Environment;
-use sqlx::Row;
 use crate::core::db::Db;
+use minijinja::Environment;
+use serde_json::{json, Map, Value};
+use sqlx::Row;
 
 use crate::session::Sess;
 use crate::util;
@@ -34,8 +34,11 @@ fn labels_index_env() -> &'static Environment<'static> {
     static ENV: std::sync::OnceLock<Environment<'static>> = std::sync::OnceLock::new();
     ENV.get_or_init(|| {
         let mut env = Environment::new();
-        env.add_template("labels_index", include_str!("../templates/labels_index.html.jinja"))
-            .expect("valid labels_index template");
+        env.add_template(
+            "labels_index",
+            include_str!("../templates/labels_index.html.jinja"),
+        )
+        .expect("valid labels_index template");
         env
     })
 }
@@ -93,23 +96,13 @@ pub async fn get_all(pool: &sqlx::PgPool, owner_uid: i64) -> Vec<Map<String, Val
     .fetch_all(pool)
     .await
     .unwrap_or_default();
-    rows
-        .into_iter()
+    rows.into_iter()
         .map(|r| {
             Map::from_iter([
                 ("id".to_string(), Value::from(r.get::<i32, _>(0))),
-                (
-                    "fg_color".to_string(),
-                    Value::from(r.get::<String, _>(1)),
-                ),
-                (
-                    "bg_color".to_string(),
-                    Value::from(r.get::<String, _>(2)),
-                ),
-                (
-                    "caption".to_string(),
-                    Value::from(r.get::<String, _>(3)),
-                ),
+                ("fg_color".to_string(), Value::from(r.get::<String, _>(1))),
+                ("bg_color".to_string(), Value::from(r.get::<String, _>(2))),
+                ("caption".to_string(), Value::from(r.get::<String, _>(3))),
             ])
         })
         .collect()
@@ -228,7 +221,10 @@ pub async fn get_labels_json(pool: &sqlx::PgPool, owner_uid: i64, id: i32) -> St
         // the decoded value if usable, else `[]` (invalid/empty/no-labels).
         // Only an empty/NULL cache falls through to the hard way below.
         match serde_json::from_str::<Value>(cache) {
-            Ok(v) if !php_empty_value(&v) && v.get("no-labels").and_then(Value::as_i64) != Some(1) => {
+            Ok(v)
+                if !php_empty_value(&v)
+                    && v.get("no-labels").and_then(Value::as_i64) != Some(1) =>
+            {
                 return v.to_string();
             }
             _ => return Value::Array(Vec::new()).to_string(),
@@ -254,7 +250,12 @@ pub async fn get_labels_json(pool: &sqlx::PgPool, owner_uid: i64, id: i32) -> St
         let caption: String = row.get(1);
         let fg_color: String = row.get(2);
         let bg_color: String = row.get(3);
-        rv.push(json!([label_to_feed_id(label_id as i64), caption, fg_color, bg_color]));
+        rv.push(json!([
+            label_to_feed_id(label_id as i64),
+            caption,
+            fg_color,
+            bg_color
+        ]));
     }
 
     // PHP `Article::_get_labels` writes back the rows or the marker.
@@ -323,13 +324,12 @@ pub async fn add_article(pool: &sqlx::PgPool, id: i32, label: &str, owner_uid: i
     .ok()
     .flatten();
     if exists.unwrap_or(0) == 0 {
-        let _ = sqlx::query(
-            "INSERT INTO ttrss_user_labels2 (label_id, article_id) VALUES ($1, $2)",
-        )
-        .bind(label_id as i64)
-        .bind(id)
-        .execute(pool)
-        .await;
+        let _ =
+            sqlx::query("INSERT INTO ttrss_user_labels2 (label_id, article_id) VALUES ($1, $2)")
+                .bind(label_id as i64)
+                .bind(id)
+                .execute(pool)
+                .await;
     }
     clear_cache(pool, id).await;
 }
@@ -337,7 +337,12 @@ pub async fn add_article(pool: &sqlx::PgPool, id: i32, label: &str, owner_uid: i
 /// `Labels::remove`: delete label `id` for the owner; when a row was removed
 /// also drop the label's access key and clear the owner's label caches.
 /// `owner_uid` is the session uid when `None`/0.
-pub async fn remove(db: &Db, id: i32, session_uid: i64, owner_uid: Option<i64>) -> Result<(), sqlx::Error> {
+pub async fn remove(
+    db: &Db,
+    id: i32,
+    session_uid: i64,
+    owner_uid: Option<i64>,
+) -> Result<(), sqlx::Error> {
     let owner = match owner_uid {
         Some(u) if u != 0 => u,
         _ => session_uid,
@@ -347,13 +352,12 @@ pub async fn remove(db: &Db, id: i32, session_uid: i64, owner_uid: Option<i64>) 
 
     // PHP reads the caption unconditionally (a NULL row just yields no
     // cached-data cleanup).
-    let caption: Option<String> = sqlx::query_scalar(
-        "SELECT caption FROM ttrss_labels2 WHERE id = $1",
-    )
-    .bind(id)
-    .fetch_optional(&mut *tx)
-    .await?
-    .flatten();
+    let caption: Option<String> =
+        sqlx::query_scalar("SELECT caption FROM ttrss_labels2 WHERE id = $1")
+            .bind(id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .flatten();
 
     let result = sqlx::query("DELETE FROM ttrss_labels2 WHERE id = $1 AND owner_uid = $2")
         .bind(id)
@@ -439,7 +443,10 @@ pub async fn create(
 /// PHP `clean($_REQUEST[name])` as an `Option<String>`: `Some(clean(s))` for a
 /// present string/number, `None` for absent/null (PHP `clean(null)` = null).
 fn req_clean(extra: &Map<String, Value>, name: &str) -> Option<String> {
-    extra.get(name).and_then(util::scalar_str).map(|s| util::clean_str(&s))
+    extra
+        .get(name)
+        .and_then(util::scalar_str)
+        .map(|s| util::clean_str(&s))
 }
 
 /// `req_clean` defaulting absent values to `""`.
@@ -479,7 +486,11 @@ pub async fn edit(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> 
 /// owner's labels), also rewrite the "Assign label" filter actions
 /// (`action_id = 7`) that reference the old caption. Returns the (possibly
 /// unchanged) caption — PHP prints it.
-pub async fn save(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Result<String, sqlx::Error> {
+pub async fn save(
+    state: &AppState,
+    sess: &Sess,
+    extra: &Map<String, Value>,
+) -> Result<String, sqlx::Error> {
     let uid = sess.data().uid().unwrap_or(0);
     let pool = state.db.pool();
     let id = req_clean(extra, "id");
@@ -508,12 +519,14 @@ pub async fn save(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> 
         if collision.is_none() {
             if util::php_str_truthy(caption.as_deref()) {
                 let new = caption.clone().unwrap();
-                sqlx::query("UPDATE ttrss_labels2 SET caption = $1 WHERE id = $2::int AND owner_uid = $3")
-                    .bind(&new)
-                    .bind(&id)
-                    .bind(uid)
-                    .execute(&mut *tx)
-                    .await?;
+                sqlx::query(
+                    "UPDATE ttrss_labels2 SET caption = $1 WHERE id = $2::int AND owner_uid = $3",
+                )
+                .bind(&new)
+                .bind(&id)
+                .bind(uid)
+                .execute(&mut *tx)
+                .await?;
                 sqlx::query(
                     "UPDATE ttrss_filters2_actions SET action_param = $1
                      WHERE action_param = $2 AND action_id = 7
@@ -541,7 +554,11 @@ pub async fn save(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> 
 /// selected labels. `kind` selects the columns: `"fg"`/`"bg"` sets a single
 /// column from `color`; anything else sets both from `fg`/`bg`. Clears the
 /// owner's label cache after each label.
-pub async fn colorset(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Result<(), sqlx::Error> {
+pub async fn colorset(
+    state: &AppState,
+    sess: &Sess,
+    extra: &Map<String, Value>,
+) -> Result<(), sqlx::Error> {
     let uid = sess.data().uid().unwrap_or(0);
     let pool = state.db.pool();
     let kind = req_str(extra, "kind");
@@ -582,7 +599,11 @@ pub async fn colorset(state: &AppState, sess: &Sess, extra: &Map<String, Value>)
 
 /// `Pref_Labels::colorreset` — reset the selected labels' colors to default
 /// (`''`), clearing the owner's label cache after each.
-pub async fn colorreset(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Result<(), sqlx::Error> {
+pub async fn colorreset(
+    state: &AppState,
+    sess: &Sess,
+    extra: &Map<String, Value>,
+) -> Result<(), sqlx::Error> {
     let uid = sess.data().uid().unwrap_or(0);
     let pool = state.db.pool();
     let ids = util::param_int_array(extra, "ids");
@@ -601,7 +622,11 @@ pub async fn colorreset(state: &AppState, sess: &Sess, extra: &Map<String, Value
 }
 
 /// `Pref_Labels::remove` — remove each selected label (`Labels::remove`).
-pub async fn remove_labels(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Result<(), sqlx::Error> {
+pub async fn remove_labels(
+    state: &AppState,
+    sess: &Sess,
+    extra: &Map<String, Value>,
+) -> Result<(), sqlx::Error> {
     let uid = sess.data().uid().unwrap_or(0);
     let ids = util::param_int_array(extra, "ids");
     for id in ids {
@@ -612,16 +637,25 @@ pub async fn remove_labels(state: &AppState, sess: &Sess, extra: &Map<String, Va
 
 /// `Pref_Labels::add` — create a new label; when created and `output` is
 /// falsy, returns `Created label <b>caption</b>` (else empty).
-pub async fn add_label(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Result<String, sqlx::Error> {
+pub async fn add_label(
+    state: &AppState,
+    sess: &Sess,
+    extra: &Map<String, Value>,
+) -> Result<String, sqlx::Error> {
     let uid = sess.data().uid().unwrap_or(0);
     let caption = req_str(extra, "caption");
     let output = req_str(extra, "output");
 
     if util::php_str_truthy(Some(&caption))
-        && create(&state.db, &caption, None, None, uid, None).await?.is_some()
+        && create(&state.db, &caption, None, None, uid, None)
+            .await?
+            .is_some()
         && !util::php_str_truthy(Some(&output))
     {
-        return Ok(format!("Created label <b>{}</b>", util::htmlspecialchars(&caption)));
+        return Ok(format!(
+            "Created label <b>{}</b>",
+            util::htmlspecialchars(&caption)
+        ));
     }
     Ok(String::new())
 }

@@ -214,8 +214,7 @@ async fn test_set_widescreen(
     let db = state.db.pool();
 
     let rv1 =
-        ttrss::settings::set_widescreen(&state, &sess, &request(&[("wide", json!("1"))]))
-            .await;
+        ttrss::settings::set_widescreen(&state, &sess, &request(&[("wide", json!("1"))])).await;
     assert_eq!(
         pref_value(db, "WIDESCREEN_MODE").await.as_deref(),
         Some("1")
@@ -223,8 +222,7 @@ async fn test_set_widescreen(
     assert_eq!(rv1, json!({ "wide": 1 }));
 
     let rv2 =
-        ttrss::settings::set_widescreen(&state, &sess, &request(&[("wide", json!("0"))]))
-            .await;
+        ttrss::settings::set_widescreen(&state, &sess, &request(&[("wide", json!("0"))])).await;
     assert_eq!(pref_value(db, "WIDESCREEN_MODE").await.as_deref(), Some(""));
     assert_eq!(rv2, json!({ "wide": 0 }));
 }
@@ -264,7 +262,6 @@ async fn test_client_log_empty_noop(
     let (state, sess) = setup(pool, options).await;
 
     // An empty `msg` logs nothing and echoes nothing (JSON `null`).
-    let rv =
-        ttrss::settings::client_log(&state, &sess, &request(&[("msg", json!(""))])).await;
+    let rv = ttrss::settings::client_log(&state, &sess, &request(&[("msg", json!(""))])).await;
     assert_eq!(rv, Value::Null);
 }

@@ -12,20 +12,20 @@ use std::collections::HashMap;
 use std::fs;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use axum::http::StatusCode;
 use base64::Engine as _;
+use minijinja::Environment;
 use serde::Serialize;
 use serde_json::{json, Map, Value};
-use minijinja::Environment;
 use sqlx::Row;
-use axum::http::StatusCode;
 
-use crate::controls;
 use crate::cats::{CAT_LABELS, CAT_SPECIAL};
+use crate::controls;
 use crate::util;
 
 use crate::prefs;
-use crate::time::TzCtx;
 use crate::session::Sess;
+use crate::time::TzCtx;
 use crate::AppState;
 
 // `Feeds::*` / `LABEL_BASE_INDEX` (functions.php).
@@ -121,11 +121,7 @@ pub async fn inactive_feeds(state: &AppState, sess: &Sess) -> Value {
 }
 
 /// `Pref_Feeds::getfeedtree` → `_makefeedtree()`.
-pub async fn getfeedtree(
-    state: &AppState,
-    sess: &Sess,
-    extra: &Map<String, Value>,
-) -> Value {
+pub async fn getfeedtree(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Value {
     let data = sess.data();
     let uid = data.uid().unwrap_or(0);
     let profile = data.profile().map(|p| p as i32);
@@ -134,10 +130,16 @@ pub async fn getfeedtree(
     let enable_cats = prefs::resolve(prefs::ENABLE_FEED_CATS, &rows, profile).as_bool();
     let fresh_max_age = prefs::resolve(prefs::FRESH_ARTICLE_MAX_AGE, &rows, profile).as_int();
     let tz = TzCtx {
-        user_tz: prefs::resolve(prefs::USER_TIMEZONE, &rows, profile).as_str().to_string(),
+        user_tz: prefs::resolve(prefs::USER_TIMEZONE, &rows, profile)
+            .as_str()
+            .to_string(),
         client_tz_offset: data.get_int("clientTzOffset").unwrap_or(0),
-        short_date_format: prefs::resolve(prefs::SHORT_DATE_FORMAT, &rows, profile).as_str().to_string(),
-        long_date_format: prefs::resolve(prefs::LONG_DATE_FORMAT, &rows, profile).as_str().to_string(),
+        short_date_format: prefs::resolve(prefs::SHORT_DATE_FORMAT, &rows, profile)
+            .as_str()
+            .to_string(),
+        long_date_format: prefs::resolve(prefs::LONG_DATE_FORMAT, &rows, profile)
+            .as_str()
+            .to_string(),
     };
 
     let mode_is_2 = is_mode_2(extra);
@@ -216,8 +218,13 @@ pub async fn getfeedtree(
             };
             for r in &labels {
                 let label_id = r.get::<i32, _>(0) as i64;
-                let mut feed =
-                    special_feed(pool, uid, crate::labels::label_to_feed_id(label_id), fresh_max_age).await;
+                let mut feed = special_feed(
+                    pool,
+                    uid,
+                    crate::labels::label_to_feed_id(label_id),
+                    fresh_max_age,
+                )
+                .await;
                 if let Value::Object(obj) = &mut feed {
                     obj.insert("name".into(), json!(r.get::<String, _>(3)));
                     obj.insert("fg_color".into(), json!(r.get::<String, _>(1)));
@@ -321,21 +328,39 @@ pub async fn index(state: &AppState, sess: &Sess, extra: &Map<String, Value>) ->
     let feed_search = if extra.contains_key("search") {
         let s = util::clean_str(extra.get("search").and_then(Value::as_str).unwrap_or(""));
         sess.with_mut(|d| {
-            d.set("prefs_feed_search", crate::core::phpser::Value::Bytes(s.as_bytes().to_vec()))
+            d.set(
+                "prefs_feed_search",
+                crate::core::phpser::Value::Bytes(s.as_bytes().to_vec()),
+            )
         });
         s
     } else {
-        sess.data().get_str("prefs_feed_search").unwrap_or("").to_string()
+        sess.data()
+            .get_str("prefs_feed_search")
+            .unwrap_or("")
+            .to_string()
     };
-    let auto_expand = if feed_search.is_empty() { "false" } else { "true" };
+    let auto_expand = if feed_search.is_empty() {
+        "false"
+    } else {
+        "true"
+    };
 
     let mut ctx: Map<String, Value> = Map::new();
-    ctx.insert("feed_search".into(), Value::String(util::htmlspecialchars(&feed_search)));
+    ctx.insert(
+        "feed_search".into(),
+        Value::String(util::htmlspecialchars(&feed_search)),
+    );
     ctx.insert("auto_expand".into(), Value::String(auto_expand.to_string()));
     ctx.insert("enable_feed_cats".into(), Value::Bool(enable_feed_cats));
     ctx.insert(
         "csrf_token".into(),
-        Value::String(sess.data().get_str("csrf_token").unwrap_or_default().to_string()),
+        Value::String(
+            sess.data()
+                .get_str("csrf_token")
+                .unwrap_or_default()
+                .to_string(),
+        ),
     );
     ctx.insert(
         "opml_notice".into(),
@@ -366,8 +391,11 @@ fn feeds_index_env() -> &'static Environment<'static> {
     static ENV: std::sync::OnceLock<Environment<'static>> = std::sync::OnceLock::new();
     ENV.get_or_init(|| {
         let mut env = Environment::new();
-        env.add_template("feeds_index", include_str!("../templates/feeds_index.html.jinja"))
-            .expect("valid feeds_index template");
+        env.add_template(
+            "feeds_index",
+            include_str!("../templates/feeds_index.html.jinja"),
+        )
+        .expect("valid feeds_index template");
         env
     })
 }
@@ -383,12 +411,7 @@ fn cat_title(cat_id: i64) -> &'static str {
 }
 
 /// A special-feed or label node: `feedlist_init_feed(feed_id)`.
-async fn special_feed(
-    pool: &sqlx::PgPool,
-    uid: i64,
-    feed_id: i64,
-    fresh_max_age: i64,
-) -> Value {
+async fn special_feed(pool: &sqlx::PgPool, uid: i64, feed_id: i64, fresh_max_age: i64) -> Value {
     let unread = counters(pool, uid, feed_id, fresh_max_age).await;
     let mut m = Map::new();
     m.insert("id".into(), json!(format!("FEED:{feed_id}")));
@@ -439,18 +462,16 @@ pub async fn feed_title(pool: &sqlx::PgPool, id: i64, owner_uid: i64) -> String 
             .flatten()
             .unwrap_or_else(|| format!("Unknown label ({})", label_id))
         }
-        _ if id > 0 => {
-            sqlx::query_scalar::<_, String>(
-                "SELECT title FROM ttrss_feeds WHERE id = $1 AND owner_uid = $2 LIMIT 1",
-            )
-            .bind(id as i32)
-            .bind(owner_uid)
-            .fetch_optional(pool)
-            .await
-            .ok()
-            .flatten()
-            .unwrap_or_else(|| format!("Unknown feed ({})", id))
-        }
+        _ if id > 0 => sqlx::query_scalar::<_, String>(
+            "SELECT title FROM ttrss_feeds WHERE id = $1 AND owner_uid = $2 LIMIT 1",
+        )
+        .bind(id as i32)
+        .bind(owner_uid)
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| format!("Unknown feed ({})", id)),
         _ => id.to_string(),
     }
 }
@@ -488,11 +509,9 @@ pub async fn catchup_scope(
     let search_qpart = if search.is_empty() {
         "true".to_string()
     } else {
-        crate::search::search_to_sql_cached(
-            pool, rows, owner_uid, profile, search, search_lang,
-        )
-        .await
-        .query_part
+        crate::search::search_to_sql_cached(pool, rows, owner_uid, profile, search, search_lang)
+            .await
+            .query_part
     };
 
     if !crate::util::is_numeric(feed_id_or_tag) {
@@ -521,7 +540,14 @@ pub async fn catchup_scope(
             } else {
                 let mut children = crate::headlines::child_cats(pool, owner_uid, feed_id).await;
                 children.push(feed_id);
-                format!("cat_id IN ({})", children.iter().map(|c| c.to_string()).collect::<Vec<_>>().join(","))
+                format!(
+                    "cat_id IN ({})",
+                    children
+                        .iter()
+                        .map(|c| c.to_string())
+                        .collect::<Vec<_>>()
+                        .join(",")
+                )
             };
             let _ = sqlx::query(&format!(
                 "UPDATE ttrss_user_entries SET unread = false, last_read = NOW()
@@ -596,10 +622,7 @@ pub async fn catchup_scope(
             _ => None,
         };
         if let Some(q) = query {
-            let _ = sqlx::query(&q)
-                .bind(owner_uid)
-                .execute(pool)
-                .await;
+            let _ = sqlx::query(&q).bind(owner_uid).execute(pool).await;
         }
     } else if feed_id < LABEL_BASE_INDEX {
         // label
@@ -630,16 +653,25 @@ pub async fn catchup_feed(state: &AppState, sess: &Sess, extra: &Map<String, Val
     let rows = prefs::load_rows(&state.db, uid, profile).await;
     // PHP: `clean(...)` = `strip_tags` + trim — use `clean_str` (not a bare
     // `.trim()`) so these match PHP exactly, including tag stripping.
-    let clean_param = |k: &str| {
-        util::clean_str(extra.get(k).and_then(|v| v.as_str()).unwrap_or(""))
-    };
+    let clean_param =
+        |k: &str| util::clean_str(extra.get(k).and_then(|v| v.as_str()).unwrap_or(""));
     let feed_id = clean_param("feed_id");
-    let is_cat = extra.get("is_cat").is_some_and(|v| util::param_to_bool(Some(v)));
+    let is_cat = extra
+        .get("is_cat")
+        .is_some_and(|v| util::param_to_bool(Some(v)));
     let mode = clean_param("mode");
     let search_query = clean_param("search_query");
     let search_lang = clean_param("search_lang");
     catchup_scope(
-        pool, uid, profile, &rows, &feed_id, is_cat, &mode, &search_query, &search_lang,
+        pool,
+        uid,
+        profile,
+        &rows,
+        &feed_id,
+        is_cat,
+        &mode,
+        &search_query,
+        &search_lang,
     )
     .await;
     let client_tz_offset = data.get_int("clientTzOffset").unwrap_or(0);
@@ -682,15 +714,14 @@ pub async fn opensite(
     let uid = sess.data().uid().unwrap_or(0);
     let feed_id = crate::util::clean_int(extra.get("feed_id")) as i32;
 
-    let site_url: Option<String> = sqlx::query_scalar(
-        "SELECT site_url FROM ttrss_feeds WHERE id = $1 AND owner_uid = $2",
-    )
-    .bind(feed_id)
-    .bind(uid)
-    .fetch_optional(state.db.pool())
-    .await
-    .ok()
-    .flatten();
+    let site_url: Option<String> =
+        sqlx::query_scalar("SELECT site_url FROM ttrss_feeds WHERE id = $1 AND owner_uid = $2")
+            .bind(feed_id)
+            .bind(uid)
+            .fetch_optional(state.db.pool())
+            .await
+            .ok()
+            .flatten();
 
     if let Some(url) = site_url {
         if let Some(valid) = crate::urlhelper::validate(&url, false) {
@@ -1008,7 +1039,10 @@ fn feed_node(state: &AppState, f: &FeedRow, tz: &TzCtx) -> Value {
     out.insert("icon".into(), json!(feed_icon_url(state, f.id)));
     out.insert(
         "param".into(),
-        json!(articles_param(f.num_articles, &crate::time::make_local_datetime(f.last_updated.as_deref(), false, tz))),
+        json!(articles_param(
+            f.num_articles,
+            &crate::time::make_local_datetime(f.last_updated.as_deref(), false, tz)
+        )),
     );
     out.insert(
         "updates_disabled".into(),
@@ -1115,12 +1149,7 @@ async fn fetch_all_feeds(pool: &sqlx::PgPool, uid: i64) -> Vec<FeedRow> {
 }
 
 /// `Feeds::_get_counters(feed, is_cat=false, unread_only=true, uid)`.
-async fn counters(
-    pool: &sqlx::PgPool,
-    uid: i64,
-    feed_id: i64,
-    fresh_max_age: i64,
-) -> i64 {
+async fn counters(pool: &sqlx::PgPool, uid: i64, feed_id: i64, fresh_max_age: i64) -> i64 {
     if feed_id == FEED_RECENTLY_READ {
         return 0;
     }
@@ -1178,7 +1207,7 @@ async fn counters(
         .fetch_one(pool)
         .await
         .unwrap_or(0)
-    }
+}
 
 // ---------------------------------------------------------------------------
 // Feed configuration mutations (M4: feed CRUD)
@@ -1188,19 +1217,34 @@ async fn counters(
 // category add/rename/remove trio. Plugin hooks are no-ops in this port.
 // ---------------------------------------------------------------------------
 
-
 /// `Pref_Feeds::editsaveops($batch)` — the shared single-feed and batch feed
 /// save. Single: 0 or 1; batch: total rows touched.
-async fn editsaveops(state: &AppState, uid: i64, profile: Option<i32>, extra: &Map<String, Value>, batch: bool) -> i64 {
+async fn editsaveops(
+    state: &AppState,
+    uid: i64,
+    profile: Option<i32>,
+    extra: &Map<String, Value>,
+    batch: bool,
+) -> i64 {
     let pool = state.db.pool();
-    let s = |k: &str| extra.get(k).and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let s = |k: &str| {
+        extra
+            .get(k)
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string()
+    };
     let feed_title = util::clean_str(&s("title"));
     let feed_url = util::clean_str(&s("feed_url"));
     let site_url = util::clean_str(&s("site_url"));
     let upd_intl = util::php_int_cast(&s("update_interval"));
     let purge_intl = util::php_int_cast(&s("purge_interval"));
     let feed_id = util::clean_int(extra.get("id")) as i32;
-    let feed_ids = if batch { util::param_int_array(extra, "ids") } else { Vec::new() };
+    let feed_ids = if batch {
+        util::param_int_array(extra, "ids")
+    } else {
+        Vec::new()
+    };
     let cat_id = util::clean_int(extra.get("cat_id")) as i32;
     let auth_login = util::clean_str(&s("auth_login"));
     let mut auth_pass = util::clean_str(&s("auth_pass"));
@@ -1222,14 +1266,16 @@ async fn editsaveops(state: &AppState, uid: i64, profile: Option<i32>, extra: &M
     }
 
     if !batch {
-        let exists = sqlx::query_scalar::<_, i32>("SELECT id FROM ttrss_feeds WHERE id = $1 AND owner_uid = $2")
-            .bind(feed_id)
-            .bind(uid)
-            .fetch_optional(pool)
-            .await
-            .ok()
-            .flatten()
-            .is_some();
+        let exists = sqlx::query_scalar::<_, i32>(
+            "SELECT id FROM ttrss_feeds WHERE id = $1 AND owner_uid = $2",
+        )
+        .bind(feed_id)
+        .bind(uid)
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten()
+        .is_some();
         if !exists {
             return 0;
         }
@@ -1313,7 +1359,14 @@ async fn editsaveops(state: &AppState, uid: i64, profile: Option<i32>, extra: &M
         }
         if enable_cats && extra.contains_key("cat_id") {
             let sql = batch_update_sql("cat_id = $1", &feed_ids);
-            touched += run_opt(&mut tx, &sql, (cat_id != 0).then_some(cat_id), &feed_ids, uid).await;
+            touched += run_opt(
+                &mut tx,
+                &sql,
+                (cat_id != 0).then_some(cat_id),
+                &feed_ids,
+                uid,
+            )
+            .await;
         }
         if extra.contains_key("feed_language") {
             let sql = batch_update_sql("feed_language = $1", &feed_ids);
@@ -1327,55 +1380,111 @@ async fn editsaveops(state: &AppState, uid: i64, profile: Option<i32>, extra: &M
 /// `UPDATE ttrss_feeds SET <set> WHERE id IN ($2..$n+1) AND owner_uid = $(n+2)`.
 /// `<set>` uses `$1` for the value.
 fn batch_update_sql(set_expr: &str, feed_ids: &[i32]) -> String {
-    let ids = (2..=feed_ids.len() + 1).map(|i| format!("${i}")).collect::<Vec<_>>().join(", ");
+    let ids = (2..=feed_ids.len() + 1)
+        .map(|i| format!("${i}"))
+        .collect::<Vec<_>>()
+        .join(", ");
     let uid_pos = feed_ids.len() + 2;
     format!("UPDATE ttrss_feeds SET {set_expr} WHERE id IN ({ids}) AND owner_uid = ${uid_pos}")
 }
 
-async fn run_val(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, sql: &str, v: i32, feed_ids: &[i32], uid: i64) -> i64 {
+async fn run_val(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    sql: &str,
+    v: i32,
+    feed_ids: &[i32],
+    uid: i64,
+) -> i64 {
     let mut q = sqlx::query(sql).bind(v);
     for id in feed_ids {
         q = q.bind(*id);
     }
-    q.bind(uid).execute(&mut **tx).await.map(|r| r.rows_affected() as i64).unwrap_or(0)
+    q.bind(uid)
+        .execute(&mut **tx)
+        .await
+        .map(|r| r.rows_affected() as i64)
+        .unwrap_or(0)
 }
 
-async fn run_str(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, sql: &str, v: &str, feed_ids: &[i32], uid: i64) -> i64 {
+async fn run_str(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    sql: &str,
+    v: &str,
+    feed_ids: &[i32],
+    uid: i64,
+) -> i64 {
     let mut q = sqlx::query(sql).bind(v);
     for id in feed_ids {
         q = q.bind(*id);
     }
-    q.bind(uid).execute(&mut **tx).await.map(|r| r.rows_affected() as i64).unwrap_or(0)
+    q.bind(uid)
+        .execute(&mut **tx)
+        .await
+        .map(|r| r.rows_affected() as i64)
+        .unwrap_or(0)
 }
 
-async fn run_bool(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, sql: &str, v: bool, feed_ids: &[i32], uid: i64) -> i64 {
+async fn run_bool(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    sql: &str,
+    v: bool,
+    feed_ids: &[i32],
+    uid: i64,
+) -> i64 {
     let mut q = sqlx::query(sql).bind(v);
     for id in feed_ids {
         q = q.bind(*id);
     }
-    q.bind(uid).execute(&mut **tx).await.map(|r| r.rows_affected() as i64).unwrap_or(0)
+    q.bind(uid)
+        .execute(&mut **tx)
+        .await
+        .map(|r| r.rows_affected() as i64)
+        .unwrap_or(0)
 }
 
-async fn run_opt(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, sql: &str, v: Option<i32>, feed_ids: &[i32], uid: i64) -> i64 {
+async fn run_opt(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    sql: &str,
+    v: Option<i32>,
+    feed_ids: &[i32],
+    uid: i64,
+) -> i64 {
     let mut q = sqlx::query(sql).bind(v);
     for id in feed_ids {
         q = q.bind(*id);
     }
-    q.bind(uid).execute(&mut **tx).await.map(|r| r.rows_affected() as i64).unwrap_or(0)
+    q.bind(uid)
+        .execute(&mut **tx)
+        .await
+        .map(|r| r.rows_affected() as i64)
+        .unwrap_or(0)
 }
-
 
 /// `Pref_Feeds::editSave` — save one feed's config (`editsaveops(false)`).
 pub async fn edit_save(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Value {
     let data = sess.data();
-    let _ = editsaveops(state, data.uid().unwrap_or(0), data.profile().map(|p| p as i32), extra, false).await;
+    let _ = editsaveops(
+        state,
+        data.uid().unwrap_or(0),
+        data.profile().map(|p| p as i32),
+        extra,
+        false,
+    )
+    .await;
     Value::Null
 }
 
 /// `Pref_Feeds::batchEditSave` — batch-save feed config (`editsaveops(true)`).
 pub async fn batch_edit_save(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Value {
     let data = sess.data();
-    let _ = editsaveops(state, data.uid().unwrap_or(0), data.profile().map(|p| p as i32), extra, true).await;
+    let _ = editsaveops(
+        state,
+        data.uid().unwrap_or(0),
+        data.profile().map(|p| p as i32),
+        extra,
+        true,
+    )
+    .await;
     Value::Null
 }
 
@@ -1394,13 +1503,15 @@ pub async fn remove_feed(state: &AppState, id: i32, uid: i64) {
     if id > 0 {
         let mut tx = pool.begin().await.expect("begin");
         // Starred (archived) entries → archived (feed_id = NULL).
-        sqlx::query("UPDATE ttrss_user_entries SET feed_id = NULL, orig_feed_id = NULL
-                     WHERE feed_id = $1 AND marked = true AND owner_uid = $2")
-            .bind(id)
-            .bind(uid)
-            .execute(&mut *tx)
-            .await
-            .ok();
+        sqlx::query(
+            "UPDATE ttrss_user_entries SET feed_id = NULL, orig_feed_id = NULL
+                     WHERE feed_id = $1 AND marked = true AND owner_uid = $2",
+        )
+        .bind(id)
+        .bind(uid)
+        .execute(&mut *tx)
+        .await
+        .ok();
         // Access keys for the feed.
         sqlx::query("DELETE FROM ttrss_access_keys WHERE feed_id = $1 AND owner_uid = $2")
             .bind(id.to_string())
@@ -1458,22 +1569,26 @@ pub async fn rename_cat(state: &AppState, sess: &Sess, extra: &Map<String, Value
     let title = util::clean_str(extra.get("title").and_then(|v| v.as_str()).unwrap_or(""));
     let pool = state.db.pool();
     if !title.is_empty() {
-        let found = sqlx::query_scalar::<_, i32>("SELECT id FROM ttrss_feed_categories WHERE owner_uid = $1 AND id = $2")
+        let found = sqlx::query_scalar::<_, i32>(
+            "SELECT id FROM ttrss_feed_categories WHERE owner_uid = $1 AND id = $2",
+        )
+        .bind(uid)
+        .bind(id)
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten()
+        .is_some();
+        if found {
+            sqlx::query(
+                "UPDATE ttrss_feed_categories SET title = $1 WHERE owner_uid = $2 AND id = $3",
+            )
+            .bind(&title)
             .bind(uid)
             .bind(id)
-            .fetch_optional(pool)
+            .execute(pool)
             .await
-            .ok()
-            .flatten()
-            .is_some();
-        if found {
-            sqlx::query("UPDATE ttrss_feed_categories SET title = $1 WHERE owner_uid = $2 AND id = $3")
-                .bind(&title)
-                .bind(uid)
-                .bind(id)
-                .execute(pool)
-                .await
-                .ok();
+            .ok();
         }
     }
     Value::Null
@@ -1485,14 +1600,16 @@ pub async fn remove_cat(state: &AppState, sess: &Sess, extra: &Map<String, Value
     for id in util::param_int_array(extra, "ids") {
         // `Feeds::_remove_cat`: find the category (owner-scoped) and delete it
         // (feeds keep their rows; their `cat_id` is nulled via `ON DELETE SET NULL`).
-        let found = sqlx::query_scalar::<_, i32>("SELECT id FROM ttrss_feed_categories WHERE owner_uid = $1 AND id = $2")
-            .bind(uid)
-            .bind(id)
-            .fetch_optional(pool)
-            .await
-            .ok()
-            .flatten()
-            .is_some();
+        let found = sqlx::query_scalar::<_, i32>(
+            "SELECT id FROM ttrss_feed_categories WHERE owner_uid = $1 AND id = $2",
+        )
+        .bind(uid)
+        .bind(id)
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten()
+        .is_some();
         if found {
             sqlx::query("DELETE FROM ttrss_feed_categories WHERE owner_uid = $1 AND id = $2")
                 .bind(uid)
@@ -1517,7 +1634,10 @@ pub async fn remove_cat(state: &AppState, sess: &Sess, extra: &Map<String, Value
 /// `Feeds::_get_access_key` — the access key for (owner, feed_id, is_cat),
 /// creating one with a fresh `uniqid_short()` if absent.
 async fn get_access_key(
-    pool: &sqlx::PgPool, feed_id: &str, is_cat: bool, owner_uid: i64,
+    pool: &sqlx::PgPool,
+    feed_id: &str,
+    is_cat: bool,
+    owner_uid: i64,
 ) -> Option<String> {
     let existing: Option<String> = sqlx::query_scalar(
         "SELECT access_key FROM ttrss_access_keys \
@@ -1550,7 +1670,10 @@ async fn get_access_key(
 
 /// `Feeds::_update_access_key` — drop the existing key and return a fresh one.
 async fn update_access_key(
-    pool: &sqlx::PgPool, feed_id: &str, is_cat: bool, owner_uid: i64,
+    pool: &sqlx::PgPool,
+    feed_id: &str,
+    is_cat: bool,
+    owner_uid: i64,
 ) -> Option<String> {
     let _ = sqlx::query(
         "DELETE FROM ttrss_access_keys \
@@ -1599,32 +1722,44 @@ fn http_build_query(pairs: &[(&str, &str)]) -> String {
 }
 
 /// `Pref_Feeds::clearKeys` — clear every access key for the user.
-pub async fn clear_keys(
-    state: &AppState, sess: &Sess, _extra: &Map<String, Value>,
-) -> Value {
+pub async fn clear_keys(state: &AppState, sess: &Sess, _extra: &Map<String, Value>) -> Value {
     clear_access_keys(state.db.pool(), sess.data().uid().unwrap_or(0)).await;
     Value::Null
 }
 
 /// `Pref_Feeds::regenFeedKey` — regenerate the (feed|category) access key.
-pub async fn regen_feed_key(
-    state: &AppState, sess: &Sess, extra: &Map<String, Value>,
-) -> Value {
+pub async fn regen_feed_key(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Value {
     let uid = sess.data().uid().unwrap_or(0);
-    let feed_id = util::clean_str(extra.get("id").and_then(util::scalar_str).as_deref().unwrap_or(""));
+    let feed_id = util::clean_str(
+        extra
+            .get("id")
+            .and_then(util::scalar_str)
+            .as_deref()
+            .unwrap_or(""),
+    );
     let is_cat = util::param_to_bool(extra.get("is_cat"));
     let key = update_access_key(state.db.pool(), &feed_id, is_cat, uid).await;
     json!({ "link": key })
 }
 
 /// `Pref_Feeds::getSharedURL` — the public RSS share URL for a feed/category.
-pub async fn get_shared_url(
-    state: &AppState, sess: &Sess, extra: &Map<String, Value>,
-) -> Value {
+pub async fn get_shared_url(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Value {
     let uid = sess.data().uid().unwrap_or(0);
-    let feed_id = util::clean_str(extra.get("id").and_then(util::scalar_str).as_deref().unwrap_or(""));
+    let feed_id = util::clean_str(
+        extra
+            .get("id")
+            .and_then(util::scalar_str)
+            .as_deref()
+            .unwrap_or(""),
+    );
     let is_cat = util::param_to_bool(extra.get("is_cat"));
-    let search = util::clean_str(extra.get("search").and_then(util::scalar_str).as_deref().unwrap_or(""));
+    let search = util::clean_str(
+        extra
+            .get("search")
+            .and_then(util::scalar_str)
+            .as_deref()
+            .unwrap_or(""),
+    );
     let key = get_access_key(state.db.pool(), &feed_id, is_cat, uid).await;
     let is_cat_s = if is_cat { "1" } else { "0" };
     let id = feed_id.parse::<i64>().unwrap_or(0);
@@ -1665,9 +1800,7 @@ fn bare_id(s: &str) -> &str {
 }
 
 /// `Pref_Feeds::catsortreset` — reset every category order position to 0.
-pub async fn catsortreset(
-    state: &AppState, sess: &Sess, _extra: &Map<String, Value>,
-) -> Value {
+pub async fn catsortreset(state: &AppState, sess: &Sess, _extra: &Map<String, Value>) -> Value {
     let uid = sess.data().uid().unwrap_or(0);
     sqlx::query("UPDATE ttrss_feed_categories SET order_id = 0 WHERE owner_uid = $1")
         .bind(uid)
@@ -1678,9 +1811,7 @@ pub async fn catsortreset(
 }
 
 /// `Pref_Feeds::feedsortreset` — reset every feed order position to 0.
-pub async fn feedsortreset(
-    state: &AppState, sess: &Sess, _extra: &Map<String, Value>,
-) -> Value {
+pub async fn feedsortreset(state: &AppState, sess: &Sess, _extra: &Map<String, Value>) -> Value {
     let uid = sess.data().uid().unwrap_or(0);
     sqlx::query("UPDATE ttrss_feeds SET order_id = 0 WHERE owner_uid = $1")
         .bind(uid)
@@ -1693,7 +1824,10 @@ pub async fn feedsortreset(
 /// `Pref_Feeds::process_category_order` — walk the dojo tree and persist each
 /// feed's / category's `order_id` (and `cat_id` / `parent_cat`) for the owner.
 async fn process_category_order(
-    state: &AppState, uid: i64, data_map: &Map<String, Value>, root_item: &str,
+    state: &AppState,
+    uid: i64,
+    data_map: &Map<String, Value>,
+    root_item: &str,
 ) {
     let pool = state.db.pool();
     // Iterative (stack-based) walk, equivalent to the PHP recursion: a category
@@ -1735,7 +1869,10 @@ async fn process_category_order(
         let mut order_id: i32 = 1;
         if let Some(Value::Array(children)) = data_map.get(&item_id) {
             for item in children {
-                let id = item.get("_reference").and_then(|v| v.as_str()).unwrap_or("");
+                let id = item
+                    .get("_reference")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
                 let bare = bare_id(id);
                 if !id.is_empty() {
                     if id.starts_with("FEED") {
@@ -1803,9 +1940,7 @@ async fn process_category_order(
 }
 
 /// `Pref_Feeds::savefeedorder` — persist the dojo feed-tree order (`payload`).
-pub async fn savefeedorder(
-    state: &AppState, sess: &Sess, extra: &Map<String, Value>,
-) -> Value {
+pub async fn savefeedorder(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Value {
     let uid = sess.data().uid().unwrap_or(0);
     let payload = extra.get("payload").and_then(|v| v.as_str()).unwrap_or("");
     let data: Value = serde_json::from_str(payload).unwrap_or(Value::Null);
@@ -1826,9 +1961,7 @@ pub async fn savefeedorder(
         let mut root_item = String::new();
         for item in items_list {
             let id = item.get("id").and_then(|v| v.as_str()).unwrap_or("");
-            if let Some(items_field) =
-                item.get("items").filter(|v| v.is_array() || v.is_object())
-            {
+            if let Some(items_field) = item.get("items").filter(|v| v.is_array() || v.is_object()) {
                 let val = if items_field.get("_reference").is_some() {
                     json!([items_field])
                 } else {
@@ -1854,21 +1987,18 @@ pub async fn savefeedorder(
 
 /// `Pref_Feeds::removeIcon` — delete the feed's favicon cache and reset its
 /// `favicon_*` columns (only if the cached file exists and is removable).
-pub async fn remove_icon(
-    state: &AppState, sess: &Sess, extra: &Map<String, Value>,
-) -> Value {
+pub async fn remove_icon(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Value {
     let uid = sess.data().uid().unwrap_or(0);
     let feed_id = util::clean_int(extra.get("feed_id"));
     let pool = state.db.pool();
-    let feed: Option<i32> = sqlx::query_scalar(
-        "SELECT id FROM ttrss_feeds WHERE owner_uid = $1 AND id = $2",
-    )
-    .bind(uid)
-    .bind(feed_id)
-    .fetch_optional(pool)
-    .await
-    .ok()
-    .flatten();
+    let feed: Option<i32> =
+        sqlx::query_scalar("SELECT id FROM ttrss_feeds WHERE owner_uid = $1 AND id = $2")
+            .bind(uid)
+            .bind(feed_id)
+            .fetch_optional(pool)
+            .await
+            .ok()
+            .flatten();
     if let Some(fid) = feed {
         let cache_file = state.config.feed_icon_dir.join(fid.to_string());
         if cache_file.exists() && fs::remove_file(&cache_file).is_ok() {
@@ -1892,7 +2022,10 @@ pub async fn remove_icon(
 /// is one of the `E_ICON_*` markers. The PHP temp-file + `move_uploaded_file`
 /// dance is elided — the multipart bytes are already in hand.
 pub async fn upload_icon(
-    state: &AppState, sess: &Sess, extra: &Map<String, Value>, file: Option<&[u8]>,
+    state: &AppState,
+    sess: &Sess,
+    extra: &Map<String, Value>,
+    file: Option<&[u8]>,
 ) -> Value {
     let uid = sess.data().uid().unwrap_or(0);
     let feed_id = util::clean_int(extra.get("feed_id"));
@@ -1901,15 +2034,14 @@ pub async fn upload_icon(
     // Default (PHP `self::E_ICON_UPLOAD_FAILED`).
     let mut rc = "E_ICON_UPLOAD_FAILED".to_string();
 
-    let feed: Option<i32> = sqlx::query_scalar(
-        "SELECT id FROM ttrss_feeds WHERE owner_uid = $1 AND id = $2",
-    )
-    .bind(uid)
-    .bind(feed_id)
-    .fetch_optional(pool)
-    .await
-    .ok()
-    .flatten();
+    let feed: Option<i32> =
+        sqlx::query_scalar("SELECT id FROM ttrss_feeds WHERE owner_uid = $1 AND id = $2")
+            .bind(uid)
+            .bind(feed_id)
+            .fetch_optional(pool)
+            .await
+            .ok()
+            .flatten();
 
     if let (Some(fid), Some(bytes)) = (feed, file) {
         if bytes.len() < state.config.max_favicon_file_size {
@@ -2003,7 +2135,10 @@ pub async fn select_feeds_cats(
     // each group in title order (matching the PHP's per-level `ORDER BY title`).
     let mut by_parent: HashMap<Option<i32>, Vec<(i32, String)>> = HashMap::new();
     for (id, title, parent) in &rows {
-        by_parent.entry(*parent).or_default().push((*id, title.clone()));
+        by_parent
+            .entry(*parent)
+            .or_default()
+            .push((*id, title.clone()));
     }
     let mut ret = String::new();
     ret.push_str(&format!(
@@ -2020,10 +2155,17 @@ pub async fn select_feeds_cats(
         .map(|cats| cats.iter().rev().map(|(id, _)| (*id, 0)).collect())
         .unwrap_or_default();
     while let Some((id, level)) = stack.pop() {
-        let title = rows.iter().find(|(rid, _, _)| *rid == id).map(|(_, t, _)| t);
+        let title = rows
+            .iter()
+            .find(|(rid, _, _)| *rid == id)
+            .map(|(_, t, _)| t);
         if let Some(title) = title {
             found += 1;
-            let is_selected = if Some(id) == default_id { "selected=\"1\"" } else { "" };
+            let is_selected = if Some(id) == default_id {
+                "selected=\"1\""
+            } else {
+                ""
+            };
             let mut indented = title.to_string();
             for _ in 0..level {
                 indented.insert(0, '\u{2003}');
@@ -2042,12 +2184,21 @@ pub async fn select_feeds_cats(
         }
     }
     if found > 0 {
-        ret.push_str(&format!("<option disabled=\"1\">{}</option>", "\u{2015}".repeat(15)));
+        ret.push_str(&format!(
+            "<option disabled=\"1\">{}</option>",
+            "\u{2015}".repeat(15)
+        ));
     }
     // PHP `$default_id == 0`: `null == 0` is true, so a null default (the
     // `editfeeds` batch form) also selects `Uncategorized`.
-    let is_selected = if default_id.is_none() || default_id == Some(0) { "selected=\"1\"" } else { "" };
-    ret.push_str(&format!("<option {is_selected} value=\"0\">Uncategorized</option>"));
+    let is_selected = if default_id.is_none() || default_id == Some(0) {
+        "selected=\"1\""
+    } else {
+        ""
+    };
+    ret.push_str(&format!(
+        "<option {is_selected} value=\"0\">Uncategorized</option>"
+    ));
     ret.push_str("</select>");
     ret
 }
@@ -2175,21 +2326,23 @@ pub async fn editfeed(state: &AppState, sess: &Sess, extra: &Map<String, Value>)
         }
         let default_purge = prefs::resolve(prefs::PURGE_OLD_DAYS, &pref_rows, None).as_int();
         let suffix = if default_purge > 0 {
-            format!("({default_purge} day{})", if default_purge == 1 { "" } else { "s" })
+            format!(
+                "({default_purge} day{})",
+                if default_purge == 1 { "" } else { "s" }
+            )
         } else {
             "(Disabled)".to_string()
         };
-        m.insert("0".to_string(), Value::String(format!("Use default {suffix}")));
+        m.insert(
+            "0".to_string(),
+            Value::String(format!("Use default {suffix}")),
+        );
         Value::Object(m)
     } else {
         let fp = state.config.force_article_purge;
         Value::Array(vec![Value::String(format!(
             "{fp} day{}",
-            if fp == 1 {
-                ""
-            } else {
-                "s"
-            }
+            if fp == 1 { "" } else { "s" }
         ))])
     };
 
@@ -2204,7 +2357,9 @@ pub async fn editfeed(state: &AppState, sess: &Sess, extra: &Map<String, Value>)
 
     let cats_enabled = prefs::resolve(prefs::ENABLE_FEED_CATS, &pref_rows, profile).as_bool();
     let cats_select = select_feeds_cats(pool, uid, "cat_id", row.cat_id, "").await;
-    let default_lang = prefs::resolve(prefs::DEFAULT_SEARCH_LANGUAGE, &pref_rows, profile).as_str().to_string();
+    let default_lang = prefs::resolve(prefs::DEFAULT_SEARCH_LANGUAGE, &pref_rows, profile)
+        .as_str()
+        .to_string();
     let all_lang = get_ts_languages(pool).await;
 
     json!({
@@ -2251,15 +2406,20 @@ pub async fn editfeeds(state: &AppState, sess: &Sess, extra: &Map<String, Value>
         .unwrap_or_default();
 
     let pref_rows = prefs::load_rows(&state.db, uid, None).await;
-    let enable_feed_cats =
-        prefs::resolve(prefs::ENABLE_FEED_CATS, &pref_rows, profile).as_bool();
+    let enable_feed_cats = prefs::resolve(prefs::ENABLE_FEED_CATS, &pref_rows, profile).as_bool();
     let default_update = prefs::resolve("DEFAULT_UPDATE_INTERVAL", &pref_rows, None).as_int();
     let default_purge = prefs::resolve(prefs::PURGE_OLD_DAYS, &pref_rows, None).as_int();
 
     // PHP `$update_intervals` / `$purge_intervals` (backend.php), with the
     // default-annotation appended to the `0` key (PHP `editfeeds`).
     let update: Vec<(String, String)> = vec![
-        ("0".to_string(), format!("Default interval ({})", update_interval_label(default_update))),
+        (
+            "0".to_string(),
+            format!(
+                "Default interval ({})",
+                update_interval_label(default_update)
+            ),
+        ),
         ("-1".to_string(), "Disable updates".to_string()),
         ("15".to_string(), "15 minutes".to_string()),
         ("30".to_string(), "30 minutes".to_string()),
@@ -2289,7 +2449,10 @@ pub async fn editfeeds(state: &AppState, sess: &Sess, extra: &Map<String, Value>
 
     let options: Vec<Value> = [
         ("include_in_digest", "Include in email digest"),
-        ("always_display_enclosures", "Always display image attachments"),
+        (
+            "always_display_enclosures",
+            "Always display image attachments",
+        ),
         ("hide_images", "Do not embed media"),
         ("cache_images", "Cache media"),
         ("mark_unread_on_update", "Mark updated articles as unread"),
@@ -2305,11 +2468,23 @@ pub async fn editfeeds(state: &AppState, sess: &Sess, extra: &Map<String, Value>
     .collect();
 
     let mut ctx: Map<String, Value> = Map::new();
-    ctx.insert("hidden_ids".into(), json!(controls::hidden_tag("ids", &feed_ids)));
-    ctx.insert("hidden_op".into(), json!(controls::hidden_tag("op", "Pref_Feeds")));
-    ctx.insert("hidden_method".into(), json!(controls::hidden_tag("method", "batchEditSave")));
+    ctx.insert(
+        "hidden_ids".into(),
+        json!(controls::hidden_tag("ids", &feed_ids)),
+    );
+    ctx.insert(
+        "hidden_op".into(),
+        json!(controls::hidden_tag("op", "Pref_Feeds")),
+    );
+    ctx.insert(
+        "hidden_method".into(),
+        json!(controls::hidden_tag("method", "batchEditSave")),
+    );
     ctx.insert("enable_feed_cats".into(), json!(enable_feed_cats));
-    ctx.insert("force_purge".into(), json!(state.config.force_article_purge != 0));
+    ctx.insert(
+        "force_purge".into(),
+        json!(state.config.force_article_purge != 0),
+    );
     ctx.insert("cat_select".into(), json!(cat_select));
     ctx.insert("toggle_cat".into(), json!(batch_toggle_checkbox("cat_id")));
     ctx.insert(
@@ -2321,7 +2496,10 @@ pub async fn editfeeds(state: &AppState, sess: &Sess, extra: &Map<String, Value>
             &[("disabled", "1".to_string())]
         )),
     );
-    ctx.insert("toggle_lang".into(), json!(batch_toggle_checkbox("feed_language")));
+    ctx.insert(
+        "toggle_lang".into(),
+        json!(batch_toggle_checkbox("feed_language")),
+    );
     ctx.insert(
         "update_select".into(),
         json!(controls::select_hash(
@@ -2331,7 +2509,10 @@ pub async fn editfeeds(state: &AppState, sess: &Sess, extra: &Map<String, Value>
             &[("disabled", "1".to_string())]
         )),
     );
-    ctx.insert("toggle_update".into(), json!(batch_toggle_checkbox("update_interval")));
+    ctx.insert(
+        "toggle_update".into(),
+        json!(batch_toggle_checkbox("update_interval")),
+    );
     ctx.insert(
         "purge_select".into(),
         json!(controls::select_hash(
@@ -2341,12 +2522,24 @@ pub async fn editfeeds(state: &AppState, sess: &Sess, extra: &Map<String, Value>
             &[("disabled", "1".to_string())]
         )),
     );
-    ctx.insert("toggle_purge".into(), json!(batch_toggle_checkbox("purge_interval")));
-    ctx.insert("toggle_login".into(), json!(batch_toggle_checkbox("auth_login")));
-    ctx.insert("toggle_pass".into(), json!(batch_toggle_checkbox("auth_pass")));
+    ctx.insert(
+        "toggle_purge".into(),
+        json!(batch_toggle_checkbox("purge_interval")),
+    );
+    ctx.insert(
+        "toggle_login".into(),
+        json!(batch_toggle_checkbox("auth_login")),
+    );
+    ctx.insert(
+        "toggle_pass".into(),
+        json!(batch_toggle_checkbox("auth_pass")),
+    );
     ctx.insert("options".into(), Value::Array(options));
     ctx.insert("save_btn".into(), json!(controls::submit_tag("Save")));
-    ctx.insert("cancel_btn".into(), json!(controls::cancel_dialog_tag("Cancel")));
+    ctx.insert(
+        "cancel_btn".into(),
+        json!(controls::cancel_dialog_tag("Cancel")),
+    );
 
     editfeeds_env()
         .get_template("editfeeds")
@@ -2364,7 +2557,10 @@ fn batch_toggle_checkbox(name: &str) -> String {
         &[
             ("data-control-for", name.to_string()),
             ("title", "Check to enable field".to_string()),
-            ("onchange", "App.dialogOf(this).toggleField(this)".to_string()),
+            (
+                "onchange",
+                "App.dialogOf(this).toggleField(this)".to_string(),
+            ),
         ],
     )
 }
@@ -2420,8 +2616,11 @@ fn editfeeds_env() -> &'static Environment<'static> {
     static ENV: std::sync::OnceLock<Environment<'static>> = std::sync::OnceLock::new();
     ENV.get_or_init(|| {
         let mut env = Environment::new();
-        env.add_template("editfeeds", include_str!("../templates/editfeeds.html.jinja"))
-            .expect("valid editfeeds template");
+        env.add_template(
+            "editfeeds",
+            include_str!("../templates/editfeeds.html.jinja"),
+        )
+        .expect("valid editfeeds template");
         env
     })
 }

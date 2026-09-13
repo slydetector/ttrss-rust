@@ -186,13 +186,10 @@ async fn test_delete_app_passwords(
 
     // Two passwords.
     for t in ["A", "B"] {
-        let _ = ttrss::settings::generate_app_password(
-            &state,
-            &sess,
-            &request(&[("title", json!(t))]),
-        )
-        .await
-        .unwrap();
+        let _ =
+            ttrss::settings::generate_app_password(&state, &sess, &request(&[("title", json!(t))]))
+                .await
+                .unwrap();
     }
     let rows = fetch(db).await;
     assert_eq!(rows.len(), 2);
@@ -200,13 +197,10 @@ async fn test_delete_app_passwords(
     let del_id = rows[1].0;
 
     // Delete one (the "B" row, the later title).
-    let resp = ttrss::settings::delete_app_passwords(
-        &state,
-        &sess,
-        &request(&[("ids", json!([del_id]))]),
-    )
-    .await
-    .unwrap();
+    let resp =
+        ttrss::settings::delete_app_passwords(&state, &sess, &request(&[("ids", json!([del_id]))]))
+            .await
+            .unwrap();
 
     let rows = fetch(db).await;
     assert_eq!(rows.len(), 1);
@@ -232,13 +226,9 @@ async fn test_delete_app_passwords_foreign_noop(
     let db = state.db.pool();
 
     // A password owned by a *different* user must not be deleted.
-    ttrss::settings::generate_app_password(
-        &state,
-        &sess,
-        &request(&[("title", json!("mine"))]),
-    )
-    .await
-    .unwrap();
+    ttrss::settings::generate_app_password(&state, &sess, &request(&[("title", json!("mine"))]))
+        .await
+        .unwrap();
     let my_id = fetch(db).await[0].0;
     // Reassign it to a (nonexistent-for-uid-1) owner... use a fresh user.
     sqlx::query("INSERT INTO ttrss_users (id, login, pwd_hash) VALUES (2, 'u2', 'SHA1:00')")
@@ -252,13 +242,10 @@ async fn test_delete_app_passwords_foreign_noop(
         .unwrap();
 
     // Now uid 1 owns nothing; deleting `my_id` as uid 1 is a no-op.
-    let _ = ttrss::settings::delete_app_passwords(
-        &state,
-        &sess,
-        &request(&[("ids", json!([my_id]))]),
-    )
-    .await
-    .unwrap();
+    let _ =
+        ttrss::settings::delete_app_passwords(&state, &sess, &request(&[("ids", json!([my_id]))]))
+            .await
+            .unwrap();
     let count: i64 = sqlx::query_scalar("SELECT count(*) FROM ttrss_app_passwords WHERE id = $1")
         .bind(my_id)
         .fetch_one(db)
@@ -278,13 +265,9 @@ async fn test_delete_app_passwords_empty_ids_noop(
     let (state, sess) = setup(pool, options).await;
     let db = state.db.pool();
 
-    ttrss::settings::generate_app_password(
-        &state,
-        &sess,
-        &request(&[("title", json!("keep"))]),
-    )
-    .await
-    .unwrap();
+    ttrss::settings::generate_app_password(&state, &sess, &request(&[("title", json!("keep"))]))
+        .await
+        .unwrap();
 
     // No `ids` → no delete (avoids `IN ()`); the row survives, list still renders.
     let resp = ttrss::settings::delete_app_passwords(&state, &sess, &request(&[]))

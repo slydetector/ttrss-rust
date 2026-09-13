@@ -75,7 +75,11 @@ pub fn select_tag(
         attrs_str
     );
     for v in values {
-        let is_sel = if v == value { "selected=\"selected\"" } else { "" };
+        let is_sel = if v == value {
+            "selected=\"selected\""
+        } else {
+            ""
+        };
         rv.push_str(&format!(
             "<option value=\"{}\" {}>{}</option>",
             util::htmlspecialchars(v),
@@ -109,7 +113,11 @@ pub fn select_hash(
         attrs_str
     );
     for (k, v) in values {
-        let is_sel = if k == value { "selected=\"selected\"" } else { "" };
+        let is_sel = if k == value {
+            "selected=\"selected\""
+        } else {
+            ""
+        };
         rv.push_str(&format!(
             "<option value=\"{}\" {}>{}</option>",
             util::htmlspecialchars(k),
@@ -174,11 +182,16 @@ pub fn number_spinner_tag(
     id: &str,
 ) -> String {
     // `['dojoType' => 'dijit.form.NumberSpinner', ...$attributes]`.
-    let mut merged: Vec<(&str, String)> = vec![("dojoType", "dijit.form.NumberSpinner".to_string())];
-    merged.extend(attributes.iter().filter(|(k, _)| *k != "dojoType").map(|(k, v)| (*k, v.clone())));
+    let mut merged: Vec<(&str, String)> =
+        vec![("dojoType", "dijit.form.NumberSpinner".to_string())];
+    merged.extend(
+        attributes
+            .iter()
+            .filter(|(k, _)| *k != "dojoType")
+            .map(|(k, v)| (*k, v.clone())),
+    );
     input_tag(name, value, "text", &merged, id)
 }
-
 
 /// PHP `Controls::button_tag($value, $type, $attributes)`.
 pub fn button_tag(value: &str, type_: &str, attributes: &[(&str, String)]) -> String {

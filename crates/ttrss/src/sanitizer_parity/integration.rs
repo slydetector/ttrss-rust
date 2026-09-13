@@ -72,8 +72,14 @@ fn test_sanitize_html_wrapper_removed() {
 fn assert_tag_survives(tag: &str, content: &str) {
     let sample = format!("<{tag}>{content}</{tag}>");
     let result = san(&sample);
-    assert!(result.contains(&format!("<{tag}")), "Tag <{tag}> should survive: {result}");
-    assert!(result.contains(content), "Content inside <{tag}> should survive: {result}");
+    assert!(
+        result.contains(&format!("<{tag}")),
+        "Tag <{tag}> should survive: {result}"
+    );
+    assert!(
+        result.contains(content),
+        "Content inside <{tag}> should survive: {result}"
+    );
 }
 
 #[test]
@@ -447,7 +453,9 @@ fn test_strips_srcdoc_attribute() {
 
 #[test]
 fn test_keeps_required_link_attrs() {
-    let result = san("<a href=\"http://example.com\" target=\"_blank\" rel=\"noopener noreferrer\">link</a>");
+    let result = san(
+        "<a href=\"http://example.com\" target=\"_blank\" rel=\"noopener noreferrer\">link</a>",
+    );
     assert!(result.contains("href="));
     assert!(result.contains("target="));
     assert!(result.contains("rel="));
@@ -542,7 +550,8 @@ fn test_force_remove_images_strips_all() {
 
 #[test]
 fn test_strips_source_tags_when_pref_enabled() {
-    let html = "<picture><source srcset=\"img.webp\" type=\"image/webp\"><img src=\"img.png\"></picture>";
+    let html =
+        "<picture><source srcset=\"img.webp\" type=\"image/webp\"><img src=\"img.png\"></picture>";
     let result = san_strip(html);
 
     // NOTE: PHP oracle FAILS this test (it asserts `<source` is gone). The
@@ -773,7 +782,15 @@ fn test_sanitizes_table_with_complex_structure() {
             <tfoot><tr><td colspan=\"2\">Footer</td></tr></tfoot>
         </table>";
     let result = san(html);
-    for s in ["<table>", "<caption>", "<thead>", "<tbody>", "<tfoot>", "A", "Footer"] {
+    for s in [
+        "<table>",
+        "<caption>",
+        "<thead>",
+        "<tbody>",
+        "<tfoot>",
+        "A",
+        "Footer",
+    ] {
         assert!(result.contains(s), "missing {s}: {result}");
     }
 }

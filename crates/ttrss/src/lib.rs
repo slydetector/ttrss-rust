@@ -6,14 +6,14 @@
 //! routing, the login/logout flows, and static file serving.
 
 pub mod api;
-pub mod cats;
 pub mod article;
 pub mod auth;
-pub mod counters;
+pub mod cats;
 pub mod controls;
 pub mod core;
-pub mod diskcache;
+pub mod counters;
 pub mod digest;
+pub mod diskcache;
 pub mod feeds;
 pub mod filters;
 pub mod forgotpass;
@@ -23,26 +23,26 @@ pub mod labels;
 pub mod mime;
 pub mod opml;
 pub mod otp;
-pub mod prefs;
 pub mod plugins;
-pub mod pref_ui;
 pub mod pref_timezones;
+pub mod pref_ui;
+pub mod prefs;
 pub mod render;
 pub mod rpc;
 pub mod rss_utils;
-pub mod search;
 pub mod sanitizer;
-pub mod search_date;
-pub mod syndication;
 #[cfg(test)]
 mod sanitizer_parity;
+pub mod search;
+pub mod search_date;
 pub mod session;
 pub mod settings;
+pub mod syndication;
 pub mod system;
-pub mod users;
 pub mod time;
-pub mod util;
 pub mod urlhelper;
+pub mod users;
+pub mod util;
 
 use crate::core::config::Config;
 use crate::core::db::Db;
@@ -69,9 +69,18 @@ pub fn with_trailing_slash(s: &str) -> String {
 /// points; the HTML shells opt out via `session_cache_limiter('')`).
 pub fn nocache_headers(headers: &mut axum::http::HeaderMap) {
     use axum::http::HeaderValue;
-    headers.insert(axum::http::header::CACHE_CONTROL, HeaderValue::from_static("no-store, no-cache, must-revalidate"));
-    headers.insert(axum::http::header::PRAGMA, HeaderValue::from_static("no-cache"));
-    headers.insert(axum::http::header::EXPIRES, HeaderValue::from_static("Thu, 19 Nov 1981 08:52:00 GMT"));
+    headers.insert(
+        axum::http::header::CACHE_CONTROL,
+        HeaderValue::from_static("no-store, no-cache, must-revalidate"),
+    );
+    headers.insert(
+        axum::http::header::PRAGMA,
+        HeaderValue::from_static("no-cache"),
+    );
+    headers.insert(
+        axum::http::header::EXPIRES,
+        HeaderValue::from_static("Thu, 19 Nov 1981 08:52:00 GMT"),
+    );
 }
 
 #[cfg(test)]

@@ -225,7 +225,9 @@ pub fn parse_value_at(s: &[u8], pos: usize) -> Result<(Value, usize), ParseError
             expect_char(s, &mut p2, b':')?;
             expect_char(s, &mut p2, b'"')?; // opening quote
             let start = p2;
-            let end = start.checked_add(len).ok_or_else(|| err(start, "string length overflow"))?;
+            let end = start
+                .checked_add(len)
+                .ok_or_else(|| err(start, "string length overflow"))?;
             if end > s.len() {
                 return Err(err(start, "string runs past end"));
             }
@@ -281,7 +283,9 @@ fn parse_key(s: &[u8], pos: usize) -> Result<(Key, usize), ParseError> {
         expect_char(s, &mut p2, b':')?;
         expect_char(s, &mut p2, b'"')?; // opening quote
         let start = p2;
-        let end = start.checked_add(len).ok_or_else(|| err(start, "key length overflow"))?;
+        let end = start
+            .checked_add(len)
+            .ok_or_else(|| err(start, "key length overflow"))?;
         if end > s.len() {
             return Err(err(start, "key string runs past end"));
         }
@@ -358,7 +362,10 @@ fn expect_char(s: &[u8], pos: &mut usize, expected: u8) -> Result<(), ParseError
 }
 
 fn err(pos: usize, msg: impl Into<String>) -> ParseError {
-    ParseError { pos, msg: msg.into() }
+    ParseError {
+        pos,
+        msg: msg.into(),
+    }
 }
 
 #[cfg(test)]
@@ -380,7 +387,7 @@ mod tests {
             Value::Float(1.5),
             s(b"hello"),
             s(b""),
-            s(b"a|b;c=d"), // no escaping in PHP serialize
+            s(b"a|b;c=d"),             // no escaping in PHP serialize
             s(&[0u8, 1, 2, 250, 255]), // raw binary
         ];
         for v in cases {
@@ -422,11 +429,20 @@ mod tests {
         let env = Value::Array(vec![
             (Key::Bytes(b"algo".to_vec()), s(b"xchacha20poly1305_ietf")),
             (Key::Bytes(b"nonce".to_vec()), Value::Bytes(nonce.clone())),
-            (Key::Bytes(b"payload".to_vec()), Value::Bytes(payload.clone())),
+            (
+                Key::Bytes(b"payload".to_vec()),
+                Value::Bytes(payload.clone()),
+            ),
         ]);
         let ser = serialize(&env);
         let back = deserialize(&ser).unwrap();
-        assert_eq!(back.get("nonce").and_then(|v| v.as_bytes()), Some(nonce.as_slice()));
-        assert_eq!(back.get("payload").and_then(|v| v.as_bytes()), Some(payload.as_slice()));
+        assert_eq!(
+            back.get("nonce").and_then(|v| v.as_bytes()),
+            Some(nonce.as_slice())
+        );
+        assert_eq!(
+            back.get("payload").and_then(|v| v.as_bytes()),
+            Some(payload.as_slice())
+        );
     }
 }

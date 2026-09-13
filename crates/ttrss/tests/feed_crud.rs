@@ -421,8 +421,7 @@ async fn test_remove_feed(
     .await
     .expect("access key");
 
-    let _ =
-        ttrss::feeds::remove_feeds(&state, &sess, &request(&[("ids", json!([3]))])).await;
+    let _ = ttrss::feeds::remove_feeds(&state, &sess, &request(&[("ids", json!([3]))])).await;
 
     // The feed row is gone.
     assert!(feed_row(db, 3).await.is_none());
@@ -468,8 +467,7 @@ async fn test_remove_label(
         .expect("label assignments");
 
     // feed id = `label_to_feed_id(1)` = -1024 - 1 - 1 = -1026.
-    let _ = ttrss::feeds::remove_feeds(&state, &sess, &request(&[("ids", json!([-1026]))]))
-        .await;
+    let _ = ttrss::feeds::remove_feeds(&state, &sess, &request(&[("ids", json!([-1026]))])).await;
 
     let labels: i64 = sqlx::query_scalar("SELECT count(*) FROM ttrss_labels2 WHERE id = 1")
         .fetch_one(db.pool())
@@ -883,8 +881,7 @@ async fn test_remove_icon(
     .unwrap();
     std::fs::write(icon_dir.join("1"), b"fake-favicon").unwrap();
 
-    let _ =
-        ttrss::feeds::remove_icon(&state, &sess, &request(&[("feed_id", json!("1"))])).await;
+    let _ = ttrss::feeds::remove_icon(&state, &sess, &request(&[("feed_id", json!("1"))])).await;
 
     assert!(!icon_dir.join("1").exists(), "icon file should be removed");
     let row = sqlx::query(
@@ -1000,8 +997,7 @@ async fn test_upload_icon(
 
     // No file part at all.
     let res4 =
-        ttrss::feeds::upload_icon(&state, &sess, &request(&[("feed_id", json!("3"))]), None)
-            .await;
+        ttrss::feeds::upload_icon(&state, &sess, &request(&[("feed_id", json!("3"))]), None).await;
     assert_eq!(
         res4.get("rc").and_then(|v| v.as_str()),
         Some("E_ICON_UPLOAD_FAILED")
@@ -1252,8 +1248,7 @@ async fn test_dispatch_case_insensitive(
     }
 
     async fn call(state: &AppState, body: &str) -> Value {
-        let res =
-            ttrss::rpc::handler(State(state.clone()), Extension(sess()), req(body)).await;
+        let res = ttrss::rpc::handler(State(state.clone()), Extension(sess()), req(body)).await;
         let bytes = to_bytes(res.into_body(), 10 * 1024 * 1024)
             .await
             .expect("body");

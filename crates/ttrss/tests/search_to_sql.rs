@@ -12,8 +12,8 @@
 
 mod common;
 
-use ttrss::core::db::Db;
 use chrono::Datelike;
+use ttrss::core::db::Db;
 use ttrss::search;
 
 /// (input, expected query_part, expected words)
@@ -142,7 +142,10 @@ async fn search_to_sql_date_cases(
         ("tomorrow", today + chrono::Duration::days(1)),
         // PHP "last <weekday>": the previous occurrence (7 days back when
         // today already is that weekday).
-        ("last_monday", today - chrono::Duration::days(if wd == 0 { 7 } else { wd })),
+        (
+            "last_monday",
+            today - chrono::Duration::days(if wd == 0 { 7 } else { wd }),
+        ),
     ]
     .into_iter()
     .collect();

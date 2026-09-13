@@ -319,8 +319,14 @@ async fn test_get_all_ordered_by_caption(
     let db = setup(pool, options).await;
     let all = labels::get_all(db.pool(), 1).await;
     // Seed: 'test-label-1' (id=1), 'test-label-2' (id=2)
-    assert_eq!("test-label-1", all[0].get("caption").and_then(Value::as_str).unwrap());
-    assert_eq!("test-label-2", all[1].get("caption").and_then(Value::as_str).unwrap());
+    assert_eq!(
+        "test-label-1",
+        all[0].get("caption").and_then(Value::as_str).unwrap()
+    );
+    assert_eq!(
+        "test-label-2",
+        all[1].get("caption").and_then(Value::as_str).unwrap()
+    );
 }
 
 /// PHP: test_get_all_empty_for_nonexistent_owner
@@ -420,7 +426,16 @@ async fn test_create_new_label(
     options: sqlx::postgres::PgConnectOptions,
 ) {
     let db = setup(pool, options).await;
-    let result = labels::create(&db, "integration-test-label", Some("#ff0000"), Some("#000000"), 1, None).await.expect("create label");
+    let result = labels::create(
+        &db,
+        "integration-test-label",
+        Some("#ff0000"),
+        Some("#000000"),
+        1,
+        None,
+    )
+    .await
+    .expect("create label");
     assert_eq!(Some(1), result, "Should return 1 row inserted");
 
     // Verify it exists in the database
@@ -428,7 +443,9 @@ async fn test_create_new_label(
     assert!(id > 0, "Label should be findable after creation");
 
     // Clean up
-    labels::remove(&db, id, 1, None).await.expect("remove label");
+    labels::remove(&db, id, 1, None)
+        .await
+        .expect("remove label");
 }
 
 /// PHP: test_create_label_with_default_colors
@@ -442,7 +459,9 @@ async fn test_create_label_with_default_colors(
     options: sqlx::postgres::PgConnectOptions,
 ) {
     let db = setup(pool, options).await;
-    let result = labels::create(&db, "minimal-label", None, None, 1, None).await.expect("create label");
+    let result = labels::create(&db, "minimal-label", None, None, 1, None)
+        .await
+        .expect("create label");
     assert_eq!(Some(1), result);
 
     let id = labels::find_id(db.pool(), "minimal-label", 1).await;
@@ -450,7 +469,9 @@ async fn test_create_label_with_default_colors(
     assert_eq!("minimal-label", caption);
 
     // Clean up
-    labels::remove(&db, id, 1, None).await.expect("remove label");
+    labels::remove(&db, id, 1, None)
+        .await
+        .expect("remove label");
 }
 
 /// PHP: test_create_duplicate_label_returns_false
@@ -465,8 +486,13 @@ async fn test_create_duplicate_label_returns_false(
 ) {
     let db = setup(pool, options).await;
     // seed has 'test-label-1'
-    let result = labels::create(&db, "test-label-1", None, None, 1, None).await.expect("create label");
-    assert_eq!(None, result, "Creating a duplicate label should return false");
+    let result = labels::create(&db, "test-label-1", None, None, 1, None)
+        .await
+        .expect("create label");
+    assert_eq!(
+        None, result,
+        "Creating a duplicate label should return false"
+    );
 }
 
 /// PHP: test_create_duplicate_label_case_insensitive
@@ -481,7 +507,9 @@ async fn test_create_duplicate_label_case_insensitive(
 ) {
     let db = setup(pool, options).await;
     // seed has 'test-label-1'
-    let result = labels::create(&db, "TEST-LABEL-1", None, None, 1, None).await.expect("create label");
+    let result = labels::create(&db, "TEST-LABEL-1", None, None, 1, None)
+        .await
+        .expect("create label");
     assert_eq!(None, result, "Duplicate check should be case-insensitive");
 }
 
@@ -499,7 +527,16 @@ async fn test_create_different_owner(
     // The test database only has uid=1 (admin). Creating for other UIDs
     // would require additional seed data, so we verify that uid=1 works and
     // that the owner_uid parameter is correctly passed through.
-    let result = labels::create(&db, "owner-1-label", Some("#00ff00"), Some("#ffffff"), 1, Some(1)).await.expect("create label");
+    let result = labels::create(
+        &db,
+        "owner-1-label",
+        Some("#00ff00"),
+        Some("#ffffff"),
+        1,
+        Some(1),
+    )
+    .await
+    .expect("create label");
     assert_eq!(Some(1), result, "Should create label for uid=1");
 
     let id = labels::find_id(db.pool(), "owner-1-label", 1).await;
@@ -510,7 +547,9 @@ async fn test_create_different_owner(
     assert_eq!(0, id_for_uid999);
 
     // Clean up
-    labels::remove(&db, id, 1, None).await.expect("remove label");
+    labels::remove(&db, id, 1, None)
+        .await
+        .expect("remove label");
 }
 
 /// PHP: test_remove_existing_label
@@ -525,13 +564,24 @@ async fn test_remove_existing_label(
 ) {
     let db = setup(pool, options).await;
     // Create a label to remove
-    let result = labels::create(&db, "to-be-removed", Some("#ff0000"), Some("#ffffff"), 1, None).await.expect("create label");
+    let result = labels::create(
+        &db,
+        "to-be-removed",
+        Some("#ff0000"),
+        Some("#ffffff"),
+        1,
+        None,
+    )
+    .await
+    .expect("create label");
     assert_eq!(Some(1), result);
     let id = labels::find_id(db.pool(), "to-be-removed", 1).await;
     assert!(id > 0);
 
     // Remove it
-    labels::remove(&db, id, 1, None).await.expect("remove label");
+    labels::remove(&db, id, 1, None)
+        .await
+        .expect("remove label");
 
     // Verify it's gone
     let caption = labels::find_caption(db.pool(), id, 1).await;
@@ -550,7 +600,16 @@ async fn test_remove_cleans_label_cache(
 ) {
     let db = setup(pool, options).await;
     // Create a label
-    let result = labels::create(&db, "cache-test-label", Some("#ff0000"), Some("#ffffff"), 1, None).await.expect("create label");
+    let result = labels::create(
+        &db,
+        "cache-test-label",
+        Some("#ff0000"),
+        Some("#ffffff"),
+        1,
+        None,
+    )
+    .await
+    .expect("create label");
     assert_eq!(Some(1), result);
     let id = labels::find_id(db.pool(), "cache-test-label", 1).await;
     assert!(id > 0);
@@ -568,7 +627,9 @@ async fn test_remove_cleans_label_cache(
     assert!(!cache.is_empty());
 
     // Remove the label — should clear all caches for uid=1
-    labels::remove(&db, id, 1, None).await.expect("remove label");
+    labels::remove(&db, id, 1, None)
+        .await
+        .expect("remove label");
 
     // Verify cache was cleared
     let cache_after = get_label_cache(&db, 1).await;
@@ -587,7 +648,9 @@ async fn test_remove_nonexistent_label(
 ) {
     let db = setup(pool, options).await;
     // Should not throw — removing a non-existent label is a no-op
-    labels::remove(&db, 99999, 1, None).await.expect("remove label");
+    labels::remove(&db, 99999, 1, None)
+        .await
+        .expect("remove label");
 }
 
 /// PHP: test_add_article_to_existing_label
@@ -630,7 +693,10 @@ async fn test_add_article_to_nonexistent_label(
     labels::add_article(db.pool(), 1, "nonexistent-label", 1).await;
 
     let count = count_user_labels(&db, 0, 1).await;
-    assert_eq!(initial_count, count, "Should not add anything for nonexistent label");
+    assert_eq!(
+        initial_count, count,
+        "Should not add anything for nonexistent label"
+    );
 }
 
 /// PHP: test_add_article_is_idempotent
@@ -650,7 +716,10 @@ async fn test_add_article_is_idempotent(
     labels::add_article(db.pool(), 1, "test-label-1", 1).await;
     let count2 = count_user_labels(&db, 1, 1).await;
 
-    assert_eq!(count1, count2, "Adding same label twice should not create duplicates");
+    assert_eq!(
+        count1, count2,
+        "Adding same label twice should not create duplicates"
+    );
 }
 
 /// PHP: test_add_article_different_article
@@ -819,7 +888,10 @@ async fn test_update_cache_force_mode(
     let cache_after = get_label_cache(&db, 1).await;
     // The cache is repopulated from the article's actual labels.
     // Since article 1 has no labels, it becomes an empty array '[]'.
-    assert_eq!("[]", cache_after, "Force mode should clear stale cache and repopulate from DB");
+    assert_eq!(
+        "[]", cache_after,
+        "Force mode should clear stale cache and repopulate from DB"
+    );
 }
 
 /// PHP: test_update_cache_with_labels
@@ -843,8 +915,16 @@ async fn test_update_cache_with_labels(
     let decoded: Value = serde_json::from_str(&cache).expect("valid json cache");
     let arr = decoded.as_array().expect("array cache");
     assert_eq!(1, arr.len());
-    assert_eq!(1, arr[0][0].as_i64().unwrap(), "First element should be label_id");
-    assert_eq!("test-label-1", arr[0][1].as_str().unwrap(), "Second element should be caption");
+    assert_eq!(
+        1,
+        arr[0][0].as_i64().unwrap(),
+        "First element should be label_id"
+    );
+    assert_eq!(
+        "test-label-1",
+        arr[0][1].as_str().unwrap(),
+        "Second element should be caption"
+    );
 }
 
 /// PHP: test_update_cache_empty_labels
@@ -870,7 +950,10 @@ async fn test_update_cache_empty_labels(
     labels::update_cache(&db, 1, 1, 1, &[], false).await;
 
     let cache = get_label_cache(&db, 1).await;
-    assert!(!cache.is_empty(), "Empty labels without force should not modify cache");
+    assert!(
+        !cache.is_empty(),
+        "Empty labels without force should not modify cache"
+    );
 }
 
 /// PHP: test_full_label_lifecycle
@@ -885,7 +968,16 @@ async fn test_full_label_lifecycle(
 ) {
     let db = setup(pool, options).await;
     // 1. Create a new label
-    let result = labels::create(&db, "lifecycle-test", Some("#0000ff"), Some("#ffffff"), 1, None).await.expect("create label");
+    let result = labels::create(
+        &db,
+        "lifecycle-test",
+        Some("#0000ff"),
+        Some("#ffffff"),
+        1,
+        None,
+    )
+    .await
+    .expect("create label");
     assert_eq!(Some(1), result);
 
     // 2. Find it
@@ -898,10 +990,10 @@ async fn test_full_label_lifecycle(
 
     // 4. It appears in get_all
     let all = labels::get_all(db.pool(), 1).await;
-    let found = all
-        .iter()
-        .any(|l| l.get("id").and_then(Value::as_i64) == Some(id as i64)
-            && l.get("caption").and_then(Value::as_str) == Some("lifecycle-test"));
+    let found = all.iter().any(|l| {
+        l.get("id").and_then(Value::as_i64) == Some(id as i64)
+            && l.get("caption").and_then(Value::as_str) == Some("lifecycle-test")
+    });
     assert!(found, "New label should appear in get_all()");
 
     // 5. Add it to an article
@@ -913,6 +1005,8 @@ async fn test_full_label_lifecycle(
     assert_eq!(0, count_user_labels(&db, id, 1).await);
 
     // 7. Remove the label entirely
-    labels::remove(&db, id, 1, None).await.expect("remove label");
+    labels::remove(&db, id, 1, None)
+        .await
+        .expect("remove label");
     assert_eq!("", labels::find_caption(db.pool(), id, 1).await);
 }

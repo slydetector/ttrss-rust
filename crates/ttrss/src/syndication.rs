@@ -29,14 +29,14 @@ use sqlx::Row;
 
 use crate::article;
 use crate::headlines::{
-    get_headlines_query, order_to_override_query, HeadlinesParams, FEED_PUBLISHED,
-    FEED_STARRED, PLUGIN_FEED_BASE_INDEX,
+    get_headlines_query, order_to_override_query, HeadlinesParams, FEED_PUBLISHED, FEED_STARRED,
+    PLUGIN_FEED_BASE_INDEX,
 };
 use crate::labels::LABEL_BASE_INDEX;
 use crate::prefs;
 use crate::sanitizer;
 use crate::util::{self, htmlspecialchars, strip_tags, truncate_string};
-use crate::{diskcache, AppState, nocache_headers};
+use crate::{diskcache, nocache_headers, AppState};
 
 /// `Config::get_version()` — TODO(port): derive from the docroot git
 /// metadata (PHP `Config::get_version()`), like the frozen reference
@@ -103,9 +103,8 @@ async fn generate_feed(state: &AppState, owner_uid: i64, req: &RssRequest<'_>) -
     // $feed < PLUGIN_FEED_BASE_INDEX && $feed > LABEL_BASE_INDEX` → a plugin
     // handler's `get_headlines`) is not ported — no plugin feeds exist in
     // this deployment. Kept as a named check for parity.
-    let _plugin_feed = !req.is_cat
-        && n_feed
-            .is_some_and(|f| f < PLUGIN_FEED_BASE_INDEX && f > LABEL_BASE_INDEX);
+    let _plugin_feed =
+        !req.is_cat && n_feed.is_some_and(|f| f < PLUGIN_FEED_BASE_INDEX && f > LABEL_BASE_INDEX);
 
     // `[$override_order, $skip_first_id_check] = Feeds::_order_to_override_query($order)`
     let (override_order, skip_first_id_check) = order_to_override_query(req.order);
@@ -201,8 +200,8 @@ async fn generate_feed(state: &AppState, owner_uid: i64, req: &RssRequest<'_>) -
         let content: String = r.get(content_idx);
         let author: String = r.get(content_idx + 1);
 
-        let tags = article::get_tags(pool, owner_uid, id, Some(owner_uid), tag_cache.as_deref())
-            .await;
+        let tags =
+            article::get_tags(pool, owner_uid, id, Some(owner_uid), tag_cache.as_deref()).await;
         let enclosures = article::get_enclosures(pool, id).await;
 
         // `date('c', strtotime($line["updated"] ?? ''))` — `strtotime('')` is
@@ -267,12 +266,13 @@ async fn generate_feed(state: &AppState, owner_uid: i64, req: &RssRequest<'_>) -
             a.insert("updated".into(), json!(updated_rfc3339));
             a.insert("author".into(), json!(htmlspecialchars(&author)));
             a.insert("source_link".into(), json!(htmlspecialchars(&source_link)));
-            a.insert("source_title".into(), json!(htmlspecialchars(&source_title)));
+            a.insert(
+                "source_title".into(),
+                json!(htmlspecialchars(&source_title)),
+            );
             a.insert(
                 "tags".into(),
-                Value::Array(
-                    tags.iter().map(|t| json!(htmlspecialchars(t))).collect(),
-                ),
+                Value::Array(tags.iter().map(|t| json!(htmlspecialchars(t))).collect()),
             );
             a.insert(
                 "enclosures".into(),
@@ -280,23 +280,23 @@ async fn generate_feed(state: &AppState, owner_uid: i64, req: &RssRequest<'_>) -
                     enclosures
                         .iter()
                         .map(|e| {
-                            let length = e.get("duration").and_then(Value::as_i64).filter(|&d| d != 0).unwrap_or(1);
+                            let length = e
+                                .get("duration")
+                                .and_then(Value::as_i64)
+                                .filter(|&d| d != 0)
+                                .unwrap_or(1);
                             let mut em = Map::new();
                             em.insert(
                                 "type".into(),
                                 json!(htmlspecialchars(
-                                    e.get("content_type")
-                                        .and_then(Value::as_str)
-                                        .unwrap_or("")
+                                    e.get("content_type").and_then(Value::as_str).unwrap_or("")
                                 )),
                             );
                             em.insert("length".into(), json!(length));
                             em.insert(
                                 "href".into(),
                                 json!(htmlspecialchars(
-                                    e.get("content_url")
-                                        .and_then(Value::as_str)
-                                        .unwrap_or("")
+                                    e.get("content_url").and_then(Value::as_str).unwrap_or("")
                                 )),
                             );
                             Value::Object(em)
@@ -323,7 +323,10 @@ async fn generate_feed(state: &AppState, owner_uid: i64, req: &RssRequest<'_>) -
                 a.insert("author".into(), json!(author));
             }
             if !tags.is_empty() {
-                a.insert("tags".into(), Value::Array(tags.iter().map(|t| json!(t)).collect()));
+                a.insert(
+                    "tags".into(),
+                    Value::Array(tags.iter().map(|t| json!(t)).collect()),
+                );
             }
             if !enclosures.is_empty() {
                 a.insert(
@@ -382,7 +385,9 @@ async fn generate_feed(state: &AppState, owner_uid: i64, req: &RssRequest<'_>) -
         Response::builder()
             .status(StatusCode::OK)
             .header(header::CONTENT_TYPE, "application/json; charset=utf-8")
-            .body(Body::from(serde_json::to_string(&feed_json).expect("json encode")))
+            .body(Body::from(
+                serde_json::to_string(&feed_json).expect("json encode"),
+            ))
             .expect("valid response")
     }
 }
@@ -457,14 +462,15 @@ async fn lookup_access_key(state: &AppState, req: &RssRequest<'_>) -> Option<i64
     let (Some(key), Some(id)) = (req.key, req.id) else {
         return None;
     };
-    let uid: Option<i32> =
-        sqlx::query_scalar("SELECT owner_uid FROM ttrss_access_keys WHERE access_key = $1 AND feed_id = $2")
-            .bind(key)
-            .bind(id)
-            .fetch_optional(state.db.pool())
-            .await
-            .ok()
-            .flatten();
+    let uid: Option<i32> = sqlx::query_scalar(
+        "SELECT owner_uid FROM ttrss_access_keys WHERE access_key = $1 AND feed_id = $2",
+    )
+    .bind(key)
+    .bind(id)
+    .fetch_optional(state.db.pool())
+    .await
+    .ok()
+    .flatten();
     uid.map(i64::from)
 }
 

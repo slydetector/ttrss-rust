@@ -28,17 +28,41 @@
 //! Anything else is `None` (PHP throws; the caller emits PHP's
 //! `( will generate an error )` fragment + warning word).
 
-use chrono::{Datelike, DateTime, Duration, LocalResult, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc};
+use chrono::{
+    DateTime, Datelike, Duration, LocalResult, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc,
+};
 use regex::Regex;
 use std::sync::LazyLock;
 
 const MONTHS: [&str; 12] = [
-    "january", "february", "march", "april", "may", "june", "july", "august",
-    "september", "october", "november", "december",
+    "january",
+    "february",
+    "march",
+    "april",
+    "may",
+    "june",
+    "july",
+    "august",
+    "september",
+    "october",
+    "november",
+    "december",
 ];
 const WEEKDAYS: [&str; 14] = [
-    "monday", "mon", "tuesday", "tue", "wednesday", "wed", "thursday", "thu",
-    "friday", "fri", "saturday", "sat", "sunday", "sun",
+    "monday",
+    "mon",
+    "tuesday",
+    "tue",
+    "wednesday",
+    "wed",
+    "thursday",
+    "thu",
+    "friday",
+    "fri",
+    "saturday",
+    "sat",
+    "sunday",
+    "sun",
 ];
 
 fn weekday_idx(name: &str) -> Option<i32> {
@@ -61,7 +85,11 @@ fn ymd_overflow(y: i32, m: u32, d: i32) -> Option<NaiveDate> {
     if m > 12 || y == i32::MIN {
         return None;
     }
-    let (y, m) = if m == 0 { (y.checked_sub(1)?, 12) } else { (y, m) };
+    let (y, m) = if m == 0 {
+        (y.checked_sub(1)?, 12)
+    } else {
+        (y, m)
+    };
     let base = NaiveDate::from_ymd_opt(y, m, 1)?;
     Some(base + Duration::days((d - 1) as i64))
 }
@@ -142,15 +170,30 @@ fn parse_last_next_weekday(lower: &str, today: NaiveDate) -> Option<NaiveDate> {
     let wd = weekday_idx(wd_name)?;
     let today_wd = today.weekday().num_days_from_monday() as i32;
     let diff = (wd - today_wd).rem_euclid(7);
-    let days = if diff == 0 { 7 } else if prefix == "last" { 7 - diff } else if prefix == "next" { diff } else { return None };
-    let days_i64 = if prefix == "last" { -(days as i64) } else { days as i64 };
+    let days = if diff == 0 {
+        7
+    } else if prefix == "last" {
+        7 - diff
+    } else if prefix == "next" {
+        diff
+    } else {
+        return None;
+    };
+    let days_i64 = if prefix == "last" {
+        -(days as i64)
+    } else {
+        days as i64
+    };
     Some(today + Duration::days(days_i64))
 }
 
 /// `2 days`, `-5 days`, `2 days ago` (double negation: `-5 days ago` = +5),
 /// `3 weeks from now`, `1 month ago`, `2 years`.
 fn parse_relative(lower: &str, today: NaiveDate) -> Option<NaiveDate> {
-    let (neg, rest) = lower.strip_prefix('-').map(|r| (true, r)).unwrap_or((false, lower));
+    let (neg, rest) = lower
+        .strip_prefix('-')
+        .map(|r| (true, r))
+        .unwrap_or((false, lower));
     let mut it = rest.split_whitespace();
     let first = it.next()?;
     // `last <unit>` / `next <unit>` = implicit N=1 (PHP: `last month` =
@@ -192,12 +235,11 @@ static RE_YMD: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(concat!(
         "^(?:([0-9]{4})-([0-9]{1,2})-([0-9]{1,2})|([0-9]{4})/([0-9]{1,2})/([0-9]{1,2}))",
         "(?:[Tt ]+(?:(?:([0-9]{1,2})(?::([0-9]{1,2})(?::([0-9]{1,2}))))",
-            "|(?:([0-9]{1,2})(?::([0-9]{1,2})))|(?:([0-9]{1,2})))?)?$",
+        "|(?:([0-9]{1,2})(?::([0-9]{1,2})))|(?:([0-9]{1,2})))?)?$",
     ))
     .unwrap()
 });
-static RE_YM: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^[0-9]{4}-[0-9]{1,2}$").unwrap());
+static RE_YM: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[0-9]{4}-[0-9]{1,2}$").unwrap());
 static RE_YEAR: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[0-9]{4}$").unwrap());
 static RE_3NUM: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^(?:(\d{1,2})-(\d{1,2})-(\d{4})|(\d{1,2})\.(\d{1,2})\.(\d{4}))$").unwrap()
@@ -205,7 +247,7 @@ static RE_3NUM: LazyLock<Regex> = LazyLock::new(|| {
 static RE_TIME_ONLY: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(concat!(
         "^(?:(?:([0-9]{1,2}):([0-9]{1,2}):([0-9]{1,2}))",
-            "|(?:([0-9]{1,2}):([0-9]{1,2})))$",
+        "|(?:([0-9]{1,2}):([0-9]{1,2})))$",
     ))
     .unwrap()
 });
@@ -255,8 +297,12 @@ fn parse_absolute(lower: &str, today: NaiveDate) -> Option<NaiveDate> {
         };
         let shift = if let Some(h) = h_g {
             let h: u32 = h.as_str().parse().ok()?;
-            let mi = mi_g.and_then(|x| x.as_str().parse::<u32>().ok()).unwrap_or(0);
-            let s = s_g.and_then(|x| x.as_str().parse::<u32>().ok()).unwrap_or(0);
+            let mi = mi_g
+                .and_then(|x| x.as_str().parse::<u32>().ok())
+                .unwrap_or(0);
+            let s = s_g
+                .and_then(|x| x.as_str().parse::<u32>().ok())
+                .unwrap_or(0);
             time_day_shift(h, mi, s)?
         } else {
             0
@@ -419,7 +465,10 @@ mod tests {
         let may31 = d(2026, 5, 31);
         assert_eq!(parse_date("1 month ago", may31), Some(d(2026, 5, 1)));
         // negative month across year
-        assert_eq!(parse_date("1 month ago", d(2026, 1, 15)), Some(d(2025, 12, 15)));
+        assert_eq!(
+            parse_date("1 month ago", d(2026, 1, 15)),
+            Some(d(2025, 12, 15))
+        );
         // unknown unit / bad tail → not a relative date
         assert_eq!(p_opt("2 bananas"), None);
         assert_eq!(p_opt("2 days extra"), None);
@@ -453,7 +502,7 @@ mod tests {
         assert_eq!(p_opt("5:00:99"), None);
         assert_eq!(p_opt("2026-13-05"), None);
         assert_eq!(p_opt("2026.05.25"), None); // dot year-first unsupported
-        // time-only → today (24:00 → tomorrow)
+                                               // time-only → today (24:00 → tomorrow)
         assert_eq!(p("0:30"), d(2026, 9, 7));
         assert_eq!(p("13:45:30"), d(2026, 9, 7));
         assert_eq!(p("23:59:60"), d(2026, 9, 8));
@@ -482,7 +531,7 @@ mod tests {
         assert_eq!(p_opt("11-28-2026"), None);
         assert_eq!(p_opt("1-28-2026"), None);
         assert_eq!(p_opt("13-14-2026"), None); // both > 12
-        // day/month 0 roll back (PHP oracle)
+                                               // day/month 0 roll back (PHP oracle)
         assert_eq!(p("0-0-2026"), d(2025, 11, 30));
         assert_eq!(p("0-1-2026"), d(2025, 12, 31));
         // dot form: same rules (d-m-Y)
@@ -517,9 +566,16 @@ mod tests {
     #[test]
     fn invalid_inputs() {
         for s in [
-            "bogus", "last", "next", "2", "2 days extra",
-            "tomorrow at 3pm", "2026-05-31 minus 1 month", "11-28",
-            "2026-05-25 13:", "mon day",
+            "bogus",
+            "last",
+            "next",
+            "2",
+            "2 days extra",
+            "tomorrow at 3pm",
+            "2026-05-31 minus 1 month",
+            "11-28",
+            "2026-05-25 13:",
+            "mon day",
         ] {
             assert_eq!(parse_date(s, t()), None, "expected invalid: {s:?}");
         }

@@ -82,8 +82,7 @@ impl Config {
             T::Err: std::fmt::Display,
         {
             let raw = std::env::var(key).unwrap_or_else(|_| default.to_string());
-            raw.parse()
-                .map_err(|e| anyhow!("env {key}={raw:?}: {e}"))
+            raw.parse().map_err(|e| anyhow!("env {key}={raw:?}: {e}"))
         }
 
         let db_user = std::env::var("TTRSS_DB_USER").unwrap_or_else(|_| "postgres".into());
@@ -102,9 +101,15 @@ impl Config {
                 Ok(k) if !k.trim().is_empty() => Some(crate::core::crypt::hex_key(&k)?),
                 _ => None,
             },
-            single_user_mode: sql_bool_to_bool(&std::env::var("TTRSS_SINGLE_USER_MODE").unwrap_or_default()),
-            forbid_password_changes: sql_bool_to_bool(&std::env::var("TTRSS_FORBID_PASSWORD_CHANGES").unwrap_or_default()),
-            disable_login_form: sql_bool_to_bool(&std::env::var("TTRSS_DISABLE_LOGIN_FORM").unwrap_or_default()),
+            single_user_mode: sql_bool_to_bool(
+                &std::env::var("TTRSS_SINGLE_USER_MODE").unwrap_or_default(),
+            ),
+            forbid_password_changes: sql_bool_to_bool(
+                &std::env::var("TTRSS_FORBID_PASSWORD_CHANGES").unwrap_or_default(),
+            ),
+            disable_login_form: sql_bool_to_bool(
+                &std::env::var("TTRSS_DISABLE_LOGIN_FORM").unwrap_or_default(),
+            ),
             plugins: std::env::var("TTRSS_PLUGINS").unwrap_or_else(|_| "auth_internal".into()),
             listen: env("TTRSS_RUST_LISTEN", "127.0.0.1:8281")?,
             docroot: std::env::var("TTRSS_RUST_DOCROOT")
@@ -263,8 +268,8 @@ mod tests {
         assert!(!sql_bool_to_bool("0"));
         assert!(!sql_bool_to_bool(""));
         assert!(!sql_bool_to_bool("0.0")); // numeric string == 0 is falsy
-        // test_sql_bool_to_bool_uppercase_truthy — only exact lowercase
-        // "f"/"false" are special.
+                                           // test_sql_bool_to_bool_uppercase_truthy — only exact lowercase
+                                           // "f"/"false" are special.
         assert!(sql_bool_to_bool("F"));
         assert!(sql_bool_to_bool("False"));
     }

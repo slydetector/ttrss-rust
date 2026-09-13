@@ -149,7 +149,14 @@ fn test_sanitize_allows_safe_html_elements() {
 fn test_sanitize_table_elements() {
     let input = "<table><thead><tr><th>Header</th></tr></thead><tbody><tr><td>Data</td></tr></tbody></table>";
     let result = san(input);
-    for tag in ["<table>", "<thead>", "<tbody>", "<tr>", "<th>Header</th>", "<td>Data</td>"] {
+    for tag in [
+        "<table>",
+        "<thead>",
+        "<tbody>",
+        "<tr>",
+        "<th>Header</th>",
+        "<td>Data</td>",
+    ] {
         assert!(result.contains(tag), "missing {tag}: {result}");
     }
 }
@@ -496,7 +503,8 @@ fn test_sanitize_blocks_private_ip_on_non_standard_port() {
 
 #[test]
 fn test_sanitize_blocks_link_local_on_standard_port() {
-    let input = "<p>Test <img src=\"http://169.254.169.254/latest/meta-data/\" alt=\"test\"> image</p>";
+    let input =
+        "<p>Test <img src=\"http://169.254.169.254/latest/meta-data/\" alt=\"test\"> image</p>";
     let result = san_site(input, "http://example.com");
     assert!(!result.contains("<img"));
     assert!(result.contains("&lt;img"));
@@ -547,7 +555,8 @@ fn test_sanitize_preserves_href_with_localhost() {
 
 #[test]
 fn test_sanitize_allows_non_standard_port_on_external_host_in_video_poster() {
-    let input = "<video poster=\"http://example.org:8080/poster.jpg\"><source src=\"video.mp4\"></video>";
+    let input =
+        "<video poster=\"http://example.org:8080/poster.jpg\"><source src=\"video.mp4\"></video>";
     let result = san_site(input, "http://example.com");
     assert!(result.contains("<video"));
     assert!(result.contains("poster=\"http://example.org:8080/poster.jpg\""));
@@ -555,7 +564,8 @@ fn test_sanitize_allows_non_standard_port_on_external_host_in_video_poster() {
 
 #[test]
 fn test_sanitize_allows_standard_port_in_video_poster() {
-    let input = "<video poster=\"https://example.org/poster.jpg\"><source src=\"video.mp4\"></video>";
+    let input =
+        "<video poster=\"https://example.org/poster.jpg\"><source src=\"video.mp4\"></video>";
     let result = san_site(input, "http://example.com");
     assert!(result.contains("<video"));
     assert!(result.contains("poster=\"https://example.org/poster.jpg\""));
@@ -563,7 +573,8 @@ fn test_sanitize_allows_standard_port_in_video_poster() {
 
 #[test]
 fn test_sanitize_removes_localhost_poster_attribute() {
-    let input = "<video poster=\"http://127.0.0.1:8080/poster.jpg\"><source src=\"video.mp4\"></video>";
+    let input =
+        "<video poster=\"http://127.0.0.1:8080/poster.jpg\"><source src=\"video.mp4\"></video>";
     let result = san_site(input, "http://example.com");
     assert!(result.contains("<video"));
     assert!(!result.contains("poster="));
@@ -572,7 +583,8 @@ fn test_sanitize_removes_localhost_poster_attribute() {
 
 #[test]
 fn test_sanitize_allows_private_ip_poster_on_standard_port() {
-    let input = "<video poster=\"http://192.168.1.50/poster.jpg\"><source src=\"video.mp4\"></video>";
+    let input =
+        "<video poster=\"http://192.168.1.50/poster.jpg\"><source src=\"video.mp4\"></video>";
     let result = san_site(input, "http://example.com");
     assert!(result.contains("<video"));
     assert!(result.contains("poster=\"http://192.168.1.50/poster.jpg\""));
@@ -580,7 +592,8 @@ fn test_sanitize_allows_private_ip_poster_on_standard_port() {
 
 #[test]
 fn test_sanitize_removes_private_ip_poster_on_non_standard_port() {
-    let input = "<video poster=\"http://10.0.0.5:8080/poster.jpg\"><source src=\"video.mp4\"></video>";
+    let input =
+        "<video poster=\"http://10.0.0.5:8080/poster.jpg\"><source src=\"video.mp4\"></video>";
     let result = san_site(input, "http://example.com");
     assert!(result.contains("<video"));
     assert!(!result.contains("poster="));

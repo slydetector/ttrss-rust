@@ -202,10 +202,10 @@ fn valid_host(host: &str) -> bool {
             return false;
         }
         let inner = &host[1..host.len() - 1];
-        return !inner.is_empty()
-            && inner.bytes().all(|b| b.is_ascii_hexdigit() || b == b':');
+        return !inner.is_empty() && inner.bytes().all(|b| b.is_ascii_hexdigit() || b == b':');
     }
-    host.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-')
+    host.bytes()
+        .all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-')
 }
 
 /// Index of the `:` that terminates the URL scheme, or `None` if there is no
@@ -264,7 +264,11 @@ fn normalize_port(port: &str) -> Option<String> {
     if port.bytes().all(|b| b.is_ascii_digit()) {
         // strip leading zeros (keep a single `0`)
         let trimmed = port.trim_start_matches('0');
-        return Some(if trimmed.is_empty() { "0".into() } else { trimmed.to_string() });
+        return Some(if trimmed.is_empty() {
+            "0".into()
+        } else {
+            trimmed.to_string()
+        });
     }
     Some(port.to_string())
 }
@@ -276,7 +280,10 @@ fn split_path_query_fragment(s: &str) -> (String, String, String) {
         None => (s, String::new()),
     };
     let (path, query) = match before_frag.find('?') {
-        Some(q) => (before_frag[..q].to_string(), before_frag[q + 1..].to_string()),
+        Some(q) => (
+            before_frag[..q].to_string(),
+            before_frag[q + 1..].to_string(),
+        ),
         None => (before_frag.to_string(), String::new()),
     };
     (path, query, fragment)
@@ -373,7 +380,13 @@ fn canonicalize_ipv4_literal(host: &str) -> Option<String> {
             val = (val << 8) | octet;
         }
     }
-    Some(format!("{}.{}.{}.{}", (val >> 24) & 0xff, (val >> 16) & 0xff, (val >> 8) & 0xff, val & 0xff))
+    Some(format!(
+        "{}.{}.{}.{}",
+        (val >> 24) & 0xff,
+        (val >> 16) & 0xff,
+        (val >> 8) & 0xff,
+        val & 0xff
+    ))
 }
 
 /// A non-empty string of base-0 integer characters (decimal / 0x-hex / 0-octal).
@@ -401,9 +414,15 @@ fn ip_to_bytes(ip: &str) -> Option<Vec<u8>> {
     let inner = ip.trim_start_matches('[').trim_end_matches(']');
     let is_v6 = inner.contains(':');
     if is_v6 {
-        inner.parse::<std::net::Ipv6Addr>().ok().map(|a| a.octets().to_vec())
+        inner
+            .parse::<std::net::Ipv6Addr>()
+            .ok()
+            .map(|a| a.octets().to_vec())
     } else {
-        inner.parse::<std::net::Ipv4Addr>().ok().map(|a| a.octets().to_vec())
+        inner
+            .parse::<std::net::Ipv4Addr>()
+            .ok()
+            .map(|a| a.octets().to_vec())
     }
 }
 
@@ -503,9 +522,9 @@ fn php_dirname(path: &str) -> String {
         return "/".to_string(); // the path was all slashes (e.g. "/")
     }
     match trimmed.rfind('/') {
-        Some(0) => String::new(), // "/base" → ""
+        Some(0) => String::new(),                // "/base" → ""
         Some(idx) => trimmed[..idx].to_string(), // "/base/dir" → "/base"
-        None => ".".to_string(), // "base" → "."
+        None => ".".to_string(),                 // "base" → "."
     }
 }
 

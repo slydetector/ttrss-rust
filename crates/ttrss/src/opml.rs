@@ -10,14 +10,14 @@
 
 use std::collections::HashMap;
 
+use crate::core::db::Db;
 use axum::http::StatusCode;
 use quick_xml::events::Event;
-use quick_xml::XmlVersion;
 use quick_xml::Reader;
+use quick_xml::XmlVersion;
 use serde::Serialize;
-use serde_json::{Map, Value, json};
+use serde_json::{json, Map, Value};
 use sqlx::Row;
-use crate::core::db::Db;
 
 use crate::session::Sess;
 use crate::AppState;
@@ -58,9 +58,15 @@ struct Outline {
     xml_url: Option<String>,
     #[serde(rename = "@ttrssSortOrder", skip_serializing_if = "Option::is_none")]
     ttrss_sort: Option<i64>,
-    #[serde(rename = "@ttrssPurgeInterval", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "@ttrssPurgeInterval",
+        skip_serializing_if = "Option::is_none"
+    )]
     ttrss_purge: Option<i64>,
-    #[serde(rename = "@ttrssUpdateInterval", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "@ttrssUpdateInterval",
+        skip_serializing_if = "Option::is_none"
+    )]
     ttrss_update: Option<i64>,
     #[serde(rename = "@htmlUrl", skip_serializing_if = "Option::is_none")]
     html_url: Option<String>,
@@ -165,15 +171,13 @@ async fn fetch_feeds(pool: &sqlx::PgPool, uid: i64, hide_private: bool) -> Vec<F
 /// category, sub-categories precede feeds, matching the PHP
 /// `opml_export_category`.
 fn build_tree(cats: &[Cat], feeds: &[Feed], include_settings: bool) -> Vec<Outline> {
-    let feeds_by_cat: HashMap<Option<i64>, Vec<&Feed>> = feeds
-        .iter()
-        .fold(HashMap::new(), |mut m, f| {
+    let feeds_by_cat: HashMap<Option<i64>, Vec<&Feed>> =
+        feeds.iter().fold(HashMap::new(), |mut m, f| {
             m.entry(f.cat_id).or_default().push(f);
             m
         });
-    let cat_children: HashMap<Option<i64>, Vec<&Cat>> = cats
-        .iter()
-        .fold(HashMap::new(), |mut m, c| {
+    let cat_children: HashMap<Option<i64>, Vec<&Cat>> =
+        cats.iter().fold(HashMap::new(), |mut m, c| {
             m.entry(c.parent).or_default().push(c);
             m
         });
@@ -231,7 +235,9 @@ pub async fn build_opml(pool: &sqlx::PgPool, uid: i64, include_settings: bool) -
     let feeds = fetch_feeds(pool, uid, false).await;
     let outlines = build_tree(&cats, &feeds, include_settings);
 
-    let date_created = chrono::Utc::now().format("%a, %d %b %Y %H:%M:%S %z").to_string();
+    let date_created = chrono::Utc::now()
+        .format("%a, %d %b %Y %H:%M:%S %z")
+        .to_string();
 
     // TODO(opml): settings section (tt-rss-prefs/labels/filters) when `include_settings`.
     let doc = Doc {
@@ -263,11 +269,10 @@ pub async fn export(
         .map(|v| v.as_str() == Some("1") || v.as_bool() == Some(true))
         .unwrap_or(false);
 
-    let name = sess
-        .data()
-        .get_str("name")
-        .unwrap_or("user")
-        .replace(|c: char| !(c.is_ascii_alphanumeric() || c == '-' || c == '_'), "");
+    let name = sess.data().get_str("name").unwrap_or("user").replace(
+        |c: char| !(c.is_ascii_alphanumeric() || c == '-' || c == '_'),
+        "",
+    );
     let date = chrono::Utc::now().format("%Y-%m-%d").to_string();
     let output_name = format!("tt-rss_{name}_{date}.opml");
 
@@ -337,7 +342,9 @@ fn parse_opml(xml: &str) -> Result<(Vec<XmlNode>, usize), quick_xml::Error> {
             }
             Event::Text(e) => {
                 if let Some(&p) = stack.last() {
-                    nodes[p].text.push_str(&e.xml_content(XmlVersion::Implicit1_0));
+                    nodes[p]
+                        .text
+                        .push_str(&e.xml_content(XmlVersion::Implicit1_0));
                 }
             }
             Event::CData(e) => {
@@ -357,7 +364,10 @@ fn parse_opml(xml: &str) -> Result<(Vec<XmlNode>, usize), quick_xml::Error> {
 }
 
 fn attr<'a>(node: &'a XmlNode, name: &str) -> Option<&'a str> {
-    node.attrs.iter().find(|(k, _)| k == name).map(|(_, v)| v.as_str())
+    node.attrs
+        .iter()
+        .find(|(k, _)| k == name)
+        .map(|(_, v)| v.as_str())
 }
 
 /// The `outline` child elements of `idx`.
@@ -377,7 +387,8 @@ fn body_outlines(nodes: &[XmlNode], root: usize) -> Vec<usize> {
         .iter()
         .copied()
         .find(|&ci| nodes[ci].name == "body");
-    body.map(|bi| outline_children(nodes, bi)).unwrap_or_default()
+    body.map(|bi| outline_children(nodes, bi))
+        .unwrap_or_default()
 }
 
 /// `mb_substr(s, 0, max)` — truncate to at most `max` characters (multibyte-safe).
@@ -407,7 +418,13 @@ async fn get_feed_category(db: &Db, title: &str, uid: i64, parent_cat_id: i64) -
 }
 
 /// `Feeds::_add_cat` — insert a category (the caller has confirmed it is absent).
-async fn add_cat_low(db: &Db, title: &str, uid: i64, parent_cat: Option<i64>, order_id: i64) -> bool {
+async fn add_cat_low(
+    db: &Db,
+    title: &str,
+    uid: i64,
+    parent_cat: Option<i64>,
+    order_id: i64,
+) -> bool {
     let pool = db.pool();
     sqlx::query("INSERT INTO ttrss_feed_categories (owner_uid, parent_cat, order_id, title) VALUES ($1, $2, $3, $4)")
         .bind(uid)
@@ -433,14 +450,16 @@ async fn opml_import_feed(db: &Db, uid: i64, node: &XmlNode, cat_id: i64) {
     let site_url = attr(node, "htmlUrl")
         .map(|t| mb_truncate(t, 250).to_string())
         .unwrap_or_default();
-    let exists = sqlx::query_scalar::<_, i32>("SELECT id FROM ttrss_feeds WHERE feed_url = $1 AND owner_uid = $2")
-        .bind(&feed_url)
-        .bind(uid)
-        .fetch_optional(pool)
-        .await
-        .ok()
-        .flatten()
-        .is_some();
+    let exists = sqlx::query_scalar::<_, i32>(
+        "SELECT id FROM ttrss_feeds WHERE feed_url = $1 AND owner_uid = $2",
+    )
+    .bind(&feed_url)
+    .bind(uid)
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten()
+    .is_some();
     if exists {
         return;
     }
@@ -449,9 +468,15 @@ async fn opml_import_feed(db: &Db, uid: i64, node: &XmlNode, cat_id: i64) {
     } else {
         feed_title
     };
-    let update_interval = attr(node, "ttrssUpdateInterval").and_then(|v| v.parse::<i64>().ok()).unwrap_or(0);
-    let order_id = attr(node, "ttrssSortOrder").and_then(|v| v.parse::<i64>().ok()).unwrap_or(0);
-    let purge_interval = attr(node, "ttrssPurgeInterval").and_then(|v| v.parse::<i64>().ok()).unwrap_or(0);
+    let update_interval = attr(node, "ttrssUpdateInterval")
+        .and_then(|v| v.parse::<i64>().ok())
+        .unwrap_or(0);
+    let order_id = attr(node, "ttrssSortOrder")
+        .and_then(|v| v.parse::<i64>().ok())
+        .unwrap_or(0);
+    let purge_interval = attr(node, "ttrssPurgeInterval")
+        .and_then(|v| v.parse::<i64>().ok())
+        .unwrap_or(0);
     let cat = (cat_id != 0).then_some(cat_id);
     sqlx::query(
         "INSERT INTO ttrss_feeds (title, feed_url, owner_uid, cat_id, site_url, order_id, update_interval, purge_interval) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)")
@@ -488,9 +513,16 @@ async fn opml_import_label(db: &Db, uid: i64, node: &XmlNode) {
     if crate::labels::find_id(db.pool(), label_name, uid).await != 0 {
         return;
     }
-    crate::labels::create(db, label_name, attr(node, "label-fg-color"), attr(node, "label-bg-color"), uid, Some(uid))
-        .await
-        .ok();
+    crate::labels::create(
+        db,
+        label_name,
+        attr(node, "label-fg-color"),
+        attr(node, "label-bg-color"),
+        uid,
+        Some(uid),
+    )
+    .await
+    .ok();
 }
 
 /// `Feeds::_find_by_title` — id of the feed (or category, if `is_cat`) with this
@@ -524,9 +556,18 @@ async fn opml_import_filter(db: &Db, uid: i64, node: &XmlNode) {
         Ok(v) if v.is_object() => v,
         _ => return,
     };
-    let match_any_rule = filter.get("match_any_rule").and_then(|v| v.as_bool()).unwrap_or(false);
-    let enabled = filter.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false);
-    let inverse = filter.get("inverse").and_then(|v| v.as_bool()).unwrap_or(false);
+    let match_any_rule = filter
+        .get("match_any_rule")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let enabled = filter
+        .get("enabled")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let inverse = filter
+        .get("inverse")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
     let title = filter.get("title").and_then(|v| v.as_str()).unwrap_or("");
     let filter_id: i64 = match sqlx::query_scalar::<_, i32>(
         "INSERT INTO ttrss_filters2 (match_any_rule, enabled, inverse, title, owner_uid) VALUES ($1, $2, $3, $4, $5) RETURNING id")
@@ -538,7 +579,10 @@ async fn opml_import_filter(db: &Db, uid: i64, node: &XmlNode) {
     };
     if let Some(rules) = filter.get("rules").and_then(|v| v.as_array()) {
         for rule in rules {
-            let match_arr = rule.get("match").and_then(|v| v.as_array()).filter(|a| !a.is_empty());
+            let match_arr = rule
+                .get("match")
+                .and_then(|v| v.as_array())
+                .filter(|a| !a.is_empty());
             if let Some(m) = match_arr {
                 let mut match_on: Vec<String> = Vec::new();
                 for item in m {
@@ -546,30 +590,54 @@ async fn opml_import_filter(db: &Db, uid: i64, node: &XmlNode) {
                     let is_cat = item.get(1).and_then(|v| v.as_bool()).unwrap_or(false);
                     let is_id = item.get(2).and_then(|v| v.as_bool()).unwrap_or(false);
                     if is_id {
-                        match_on.push(if is_cat { format!("CAT:{name}") } else { name.to_string() });
+                        match_on.push(if is_cat {
+                            format!("CAT:{name}")
+                        } else {
+                            name.to_string()
+                        });
                     } else {
                         let mid = find_by_title(db, name, is_cat, uid).await;
                         if mid != 0 {
-                            match_on.push(if is_cat { format!("CAT:{mid}") } else { mid.to_string() });
+                            match_on.push(if is_cat {
+                                format!("CAT:{mid}")
+                            } else {
+                                mid.to_string()
+                            });
                         }
                     }
                 }
                 let reg_exp = rule.get("reg_exp").and_then(|v| v.as_str()).unwrap_or("");
-                let ftype = rule.get("filter_type").and_then(|v| v.as_i64()).unwrap_or(0);
-                let inv = rule.get("inverse").and_then(|v| v.as_bool()).unwrap_or(false);
-                let match_on_json = serde_json::to_string(&match_on).unwrap_or_else(|_| "[]".to_string());
+                let ftype = rule
+                    .get("filter_type")
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(0);
+                let inv = rule
+                    .get("inverse")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                let match_on_json =
+                    serde_json::to_string(&match_on).unwrap_or_else(|_| "[]".to_string());
                 sqlx::query("INSERT INTO ttrss_filters2_rules (feed_id, cat_id, match_on, filter_id, filter_type, reg_exp, cat_filter, inverse) VALUES (NULL, NULL, $1, $2, $3, $4, false, $5)")
                     .bind(&match_on_json).bind(filter_id).bind(ftype).bind(reg_exp).bind(inv)
                     .execute(pool).await.ok();
             } else {
                 let feed = rule.get("feed").and_then(|v| v.as_str()).unwrap_or("");
-                let cat_filter = rule.get("cat_filter").and_then(|v| v.as_bool()).unwrap_or(false);
+                let cat_filter = rule
+                    .get("cat_filter")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
                 let mid = find_by_title(db, feed, cat_filter, uid).await;
                 let feed_id = (mid != 0 && !cat_filter).then_some(mid);
                 let cat_id = (mid != 0 && cat_filter).then_some(mid);
                 let reg_exp = rule.get("reg_exp").and_then(|v| v.as_str()).unwrap_or("");
-                let ftype = rule.get("filter_type").and_then(|v| v.as_i64()).unwrap_or(0);
-                let inv = rule.get("inverse").and_then(|v| v.as_bool()).unwrap_or(false);
+                let ftype = rule
+                    .get("filter_type")
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(0);
+                let inv = rule
+                    .get("inverse")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
                 sqlx::query("INSERT INTO ttrss_filters2_rules (feed_id, cat_id, filter_id, filter_type, reg_exp, cat_filter, inverse) VALUES ($1, $2, $3, $4, $5, $6, $7)")
                     .bind(feed_id).bind(cat_id).bind(filter_id).bind(ftype).bind(reg_exp).bind(cat_filter).bind(inv)
                     .execute(pool).await.ok();
@@ -578,8 +646,14 @@ async fn opml_import_filter(db: &Db, uid: i64, node: &XmlNode) {
     }
     if let Some(actions) = filter.get("actions").and_then(|v| v.as_array()) {
         for action in actions {
-            let action_id = action.get("action_id").and_then(|v| v.as_i64()).unwrap_or(1);
-            let action_param = action.get("action_param").and_then(|v| v.as_str()).unwrap_or("");
+            let action_id = action
+                .get("action_id")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(1);
+            let action_param = action
+                .get("action_param")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             sqlx::query("INSERT INTO ttrss_filters2_actions (filter_id, action_id, action_param) VALUES ($1, $2, $3)")
                 .bind(filter_id).bind(action_id).bind(action_param)
                 .execute(pool).await.ok();
@@ -593,20 +667,24 @@ async fn opml_import_filter(db: &Db, uid: i64, node: &XmlNode) {
 /// of the three settings sections); everything else is a feed or settings item.
 async fn opml_import_category(db: &Db, uid: i64, nodes: &[XmlNode], root: usize) {
     let default_cat_id = get_feed_category(db, "Imported feeds", uid, 0).await;
-    let mut stack: Vec<(Vec<usize>, i64, Option<&str>)> = vec![(body_outlines(nodes, root), 0, None)];
+    let mut stack: Vec<(Vec<usize>, i64, Option<&str>)> =
+        vec![(body_outlines(nodes, root), 0, None)];
     while let Some((outlines, cat_id, cat_title)) = stack.pop() {
         for oi in outlines {
             let node = &nodes[oi];
             let node_cat_title = attr(node, "text").or_else(|| attr(node, "title"));
             let node_feed_url = attr(node, "xmlUrl").or_else(|| attr(node, "xmlURL"));
             if let Some(title) = node_cat_title.filter(|_| node_feed_url.is_none()) {
-                let is_settings = matches!(title, "tt-rss-prefs" | "tt-rss-labels" | "tt-rss-filters");
+                let is_settings =
+                    matches!(title, "tt-rss-prefs" | "tt-rss-labels" | "tt-rss-filters");
                 let new_cat_id = if is_settings {
                     0
                 } else if get_feed_category(db, title, uid, cat_id).await != 0 {
                     get_feed_category(db, title, uid, cat_id).await
                 } else {
-                    let order_id = attr(node, "ttrssSortOrder").and_then(|v| v.parse::<i64>().ok()).unwrap_or(0);
+                    let order_id = attr(node, "ttrssSortOrder")
+                        .and_then(|v| v.parse::<i64>().ok())
+                        .unwrap_or(0);
                     add_cat_low(db, title, uid, (cat_id != 0).then_some(cat_id), order_id).await;
                     get_feed_category(db, title, uid, cat_id).await
                 };

@@ -15,17 +15,16 @@ use minijinja::Environment;
 use serde_json::{json, Value};
 
 use crate::controls;
-use crate::prefs;
 use crate::otp;
-use crate::settings;
+use crate::prefs;
 use crate::session::Sess;
+use crate::settings;
 use crate::util;
 use crate::AppState;
 
 /// `Pref_Prefs::BLOCK_SEPARATOR` — the sentinel in `pref_item_map` that
 /// renders as an `<hr/>` (omitted when a non-default profile is active).
 const BLOCK_SEPARATOR: &str = "BLOCK_SEPARATOR";
-
 
 /// The `pref_item_map`: section title → the ordered pref names (with
 /// `BLOCK_SEPARATOR` sentinels), in the PHP declaration order.
@@ -218,7 +217,10 @@ fn update_intervals_nodefault() -> Vec<(&'static str, &'static str)> {
 /// The `USER_TIMEZONE` options: the exact PHP
 /// `DateTimeZone::listIdentifiers(ALL_WITH_BC)` list (with "Automatic" first).
 fn timezone_options() -> Vec<String> {
-    crate::pref_timezones::TIMEZONE_IDS.iter().map(|s| s.to_string()).collect()
+    crate::pref_timezones::TIMEZONE_IDS
+        .iter()
+        .map(|s| s.to_string())
+        .collect()
 }
 
 /// The `USER_CSS_THEME` options: "" → default, then each theme file's basename
@@ -241,7 +243,10 @@ fn theme_options(state: &AppState) -> Vec<(String, String)> {
     files.sort();
     let mut themes: Vec<(String, String)> = vec![(String::new(), "default".to_string())];
     for file in files {
-        let label = file.strip_suffix(".css").map(|s| s.to_string()).unwrap_or(file.clone());
+        let label = file
+            .strip_suffix(".css")
+            .map(|s| s.to_string())
+            .unwrap_or(file.clone());
         themes.push((file, label));
     }
     themes
@@ -584,23 +589,20 @@ pub async fn index(state: &AppState, sess: &Sess) -> Result<String, sqlx::Error>
 
     let hidden_op = controls::hidden_tag("op", "Pref_Prefs");
     let hidden_saveconfig = controls::hidden_tag("method", "saveconfig");
-    let boolean_prefs_str =
-        util::htmlspecialchars(&listed_boolean_prefs.join(","));
+    let boolean_prefs_str = util::htmlspecialchars(&listed_boolean_prefs.join(","));
     let hidden_boolean = controls::hidden_tag("boolean_prefs", &boolean_prefs_str);
 
     let rendered = index_env()
         .get_template("index")
         .expect("index template")
-        .render(
-            json!({
-                "profile_notice": profile.is_some(),
-                "sections": sections,
-                "hidden_op": hidden_op,
-                "hidden_saveconfig": hidden_saveconfig,
-                "hidden_boolean": hidden_boolean,
-                "plugins_pane": plugins_pane(state, sess),
-            }),
-        )
+        .render(json!({
+            "profile_notice": profile.is_some(),
+            "sections": sections,
+            "hidden_op": hidden_op,
+            "hidden_saveconfig": hidden_saveconfig,
+            "hidden_boolean": hidden_boolean,
+            "plugins_pane": plugins_pane(state, sess),
+        }))
         .map_err(sqlx::Error::config)?;
     Ok(rendered)
 }
@@ -632,7 +634,9 @@ pub async fn index_auth(state: &AppState, sess: &Sess) -> Result<String, sqlx::E
     // Authenticator (OTP) pane state.
     let otp_enabled = otp::is_otp_enabled(pool, uid).await?;
     let (otp_secret_fmt, otp_qrcode) = if auth_internal && !otp_enabled {
-        let secret = otp::get_otp_secret(pool, uid, false).await?.unwrap_or_default();
+        let secret = otp::get_otp_secret(pool, uid, false)
+            .await?
+            .unwrap_or_default();
         let otpurl = format!(
             "otpauth://totp/{}?secret={}&issuer={}",
             urlencoding::encode(&login),
@@ -835,7 +839,9 @@ fn index_auth_app_passwords(app_passwords_html: &str) -> String {
     Generate password</button>
 <button style='float : left' class='alt-danger' dojoType='dijit.form.Button' onclick="Helpers.AppPasswords.removeSelected()">{del}
     Remove selected</button>"#,
-        notice = controls::format_notice("Separate passwords used for API clients. Required if you enable OTP."),
+        notice = controls::format_notice(
+            "Separate passwords used for API clients. Required if you enable OTP."
+        ),
         list = app_passwords_html,
         add = controls::icon("add"),
         del = controls::icon("delete"),
@@ -928,4 +934,3 @@ fn index_env() -> &'static Environment<'static> {
         env
     })
 }
-

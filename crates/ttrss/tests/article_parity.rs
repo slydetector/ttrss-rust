@@ -15,10 +15,12 @@ mod common;
 
 use chrono::NaiveDateTime;
 use serde_json::{json, Value};
+use ttrss::article::{
+    self, CATCHUP_MODE_MARK_AS_READ, CATCHUP_MODE_MARK_AS_UNREAD, CATCHUP_MODE_TOGGLE,
+};
 use ttrss::core::db::Db;
 use ttrss::core::phpser::Value as PValue;
 use ttrss::core::session::Session;
-use ttrss::article::{self, CATCHUP_MODE_MARK_AS_READ, CATCHUP_MODE_MARK_AS_UNREAD, CATCHUP_MODE_TOGGLE};
 
 /// `DbTestCase::setUp`: `$_SESSION["uid"] = 1`.
 const SESSION_UID: i64 = 1;
@@ -106,8 +108,22 @@ async fn test_get_tags_with_explicit_tag_cache(
 ) {
     let db = setup(pool, options).await;
     // When tag_cache is provided, it is split by comma
-    let tags = article::get_tags(db.pool(), SESSION_UID, 1, Some(1), Some("explicit,tag,cache")).await;
-    assert_eq!(tags, vec!["explicit".to_string(), "tag".to_string(), "cache".to_string()]);
+    let tags = article::get_tags(
+        db.pool(),
+        SESSION_UID,
+        1,
+        Some(1),
+        Some("explicit,tag,cache"),
+    )
+    .await;
+    assert_eq!(
+        tags,
+        vec![
+            "explicit".to_string(),
+            "tag".to_string(),
+            "cache".to_string()
+        ]
+    );
 }
 
 // ── _get_labels() ───────────────────────────────────────────────────────────
@@ -151,7 +167,10 @@ async fn test_get_labels_returns_no_labels_marker(
     .await
     .expect("row exists");
     let decoded: Value = serde_json::from_str(&label_cache).expect("valid JSON");
-    assert!(decoded.get("no-labels").is_some(), "cache should carry the no-labels marker");
+    assert!(
+        decoded.get("no-labels").is_some(),
+        "cache should carry the no-labels marker"
+    );
     assert_eq!(decoded["no-labels"], json!(1));
 }
 
@@ -169,11 +188,13 @@ async fn test_get_labels_with_cached_labels(
     // Manually set a label cache
     let labels: Vec<Value> = vec![json!(["1", "test-label-1", "#000000", "#ffffff"])];
     let labels_json = Value::Array(labels.clone()).to_string();
-    sqlx::query("UPDATE ttrss_user_entries SET label_cache = $1 WHERE ref_id = 1 AND owner_uid = 1")
-        .bind(&labels_json)
-        .execute(db.pool())
-        .await
-        .expect("set label_cache");
+    sqlx::query(
+        "UPDATE ttrss_user_entries SET label_cache = $1 WHERE ref_id = 1 AND owner_uid = 1",
+    )
+    .bind(&labels_json)
+    .execute(db.pool())
+    .await
+    .expect("set label_cache");
 
     let retrieved = article::get_labels(db.pool(), SESSION_UID, 1, None).await;
     assert_eq!(retrieved, labels);
@@ -208,21 +229,30 @@ async fn test_catchup_mark_as_read(
 ) {
     let db = setup(pool, options).await;
     // Article 1 is unread (from seed.sql)
-    let (before_unread, before_last_read): (bool, Option<NaiveDateTime>) =
-        sqlx::query_as("SELECT unread, last_read FROM ttrss_user_entries WHERE ref_id = 1 AND owner_uid = 1")
-            .fetch_one(db.pool())
-            .await
-            .expect("row exists");
+    let (before_unread, before_last_read): (bool, Option<NaiveDateTime>) = sqlx::query_as(
+        "SELECT unread, last_read FROM ttrss_user_entries WHERE ref_id = 1 AND owner_uid = 1",
+    )
+    .fetch_one(db.pool())
+    .await
+    .expect("row exists");
     assert!(before_unread);
     assert!(before_last_read.is_none());
 
-    article::catchup_by_id(db.pool(), &[1], CATCHUP_MODE_MARK_AS_READ, SESSION_UID, None).await;
+    article::catchup_by_id(
+        db.pool(),
+        &[1],
+        CATCHUP_MODE_MARK_AS_READ,
+        SESSION_UID,
+        None,
+    )
+    .await;
 
-    let (after_unread, after_last_read): (bool, Option<NaiveDateTime>) =
-        sqlx::query_as("SELECT unread, last_read FROM ttrss_user_entries WHERE ref_id = 1 AND owner_uid = 1")
-            .fetch_one(db.pool())
-            .await
-            .expect("row exists");
+    let (after_unread, after_last_read): (bool, Option<NaiveDateTime>) = sqlx::query_as(
+        "SELECT unread, last_read FROM ttrss_user_entries WHERE ref_id = 1 AND owner_uid = 1",
+    )
+    .fetch_one(db.pool())
+    .await
+    .expect("row exists");
     assert!(!after_unread);
     assert!(after_last_read.is_some());
 }
@@ -247,7 +277,14 @@ async fn test_catchup_mark_as_unread(
     .expect("row exists");
     assert!(!before);
 
-    article::catchup_by_id(db.pool(), &[3], CATCHUP_MODE_MARK_AS_UNREAD, SESSION_UID, None).await;
+    article::catchup_by_id(
+        db.pool(),
+        &[3],
+        CATCHUP_MODE_MARK_AS_UNREAD,
+        SESSION_UID,
+        None,
+    )
+    .await;
 
     let after: bool = sqlx::query_scalar(
         "SELECT unread FROM ttrss_user_entries WHERE ref_id = 3 AND owner_uid = 1",
@@ -272,11 +309,12 @@ async fn test_catchup_toggle(
     // Article 1 is unread → toggle should make it read
     article::catchup_by_id(db.pool(), &[1], CATCHUP_MODE_TOGGLE, SESSION_UID, None).await;
 
-    let (after_unread, after_last_read): (bool, Option<NaiveDateTime>) =
-        sqlx::query_as("SELECT unread, last_read FROM ttrss_user_entries WHERE ref_id = 1 AND owner_uid = 1")
-            .fetch_one(db.pool())
-            .await
-            .expect("row exists");
+    let (after_unread, after_last_read): (bool, Option<NaiveDateTime>) = sqlx::query_as(
+        "SELECT unread, last_read FROM ttrss_user_entries WHERE ref_id = 1 AND owner_uid = 1",
+    )
+    .fetch_one(db.pool())
+    .await
+    .expect("row exists");
     assert!(!after_unread);
     assert!(after_last_read.is_some());
 
@@ -303,7 +341,14 @@ async fn test_catchup_multiple_articles(
 ) {
     let db = setup(pool, options).await;
     // Mark articles 1, 2, 3 as read at once
-    article::catchup_by_id(db.pool(), &[1, 2, 3], CATCHUP_MODE_MARK_AS_READ, SESSION_UID, None).await;
+    article::catchup_by_id(
+        db.pool(),
+        &[1, 2, 3],
+        CATCHUP_MODE_MARK_AS_READ,
+        SESSION_UID,
+        None,
+    )
+    .await;
 
     let rows: Vec<(i32, bool)> = sqlx::query_as(
         "SELECT ref_id, unread FROM ttrss_user_entries WHERE ref_id IN (1,2,3) AND owner_uid = 1",
@@ -329,7 +374,14 @@ async fn test_catchup_custom_owner_uid(
 ) {
     let db = setup(pool, options).await;
     // Should not affect uid=999's entries
-    article::catchup_by_id(db.pool(), &[1], CATCHUP_MODE_MARK_AS_READ, SESSION_UID, Some(999)).await;
+    article::catchup_by_id(
+        db.pool(),
+        &[1],
+        CATCHUP_MODE_MARK_AS_READ,
+        SESSION_UID,
+        Some(999),
+    )
+    .await;
 
     let after: bool = sqlx::query_scalar(
         "SELECT unread FROM ttrss_user_entries WHERE ref_id = 1 AND owner_uid = 1",
@@ -337,7 +389,10 @@ async fn test_catchup_custom_owner_uid(
     .fetch_one(db.pool())
     .await
     .expect("row exists");
-    assert!(after, "uid=1's article should not be affected by uid=999 catchup");
+    assert!(
+        after,
+        "uid=1's article should not be affected by uid=999 catchup"
+    );
 }
 
 // ── _purge_orphans() ────────────────────────────────────────────────────────
@@ -550,8 +605,14 @@ async fn test_get_image_extract_youtube_embed(
     let content = "<p>Check out this video: <iframe src=\"https://www.youtube.com/embed/dQw4w9WgXcQ\"></iframe></p>";
     let (image, stream, kind) = article::get_image(&[], content, "https://example.com");
 
-    assert!(image.contains("img.youtube.com/vi/dQw4w9WgXcQ/hqdefault.jpg"), "image was: {image}");
-    assert!(stream.contains("youtu.be/dQw4w9WgXcQ"), "stream was: {stream}");
+    assert!(
+        image.contains("img.youtube.com/vi/dQw4w9WgXcQ/hqdefault.jpg"),
+        "image was: {image}"
+    );
+    assert!(
+        stream.contains("youtu.be/dQw4w9WgXcQ"),
+        "stream was: {stream}"
+    );
     assert_eq!(kind, article::ARTICLE_KIND_YOUTUBE);
 }
 
@@ -570,8 +631,14 @@ async fn test_get_image_extract_video_poster(
     let content = "<video poster=\"https://example.com/poster.jpg\"><source src=\"https://example.com/video.mp4\"></video>";
     let (image, stream, kind) = article::get_image(&[], content, "https://example.com");
 
-    assert!(image.contains("example.com/poster.jpg"), "image was: {image}");
-    assert!(stream.contains("example.com/video.mp4"), "stream was: {stream}");
+    assert!(
+        image.contains("example.com/poster.jpg"),
+        "image was: {image}"
+    );
+    assert!(
+        stream.contains("example.com/video.mp4"),
+        "stream was: {stream}"
+    );
     assert_eq!(kind, article::ARTICLE_KIND_VIDEO);
 }
 
@@ -590,7 +657,10 @@ async fn test_get_image_extract_first_image(
     let content = "<p>Some text <img src=\"https://example.com/photo.jpg\"></p>";
     let (image, stream, kind) = article::get_image(&[], content, "https://example.com");
 
-    assert!(image.contains("example.com/photo.jpg"), "image was: {image}");
+    assert!(
+        image.contains("example.com/photo.jpg"),
+        "image was: {image}"
+    );
     assert!(stream.is_empty());
     assert_eq!(kind, 0);
 }
@@ -635,7 +705,10 @@ async fn test_get_image_falls_back_to_enclosure_image(
         .collect();
     let (image, stream, kind) = article::get_image(&encs, content, "https://example.com");
 
-    assert!(image.contains("example.com/enclosure.jpg"), "image was: {image}");
+    assert!(
+        image.contains("example.com/enclosure.jpg"),
+        "image was: {image}"
+    );
     assert!(stream.is_empty());
     assert_eq!(kind, 0);
 }
@@ -709,7 +782,10 @@ async fn test_get_image_rewrites_relative_urls(
     let content = "<img src=\"/relative/path.jpg\">";
     let (image, _stream, _kind) = article::get_image(&[], content, "https://example.com/base/");
 
-    assert!(image.contains("example.com/relative/path.jpg"), "image was: {image}");
+    assert!(
+        image.contains("example.com/relative/path.jpg"),
+        "image was: {image}"
+    );
 }
 
 // ── _format_enclosures() ────────────────────────────────────────────────────
@@ -725,7 +801,9 @@ async fn test_format_enclosures_returns_empty_when_no_enclosures(
     options: sqlx::postgres::PgConnectOptions,
 ) {
     let db = setup(pool, options).await;
-    let result = article::format_enclosures(&db, &session_with_uid(), 2, false, "<p>Content</p>", false).await;
+    let result =
+        article::format_enclosures(&db, &session_with_uid(), 2, false, "<p>Content</p>", false)
+            .await;
     assert_eq!(result.formatted, "");
     assert!(result.entries.is_empty());
 }
@@ -745,7 +823,9 @@ async fn test_format_enclosures_can_inline_flag(
     // fetched inside _format_enclosures.)
 
     // bw_limit is empty, STRIP_IMAGES is false (default), no <img> in content
-    let result = article::format_enclosures(&db, &session_with_uid(), 1, true, "<p>Content</p>", false).await;
+    let result =
+        article::format_enclosures(&db, &session_with_uid(), 1, true, "<p>Content</p>", false)
+            .await;
 
     // PHP asserts the keys exist; the Rust struct carries them by
     // construction — assert the same input yields the expected values.

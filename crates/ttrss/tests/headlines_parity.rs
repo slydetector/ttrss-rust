@@ -43,7 +43,9 @@ fn params(feed: i64) -> HeadlinesParams {
 }
 
 fn row_ids(rows: &[sqlx::postgres::PgRow]) -> Vec<i32> {
-    rows.iter().map(|r| r.try_get::<i32, _>("id").unwrap()).collect()
+    rows.iter()
+        .map(|r| r.try_get::<i32, _>("id").unwrap())
+        .collect()
 }
 
 // ── Return structure ────────────────────────────────────────────────────────
@@ -93,7 +95,10 @@ async fn test_get_headlines_by_feed_id(
     let q = get_headlines_query(&db, &params(1)).await; // Hacker News
 
     assert_eq!("Hacker News", q.feed_title);
-    assert!(q.article_rows.len() >= 3, "Feed 1 should have at least 3 articles");
+    assert!(
+        q.article_rows.len() >= 3,
+        "Feed 1 should have at least 3 articles"
+    );
 
     // All headlines should have required columns
     for row in &q.article_rows {
@@ -134,7 +139,10 @@ async fn test_get_headlines_by_feed_id_different_owner(
     let mut p = params(1);
     p.owner_uid = 2;
     let q = get_headlines_query(&db, &p).await;
-    assert!(q.article_rows.is_empty(), "Owner 2 should see no headlines for feed 1");
+    assert!(
+        q.article_rows.is_empty(),
+        "Owner 2 should see no headlines for feed 1"
+    );
 }
 
 // ── Virtual feeds ───────────────────────────────────────────────────────────
@@ -174,10 +182,17 @@ async fn test_get_headlines_feed_starred(
 
     assert!(q.is_vfeed);
     // seed.sql marks articles 3, 8, 11 as marked=true
-    assert_eq!(3, q.article_rows.len(), "Should return exactly 3 starred articles");
+    assert_eq!(
+        3,
+        q.article_rows.len(),
+        "Should return exactly 3 starred articles"
+    );
 
     for row in &q.article_rows {
-        assert!(row.try_get::<bool, _>("marked").unwrap(), "Each starred headline should be marked");
+        assert!(
+            row.try_get::<bool, _>("marked").unwrap(),
+            "Each starred headline should be marked"
+        );
     }
 }
 
@@ -200,7 +215,10 @@ async fn test_get_headlines_feed_fresh(
     );
 
     for row in &q.article_rows {
-        assert!(row.try_get::<bool, _>("unread").unwrap(), "Each fresh headline should be unread");
+        assert!(
+            row.try_get::<bool, _>("unread").unwrap(),
+            "Each fresh headline should be unread"
+        );
     }
 }
 
@@ -243,7 +261,10 @@ async fn test_get_headlines_feed_recently_read(
 
     // All should be read
     for row in &q.article_rows {
-        assert!(!row.try_get::<bool, _>("unread").unwrap(), "Recently read articles should not be unread");
+        assert!(
+            !row.try_get::<bool, _>("unread").unwrap(),
+            "Recently read articles should not be unread"
+        );
     }
 }
 
@@ -264,10 +285,17 @@ async fn test_get_headlines_view_mode_unread(
     p.view_mode = "unread".into();
     let q = get_headlines_query(&db, &p).await;
 
-    assert_eq!(2, q.article_rows.len(), "Feed 1 should have 2 unread articles");
+    assert_eq!(
+        2,
+        q.article_rows.len(),
+        "Feed 1 should have 2 unread articles"
+    );
 
     for row in &q.article_rows {
-        assert!(row.try_get::<bool, _>("unread").unwrap(), "Each headline should be unread");
+        assert!(
+            row.try_get::<bool, _>("unread").unwrap(),
+            "Each headline should be unread"
+        );
     }
 }
 
@@ -290,7 +318,10 @@ async fn test_get_headlines_view_mode_marked(
     assert_eq!(3, q.article_rows.len(), "Should return 3 marked articles");
 
     for row in &q.article_rows {
-        assert!(row.try_get::<bool, _>("marked").unwrap(), "Each headline should be marked");
+        assert!(
+            row.try_get::<bool, _>("marked").unwrap(),
+            "Each headline should be marked"
+        );
     }
 }
 
@@ -310,7 +341,10 @@ async fn test_get_headlines_view_mode_published(
     let q = get_headlines_query(&db, &p).await;
 
     // None of the seeded articles are published
-    assert!(q.article_rows.is_empty(), "No published articles in seed data");
+    assert!(
+        q.article_rows.is_empty(),
+        "No published articles in seed data"
+    );
 }
 
 // ── Pagination ──────────────────────────────────────────────────────────────
@@ -330,7 +364,11 @@ async fn test_get_headlines_limit(
     p.limit = 5;
     let q = get_headlines_query(&db, &p).await;
 
-    assert_eq!(5, q.article_rows.len(), "Limit of 5 should return exactly 5 headlines");
+    assert_eq!(
+        5,
+        q.article_rows.len(),
+        "Limit of 5 should return exactly 5 headlines"
+    );
 }
 
 // PHP: test_get_headlines_offset
@@ -412,7 +450,11 @@ async fn test_get_headlines_cat_view(
 
     assert_eq!("Technology", q.feed_title);
     // Category 1 has 3 feeds with 3+3+2 = 8 articles
-    assert_eq!(8, q.article_rows.len(), "Category Technology should have 8 articles");
+    assert_eq!(
+        8,
+        q.article_rows.len(),
+        "Category Technology should have 8 articles"
+    );
 }
 
 // PHP: test_get_headlines_cat_view_uncategorized
@@ -491,14 +533,35 @@ async fn test_get_headlines_columns(
     assert!(!q.article_rows.is_empty());
 
     let expected_columns = [
-        "id", "date_entered", "guid", "title", "updated",
-        "label_cache", "tag_cache", "always_display_enclosures",
-        "site_url", "note", "num_comments", "comments",
-        "int_id", "uuid", "lang", "hide_images",
-        "unread", "feed_id", "marked", "published", "link",
-        "last_read", "last_marked", "last_published",
-        "content", "author", "score",
-        "num_labels", "num_enclosures",
+        "id",
+        "date_entered",
+        "guid",
+        "title",
+        "updated",
+        "label_cache",
+        "tag_cache",
+        "always_display_enclosures",
+        "site_url",
+        "note",
+        "num_comments",
+        "comments",
+        "int_id",
+        "uuid",
+        "lang",
+        "hide_images",
+        "unread",
+        "feed_id",
+        "marked",
+        "published",
+        "link",
+        "last_read",
+        "last_marked",
+        "last_published",
+        "content",
+        "author",
+        "score",
+        "num_labels",
+        "num_enclosures",
     ];
 
     for row in &q.article_rows {

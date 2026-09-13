@@ -7,9 +7,9 @@
 //! `set cpu_tuple_cost = 0.5`, so the same query text yields the same plan
 //! and the same row order as the PHP oracle.
 
+use crate::core::db::Db;
 use serde_json::{json, Map, Value};
 use sqlx::Row;
-use crate::core::db::Db;
 
 use crate::cats::CAT_LABELS;
 use crate::headlines::PLUGIN_FEED_BASE_INDEX;

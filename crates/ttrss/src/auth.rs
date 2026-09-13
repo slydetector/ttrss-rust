@@ -14,15 +14,15 @@
 //!     it is stored in an older one (`Auth_Internal::check_password`), and
 //!   * stamps `ttrss_users.last_login = NOW()`.
 
-use chrono::NaiveDateTime;
-use rand::Rng;
-use sqlx::Row;
 use crate::core::config::SCHEMA_VERSION;
 use crate::core::db::Db;
 use crate::core::phpser::Value;
 use crate::core::session::{self as core_session, Session};
 use crate::core::user;
 use crate::util::now_unix;
+use chrono::NaiveDateTime;
+use rand::Rng;
+use sqlx::Row;
 
 /// `AUTH_MIN_INTERVAL` (seconds) — minimum gap between failed login attempts.
 pub const AUTH_MIN_INTERVAL: i64 = 5;
@@ -55,17 +55,10 @@ pub enum AuthOutcome {
     /// OTP required — render the challenge page (HTTP 200).
     OtpChallenge,
     /// Failed — set `login_error_msg` and redirect.
-    Failure {
-        message: String,
-    },
+    Failure { message: String },
 }
 
-pub async fn authenticate(
-    db: &Db,
-    login: &str,
-    password: &str,
-    otp: Option<i64>,
-) -> AuthOutcome {
+pub async fn authenticate(db: &Db, login: &str, password: &str, otp: Option<i64>) -> AuthOutcome {
     let pool = db.pool();
     // `UserHelper::find_user_by_login`: LOWER(login) = LOWER(?).
     let row = sqlx::query(
@@ -145,11 +138,9 @@ async fn success(pool: &sqlx::PgPool, user: &UserRow, password: &str) -> AuthOut
     let stored_algo = user.pwd_hash.split_once(':').map(|(a, _)| a.to_string());
     if stored_algo.as_deref() != Some(crate::core::user::ALGO_SSHA512) {
         // `check_password`: "Upgrading password of user $login to SSHA-512"
-        if let Some(new_hash) = crate::core::user::hash_password(
-            password,
-            &user.salt,
-            crate::core::user::ALGO_SSHA512,
-        ) {
+        if let Some(new_hash) =
+            crate::core::user::hash_password(password, &user.salt, crate::core::user::ALGO_SSHA512)
+        {
             let _ = sqlx::query("UPDATE ttrss_users SET pwd_hash = $1 WHERE id = $2")
                 .bind(&new_hash)
                 .bind(user.id)

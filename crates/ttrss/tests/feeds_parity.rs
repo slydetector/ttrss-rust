@@ -50,12 +50,30 @@ async fn test_get_title_special_feeds(
 ) {
     let db = setup(pool, options).await;
     let uid = 1;
-    assert_eq!("Starred articles", feeds::feed_title(db.pool(), FEED_STARRED, uid).await);
-    assert_eq!("Published articles", feeds::feed_title(db.pool(), FEED_PUBLISHED, uid).await);
-    assert_eq!("Fresh articles", feeds::feed_title(db.pool(), FEED_FRESH, uid).await);
-    assert_eq!("All articles", feeds::feed_title(db.pool(), FEED_ALL, uid).await);
-    assert_eq!("Archived articles", feeds::feed_title(db.pool(), FEED_ARCHIVED, uid).await);
-    assert_eq!("Recently read", feeds::feed_title(db.pool(), FEED_RECENTLY_READ, uid).await);
+    assert_eq!(
+        "Starred articles",
+        feeds::feed_title(db.pool(), FEED_STARRED, uid).await
+    );
+    assert_eq!(
+        "Published articles",
+        feeds::feed_title(db.pool(), FEED_PUBLISHED, uid).await
+    );
+    assert_eq!(
+        "Fresh articles",
+        feeds::feed_title(db.pool(), FEED_FRESH, uid).await
+    );
+    assert_eq!(
+        "All articles",
+        feeds::feed_title(db.pool(), FEED_ALL, uid).await
+    );
+    assert_eq!(
+        "Archived articles",
+        feeds::feed_title(db.pool(), FEED_ARCHIVED, uid).await
+    );
+    assert_eq!(
+        "Recently read",
+        feeds::feed_title(db.pool(), FEED_RECENTLY_READ, uid).await
+    );
 }
 
 /// PHP: test_get_title_error_feed (functional + integration).
@@ -87,7 +105,10 @@ async fn test_get_title_numeric_feed_id_existing(
     assert_eq!("Hacker News", feeds::feed_title(db.pool(), 1, uid).await);
     assert_eq!("The Register", feeds::feed_title(db.pool(), 2, uid).await);
     assert_eq!("Ars Technica", feeds::feed_title(db.pool(), 3, uid).await);
-    assert_eq!("MIT Tech Review", feeds::feed_title(db.pool(), 4, uid).await);
+    assert_eq!(
+        "MIT Tech Review",
+        feeds::feed_title(db.pool(), 4, uid).await
+    );
 }
 
 /// PHP: test_get_title_numeric_feed_id_missing.
@@ -102,7 +123,10 @@ async fn test_get_title_numeric_feed_id_missing(
 ) {
     let db = setup(pool, options).await;
     // Feed id 999 does not exist for owner 1.
-    assert_eq!("Unknown feed (999)", feeds::feed_title(db.pool(), 999, 1).await);
+    assert_eq!(
+        "Unknown feed (999)",
+        feeds::feed_title(db.pool(), 999, 1).await
+    );
 }
 
 /// PHP: test_get_title_label_id_existing.
@@ -120,9 +144,15 @@ async fn test_get_title_label_id_existing(
     // Label reference IDs must be < LABEL_BASE_INDEX (-1024); the label id is
     // recovered from the reference via `feed_to_label_id`.
     let ref_id_1 = ttrss::labels::label_to_feed_id(1);
-    assert_eq!("test-label-1", feeds::feed_title(db.pool(), ref_id_1, uid).await);
+    assert_eq!(
+        "test-label-1",
+        feeds::feed_title(db.pool(), ref_id_1, uid).await
+    );
     let ref_id_2 = ttrss::labels::label_to_feed_id(2);
-    assert_eq!("test-label-2", feeds::feed_title(db.pool(), ref_id_2, uid).await);
+    assert_eq!(
+        "test-label-2",
+        feeds::feed_title(db.pool(), ref_id_2, uid).await
+    );
 }
 
 /// PHP: test_get_title_label_id_missing.
@@ -138,7 +168,10 @@ async fn test_get_title_label_id_missing(
     let db = setup(pool, options).await;
     // Label id 9999 does not exist; its reference is < LABEL_BASE_INDEX.
     let ref_id = ttrss::labels::label_to_feed_id(9999);
-    assert_eq!("Unknown label (9999)", feeds::feed_title(db.pool(), ref_id, 1).await);
+    assert_eq!(
+        "Unknown label (9999)",
+        feeds::feed_title(db.pool(), ref_id, 1).await
+    );
 }
 
 /// PHP: test_get_title_category_special.
@@ -148,7 +181,10 @@ async fn test_get_title_category_special(
     options: sqlx::postgres::PgConnectOptions,
 ) {
     let db = setup(pool, options).await;
-    assert_eq!("Special", feeds::category_title(db.pool(), CATEGORY_SPECIAL, 1).await);
+    assert_eq!(
+        "Special",
+        feeds::category_title(db.pool(), CATEGORY_SPECIAL, 1).await
+    );
 }
 
 /// PHP: test_get_title_category_uncategorized.
@@ -171,7 +207,10 @@ async fn test_get_title_category_labels(
     options: sqlx::postgres::PgConnectOptions,
 ) {
     let db = setup(pool, options).await;
-    assert_eq!("Labels", feeds::category_title(db.pool(), CATEGORY_LABELS, 1).await);
+    assert_eq!(
+        "Labels",
+        feeds::category_title(db.pool(), CATEGORY_LABELS, 1).await
+    );
 }
 
 /// PHP: test_get_title_category_existing.
@@ -187,7 +226,10 @@ async fn test_get_title_category_existing(
     let db = setup(pool, options).await;
     let uid = 1;
     assert_eq!("Technology", feeds::category_title(db.pool(), 1, uid).await);
-    assert_eq!("Science & Nature", feeds::category_title(db.pool(), 2, uid).await);
+    assert_eq!(
+        "Science & Nature",
+        feeds::category_title(db.pool(), 2, uid).await
+    );
 }
 
 /// PHP: test_get_title_category_missing.

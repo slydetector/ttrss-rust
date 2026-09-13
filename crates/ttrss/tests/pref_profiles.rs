@@ -298,8 +298,7 @@ async fn test_activate_profile(
     assert_eq!(sess.data().profile(), Some(id as i64));
 
     // Activate a non-existent id → cleared (default).
-    ttrss::settings::activate_profile(&state, &sess, &request(&[("id", json!(999999))]))
-        .await;
+    ttrss::settings::activate_profile(&state, &sess, &request(&[("id", json!(999999))])).await;
     assert_eq!(sess.data().profile(), None);
 
     // Activate a non-owned profile → cleared (default).
@@ -310,8 +309,7 @@ async fn test_activate_profile(
         .execute(db)
         .await
         .unwrap();
-    ttrss::settings::activate_profile(&state, &sess, &request(&[("id", json!(foreign))]))
-        .await;
+    ttrss::settings::activate_profile(&state, &sess, &request(&[("id", json!(foreign))])).await;
     assert_eq!(sess.data().profile(), None);
 }
 

@@ -111,11 +111,8 @@ pub async fn prepare_headlines_digest(
             feed_title = format!("{cat_title} / {feed_title}");
         }
         let updated = crate::time::make_local_datetime(Some(&last_updated), false, &tz);
-        let excerpt = crate::util::truncate_string(
-            &crate::util::strip_tags(&content),
-            300,
-            "&hellip;",
-        );
+        let excerpt =
+            crate::util::truncate_string(&crate::util::strip_tags(&content), 300, "&hellip;");
         articles.push(Row {
             title,
             feed_title,
@@ -146,10 +143,7 @@ pub async fn prepare_headlines_digest(
         feeds[pos].1.push(r);
     }
 
-    let count = feeds
-        .iter()
-        .map(|(_, a)| a.len())
-        .sum::<usize>();
+    let count = feeds.iter().map(|(_, a)| a.len()).sum::<usize>();
     let affected_ids: Vec<Value> = feeds
         .iter()
         .flat_map(|(_, a)| a.iter().map(|r| Value::from(r.ref_id)))
@@ -169,9 +163,7 @@ pub async fn prepare_headlines_digest(
 /// `CUR_DATE` (`Y/m/d`) and `CUR_TIME` (`G:i`, 24-hour, no leading-zero hour)
 /// in the user's timezone, from `TimeHelper::convert_timestamp` + `date()`.
 fn cur_date_time(tz_string: &str) -> (String, String) {
-    let now: DateTime<Tz> = Utc::now().with_timezone(
-        &tz_string.parse().unwrap_or(Tz::GMT),
-    );
+    let now: DateTime<Tz> = Utc::now().with_timezone(&tz_string.parse().unwrap_or(Tz::GMT));
     (
         now.format("%Y/%m/%d").to_string(),
         format!("{}:{}", now.hour(), now.format("%M")),
@@ -250,7 +242,9 @@ fn render_text(
             out.push('\n');
         }
     }
-    out.push_str("\n-- \nTo unsubscribe, visit your configuration options or contact instance owner.\n");
+    out.push_str(
+        "\n-- \nTo unsubscribe, visit your configuration options or contact instance owner.\n",
+    );
     out.push_str("Sent by tt-rss mailer daemon at ");
     out.push_str(self_url);
     out.push_str(".\n");

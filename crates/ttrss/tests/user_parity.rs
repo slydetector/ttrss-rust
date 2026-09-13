@@ -20,9 +20,9 @@
 
 mod common;
 
+use ttrss::auth::{self, AuthOutcome};
 use ttrss::core::db::Db;
 use ttrss::core::user;
-use ttrss::auth::{self, AuthOutcome};
 
 /// `UserHelperTest::setUp` on top of the harness-injected pool: a `testuser`
 /// with the known SSHA-512 password `testpass123` (fresh salt, as in PHP).
@@ -139,12 +139,11 @@ async fn test_authenticate_updates_last_login(
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     expect_success(auth::authenticate(&db, "testuser", "testpass123", None).await);
 
-    let last_login: Option<chrono::NaiveDateTime> = sqlx::query_scalar(
-        "SELECT last_login FROM ttrss_users WHERE login = 'testuser'",
-    )
-    .fetch_one(db.pool())
-    .await
-    .expect("query last_login");
+    let last_login: Option<chrono::NaiveDateTime> =
+        sqlx::query_scalar("SELECT last_login FROM ttrss_users WHERE login = 'testuser'")
+            .fetch_one(db.pool())
+            .await
+            .expect("query last_login");
 
     assert!(last_login.is_some());
 }
