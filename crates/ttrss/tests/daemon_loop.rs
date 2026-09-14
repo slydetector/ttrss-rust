@@ -270,6 +270,7 @@ async fn test_claim_feeds(pool: PoolOptions<sqlx::Postgres>, options: PgConnectO
     let due = vec![DueFeed {
         id: feed_id,
         owner_uid: uid,
+        feed_title: String::new(),
     }];
     claim_feeds(db.pool(), &due).await;
 

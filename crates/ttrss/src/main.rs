@@ -49,10 +49,41 @@ async fn main() -> anyhow::Result<()> {
         config: config.clone(),
         db,
     };
+    // The M6c.3 daemon/scheduler loop, hosted in this process (D1 = B):
+    // the background feed-update batches + the cron housekeeping tasks.
+    let cancel = tokio_util::sync::CancellationToken::new();
+    {
+        let pool = state.db.pool().clone();
+        let cfg = state.config.clone();
+        let loop_cancel = cancel.clone();
+        tokio::spawn(async move {
+            ttrss::updates::daemon_loop(&pool, &cfg, loop_cancel).await;
+        });
+    }
+    tracing::info!(
+        interval_secs = state.config.daemon_sleep_interval,
+        max_jobs = state.config.daemon_max_jobs,
+        "daemon loop started"
+    );
+
     let app = build_router(&state).with_state(state);
     let listener = tokio::net::TcpListener::bind(config.listen).await?;
     tracing::info!(addr = %config.listen, "listening");
-    axum::serve(listener, app).await?;
+    let shutdown_cancel = cancel.clone();
+    axum::serve(listener, app)
+        .with_graceful_shutdown(async move {
+            // Ctrl-C / SIGTERM: stop accepting new requests and let the
+            // update loop finish its in-flight batch.
+            let mut sigterm =
+                tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+                    .expect("SIGTERM handler");
+            tokio::select! {
+                _ = tokio::signal::ctrl_c() => {},
+                _ = sigterm.recv() => {},
+            }
+            shutdown_cancel.cancel();
+        })
+        .await?;
     Ok(())
 }
 

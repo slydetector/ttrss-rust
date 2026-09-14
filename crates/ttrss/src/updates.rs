@@ -1006,6 +1006,8 @@ fn ts_to_naive(ts: i64) -> NaiveDateTime {
 pub struct DueFeed {
     pub id: i32,
     pub owner_uid: i32,
+    /// The feed's stored title (for the loop's per-feed log lines).
+    pub feed_title: String,
 }
 
 /// The `update_daemon_common` selection SQL — the due feeds (the least recently
@@ -1026,7 +1028,7 @@ pub async fn select_due_feeds(pool: &PgPool, cfg: &Config, limit: i32) -> Vec<Du
         String::new()
     };
     let sql = format!(
-        "SELECT f.id, f.owner_uid FROM ttrss_feeds f, ttrss_users u \
+        "SELECT f.id, f.owner_uid, f.title FROM ttrss_feeds f, ttrss_users u \
          LEFT JOIN ttrss_user_prefs2 p ON (p.owner_uid = u.id AND p.profile IS NULL \
               AND p.pref_name = 'DEFAULT_UPDATE_INTERVAL') \
          WHERE f.owner_uid = u.id AND u.access_level NOT IN (-2, -1) {login_thresh} \
@@ -1045,6 +1047,7 @@ pub async fn select_due_feeds(pool: &PgPool, cfg: &Config, limit: i32) -> Vec<Du
         .map(|r| DueFeed {
             id: r.get::<i32, _>(0),
             owner_uid: r.get::<i32, _>(1),
+            feed_title: r.get::<String, _>(2),
         })
         .collect()
 }
@@ -1093,8 +1096,10 @@ pub async fn daemon_loop(pool: &PgPool, cfg: &Config, cancel: tokio_util::sync::
         if !feeds.is_empty() {
             // Claim the feeds.
             claim_feeds(pool, &feeds).await;
+            tracing::debug!(feeds = feeds.len(), "daemon: updating due feeds");
 
             // Dispatch per-feed tasks (bounded by Semaphore(N)).
+            let started = std::time::Instant::now();
             let semaphore = Arc::new(Semaphore::new(n));
             let mut join_set = JoinSet::new();
             for feed in &feeds {
@@ -1102,15 +1107,35 @@ pub async fn daemon_loop(pool: &PgPool, cfg: &Config, cancel: tokio_util::sync::
                 let pool = pool.clone();
                 let cfg = cfg.clone();
                 let id = feed.id;
+                let title = feed.feed_title.clone();
                 join_set.spawn(async move {
                     let _permit = permit;
-                    fetch_one_feed(&pool, &cfg, id).await
+                    let outcome = fetch_one_feed(&pool, &cfg, id).await;
+                    // Per-feed visibility (debug on success, warn on failure):
+                    // the batch results used to be discarded silently.
+                    match &outcome {
+                        Ok(o) if o.success => {
+                            tracing::debug!(feed = %title, new_articles = o.new_articles, "feed update ok");
+                        }
+                        Ok(o) => {
+                            tracing::warn!(feed = %title, error = ?o.error, "feed update failed");
+                        }
+                        Err(e) => {
+                            tracing::warn!(feed = %title, error = %e, "feed update errored");
+                        }
+                    }
+                    outcome
                 });
             }
             // Drain/await: the loop processes one batch, awaits completion.
             while let Some(result) = join_set.join_next().await {
                 let _ = result;
             }
+            tracing::debug!(
+                feeds = feeds.len(),
+                secs = started.elapsed().as_secs_f64(),
+                "daemon: batch done"
+            );
         }
 
         // Housekeeping ("task 0"): run the due scheduled tasks (the PHP's
