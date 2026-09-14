@@ -6,8 +6,10 @@
 //! (standard-ports-only + disallowed-IP check), which the feed-update path uses
 //! to refuse requests to loopback/private/reserved addresses.
 
+use crate::core::config::VERSION;
 use crate::util::clean_str;
 use crate::with_trailing_slash;
+use std::net::ToSocketAddrs;
 /// The components `parse_url` returns (the subset `build_url`/`validate` use).
 #[derive(Clone, Debug, Default)]
 struct ParsedUrl {
@@ -528,6 +530,345 @@ fn php_dirname(path: &str) -> String {
     }
 }
 
+// =========================================================================
+// UrlHelper::fetch — the HTTP fetch layer (M6c.1)
+// =========================================================================
+//
+// Rust port of `classes/UrlHelper.php::fetch()` + `get_user_agent()`. This is
+// the shared HTTP primitive the feed updater (M6c.2), the favicon fetcher, and
+// the OPML import all call. It mirrors the PHP's option set and its
+// `fetch_last_*` state (returned as [`FetchResult`]): the extended-URL
+// validation gate (via [`validate`]), per-hop redirect validation, the 403
+// auth retry, the conditional `If-Modified-Since` request, the gzip response
+// (reqwest's `gzip` feature), the `Content-Length`/size-limit guard, and the
+// `effective_url` / `effective_ip` resolution.
+//
+// Faithful-by-default notes:
+//   * The PHP uses Guzzle (PSR-7); the port uses `reqwest`. Both follow
+//     redirects, honor conditional requests, and decompress gzip.
+//   * reqwest has no `CURLAUTH_ANY` equivalent; the 403 retry (the PHP retries
+//     once with `CURLAUTH_ANY`) is modeled as a single re-send — the
+//     observable effect for the basic-auth feeds this port handles.
+//   * Per-request timeouts default to the PHP's FILE_FETCH_TIMEOUT (45 s) and
+//     FILE_FETCH_CONNECT_TIMEOUT (15 s); M6c.7 wires the `Config` surface.
+
+/// `UrlHelper::get_user_agent()` — the User-Agent sent on fetches:
+/// `Tiny Tiny RSS/{version} (https://github.com/tt-rss/tt-rss)`.
+fn default_user_agent() -> String {
+    format!("Tiny Tiny RSS/{VERSION} (https://github.com/tt-rss/tt-rss)")
+}
+
+/// `UrlHelper::fetch()`'s options (the PHP's `$options` array). Unset fields
+/// fall back to the PHP defaults.
+#[derive(Debug, Clone, Default)]
+pub struct FetchOptions {
+    pub url: String,
+    pub login: Option<String>,
+    pub pass: Option<String>,
+    /// `"basic"` (default) | `"digest"` | `"any"`.
+    pub auth_type: Option<String>,
+    /// Total request timeout (default 45 s — FILE_FETCH_TIMEOUT).
+    pub timeout: Option<std::time::Duration>,
+    /// Connect timeout (default 15 s — FILE_FETCH_CONNECT_TIMEOUT).
+    pub connect_timeout: Option<std::time::Duration>,
+    /// `If-Modified-Since` value (a conditional request; skipped for POST).
+    pub last_modified: Option<String>,
+    /// `If-None-Match` value (an ETag; a conditional request, skipped for POST).
+    pub etag: Option<String>,
+    /// `User-Agent` override (default the tt-rss agent).
+    pub useragent: Option<String>,
+    /// Follow redirects (default `true`, up to 20 hops, each extended-validated).
+    pub followlocation: Option<bool>,
+    /// Max response size in bytes (default 16 MiB — MAX_DOWNLOAD_FILE_SIZE).
+    pub max_size: Option<u64>,
+    /// `Accept` header.
+    pub http_accept: Option<String>,
+    /// `Referer` header.
+    pub http_referrer: Option<String>,
+    /// `Accept-Encoding` header override.
+    pub encoding: Option<String>,
+    /// POST form params (makes this a `POST` instead of a `GET`).
+    pub post_query: Option<Vec<(String, String)>>,
+    /// HTTP proxy URL (e.g. `http://host:port`).
+    pub proxy: Option<String>,
+}
+
+/// The result of [`fetch`] — mirrors the PHP's `fetch_last_*` globals plus the
+/// returned body (`None` when the fetch failed or had no content).
+#[derive(Debug, Clone, Default)]
+pub struct FetchResult {
+    /// The response body, or `None` if the fetch failed / had no content.
+    pub body: Option<Vec<u8>>,
+    /// Status line / error message. On a received response this is
+    /// `"HTTP/1.1 <status> <reason>"` (even for 2xx); on a transport error it
+    /// is the error text; on the empty-body case the no-content message.
+    pub error: String,
+    /// `-1` until a response is received; then the HTTP status code (or `-1`
+    /// for a rejected redirect).
+    pub error_code: i64,
+    /// Final URL after redirects.
+    pub effective_url: String,
+    /// Resolved IP of `effective_url`'s host (the host itself on failure).
+    pub effective_ip: String,
+    /// `Last-Modified` response header ("" if absent).
+    pub last_modified: String,
+    /// `Content-Type` response header ("" if absent).
+    pub content_type: String,
+}
+
+/// `UrlHelper::fetch($url, $options)` — fetch `$url` over HTTP(S) and return
+/// [`FetchResult`]. See the module note above for the faithful-by-default
+/// notes.
+pub async fn fetch(opts: &FetchOptions) -> FetchResult {
+    let mut res = FetchResult {
+        error_code: -1,
+        ..Default::default()
+    };
+
+    // Normalize the URL: ltrim whitespace, encode spaces (the PHP's
+    // `ltrim($url, ' \n')` + `str_replace(' ', '%20', $url)`).
+    let url = opts.url.trim_start().replace(' ', "%20");
+
+    // Validate (extended) before fetching.
+    let url = match validate(&url, true) {
+        Some(u) => u,
+        None => {
+            res.error = "Requested URL failed extended validation.".into();
+            return res;
+        }
+    };
+
+    let auth_type = opts.auth_type.clone().unwrap_or_else(|| "basic".into());
+    let followlocation = opts.followlocation.unwrap_or(true);
+    let timeout = opts
+        .timeout
+        .unwrap_or_else(|| std::time::Duration::from_secs(45));
+    let connect_timeout = opts
+        .connect_timeout
+        .unwrap_or_else(|| std::time::Duration::from_secs(15));
+    let max_size = opts.max_size.unwrap_or(16 * 1024 * 1024);
+    let useragent = opts.useragent.clone().unwrap_or_else(default_user_agent);
+
+    // Redirect-validation state (shared with the redirect-policy closure).
+    let invalid_redirect = std::sync::Arc::new(std::sync::Mutex::new(None::<String>));
+
+    let redirect_policy = if followlocation {
+        reqwest::redirect::Policy::custom({
+            let invalid = invalid_redirect.clone();
+            move |attempt| {
+                let target: String = attempt.url().to_string();
+                // Cap the redirect chain (the PHP's `max: 20`).
+                if attempt.previous().len() >= 20 {
+                    return attempt.stop();
+                }
+                if validate(&target, true).is_some() {
+                    attempt.follow()
+                } else {
+                    *invalid.lock().unwrap() = Some(target);
+                    attempt.stop()
+                }
+            }
+        })
+    } else {
+        reqwest::redirect::Policy::none()
+    };
+
+    let mut builder = reqwest::Client::builder()
+        .timeout(timeout)
+        .connect_timeout(connect_timeout)
+        .redirect(redirect_policy);
+    if let Some(proxy) = &opts.proxy {
+        if let Ok(p) = reqwest::Proxy::all(proxy) {
+            builder = builder.proxy(p);
+        }
+    }
+    let Ok(client) = builder.build() else {
+        res.error = "Failed to build HTTP client.".into();
+        return res;
+    };
+
+    // Send (with the 403 auth retry — the PHP retries once with CURLAUTH_ANY).
+    let resp = match send_once(&client, &url, opts, &auth_type, &useragent).await {
+        Ok(r) => {
+            let needs_retry = r.status() == reqwest::StatusCode::FORBIDDEN
+                && opts
+                    .login
+                    .as_deref()
+                    .map(|l| !l.is_empty())
+                    .unwrap_or(false)
+                && opts.pass.as_deref().map(|p| !p.is_empty()).unwrap_or(false)
+                && auth_type != "any";
+            if needs_retry {
+                match send_once(&client, &url, opts, &auth_type, &useragent).await {
+                    Ok(r2) => r2,
+                    Err(e) => {
+                        res.error = e.to_string();
+                        return res;
+                    }
+                }
+            } else {
+                r
+            }
+        }
+        Err(e) => {
+            // Transport error (connection failure, DNS, timeout, proxy). The
+            // PHP's GuzzleException path leaves error_code at -1.
+            res.error = e.to_string();
+            return res;
+        }
+    };
+
+    // A redirect was rejected by the policy: the final URL is the invalid
+    // target, and the PHP's on_redirect exception path leaves error_code -1.
+    if let Some(invalid_target) = invalid_redirect.lock().unwrap().take() {
+        res.error = "URL received during redirection failed extended validation.".into();
+        res.effective_url = invalid_target;
+        return res;
+    }
+
+    let status = resp.status();
+    let status_code = status.as_u16() as i64;
+    res.error_code = status_code;
+    let reason = status.canonical_reason().unwrap_or_default();
+    res.error = format!("HTTP/1.1 {status_code} {reason}");
+    res.last_modified = resp
+        .headers()
+        .get("last-modified")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default()
+        .to_string();
+    res.content_type = resp
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default()
+        .to_string();
+    res.effective_url = resp.url().to_string();
+
+    // A 4xx/5xx response: no body is returned (the PHP returns false here).
+    if status_code >= 400 {
+        return res;
+    }
+
+    // Content-Length guard (before reading the body).
+    if resp.content_length().is_some_and(|cl| cl > max_size) {
+        res.error = "Server sent 'Content-Length' exceeding download limit".into();
+        return res;
+    }
+
+    let bytes = match resp.bytes().await {
+        Ok(b) => b,
+        Err(e) => {
+            res.error = e.to_string();
+            return res;
+        }
+    };
+    if bytes.len() as u64 > max_size {
+        res.error = "Download exceeded size limit".into();
+        return res;
+    }
+    if bytes.is_empty() {
+        res.error = "Successful response, but no content was received.".into();
+        return res;
+    }
+
+    // Validate the final effective URL (extended) — the PHP's "after
+    // redirection" safety check.
+    if validate(&res.effective_url, true).is_none() {
+        res.error = "URL received after redirection failed extended validation.".into();
+        return res;
+    }
+
+    res.effective_ip = resolve_host_ip(&res.effective_url).await;
+    res.body = Some(bytes.to_vec());
+    res
+}
+
+/// Build and send a single request for [`fetch`].
+async fn send_once(
+    client: &reqwest::Client,
+    url: &str,
+    opts: &FetchOptions,
+    auth_type: &str,
+    useragent: &str,
+) -> Result<reqwest::Response, reqwest::Error> {
+    let is_basic_or_digest = matches!(auth_type, "basic" | "digest");
+    let is_post = opts.post_query.is_some();
+
+    let mut req = if is_post {
+        client.post(url)
+    } else {
+        client.get(url)
+    };
+    req = req.header("User-Agent", useragent);
+
+    // Conditional request (skipped for POST, matching the PHP).
+    if let Some(lm) = &opts.last_modified {
+        if !is_post {
+            req = req.header("If-Modified-Since", lm);
+        }
+    }
+    if let Some(etag) = &opts.etag {
+        if !is_post {
+            req = req.header("If-None-Match", etag);
+        }
+    }
+    if let Some(acc) = &opts.http_accept {
+        req = req.header("Accept", acc);
+    }
+    if let Some(enc) = &opts.encoding {
+        req = req.header("Accept-Encoding", enc);
+    }
+    if let Some(ref_) = &opts.http_referrer {
+        req = req.header("Referer", ref_);
+    }
+
+    if is_basic_or_digest {
+        if let (Some(login), Some(pass)) = (&opts.login, &opts.pass) {
+            if !login.is_empty() && !pass.is_empty() {
+                req = req.basic_auth(login, Some(pass));
+            }
+        }
+    }
+
+    if let Some(post) = &opts.post_query {
+        req = req.form(post);
+    }
+
+    req.send().await
+}
+
+/// Resolve the IP of a URL's host (the PHP's `gethostbyname` equivalent). An
+/// IP-literal host is returned as-is; otherwise the first resolved address is
+/// used, falling back to the host on failure. Runs the blocking lookup off the
+/// async runtime.
+async fn resolve_host_ip(url: &str) -> String {
+    let parsed = match parse_url(url) {
+        Some(p) => p,
+        None => return String::new(),
+    };
+    let host = parsed.host.to_string();
+    if host.is_empty() {
+        return String::new();
+    }
+    let port: u16 = if parsed.scheme == "https" { 443 } else { 80 };
+
+    tokio::task::spawn_blocking(move || {
+        if host.parse::<std::net::Ipv4Addr>().is_ok() || host.parse::<std::net::Ipv6Addr>().is_ok()
+        {
+            return host;
+        }
+        (host.as_str(), port)
+            .to_socket_addrs()
+            .ok()
+            .and_then(|mut it| it.next())
+            .map(|a| a.ip().to_string())
+            .unwrap_or(host)
+    })
+    .await
+    .unwrap_or_default()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -563,5 +904,264 @@ mod tests {
         assert_eq!(php_dirname("base"), ".");
         assert_eq!(php_dirname("/"), "/");
         assert_eq!(php_dirname(""), ".");
+    }
+
+    // -- M6c.1 fetch tests -------------------------------------------------
+    //
+    // The fetch target URLs are non-loopback public IPs (8.8.8.8, 1.1.1.1), so
+    // they pass the extended-URL validation gate without any DNS lookup and are
+    // never actually contacted: reqwest routes them through a local `MockProxy`
+    // (a loopback HTTP server standing in for the network). This mirrors the
+    // PHP's `UrlHelperTest` mock-handler approach without needing a test double
+    // wired into reqwest.
+
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Arc, Mutex};
+
+    /// A canned HTTP response served by [`MockProxy`].
+    #[derive(Clone)]
+    struct Canned {
+        status: u16,
+        reason: &'static str,
+        headers: Vec<(&'static str, String)>,
+        body: Vec<u8>,
+    }
+
+    /// A minimal mock HTTP server used as a proxy (see the note above). It
+    /// serves canned responses in order, repeating the last when exhausted.
+    struct MockProxy {
+        port: u16,
+        _thread: std::thread::JoinHandle<()>,
+    }
+
+    impl MockProxy {
+        fn new(responses: Vec<Canned>) -> Self {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let port = listener.local_addr().unwrap().port();
+            let responses = Arc::new(Mutex::new(responses));
+            let count = Arc::new(AtomicUsize::new(0));
+            let r = responses.clone();
+            let c = count.clone();
+            let thread = std::thread::spawn(move || {
+                for stream in listener.incoming() {
+                    let Ok(mut stream) = stream else { continue };
+                    // Read the request (its contents are irrelevant).
+                    let mut data: Vec<u8> = Vec::new();
+                    let mut buf = [0u8; 4096];
+                    loop {
+                        match stream.read(&mut buf) {
+                            Ok(0) => break,
+                            Ok(n) => {
+                                data.extend_from_slice(&buf[..n]);
+                                if data.windows(4).any(|w| w == b"\r\n\r\n") || data.len() > 65536 {
+                                    break;
+                                }
+                            }
+                            Err(_) => break,
+                        }
+                    }
+                    let idx = c.fetch_add(1, Ordering::Relaxed);
+                    let resp = {
+                        let resps = r.lock().unwrap();
+                        resps[idx.min(resps.len().saturating_sub(1))].clone()
+                    };
+                    let mut have_cl = false;
+                    let mut s = format!("HTTP/1.1 {} {}\r\n", resp.status, resp.reason);
+                    for (k, v) in &resp.headers {
+                        s.push_str(&format!("{k}: {v}\r\n"));
+                        if k.eq_ignore_ascii_case("content-length") {
+                            have_cl = true;
+                        }
+                    }
+                    if !have_cl {
+                        s.push_str(&format!("Content-Length: {}\r\n", resp.body.len()));
+                    }
+                    s.push_str("Connection: close\r\n\r\n");
+                    let mut out = s.into_bytes();
+                    out.extend_from_slice(&resp.body);
+                    let _ = stream.write_all(&out);
+                    let _ = stream.shutdown(std::net::Shutdown::Both);
+                }
+            });
+            Self {
+                port,
+                _thread: thread,
+            }
+        }
+
+        fn proxy(&self) -> String {
+            format!("http://127.0.0.1:{}", self.port)
+        }
+    }
+
+    fn target() -> String {
+        "http://8.8.8.8/feed".into()
+    }
+
+    fn opts(url: &str, proxy: String) -> FetchOptions {
+        FetchOptions {
+            url: url.into(),
+            proxy: Some(proxy),
+            followlocation: Some(false),
+            ..Default::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn fetch_returns_200_body() {
+        let mock = MockProxy::new(vec![Canned {
+            status: 200,
+            reason: "OK",
+            headers: vec![],
+            body: b"the feed body".to_vec(),
+        }]);
+        let res = fetch(&opts(&target(), mock.proxy())).await;
+        assert_eq!(res.body.as_deref(), Some(b"the feed body".as_slice()));
+        assert_eq!(res.error_code, 200);
+        assert_eq!(res.error, "HTTP/1.1 200 OK");
+        assert_eq!(res.effective_url, "http://8.8.8.8/feed");
+        assert_eq!(res.effective_ip, "8.8.8.8");
+    }
+
+    #[tokio::test]
+    async fn fetch_empty_body_is_error() {
+        let mock = MockProxy::new(vec![Canned {
+            status: 200,
+            reason: "OK",
+            headers: vec![],
+            body: Vec::new(),
+        }]);
+        let res = fetch(&opts(&target(), mock.proxy())).await;
+        assert_eq!(res.body, None);
+        assert_eq!(
+            res.error,
+            "Successful response, but no content was received."
+        );
+        assert_eq!(res.error_code, 200);
+    }
+
+    #[tokio::test]
+    async fn fetch_403_retries_with_any_auth() {
+        let mock = MockProxy::new(vec![
+            Canned {
+                status: 403,
+                reason: "Forbidden",
+                headers: vec![],
+                body: Vec::new(),
+            },
+            Canned {
+                status: 200,
+                reason: "OK",
+                headers: vec![],
+                body: b"Retried OK".to_vec(),
+            },
+        ]);
+        let mut o = opts(&target(), mock.proxy());
+        o.login = Some("user".into());
+        o.pass = Some("pass".into());
+        o.auth_type = Some("basic".into());
+        let res = fetch(&o).await;
+        assert_eq!(res.body.as_deref(), Some(b"Retried OK".as_slice()));
+        assert_eq!(res.error_code, 200);
+    }
+
+    #[tokio::test]
+    async fn fetch_403_without_auth_does_not_retry() {
+        let mock = MockProxy::new(vec![Canned {
+            status: 403,
+            reason: "Forbidden",
+            headers: vec![],
+            body: Vec::new(),
+        }]);
+        let res = fetch(&opts(&target(), mock.proxy())).await;
+        assert_eq!(res.body, None);
+        assert_eq!(res.error_code, 403);
+    }
+
+    #[tokio::test]
+    async fn fetch_redirect_to_loopback_rejected() {
+        let mock = MockProxy::new(vec![Canned {
+            status: 301,
+            reason: "Moved Permanently",
+            headers: vec![("Location", "http://127.0.0.1".into())],
+            body: Vec::new(),
+        }]);
+        let mut o = opts(&target(), mock.proxy());
+        o.followlocation = Some(true);
+        let res = fetch(&o).await;
+        assert_eq!(res.body, None);
+        // reqwest normalizes the host-only Location to add a trailing slash
+        // (the PHP records the raw Location header), so match by prefix.
+        assert!(
+            res.effective_url.starts_with("http://127.0.0.1"),
+            "effective_url: {}",
+            res.effective_url
+        );
+        assert!(
+            res.error.contains("failed extended validation"),
+            "error: {}",
+            res.error
+        );
+    }
+
+    #[tokio::test]
+    async fn fetch_follows_valid_redirect() {
+        let mock = MockProxy::new(vec![
+            Canned {
+                status: 301,
+                reason: "Moved Permanently",
+                headers: vec![("Location", "http://1.1.1.1/final".into())],
+                body: Vec::new(),
+            },
+            Canned {
+                status: 200,
+                reason: "OK",
+                headers: vec![],
+                body: b"final body".to_vec(),
+            },
+        ]);
+        let mut o = opts(&target(), mock.proxy());
+        o.followlocation = Some(true);
+        let res = fetch(&o).await;
+        assert_eq!(res.body.as_deref(), Some(b"final body".as_slice()));
+        assert_eq!(res.effective_url, "http://1.1.1.1/final");
+        assert_eq!(res.error_code, 200);
+    }
+
+    #[tokio::test]
+    async fn fetch_gzip_response_decompressed() {
+        let original = b"gzip feed body";
+        let mut gz = Vec::new();
+        {
+            let mut enc = flate2::write::GzEncoder::new(&mut gz, flate2::Compression::default());
+            enc.write_all(original).unwrap();
+            enc.finish().unwrap();
+        }
+        let mock = MockProxy::new(vec![Canned {
+            status: 200,
+            reason: "OK",
+            headers: vec![("Content-Encoding", "gzip".into())],
+            body: gz,
+        }]);
+        let res = fetch(&opts(&target(), mock.proxy())).await;
+        assert_eq!(res.body.as_deref(), Some(original.as_slice()));
+        assert_eq!(res.error_code, 200);
+    }
+
+    #[tokio::test]
+    async fn fetch_304_not_modified_has_no_body() {
+        let mock = MockProxy::new(vec![Canned {
+            status: 304,
+            reason: "Not Modified",
+            headers: vec![("Last-Modified", "Mon, 01 Jan 2024 00:00:00 GMT".into())],
+            body: Vec::new(),
+        }]);
+        let mut o = opts(&target(), mock.proxy());
+        o.last_modified = Some("Sun, 01 Jan 2024 00:00:00 GMT".into());
+        let res = fetch(&o).await;
+        assert_eq!(res.body, None);
+        assert_eq!(res.error_code, 304);
     }
 }

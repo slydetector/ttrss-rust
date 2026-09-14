@@ -4445,6 +4445,7 @@ dependencies = [
  "quick-xml",
  "rand 0.8.8",
  "regex",
+ "reqwest",
  "roxmltree",
  "serde",
  "serde_json",
