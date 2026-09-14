@@ -144,9 +144,9 @@ pub fn format_warning(msg: &str) -> String {
     format!("<div class=\"alert\" id=\"\">{}</div>", msg)
 }
 
-/// PHP `format_error($msg)` (`tt-rss/include/controls_compat.php`).
+/// PHP `format_error($msg)` (`tt-rss/include/controls_compat.php`, `$id = ""` default).
 pub fn format_error(msg: &str) -> String {
-    format!("<div class=\"alert alert-danger\" id=\"\">{}</div>", msg)
+    crate::util::format_error(msg, "")
 }
 
 /// PHP `Controls::input_tag($name, $value, $type = "text", $attributes = [], $id = "")`.

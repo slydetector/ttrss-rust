@@ -644,7 +644,7 @@ async fn rpc_handler(
 fn validate_csrf(sess: &Sess, csrf: &str) -> bool {
     let data = sess.data();
     let session_csrf = data.csrf_token().unwrap_or("");
-    !csrf.is_empty() && ct_eq(session_csrf, csrf)
+    !csrf.is_empty() && util::ct_eq(session_csrf, csrf)
 }
 
 /// `Handler::csrf_ignore` per handler. Only the read-only handlers the SPA
@@ -1077,19 +1077,6 @@ fn plugin_class_name(docroot: &std::path::Path, dir: &str) -> Option<String> {
 
 // The hotkey tables + `hotkeys_map` / `hotkey_help` live in `crate::hotkeys`
 // (they are `RPC` class statics in PHP; split out to keep the dispatcher lean).
-
-/// `hash_equals` (constant-time; false on length mismatch).
-fn ct_eq(a: &str, b: &str) -> bool {
-    let (a, b) = (a.as_bytes(), b.as_bytes());
-    if a.len() != b.len() {
-        return false;
-    }
-    let mut diff = 0u8;
-    for i in 0..a.len() {
-        diff |= a[i] ^ b[i];
-    }
-    diff == 0
-}
 
 /// The `scheme` of a URL (None if absent/unparseable) — `parse_url(.., SCHEME)`.
 fn url_scheme(url: &str) -> Option<String> {

@@ -11,7 +11,6 @@ use axum::http::{header, StatusCode};
 use axum::response::Response;
 use kuchikiki::parse_html;
 use kuchikiki::traits::TendrilSink;
-use sha1::{Digest, Sha1};
 use std::path::{Path, PathBuf};
 
 /// `Config::CACHE_MAX_DAYS` (T_INT, default 7): the `Expires` stamp is the
@@ -223,9 +222,7 @@ pub fn rewrite_urls(html: &str, image_cache_dir: &Path, self_url: &str) -> Strin
 /// `<self_url>/public.php?op=cached&file=images/<sha1(url)>` when
 /// `<image_cache_dir>/<sha1(url)>` exists.
 fn cached_file_url(image_cache_dir: &Path, url: &str, self_url: &str) -> Option<String> {
-    let mut h = Sha1::new();
-    h.update(url.as_bytes());
-    let name: String = h.finalize().iter().map(|b| format!("{b:02x}")).collect();
+    let name = crate::util::sha1_hex(url);
     if image_cache_dir.join(&name).is_file() {
         Some(format!(
             "{self_url}/public.php?op=cached&file=images/{name}"
@@ -323,18 +320,6 @@ mod tests {
         assert_eq!(resolve_cached(dir, "no-slash"), None);
     }
 
-    /// PHP `DiskCacheTest::test_rewrite_urls_*` — the *current* implementation
-    /// rewrites a URL only when a cached copy exists, using
-    /// `<self>/public.php?op=cached&file=images/<sha1(url)>`. (The frozen PHP
-    /// `rewrite_urls` tests predate the sha1 + cache-existence check and assert a
-    /// URL-encoded filename with no cache setup, so they are ported here with the
-    /// corrected expectation.)
-    fn sha1_hex(s: &str) -> String {
-        let mut h = Sha1::new();
-        h.update(s.as_bytes());
-        h.finalize().iter().map(|b| format!("{b:02x}")).collect()
-    }
-
     static TMP_COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
     /// A fresh temp dir with cached copies for each URL in `urls`.
@@ -343,7 +328,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("ttrss-rewrite-{}-{}", std::process::id(), n));
         std::fs::create_dir_all(&dir).unwrap();
         for url in urls {
-            std::fs::write(dir.join(sha1_hex(url)), b"cached").unwrap();
+            std::fs::write(dir.join(crate::util::sha1_hex(url)), b"cached").unwrap();
         }
         dir
     }
@@ -355,11 +340,11 @@ mod tests {
         let res = rewrite_urls(html, &dir, "http://self");
         assert!(res.contains("public.php"), "rewritten: {res}");
         assert!(
-            res.contains(&sha1_hex("http://a.com/1.jpg")),
+            res.contains(&crate::util::sha1_hex("http://a.com/1.jpg")),
             "first img: {res}"
         );
         assert!(
-            res.contains(&sha1_hex("http://b.com/2.jpg")),
+            res.contains(&crate::util::sha1_hex("http://b.com/2.jpg")),
             "second img: {res}"
         );
     }
@@ -370,7 +355,7 @@ mod tests {
         let html = r#"<video poster="http://example.com/poster.jpg"></video>"#;
         let res = rewrite_urls(html, &dir, "http://self");
         assert!(
-            res.contains(&sha1_hex("http://example.com/poster.jpg")),
+            res.contains(&crate::util::sha1_hex("http://example.com/poster.jpg")),
             "poster: {res}"
         );
     }
@@ -381,7 +366,7 @@ mod tests {
         let html = r#"<video src="http://example.com/video.mp4"></video>"#;
         let res = rewrite_urls(html, &dir, "http://self");
         assert!(
-            res.contains(&sha1_hex("http://example.com/video.mp4")),
+            res.contains(&crate::util::sha1_hex("http://example.com/video.mp4")),
             "video src: {res}"
         );
     }
@@ -426,7 +411,7 @@ mod tests {
         assert!(res.contains("<p>"), "p: {res}");
         assert!(res.contains("</div>"), "closing div: {res}");
         assert!(
-            res.contains(&sha1_hex("http://example.com/img.png")),
+            res.contains(&crate::util::sha1_hex("http://example.com/img.png")),
             "img: {res}"
         );
     }
@@ -439,6 +424,6 @@ mod tests {
         let html = format!(r#"<img src="{url}" srcset="http://a.com/1x.jpg 1x">"#);
         let res = rewrite_urls(&html, &dir, "http://self");
         assert!(!res.contains("srcset"), "srcset dropped: {res}");
-        assert!(res.contains(&sha1_hex(url)), "src rewritten: {res}");
+        assert!(res.contains(&crate::util::sha1_hex(url)), "src rewritten: {res}");
     }
 }

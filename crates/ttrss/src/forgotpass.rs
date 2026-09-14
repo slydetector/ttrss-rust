@@ -181,7 +181,7 @@ async fn do_reset(
 
     let csrf_ok = csrf
         .as_deref()
-        .is_some_and(|c| !c.is_empty() && ct_eq(session_csrf, c));
+        .is_some_and(|c| !c.is_empty() && util::ct_eq(session_csrf, c));
     let test_ok = test.as_deref().and_then(|t| t.parse::<i64>().ok()) == Some(t1 + t2);
     let fields_ok = email.as_deref().is_some_and(|e| !e.is_empty()) && !login.is_empty();
 
@@ -211,7 +211,7 @@ async fn do_reset(
 
     match user {
         Some((uid,)) => {
-            let token = sha1_hex(&util::get_random_bytes(128));
+            let token = util::sha1_hex(&util::get_random_bytes(128));
             let link = format!(
                 "{}/public.php?op=forgotpass&hash={}&login={}",
                 state.config.self_url_rtrim(),
@@ -332,26 +332,6 @@ fn rand_range(lo: i64, hi: i64) -> i64 {
     rand::thread_rng().gen_range(lo..=hi)
 }
 
-/// `sha1(…)` as lowercase hex (PHP `sha1(get_random_bytes(128))`).
-fn sha1_hex(data: &[u8]) -> String {
-    use sha1::Digest;
-    let d = sha1::Sha1::digest(data);
-    d.iter().map(|b| format!("{b:02x}")).collect()
-}
-
-/// Constant-time string compare (PHP `hash_equals`).
-fn ct_eq(a: &str, b: &str) -> bool {
-    let (a, b) = (a.as_bytes(), b.as_bytes());
-    if a.len() != b.len() {
-        return false;
-    }
-    let mut diff = 0u8;
-    for i in 0..a.len() {
-        diff |= a[i] ^ b[i];
-    }
-    diff == 0
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -359,15 +339,15 @@ mod tests {
     #[test]
     fn sha1_hex_matches_php() {
         // PHP: sha1("") = da39a3ee5e6b4b0d3255bfef95601890afd80709.
-        assert_eq!(sha1_hex(b""), "da39a3ee5e6b4b0d3255bfef95601890afd80709");
+        assert_eq!(util::sha1_hex(b""), "da39a3ee5e6b4b0d3255bfef95601890afd80709");
     }
 
     #[test]
     fn ct_eq_basic() {
-        assert!(ct_eq("abc", "abc"));
-        assert!(!ct_eq("abc", "abd"));
-        assert!(!ct_eq("abc", "abcd"));
-        assert!(ct_eq("", ""));
+        assert!(util::ct_eq("abc", "abc"));
+        assert!(!util::ct_eq("abc", "abd"));
+        assert!(!util::ct_eq("abc", "abcd"));
+        assert!(util::ct_eq("", ""));
     }
 
     #[test]

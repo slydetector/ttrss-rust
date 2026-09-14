@@ -11,8 +11,21 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// PHP `sha1($s)` — lowercase hex SHA-1 of `$s`.
-pub fn sha1_hex(s: &str) -> String {
-    format!("{:x}", sha1::Sha1::digest(s.as_bytes()))
+pub fn sha1_hex(s: impl AsRef<[u8]>) -> String {
+    format!("{:x}", sha1::Sha1::digest(s.as_ref()))
+}
+
+/// PHP `hash_equals` — constant-time string comparison (false on length mismatch).
+pub fn ct_eq(a: &str, b: &str) -> bool {
+    let (a, b) = (a.as_bytes(), b.as_bytes());
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for i in 0..a.len() {
+        diff |= a[i] ^ b[i];
+    }
+    diff == 0
 }
 
 /// PHP built-in `strip_tags`: drop HTML/XML tags and comments, keep text
