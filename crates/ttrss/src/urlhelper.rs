@@ -591,6 +591,10 @@ pub struct FetchOptions {
     pub post_query: Option<Vec<(String, String)>>,
     /// HTTP proxy URL (e.g. `http://host:port`).
     pub proxy: Option<String>,
+    /// Whether to apply the extended URL validation (the SSRF guard). Default
+    /// `true` (the `Extended` filtering); `None` (the derived default) means
+    /// `true`.
+    pub filtering: Option<bool>,
 }
 
 /// The result of [`fetch`] — mirrors the PHP's `fetch_last_*` globals plus the
@@ -625,12 +629,14 @@ pub async fn fetch(opts: &FetchOptions) -> FetchResult {
         ..Default::default()
     };
 
+    let extended = opts.filtering.unwrap_or(true);
+
     // Normalize the URL: ltrim whitespace, encode spaces (the PHP's
     // `ltrim($url, ' \n')` + `str_replace(' ', '%20', $url)`).
     let url = opts.url.trim_start().replace(' ', "%20");
 
     // Validate (extended) before fetching.
-    let url = match validate(&url, true) {
+    let url = match validate(&url, extended) {
         Some(u) => u,
         None => {
             res.error = "Requested URL failed extended validation.".into();
@@ -661,7 +667,7 @@ pub async fn fetch(opts: &FetchOptions) -> FetchResult {
                 if attempt.previous().len() >= 20 {
                     return attempt.stop();
                 }
-                if validate(&target, true).is_some() {
+                if validate(&target, extended).is_some() {
                     attempt.follow()
                 } else {
                     *invalid.lock().unwrap() = Some(target);
@@ -774,7 +780,7 @@ pub async fn fetch(opts: &FetchOptions) -> FetchResult {
 
     // Validate the final effective URL (extended) — the PHP's "after
     // redirection" safety check.
-    if validate(&res.effective_url, true).is_none() {
+    if validate(&res.effective_url, extended).is_none() {
         res.error = "URL received after redirection failed extended validation.".into();
         return res;
     }

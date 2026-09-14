@@ -124,6 +124,12 @@ mod tests {
             feed_icon_dir: PathBuf::from("tt-rss/cache/feed-icons"),
             max_favicon_file_size: 1024 * 1024,
             force_article_purge: 0,
+            feed_fetch_timeout: 45,
+            feed_fetch_no_cache_timeout: 15,
+            max_conditional_interval: 43200,
+            http_429_throttle_interval: 3600,
+            daemon_unsuccessful_days_limit: 30,
+            fetch_extended_url_filtering: true,
         };
 
         let db = match Db::connect(&cfg).await {

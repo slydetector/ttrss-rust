@@ -26,7 +26,9 @@ use anyhow::{bail, Context, Result};
 use chrono::{NaiveDateTime, Utc};
 use serde_json::{json, Value};
 use sqlx::{PgPool, Row};
+use rand::Rng;
 
+use crate::core::config::Config;
 use crate::core::feed::{FeedItem, FeedParser};
 use crate::core::filters::{
     calculate_article_score, eval_article_filters, has_article_filter_action, EvalFilter, EvalRule,
@@ -34,8 +36,9 @@ use crate::core::filters::{
 };
 use crate::core::user::ACCESS_LEVEL_READONLY;
 use crate::counters::parent_cats;
+use crate::feeds::decrypt_feed_pass;
 use crate::rss_utils::{calculate_article_hash, make_guid_from_title};
-use crate::urlhelper::rewrite_relative;
+use crate::urlhelper::{fetch, FetchOptions, rewrite_relative};
 use crate::util::{clean_str, normalize_categories, sha1_hex, strip_tags};
 
 /// The subset of `ttrss_feeds` the pipeline reads.
@@ -50,13 +53,19 @@ pub struct FeedRow {
     pub mark_unread_on_update: bool,
     pub cache_images: bool,
     pub purge_interval: i32,
+    // M6c.2 — the fetch/conditional metadata (used by `fetch_one_feed`).
+    pub last_unconditional: Option<NaiveDateTime>,
+    pub last_modified: String,
+    pub auth_login: String,
+    pub auth_pass: String,
 }
 
 /// Load the feed row, or `None` if the id does not exist.
 pub async fn load_feed(pool: &PgPool, feed_id: i32) -> Result<Option<FeedRow>> {
     let row = sqlx::query(
         "SELECT id, owner_uid, title, feed_url, site_url, feed_language, \
-         mark_unread_on_update, cache_images, purge_interval \
+         mark_unread_on_update, cache_images, purge_interval, \
+         last_unconditional, last_modified, auth_login, auth_pass \
          FROM ttrss_feeds WHERE id = $1",
     )
     .bind(feed_id)
@@ -73,6 +82,10 @@ pub async fn load_feed(pool: &PgPool, feed_id: i32) -> Result<Option<FeedRow>> {
         mark_unread_on_update: r.get(6),
         cache_images: r.get(7),
         purge_interval: r.get(8),
+        last_unconditional: r.get(9),
+        last_modified: r.get(10),
+        auth_login: r.get(11),
+        auth_pass: r.get(12),
     }))
 }
 
@@ -203,6 +216,164 @@ pub async fn update_rss_feed(pool: &PgPool, feed_id: i32, feed_data: &str) -> Re
     Ok(result.parse_error.is_none())
 }
 
+/// The outcome of a single-feed fetch + update (M6c.2).
+#[derive(Debug, Clone)]
+pub struct FeedFetchOutcome {
+    /// `true` when the feed was updated (a 200 with parseable XML) or confirmed
+    /// unchanged (a 304); `false` on a fetch / parse failure.
+    pub success: bool,
+    /// Number of new `ttrss_entries` (0 for a 304 / no-articles / failure).
+    pub new_articles: i32,
+    /// The error message (when the update failed).
+    pub error: Option<String>,
+}
+
+/// `fetch_one_feed` — the M6c.2 single-feed update workhorse: fetch the feed
+/// (M6c.1), make the conditional-refetch decision, and on success run the M6b
+/// [`process_feed`] pipeline. Mirrors the per-feed body of the PHP's
+/// `RSSUtils::update_rss_feed` (minus the dropped 30s feed-content cache, D5=c).
+///
+/// - A **304** stamps `last_error = ''`, `last_successful_update = now`,
+///   `last_updated = now` (no `last_unconditional` — the fetch was conditional).
+/// - A **429** throttles the feed (randomized `HTTP_429_THROTTLE_INTERVAL` 1-2x)
+///   by pushing `last_updated` / `last_successful_update` into the future.
+/// - Any other **failure** stamps `last_error` + `last_updated = now`.
+/// - A **200** updates `last_modified` (if changed) and runs `process_feed`
+///   (which stamps the success / parse-failure metadata).
+pub async fn fetch_one_feed(pool: &PgPool, cfg: &Config, feed_id: i32) -> Result<FeedFetchOutcome> {
+    let Some(feed) = load_feed(pool, feed_id).await? else {
+        return Ok(FeedFetchOutcome {
+            success: false,
+            new_articles: 0,
+            error: Some(format!("feeds table record not found for feed: {feed_id}")),
+        });
+    };
+    if let Err(e) = guard_updatable(pool, feed_id).await {
+        return Ok(FeedFetchOutcome {
+            success: false,
+            new_articles: 0,
+            error: Some(e.to_string()),
+        });
+    }
+
+    // Claim the feed (the PHP's `last_update_started = Db::NOW()`).
+    let _ = sqlx::query("UPDATE ttrss_feeds SET last_update_started = NOW() WHERE id = $1")
+        .bind(feed_id)
+        .execute(pool)
+        .await;
+
+    // Conditional-refetch decision: force an unconditional fetch once
+    // `last_unconditional` is older than `MAX_CONDITIONAL_INTERVAL`.
+    let force_refetch = match feed.last_unconditional {
+        Some(lu) => (Utc::now().naive_utc() - lu).num_seconds() > cfg.max_conditional_interval,
+        None => true,
+    };
+
+    // The feed's auth (the `auth_pass` is decrypted from its stored envelope).
+    let auth_pass = decrypt_feed_pass(&feed.auth_pass, cfg.encryption_key.as_ref());
+
+    let res = fetch(&FetchOptions {
+        url: feed.feed_url.clone(),
+        login: if feed.auth_login.is_empty() {
+            None
+        } else {
+            Some(feed.auth_login.clone())
+        },
+        pass: if auth_pass.is_empty() {
+            None
+        } else {
+            Some(auth_pass)
+        },
+        timeout: Some(std::time::Duration::from_secs(cfg.feed_fetch_timeout)),
+        last_modified: if force_refetch {
+            None
+        } else {
+            Some(feed.last_modified.clone())
+        },
+        filtering: Some(cfg.fetch_extended_url_filtering),
+        ..Default::default()
+    })
+    .await;
+
+    let body = res
+        .body
+        .as_deref()
+        .map_or(String::new(), |b| String::from_utf8_lossy(b).into_owned());
+    let feed_data = body.trim();
+
+    // Empty body → the error path (304 / 429 / other).
+    if feed_data.is_empty() {
+        let now = Utc::now();
+        return if res.error_code == 304 {
+            // 304: the source claims the feed is unchanged.
+            let _ = sqlx::query(
+                "UPDATE ttrss_feeds SET last_error = '', last_successful_update = $1, \
+                 last_updated = $1 WHERE id = $2",
+            )
+            .bind(now)
+            .bind(feed_id)
+            .execute(pool)
+            .await;
+            Ok(FeedFetchOutcome {
+                success: true,
+                new_articles: 0,
+                error: None,
+            })
+        } else if res.error_code == 429 {
+            // 429: throttle (randomized `HTTP_429_THROTTLE_INTERVAL` 1-2x).
+            let base = cfg.http_429_throttle_interval;
+            let interval: i64 = rand::thread_rng().gen_range(base..=base * 2);
+            let future = now + chrono::Duration::seconds(interval);
+            let err_msg = format!("{} (updates throttled for {} seconds.)", res.error, interval);
+            let _ = sqlx::query(
+                "UPDATE ttrss_feeds SET last_error = $1, last_successful_update = $2, \
+                 last_updated = $2 WHERE id = $3",
+            )
+            .bind(&err_msg)
+            .bind(future)
+            .bind(feed_id)
+            .execute(pool)
+            .await;
+            Ok(FeedFetchOutcome {
+                success: false,
+                new_articles: 0,
+                error: Some(err_msg),
+            })
+        } else {
+            // Generic fetch failure.
+            let _ = sqlx::query(
+                "UPDATE ttrss_feeds SET last_error = $1, last_updated = $2 WHERE id = $3",
+            )
+            .bind(&res.error)
+            .bind(now)
+            .bind(feed_id)
+            .execute(pool)
+            .await;
+            Ok(FeedFetchOutcome {
+                success: false,
+                new_articles: 0,
+                error: Some(res.error),
+            })
+        };
+    }
+
+    // 200: update `last_modified` (if changed), then run the M6b pipeline.
+    if !res.last_modified.is_empty() && res.last_modified != feed.last_modified {
+        let lm: String = res.last_modified.chars().take(245).collect();
+        let _ = sqlx::query("UPDATE ttrss_feeds SET last_modified = $1 WHERE id = $2")
+            .bind(&lm)
+            .bind(feed_id)
+            .execute(pool)
+            .await;
+    }
+
+    let result = process_feed(pool, &feed, feed_data).await?;
+    Ok(FeedFetchOutcome {
+        success: result.parse_error.is_none(),
+        new_articles: result.new_articles,
+        error: result.parse_error,
+    })
+}
 /// Stamp the feed's success metadata (PHP: `last_updated`,
 /// `last_unconditional`, `last_successful_update`, `last_error = ''`).
 async fn stamp_success(pool: &PgPool, feed_id: i32) -> Result<()> {

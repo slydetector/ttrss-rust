@@ -70,7 +70,34 @@ pub struct Config {
     pub max_favicon_file_size: usize,
     /// `Config::FORCE_ARTICLE_PURGE` (T_INT, default 0): when non-zero, article
     /// purging is forced to this many days (overriding per-feed / per-user settings).
+    /// `Config::FORCE_ARTICLE_PURGE` (T_INT, default 0): when non-zero, article
+    /// purging is forced to this many days (overriding per-feed / per-user settings).
     pub force_article_purge: i32,
+
+    // -- M6c daemon / fetch-tuning (Config.php, T_INT) --------------------
+    /// `Config::FEED_FETCH_TIMEOUT` (T_INT, default 45): the fetch timeout in
+    /// seconds for a feed update.
+    pub feed_fetch_timeout: u64,
+    /// `Config::FEED_FETCH_NO_CACHE_TIMEOUT` (T_INT, default 15): the fetch
+    /// timeout when `$no_cache` is set (a faster fail for on-demand updates).
+    pub feed_fetch_no_cache_timeout: u64,
+    /// `Config::MAX_CONDITIONAL_INTERVAL` (T_INT, default 3600*12 = 12h): once
+    /// `last_unconditional` is older than this, force an unconditional fetch
+    /// (no `If-Modified-Since`).
+    pub max_conditional_interval: i64,
+    /// `Config::HTTP_429_THROTTLE_INTERVAL` (T_INT, default 3600): the base
+    /// throttle interval (seconds) for a 429 response; the actual delay is
+    /// randomized to 1-2x this base.
+    pub http_429_throttle_interval: i64,
+    /// `Config::DAEMON_UNSUCCESSFUL_DAYS_LIMIT` (T_INT, default 30): auto-disable
+    /// a feed (set `update_interval = -1`) when it has not succeeded for this
+    /// many days.
+    pub daemon_unsuccessful_days_limit: i64,
+    /// `Config::RSS_EXTENDED_URL_FILTERING` (T_BOOL, default true): when true,
+    /// feed URLs are extended-validated (the SSRF guard rejects loopback /
+    /// private / reserved addresses). The daemon sets this from
+    /// `$config['rss_extended_url_filtering']`.
+    pub fetch_extended_url_filtering: bool,
 }
 
 impl Config {
@@ -120,6 +147,14 @@ impl Config {
                 .unwrap_or_else(|_| PathBuf::from("tt-rss/cache/feed-icons")),
             max_favicon_file_size: env("TTRSS_RUST_MAX_FAVICON_FILE_SIZE", "1048576")?,
             force_article_purge: env("TTRSS_RUST_FORCE_ARTICLE_PURGE", "0")?,
+            feed_fetch_timeout: env("TTRSS_FEED_FETCH_TIMEOUT", "45")?,
+            feed_fetch_no_cache_timeout: env("TTRSS_FEED_FETCH_NO_CACHE_TIMEOUT", "15")?,
+            max_conditional_interval: env("TTRSS_MAX_CONDITIONAL_INTERVAL", "43200")?,
+            http_429_throttle_interval: env("TTRSS_HTTP_429_THROTTLE_INTERVAL", "3600")?,
+            daemon_unsuccessful_days_limit: env("TTRSS_DAEMON_UNSUCCESSFUL_DAYS_LIMIT", "30")?,
+            fetch_extended_url_filtering: sql_bool_to_bool(
+                &std::env::var("TTRSS_EXTENDED_URL_FILTERING").unwrap_or_default(),
+            ),
         })
     }
 
@@ -216,6 +251,12 @@ mod tests {
             feed_icon_dir: PathBuf::from("tt-rss/cache/feed-icons"),
             max_favicon_file_size: 1024 * 1024,
             force_article_purge: 0,
+            feed_fetch_timeout: 45,
+            feed_fetch_no_cache_timeout: 15,
+            max_conditional_interval: 43200,
+            http_429_throttle_interval: 3600,
+            daemon_unsuccessful_days_limit: 30,
+            fetch_extended_url_filtering: true,
         }
     }
 
