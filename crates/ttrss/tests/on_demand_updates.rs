@@ -1,0 +1,274 @@
+//! M6c.5 — on-demand / web-triggered updates + `Feeds::add` first update.
+//!
+//! DB-backed tests that drive the on-demand update paths against a loopback
+//! mock HTTP server (the network is isolated here): `Feeds::_subscribe` (the
+//! subscribe engine → the immediate first update) and `API::updateFeed` (the
+//! on-demand full update, which runs immediately — not gated by the daemon
+//! loop's `Semaphore(N)` — with the in-flight dedup).
+
+mod common;
+
+use sqlx::pool::PoolOptions;
+use sqlx::postgres::PgConnectOptions;
+use serde_json::{json, Map, Value};
+use ttrss::api::update_feed;
+use ttrss::core::config::Config;
+use ttrss::core::db::Db;
+use ttrss::core::phpser::Value as PValue;
+use ttrss::core::session::Session;
+use ttrss::feeds::subscribe;
+use ttrss::session::Sess;
+use ttrss::AppState;
+use common::{Canned, MockServer};
+
+const MOCK_FEED: &str = include_str!("../../../tt-rss/tests_integration/feed.xml");
+
+/// A test `Config` with short fetch timeouts + the upstream fetch-tuning
+/// defaults (the on-demand update paths only read the fetch-tuning fields +
+/// the encryption key).
+fn test_config() -> Config {
+    Config {
+        db_host: String::new(),
+        db_port: 0,
+        db_user: String::new(),
+        db_pass: String::new(),
+        db_name: String::new(),
+        db_sslmode: String::new(),
+        self_url: String::new(),
+        encryption_key: None,
+        single_user_mode: false,
+        forbid_password_changes: false,
+        disable_login_form: false,
+        plugins: String::new(),
+        listen: "127.0.0.1:0".parse().unwrap(),
+        docroot: std::path::PathBuf::new(),
+        feed_icon_dir: std::path::PathBuf::new(),
+        max_favicon_file_size: 0,
+        force_article_purge: 0,
+        feed_fetch_timeout: 5,
+        feed_fetch_no_cache_timeout: 3,
+        max_conditional_interval: 43200,
+        http_429_throttle_interval: 3600,
+        daemon_unsuccessful_days_limit: 30,
+        fetch_extended_url_filtering: false,
+        daemon_sleep_interval: 60,
+        daemon_max_jobs: 2,
+        daemon_feed_limit: 50,
+        daemon_update_login_limit: 30,
+        cache_max_days: 7,
+        schedule_purge_orphans: String::from("@daily"),
+        schedule_disk_cache_expire_all: String::from("@daily"),
+        schedule_disable_failed_feeds: String::from("@daily"),
+        schedule_cleanup_feed_icons: String::from("@daily"),
+        schedule_log_daemon_update_login_limit_users: String::from("@daily"),
+        schedule_expire_error_log: String::from("@hourly"),
+        schedule_expire_lock_files: String::from("@hourly"),
+        schedule_send_headlines_digests: String::from("@hourly"),
+    }
+}
+
+/// Insert a user and return its id.
+async fn create_user(db: &Db, uid: i32, access_level: i32) -> i32 {
+    sqlx::query(
+        "INSERT INTO ttrss_users (id, login, pwd_hash, access_level) VALUES ($1, $2, 'SHA1:00', $3)",
+    )
+    .bind(uid)
+    .bind(format!("test-user-{uid}"))
+    .bind(access_level)
+    .execute(db.pool())
+    .await
+    .expect("create user");
+    uid
+}
+
+/// Insert a feed owned by `owner_uid` and return its id.
+async fn create_feed(db: &Db, id: i32, owner_uid: i32, feed_url: &str) -> i32 {
+    sqlx::query("INSERT INTO ttrss_feeds (id, owner_uid, title, feed_url) VALUES ($1, $2, $3, $4)")
+        .bind(id)
+        .bind(owner_uid)
+        .bind(format!("Test Feed {id}"))
+        .bind(feed_url)
+        .execute(db.pool())
+        .await
+        .expect("create feed");
+    id
+}
+
+/// The feed's `title`.
+async fn feed_title(db: &Db, feed_id: i32) -> String {
+    sqlx::query_scalar("SELECT title FROM ttrss_feeds WHERE id = $1")
+        .bind(feed_id)
+        .fetch_one(db.pool())
+        .await
+        .expect("feed title")
+}
+
+/// `ttrss_entries` count for a feed (entries ⋈ user_entries by ref_id).
+async fn entry_count(db: &Db, feed_id: i32) -> i64 {
+    sqlx::query_scalar(
+        "SELECT COUNT(*) FROM ttrss_entries e \
+         JOIN ttrss_user_entries ue ON e.id = ue.ref_id WHERE ue.feed_id = $1",
+    )
+    .bind(feed_id)
+    .fetch_one(db.pool())
+    .await
+    .expect("entry count")
+}
+
+fn make_state(db: Db) -> AppState {
+    AppState {
+        config: test_config(),
+        db,
+    }
+}
+
+fn make_sess(uid: i64) -> Sess {
+    let mut data = Session::new();
+    data.set("uid", PValue::Int(uid));
+    let sess = Sess::new("test-sid".to_string());
+    sess.replace("test-sid".to_string(), data);
+    sess
+}
+
+/// A mock server that serves the canned Atom feed (not HTML).
+fn atom_mock() -> MockServer {
+    MockServer::new(vec![Canned {
+        status: 200,
+        reason: "OK",
+        headers: vec![("content-type", "application/atom+xml".to_string())],
+        body: MOCK_FEED.as_bytes().to_vec(),
+    }])
+}
+
+// `Feeds::_subscribe` → the immediate first update: the feed is created (code
+// 1) and `update_basic_info` fills in the feed's title from the fetched feed.
+#[sqlx::test(fixtures(
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
+))]
+async fn test_subscribe_first_update(
+    pool: PoolOptions<sqlx::Postgres>,
+    options: PgConnectOptions,
+) {
+    let db = common::make_db(pool, options).await.expect("test db");
+    let cfg = test_config();
+    let mock = atom_mock();
+    let uid = create_user(&db, 300, 0).await;
+
+    let rc = subscribe(
+        &cfg,
+        db.pool(),
+        uid as i64,
+        0,
+        &mock.url("/feed"),
+        0,
+        "",
+        "",
+        0,
+    )
+    .await;
+    assert_eq!(rc.get("code").and_then(|v| v.as_i64()), Some(1), "{rc}");
+    let feed_id = rc.get("feed_id").and_then(|v| v.as_i64()).unwrap();
+
+    // The immediate first update filled in the feed's title (from the feed).
+    assert_eq!(
+        feed_title(&db, feed_id as i32).await,
+        "Atom:base testfeed"
+    );
+}
+
+// `Feeds::_subscribe` for a feed the user already subscribes to: code 0 (no
+// duplicate insert), the existing feed's id.
+#[sqlx::test(fixtures(
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
+))]
+async fn test_subscribe_existing_feed(
+    pool: PoolOptions<sqlx::Postgres>,
+    options: PgConnectOptions,
+) {
+    let db = common::make_db(pool, options).await.expect("test db");
+    let cfg = test_config();
+    let mock = atom_mock();
+    let uid = create_user(&db, 301, 0).await;
+    let feed_id = create_feed(&db, 301, uid, &mock.url("/feed")).await;
+
+    let rc = subscribe(
+        &cfg,
+        db.pool(),
+        uid as i64,
+        0,
+        &mock.url("/feed"),
+        0,
+        "",
+        "",
+        0,
+    )
+    .await;
+    assert_eq!(rc.get("code").and_then(|v| v.as_i64()), Some(0), "{rc}");
+    assert_eq!(
+        rc.get("feed_id").and_then(|v| v.as_i64()),
+        Some(feed_id as i64)
+    );
+}
+
+// `API::updateFeed` — the on-demand full update: the feed's articles are
+// ingested immediately (the request blocks on the update, not queued behind
+// the daemon loop's `Semaphore(N)`).
+#[sqlx::test(fixtures(
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
+))]
+async fn test_update_feed_on_demand(
+    pool: PoolOptions<sqlx::Postgres>,
+    options: PgConnectOptions,
+) {
+    let db = common::make_db(pool, options).await.expect("test db");
+    let mock = atom_mock();
+    let state = make_state(db.clone());
+    let uid = create_user(&db, 302, 0).await;
+    let feed_id = create_feed(&db, 302, uid, &mock.url("/feed")).await;
+    let sess = make_sess(uid as i64);
+
+    let body: Map<String, Value> = json!({ "feed_id": feed_id }).as_object().unwrap().clone();
+    let (status, _content) = update_feed(&state, &sess, &body).await;
+    assert_eq!(status, 0);
+
+    // The on-demand update ingested the feed's article immediately.
+    assert_eq!(entry_count(&db, feed_id).await, 1);
+}
+
+// `API::updateFeed` dedup: a feed already in flight (claimed by the running
+// daemon loop within the last 10 minutes) is a no-op — no re-fetch, no articles.
+#[sqlx::test(fixtures(
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
+))]
+async fn test_update_feed_dedup_when_in_flight(
+    pool: PoolOptions<sqlx::Postgres>,
+    options: PgConnectOptions,
+) {
+    let db = common::make_db(pool, options).await.expect("test db");
+    let mock = atom_mock();
+    let state = make_state(db.clone());
+    let uid = create_user(&db, 303, 0).await;
+    let feed_id = create_feed(&db, 303, uid, &mock.url("/feed")).await;
+    // Mark the feed in-flight (the daemon loop just claimed it).
+    sqlx::query("UPDATE ttrss_feeds SET last_update_started = NOW() WHERE id = $1")
+        .bind(feed_id)
+        .execute(db.pool())
+        .await
+        .expect("mark in-flight");
+    let sess = make_sess(uid as i64);
+
+    let body: Map<String, Value> = json!({ "feed_id": feed_id }).as_object().unwrap().clone();
+    let (status, _content) = update_feed(&state, &sess, &body).await;
+    assert_eq!(status, 0);
+
+    // The in-flight feed was skipped (no re-fetch, no articles ingested).
+    assert_eq!(entry_count(&db, feed_id).await, 0);
+}

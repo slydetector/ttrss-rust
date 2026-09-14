@@ -9,95 +9,20 @@
 
 mod common;
 
-use std::io::{Read, Write};
 use std::net::TcpListener;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
 
 use sqlx::pool::PoolOptions;
 use sqlx::postgres::PgConnectOptions;
 use ttrss::core::config::Config;
 use ttrss::core::db::Db;
 use ttrss::updates::fetch_one_feed;
+use common::{Canned, MockServer};
 
 /// The recorded mock feed (a single Atom entry, "x-21may2020").
 const MOCK_FEED: &str = include_str!("../../../tt-rss/tests_integration/feed.xml");
 
 /// The PHP suite's invalid-XML string.
 const BAD_FEED: &str = "<invalid-xml><unclosed>";
-
-/// A canned HTTP response served by [`MockServer`].
-#[derive(Clone)]
-struct Canned {
-    status: u16,
-    reason: &'static str,
-    headers: Vec<(&'static str, String)>,
-    body: Vec<u8>,
-}
-
-/// A minimal loopback HTTP/1.1 server (the origin). Serves canned responses in
-/// order, repeating the last when exhausted.
-struct MockServer {
-    port: u16,
-    _thread: std::thread::JoinHandle<()>,
-}
-
-impl MockServer {
-    fn new(responses: Vec<Canned>) -> Self {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let port = listener.local_addr().unwrap().port();
-        let responses = Arc::new(Mutex::new(responses));
-        let count = Arc::new(AtomicUsize::new(0));
-        let r = responses.clone();
-        let c = count.clone();
-        let thread = std::thread::spawn(move || {
-            for stream in listener.incoming() {
-                let Ok(mut stream) = stream else { continue };
-                // Read the request (its contents are irrelevant).
-                let mut data: Vec<u8> = Vec::new();
-                let mut buf = [0u8; 4096];
-                loop {
-                    match stream.read(&mut buf) {
-                        Ok(0) => break,
-                        Ok(n) => {
-                            data.extend_from_slice(&buf[..n]);
-                            if data.windows(4).any(|w| w == b"\r\n\r\n") || data.len() > 65536 {
-                                break;
-                            }
-                        }
-                        Err(_) => break,
-                    }
-                }
-                let idx = c.fetch_add(1, Ordering::Relaxed);
-                let resp = {
-                    let resps = r.lock().unwrap();
-                    resps[idx.min(resps.len().saturating_sub(1))].clone()
-                };
-                let mut have_cl = false;
-                let mut s = format!("HTTP/1.1 {} {}\r\n", resp.status, resp.reason);
-                for (k, v) in &resp.headers {
-                    s.push_str(&format!("{k}: {v}\r\n"));
-                    if k.eq_ignore_ascii_case("content-length") {
-                        have_cl = true;
-                    }
-                }
-                if !have_cl {
-                    s.push_str(&format!("Content-Length: {}\r\n", resp.body.len()));
-                }
-                s.push_str("Connection: close\r\n\r\n");
-                let mut out = s.into_bytes();
-                out.extend_from_slice(&resp.body);
-                let _ = stream.write_all(&out);
-                let _ = stream.shutdown(std::net::Shutdown::Both);
-            }
-        });
-        Self { port, _thread: thread }
-    }
-
-    fn url(&self, path: &str) -> String {
-        format!("http://127.0.0.1:{}{}", self.port, path)
-    }
-}
 
 /// A test `Config` with short fetch timeouts + the upstream fetch-tuning
 /// defaults (the `fetch_one_feed` function only reads the fetch-tuning fields

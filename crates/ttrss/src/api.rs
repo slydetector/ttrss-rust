@@ -155,6 +155,8 @@ pub async fn before_and_dispatch(
         "getapilevel" => (STATUS_OK, json!({ "level": API_LEVEL })),
         "catchupfeed" => catchup_feed(state, sess, body).await,
         "unsubscribefeed" => unsubscribe_feed(state, sess, body).await,
+        "updatefeed" => update_feed(state, sess, body).await,
+        "subscribetofeed" => subscribe_to_feed(state, sess, body).await,
         "updatearticle" => update_article(state, sess, body).await,
         "setarticlelabel" => set_article_label(state, sess, body).await,
         "sharetopublished" => share_to_published(state, sess, body).await,
@@ -1101,6 +1103,73 @@ pub async fn unsubscribe_feed(
     } else {
         (STATUS_ERR, json!({ "error": E_OPERATION_FAILED }))
     }
+}
+
+/// `API::updateFeed` — update a single feed now (a blocking, in-process
+/// on-demand update, D2 = a). The PHP guards on `!ini_get("open_basedir")`
+/// (always unset in this port), then runs `RSSUtils::update_rss_feed`. An
+/// on-demand update for a feed already in flight (claimed by the running daemon
+/// loop within the last 10 minutes — the same "not due" condition
+/// `select_due_feeds` uses) is a no-op.
+pub async fn update_feed(
+    state: &AppState,
+    _sess: &Sess,
+    body: &Map<String, Value>,
+) -> (i64, Value) {
+    let pool = state.db.pool();
+    let feed_id = clean_int(body.get("feed_id")) as i32;
+    let in_flight: Option<bool> = sqlx::query_scalar(
+        "SELECT last_update_started IS NOT NULL \
+         AND last_update_started >= NOW() - INTERVAL '10 minute' \
+         FROM ttrss_feeds WHERE id = $1",
+    )
+    .bind(feed_id)
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten();
+    if in_flight.unwrap_or(false) {
+        return (STATUS_OK, json!({ "status": "OK" }));
+    }
+    let _ = crate::updates::fetch_one_feed(pool, &state.config, feed_id).await;
+    (STATUS_OK, json!({ "status": "OK" }))
+}
+
+/// `API::subscribeToFeed` — subscribe to a feed (delegates to
+/// `Feeds::_subscribe`). Returns `{"status": <rc>}` where `<rc>` is the `{code,
+/// …}` array, or `INCORRECT_USAGE` when no `feed_url` is given.
+pub async fn subscribe_to_feed(
+    state: &AppState,
+    sess: &Sess,
+    body: &Map<String, Value>,
+) -> (i64, Value) {
+    let uid = sess.data().uid().unwrap_or(0);
+    let access_level = sess.data().access_level().unwrap_or(0) as i32;
+    let pool = state.db.pool();
+
+    let feed_url = clean_str(body.get("feed_url").and_then(|v| v.as_str()).unwrap_or(""));
+    let category_id = clean_int(body.get("category_id")) as i32;
+    let login = clean_str(body.get("login").and_then(|v| v.as_str()).unwrap_or(""));
+    let password = clean_str(body.get("password").and_then(|v| v.as_str()).unwrap_or(""));
+
+    if feed_url.is_empty() {
+        return (STATUS_ERR, json!({ "error": E_INCORRECT_USAGE }));
+    }
+
+    // No `update_interval` param (the PHP defaults it to 0).
+    let rc = crate::feeds::subscribe(
+        &state.config,
+        pool,
+        uid,
+        access_level,
+        &feed_url,
+        category_id,
+        &login,
+        &password,
+        0,
+    )
+    .await;
+    (STATUS_OK, json!({ "status": rc }))
 }
 
 /// `API::updateArticle` — batch-update a set of articles' marked / published /

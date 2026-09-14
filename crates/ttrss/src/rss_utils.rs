@@ -18,6 +18,14 @@ use std::io::Read;
 
 use regex::Regex;
 
+use sqlx::{PgPool, Row};
+
+use crate::core::config::Config;
+use crate::core::feed::FeedParser;
+use crate::feeds::decrypt_feed_pass;
+use crate::urlhelper::{fetch, FetchOptions, rewrite_relative};
+use crate::util::clean_str;
+
 /// PHP `RSSUtils::is_gzipped($feed_data)` — true if the data begins with the
 /// gzip magic header `\x1f\x8b\x08`.
 pub fn is_gzipped(data: &[u8]) -> bool {
@@ -124,6 +132,97 @@ pub fn function_enabled(_func: &str) -> bool {
 /// label's caption (index 1) exactly equals `$caption` (case-sensitive).
 pub fn labels_contains_caption(labels: &[Label], caption: &str) -> bool {
     labels.iter().any(|l| l.caption == caption)
+}
+
+/// `RSSUtils::update_basic_info($feed_id)` — fetch the feed and, on a
+/// successful parse, fill in the feed's `title` (only if empty or `[Unknown]`)
+/// and `site_url` (only if it changed). The PHP first runs the
+/// `HOOK_FEED_BASIC_INFO` plugin hooks to populate `$basic_info`; those are the
+/// M8 plugin layer (not ported), so this goes straight to the fetch + parse
+/// fallback. A no-op when the feed does not exist, the fetch returns nothing,
+/// or the XML does not parse.
+pub async fn update_basic_info(pool: &PgPool, cfg: &Config, feed_id: i32) {
+    let row = sqlx::query(
+        "SELECT feed_url, auth_login, title, site_url, auth_pass \
+         FROM ttrss_feeds WHERE id = $1",
+    )
+    .bind(feed_id)
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten();
+
+    let Some(row) = row else {
+        return;
+    };
+    let feed_url = row.get::<String, _>(0);
+    let auth_login = row.get::<String, _>(1);
+    let title = row.get::<String, _>(2);
+    let site_url = row.get::<String, _>(3);
+    let auth_pass = row.get::<String, _>(4);
+
+    let auth_pass_plaintext = decrypt_feed_pass(&auth_pass, cfg.encryption_key.as_ref());
+
+    let res = fetch(&FetchOptions {
+        url: feed_url.clone(),
+        login: if auth_login.trim().is_empty() {
+            None
+        } else {
+            Some(auth_login)
+        },
+        pass: if auth_pass_plaintext.is_empty() {
+            None
+        } else {
+            Some(auth_pass_plaintext)
+        },
+        timeout: Some(std::time::Duration::from_secs(cfg.feed_fetch_timeout)),
+        filtering: Some(cfg.fetch_extended_url_filtering),
+        ..Default::default()
+    })
+    .await;
+
+    let body = res
+        .body
+        .as_deref()
+        .map_or(String::new(), |b| String::from_utf8_lossy(b).into_owned());
+    let feed_data = body.trim();
+    if feed_data.is_empty() {
+        return;
+    }
+
+    let mut parser = FeedParser::new(feed_data);
+    if !parser.init() {
+        return;
+    }
+
+    // `mb_substr(clean($rss->get_title()), 0, 199)` /
+    // `mb_substr(rewrite_relative($feed_url, clean($rss->get_link())), 0, 245)`.
+    let bi_title: String = clean_str(&parser.get_title()).chars().take(199).collect();
+    let bi_site_url: String = rewrite_relative(&feed_url, &clean_str(&parser.get_link()))
+        .unwrap_or_default()
+        .chars()
+        .take(245)
+        .collect();
+
+    // `!empty($basic_info['title']) && (!$feed->title || $feed->title == '[Unknown]')`.
+    let new_title = if !bi_title.is_empty() && (title.is_empty() || title == "[Unknown]") {
+        bi_title
+    } else {
+        title
+    };
+    // `!empty($basic_info['site_url']) && $feed->site_url != $basic_info['site_url']`.
+    let new_site_url = if !bi_site_url.is_empty() && site_url != bi_site_url {
+        bi_site_url
+    } else {
+        site_url
+    };
+
+    let _ = sqlx::query("UPDATE ttrss_feeds SET title = $1, site_url = $2 WHERE id = $3")
+        .bind(&new_title)
+        .bind(&new_site_url)
+        .bind(feed_id)
+        .execute(pool)
+        .await;
 }
 
 #[cfg(test)]

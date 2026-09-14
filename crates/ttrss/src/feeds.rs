@@ -14,6 +14,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use axum::http::StatusCode;
 use base64::Engine as _;
+use kuchikiki::traits::TendrilSink;
+use kuchikiki::parse_html;
 use minijinja::Environment;
 use serde::Serialize;
 use serde_json::{json, Map, Value};
@@ -931,6 +933,214 @@ pub async fn batch_add_feeds(state: &AppState, sess: &Sess, extra: &Map<String, 
     Value::Null
 }
 
+/// `Feeds::_is_html($content)` — true if the first 8192 bytes contain `<html`
+/// or `DOCTYPE html` (case-insensitive).
+pub fn is_html(content: &str) -> bool {
+    let head = &content[..content.len().min(8192)];
+    let lower = head.to_ascii_lowercase();
+    lower.contains("<html") || lower.contains("doctype html")
+}
+
+/// `Feeds::_get_feeds_from_html($url, $content)` — discover the feed `<link>`
+/// elements in an HTML page. For each `<link rel="alternate">` with an `rss` /
+/// `atom` type, or `<link rel="feed">`, in the `<head>` or `<body>`, yields a
+/// `(feed_url, title)` pair (the title is the `title` attribute, falling back
+/// to the `type` attribute). Deduped by feed URL; the base URL is the page
+/// URL up to and including its last `/`.
+pub fn get_feeds_from_html(url: &str, content: &str) -> Vec<(String, String)> {
+    let url = match crate::urlhelper::validate(url, false) {
+        Some(u) => u,
+        None => return Vec::new(),
+    };
+    let base_url = match url.rfind('/') {
+        Some(i) => url[..=i].to_string(),
+        None => url.clone(),
+    };
+
+    let doc = parse_html().one(content);
+    let Ok(select_iter) = doc.select("html head link, html body link") else {
+        return Vec::new();
+    };
+
+    let mut feed_urls: Vec<(String, String)> = Vec::new();
+    for link in select_iter {
+        let attrs = link.attributes.borrow();
+        let href = attrs.get("href").unwrap_or("").trim().to_string();
+        let rel = attrs.get("rel").unwrap_or("").to_string();
+        let type_ = attrs.get("type").unwrap_or("").to_string();
+        let title = attrs.get("title").unwrap_or("").to_string();
+        drop(attrs);
+
+        if href.is_empty() {
+            continue;
+        }
+        let is_alt_feed =
+            rel == "alternate" && (type_.contains("rss") || type_.contains("atom"));
+        if !is_alt_feed && rel != "feed" {
+            continue;
+        }
+        let title = if title.trim().is_empty() { type_ } else { title };
+        let Some(feed_url) = crate::urlhelper::rewrite_relative(&base_url, &href) else {
+            continue;
+        };
+        if !feed_urls.iter().any(|(u, _)| u == &feed_url) {
+            feed_urls.push((feed_url, title));
+        }
+    }
+    feed_urls
+}
+
+/// `Feeds::_subscribe($url, $cat_id, $auth_login, $auth_pass, $update_interval)`
+/// — the shared subscribe engine behind `Feeds::add` (the RPC) and
+/// `API::subscribeToFeed`. Validates + fetches the URL, discovers the feed from
+/// an HTML page if needed, parses it, and inserts the feed (title `[Unknown]`)
+/// — then runs the immediate first update (`RSSUtils::update_basic_info`).
+/// Returns the PHP's `{code, …}` array. The `HOOK_PRE_SUBSCRIBE` /
+/// `HOOK_SUBSCRIBE_FEED` plugin hooks (M8) are not ported.
+pub async fn subscribe(
+    cfg: &crate::core::config::Config,
+    pool: &sqlx::PgPool,
+    uid: i64,
+    access_level: i32,
+    url: &str,
+    cat_id: i32,
+    auth_login: &str,
+    auth_pass: &str,
+    update_interval: i32,
+) -> Value {
+    // `if ($user && $user->access_level == ACCESS_LEVEL_READONLY) return ["code" => 8]`.
+    if access_level == crate::core::user::ACCESS_LEVEL_READONLY {
+        return json!({ "code": 8 });
+    }
+
+    // `$url = UrlHelper::validate($url); if (!$url) return ["code" => 2]`.
+    let Some(url) = crate::urlhelper::validate(url, false) else {
+        return json!({ "code": 2 });
+    };
+
+    // `$contents = UrlHelper::fetch(['url', 'login', 'pass'])` (default timeout).
+    let res = crate::urlhelper::fetch(&crate::urlhelper::FetchOptions {
+        url: url.clone(),
+        login: if auth_login.trim().is_empty() {
+            None
+        } else {
+            Some(auth_login.to_string())
+        },
+        pass: if auth_pass.trim().is_empty() {
+            None
+        } else {
+            Some(auth_pass.to_string())
+        },
+        filtering: Some(cfg.fetch_extended_url_filtering),
+        ..Default::default()
+    })
+    .await;
+
+    let contents = res
+        .body
+        .as_deref()
+        .map_or(String::new(), |b| String::from_utf8_lossy(b).into_owned());
+
+    // `if (empty($contents)) return ["code" => 5, "message" => …]`.
+    if contents.is_empty() {
+        return json!({
+            "code": 5,
+            "message": util::truncate_string(&util::clean_str(&res.error), 250, "…"),
+        });
+    }
+
+    // `if (str_contains($fetch_last_content_type, "html") && _is_html($contents))`
+    // — an HTML page: discover the feed link(s).
+    let mut url = url;
+    if res.content_type.to_lowercase().contains("html") && is_html(&contents) {
+        let feed_urls = get_feeds_from_html(&url, &contents);
+        if feed_urls.is_empty() {
+            let message = if access_level >= crate::core::user::ACCESS_LEVEL_ADMIN {
+                util::truncate_string(&util::clean_str(&contents), 250, "…")
+            } else {
+                String::new()
+            };
+            return json!({ "code": 3, "message": message });
+        } else if feed_urls.len() > 1 {
+            let feeds: Vec<String> = feed_urls.iter().map(|(u, _)| u.clone()).collect();
+            return json!({ "code": 4, "feeds": feeds });
+        }
+        url = feed_urls.into_iter().next().expect("non-empty").0;
+    }
+
+    // `Don't allow subscribing if the content is invalid`.
+    let mut parser = crate::core::feed::FeedParser::new(&contents);
+    let parse_error = parser.error();
+    if !parser.init() {
+        let message = if !parse_error.is_empty() {
+            util::truncate_string(&util::clean_str(&parse_error), 250, "…")
+        } else if access_level >= crate::core::user::ACCESS_LEVEL_ADMIN {
+            util::truncate_string(&util::clean_str(&contents), 250, "…")
+        } else {
+            String::new()
+        };
+        return json!({ "code": 6, "message": message });
+    }
+
+    // The feed already exists (matched on the validated URL + owner)?
+    let existing: Option<i32> =
+        sqlx::query_scalar("SELECT id FROM ttrss_feeds WHERE feed_url = $1 AND owner_uid = $2")
+            .bind(&url)
+            .bind(uid)
+            .fetch_optional(pool)
+            .await
+            .ok()
+            .flatten();
+    if let Some(id) = existing {
+        return json!({ "code": 0, "feed_id": id });
+    }
+
+    // Create the feed (title `[Unknown]`, `auth_pass_encrypted = false`).
+    let cat_id_sql: Option<i32> = (cat_id != 0).then_some(cat_id);
+    let new_id: Result<i32, _> = sqlx::query_scalar(
+        "INSERT INTO ttrss_feeds \
+         (owner_uid, feed_url, title, cat_id, auth_login, auth_pass, update_method, \
+          update_interval, auth_pass_encrypted) \
+         VALUES ($1, $2, '[Unknown]', $3, $4, $5, 0, $6, false) RETURNING id",
+    )
+    .bind(uid)
+    .bind(&url)
+    .bind(cat_id_sql)
+    .bind(auth_login)
+    .bind(auth_pass)
+    .bind(update_interval)
+    .fetch_one(pool)
+    .await;
+
+    match new_id {
+        Ok(id) => {
+            crate::rss_utils::update_basic_info(pool, cfg, id).await;
+            json!({ "code": 1, "feed_id": id })
+        }
+        Err(_) => json!({ "code": 7 }),
+    }
+}
+
+/// `Feeds::add` — the subscribe action (the read-side dialog's "Add feed").
+/// Delegates to [`subscribe`] and wraps the result as `{"result": <rc>}`.
+pub async fn add(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Value {
+    let uid = sess.data().uid().unwrap_or(0);
+    let access_level = sess.data().access_level().unwrap_or(0) as i32;
+    let pool = state.db.pool();
+
+    let feed = util::clean_str(extra.get("feed").and_then(|v| v.as_str()).unwrap_or(""));
+    let cat = util::clean_int(extra.get("cat")) as i32;
+    let need_auth = extra.get("need_auth").is_some();
+    let get_opt = |k: &str| util::clean_str(extra.get(k).and_then(|v| v.as_str()).unwrap_or(""));
+    let login = if need_auth { get_opt("login") } else { String::new() };
+    let pass = if need_auth { get_opt("pass") } else { String::new() };
+    let update_interval = util::clean_int(extra.get("update_interval")) as i32;
+
+    let rc =
+        subscribe(&state.config, pool, uid, access_level, &feed, cat, &login, &pass, update_interval)
+            .await;
+    json!({ "result": rc })
+}
 /// `Feeds::updatedebugger` — the standalone feed-update debug page
 /// (`Content-Type: text/html`). Reproduced verbatim from the PHP template;
 /// the cache-bust timestamp and the csrf token normalize away in the diff.

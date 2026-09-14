@@ -328,6 +328,7 @@ async fn dispatch(
             "subscribetofeed" => {
                 DispatchOutput::Json(crate::feeds::subscribe_to_feed(state, sess).await)
             }
+            "add" => DispatchOutput::Json(crate::feeds::add(state, sess, extra).await),
             "opensite" => {
                 let (status, location, body) = crate::feeds::opensite(state, sess, extra).await;
                 DispatchOutput::Raw(status, location, body)

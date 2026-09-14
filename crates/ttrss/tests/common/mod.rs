@@ -16,6 +16,10 @@
 
 use sqlx::pool::PoolOptions;
 use sqlx::postgres::{PgConnectOptions, PgConnection, Postgres};
+use std::io::{Read, Write};
+use std::net::TcpListener;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use ttrss::core::db::{Db, SESSION_SETUP};
 
@@ -53,4 +57,82 @@ pub async fn make_db(pool: PoolOptions<Postgres>, options: PgConnectOptions) -> 
         .connect_with(options)
         .await?;
     Ok(Db::from_pool(pool))
+}
+
+// ── Loopback mock HTTP server (shared by the fetch / on-demand-update tests) ─
+
+/// A canned HTTP response served by [`MockServer`].
+#[derive(Clone)]
+#[allow(dead_code)]
+pub struct Canned {
+    pub status: u16,
+    pub reason: &'static str,
+    pub headers: Vec<(&'static str, String)>,
+    pub body: Vec<u8>,
+}
+
+/// A minimal loopback HTTP/1.1 server (the origin). Serves canned responses in
+/// order, repeating the last when exhausted.
+#[allow(dead_code)]
+pub struct MockServer {
+    port: u16,
+    _thread: std::thread::JoinHandle<()>,
+}
+
+#[allow(dead_code)]
+impl MockServer {
+    pub fn new(responses: Vec<Canned>) -> Self {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let responses = Arc::new(Mutex::new(responses));
+        let count = Arc::new(AtomicUsize::new(0));
+        let r = responses.clone();
+        let c = count.clone();
+        let thread = std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { continue };
+                // Read the request (its contents are irrelevant).
+                let mut data: Vec<u8> = Vec::new();
+                let mut buf = [0u8; 4096];
+                loop {
+                    match stream.read(&mut buf) {
+                        Ok(0) => break,
+                        Ok(n) => {
+                            data.extend_from_slice(&buf[..n]);
+                            if data.windows(4).any(|w| w == b"\r\n\r\n") || data.len() > 65536 {
+                                break;
+                            }
+                        }
+                        Err(_) => break,
+                    }
+                }
+                let idx = c.fetch_add(1, Ordering::Relaxed);
+                let resp = {
+                    let resps = r.lock().unwrap();
+                    resps[idx.min(resps.len().saturating_sub(1))].clone()
+                };
+                let mut have_cl = false;
+                let mut s = format!("HTTP/1.1 {} {}\r\n", resp.status, resp.reason);
+                for (k, v) in &resp.headers {
+                    s.push_str(&format!("{k}: {v}\r\n"));
+                    if k.eq_ignore_ascii_case("content-length") {
+                        have_cl = true;
+                    }
+                }
+                if !have_cl {
+                    s.push_str(&format!("Content-Length: {}\r\n", resp.body.len()));
+                }
+                s.push_str("Connection: close\r\n\r\n");
+                let mut out = s.into_bytes();
+                out.extend_from_slice(&resp.body);
+                let _ = stream.write_all(&out);
+                let _ = stream.shutdown(std::net::Shutdown::Both);
+            }
+        });
+        Self { port, _thread: thread }
+    }
+
+    pub fn url(&self, path: &str) -> String {
+        format!("http://127.0.0.1:{}{}", self.port, path)
+    }
 }
