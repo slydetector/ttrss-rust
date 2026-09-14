@@ -168,16 +168,20 @@ fn parse_last_next_weekday(lower: &str, today: NaiveDate) -> Option<NaiveDate> {
         return None;
     }
     let wd = weekday_idx(wd_name)?;
+    // Only "last"/"next" are valid prefixes (PHP's `DateTime` rejects any other
+    // prefix, e.g. the `date:` keyword's "date:last monday"). Check before the
+    // `diff == 0` shortcut, which otherwise bypasses this validation.
+    if prefix != "last" && prefix != "next" {
+        return None;
+    }
     let today_wd = today.weekday().num_days_from_monday() as i32;
     let diff = (wd - today_wd).rem_euclid(7);
     let days = if diff == 0 {
         7
     } else if prefix == "last" {
         7 - diff
-    } else if prefix == "next" {
-        diff
     } else {
-        return None;
+        diff
     };
     let days_i64 = if prefix == "last" {
         -(days as i64)
@@ -443,6 +447,9 @@ mod tests {
         assert_eq!(p("next monday"), d(2026, 9, 14));
         assert_eq!(p("next friday"), d(2026, 9, 11));
         assert_eq!(p("LAST MONDAY"), d(2026, 8, 31));
+        // Invalid prefix (e.g. the `date:` keyword's "date:last monday") → None.
+        assert_eq!(p_opt("date:last monday"), None);
+        assert_eq!(p_opt("some monday"), None);
     }
 
     #[test]
