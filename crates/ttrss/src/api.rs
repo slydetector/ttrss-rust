@@ -1109,8 +1109,7 @@ pub async fn unsubscribe_feed(
 /// on-demand update, D2 = a). The PHP guards on `!ini_get("open_basedir")`
 /// (always unset in this port), then runs `RSSUtils::update_rss_feed`. An
 /// on-demand update for a feed already in flight (claimed by the running daemon
-/// loop within the last 10 minutes — the same "not due" condition
-/// `select_due_feeds` uses) is a no-op.
+/// loop within the last minute) is a no-op.
 pub async fn update_feed(
     state: &AppState,
     _sess: &Sess,
@@ -1120,7 +1119,7 @@ pub async fn update_feed(
     let feed_id = clean_int(body.get("feed_id")) as i32;
     let in_flight: Option<bool> = sqlx::query_scalar(
         "SELECT last_update_started IS NOT NULL \
-         AND last_update_started >= NOW() - INTERVAL '10 minute' \
+         AND last_update_started >= NOW() - INTERVAL '1 minute' \
          FROM ttrss_feeds WHERE id = $1",
     )
     .bind(feed_id)
