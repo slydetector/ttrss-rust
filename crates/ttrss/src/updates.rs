@@ -27,6 +27,7 @@ use chrono::{NaiveDateTime, Utc};
 use serde_json::{json, Value};
 use sqlx::{PgPool, Row};
 use rand::Rng;
+use std::sync::Arc;
 
 use crate::core::config::Config;
 use crate::core::feed::{FeedItem, FeedParser};
@@ -983,4 +984,125 @@ fn ts_to_naive(ts: i64) -> NaiveDateTime {
     chrono::DateTime::from_timestamp(ts, 0)
         .map(|d| d.naive_utc())
         .unwrap_or_else(|| Utc::now().naive_utc())
+}
+
+// -- M6c.3 — the daemon/scheduler loop -------------------------------------
+
+/// A feed selected for update (the daemon loop's due-feeds query result).
+#[derive(Debug, Clone)]
+pub struct DueFeed {
+    pub id: i32,
+    pub owner_uid: i32,
+}
+
+/// The `update_daemon_common` selection SQL — the due feeds (the least recently
+/// updated first, capped at `limit`). The PHP ref: `RSSUtils::update_daemon_common`
+/// (the base feed query). `update_interval = 0` means "use the default
+/// interval" (the `DEFAULT_UPDATE_INTERVAL` pref, default 30 min); `update_interval
+/// > 0` means the feed's own interval (minutes); `update_interval = -1` means
+/// disabled. A feed that has never been updated (`last_updated` NULL or the
+/// epoch) is always due.
+pub async fn select_due_feeds(pool: &PgPool, cfg: &Config, limit: i32) -> Vec<DueFeed> {
+    let default_interval: i64 = 30; // Prefs::DEFAULT_UPDATE_INTERVAL
+    let login_thresh = if !cfg.single_user_mode && cfg.daemon_update_login_limit > 0 {
+        format!(
+            "AND u.last_login >= NOW() - INTERVAL '{} day'",
+            cfg.daemon_update_login_limit
+        )
+    } else {
+        String::new()
+    };
+    let sql = format!(
+        "SELECT f.id, f.owner_uid FROM ttrss_feeds f, ttrss_users u \
+         LEFT JOIN ttrss_user_prefs2 p ON (p.owner_uid = u.id AND p.profile IS NULL \
+              AND p.pref_name = 'DEFAULT_UPDATE_INTERVAL') \
+         WHERE f.owner_uid = u.id AND u.access_level NOT IN (-2, -1) {login_thresh} \
+         AND ((f.update_interval = 0 AND (p.value IS NULL OR p.value != '-1') \
+               AND f.last_updated < NOW() - CAST((COALESCE(p.value, '{default_interval}') || ' minutes') AS INTERVAL)) \
+              OR (f.update_interval > 0 AND f.last_updated < NOW() - CAST((f.update_interval || ' minutes') AS INTERVAL)) \
+              OR (f.update_interval >= 0 AND (p.value IS NULL OR p.value != '-1') \
+               AND (f.last_updated = '1970-01-01 00:00:00' OR f.last_updated IS NULL))) \
+         AND (f.last_update_started IS NULL OR f.last_update_started < NOW() - INTERVAL '10 minute') \
+         ORDER BY f.last_updated NULLS FIRST LIMIT {limit}"
+    );
+    let Ok(rows) = sqlx::query(&sql).fetch_all(pool).await else {
+        return Vec::new();
+    };
+    rows.iter()
+        .map(|r| DueFeed {
+            id: r.get::<i32, _>(0),
+            owner_uid: r.get::<i32, _>(1),
+        })
+        .collect()
+}
+
+/// Claim the due feeds (the PHP's `last_update_started = NOW()` — the in-process
+/// on-demand dedup + the "currently being updated" marker).
+pub async fn claim_feeds(pool: &PgPool, feeds: &[DueFeed]) {
+    if feeds.is_empty() {
+        return;
+    }
+    let qmarks: Vec<String> = (0..feeds.len()).map(|i| format!("${}", i + 1)).collect();
+    let sql = format!(
+        "UPDATE ttrss_feeds SET last_update_started = NOW() WHERE id IN ({})",
+        qmarks.join(", ")
+    );
+    let mut q = sqlx::query(&sql);
+    for feed in feeds {
+        q = q.bind(feed.id);
+    }
+    let _ = q.execute(pool).await;
+}
+
+/// The daemon/scheduler loop (M6c.3). A background task that periodically
+/// selects due feeds, claims them, dispatches per-feed update tasks (bounded by
+/// `Semaphore(daemon_max_jobs)`), awaits completion, then sleeps the interval.
+///
+/// The loop is the faithful sequential daemon cycle: it processes one
+/// `DAEMON_FEED_LIMIT` batch, awaits completion, then sleeps the interval (large
+/// feed sets cycle over minutes, as in the PHP). No cross-process lock (D1 = B,
+/// strictly single-process). The loop exits when `cancel` is cancelled (the
+/// graceful-shutdown path).
+pub async fn daemon_loop(pool: &PgPool, cfg: &Config, cancel: tokio_util::sync::CancellationToken) {
+    use tokio::sync::Semaphore;
+    use tokio::task::JoinSet;
+
+    let interval = std::time::Duration::from_secs(cfg.daemon_sleep_interval.max(60) as u64);
+    let n = (cfg.daemon_max_jobs.max(1)) as usize;
+
+    let mut ticker = tokio::time::interval(interval);
+    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    ticker.tick().await; // The first tick is immediate.
+
+    loop {
+        // Select due feeds.
+        let feeds = select_due_feeds(pool, cfg, cfg.daemon_feed_limit).await;
+        if !feeds.is_empty() {
+            // Claim the feeds.
+            claim_feeds(pool, &feeds).await;
+
+            // Dispatch per-feed tasks (bounded by Semaphore(N)).
+            let semaphore = Arc::new(Semaphore::new(n));
+            let mut join_set = JoinSet::new();
+            for feed in &feeds {
+                let permit = semaphore.clone().acquire_owned().await;
+                let pool = pool.clone();
+                let cfg = cfg.clone();
+                let id = feed.id;
+                join_set.spawn(async move {
+                    let _permit = permit;
+                    fetch_one_feed(&pool, &cfg, id).await
+                });
+            }
+            // Drain/await: the loop processes one batch, awaits completion.
+            while let Some(result) = join_set.join_next().await {
+                let _ = result;
+            }
+        }
+        // Sleep the interval (or exit on graceful shutdown).
+        tokio::select! {
+            _ = ticker.tick() => {}
+            _ = cancel.cancelled() => break,
+        }
+    }
 }

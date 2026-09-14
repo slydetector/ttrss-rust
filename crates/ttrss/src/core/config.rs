@@ -98,6 +98,21 @@ pub struct Config {
     /// private / reserved addresses). The daemon sets this from
     /// `$config['rss_extended_url_filtering']`.
     pub fetch_extended_url_filtering: bool,
+
+    // -- M6c.3 daemon/scheduler (Config.php, T_INT) ------------------------
+    /// `Config::DAEMON_SLEEP_INTERVAL` (T_INT, default 120): the daemon loop's
+    /// sleep interval (seconds); the minimum is 60.
+    pub daemon_sleep_interval: i64,
+    /// `Config::DAEMON_MAX_JOBS` (T_INT, default 2): the max concurrent feed
+    /// updates (the `Semaphore(N)` bound); the minimum is 1.
+    pub daemon_max_jobs: i32,
+    /// `Config::DAEMON_FEED_LIMIT` (T_INT, default 50): the max feeds to
+    /// update per daemon cycle.
+    pub daemon_feed_limit: i32,
+    /// `Config::DAEMON_UPDATE_LOGIN_LIMIT` (T_INT, default 30): only update
+    /// feeds owned by users whose last login is within this many days (0 or
+    /// `SINGLE_USER_MODE` disables the check).
+    pub daemon_update_login_limit: i32,
 }
 
 impl Config {
@@ -155,6 +170,10 @@ impl Config {
             fetch_extended_url_filtering: sql_bool_to_bool(
                 &std::env::var("TTRSS_EXTENDED_URL_FILTERING").unwrap_or_default(),
             ),
+            daemon_sleep_interval: env("TTRSS_DAEMON_SLEEP_INTERVAL", "120")?,
+            daemon_max_jobs: env("TTRSS_DAEMON_MAX_JOBS", "2")?,
+            daemon_feed_limit: env("TTRSS_DAEMON_FEED_LIMIT", "50")?,
+            daemon_update_login_limit: env("TTRSS_DAEMON_UPDATE_LOGIN_LIMIT", "30")?,
         })
     }
 
@@ -257,6 +276,10 @@ mod tests {
             http_429_throttle_interval: 3600,
             daemon_unsuccessful_days_limit: 30,
             fetch_extended_url_filtering: true,
+            daemon_sleep_interval: 120,
+            daemon_max_jobs: 2,
+            daemon_feed_limit: 50,
+            daemon_update_login_limit: 30,
         }
     }
 

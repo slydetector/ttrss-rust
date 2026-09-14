@@ -41,6 +41,10 @@ fn test_config() -> Config {
         http_429_throttle_interval: 3600,
         daemon_unsuccessful_days_limit: 30,
         fetch_extended_url_filtering: true,
+        daemon_sleep_interval: 60,
+        daemon_max_jobs: 2,
+        daemon_feed_limit: 50,
+        daemon_update_login_limit: 30,
         docroot: std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../..")
             .join("tt-rss"),

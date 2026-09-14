@@ -16,6 +16,7 @@ test-db = { path = "../test-db" }
 anyhow.workspace = true
 axum.workspace = true
 tokio.workspace = true
+tokio-util.workspace = true
 reqwest.workspace = true
 base64.workspace = true
 flate2.workspace = true

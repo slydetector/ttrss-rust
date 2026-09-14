@@ -9,7 +9,7 @@
 //! `roxmltree`'s `Document<'input>` borrows from the input, so [`FeedParser`]
 //! and [`FeedItem`] carry the input lifetime.
 
-use std::rc::Rc;
+use std::sync::Arc;
 
 use roxmltree::{Document, Node};
 
@@ -23,8 +23,9 @@ use crate::util::{clean_str, php_trim};
 /// Atom 1.0 / Atom 0.3 / RSS 1.0-RDF) with [`roxmltree`] and exposes the
 /// detected type, feed-level title/link, and the collected items.
 pub struct FeedParser<'input> {
-    /// The parsed document (shared with the collected items via `Rc`).
-    doc: Option<Rc<Document<'input>>>,
+    /// The parsed document (shared with the collected items via `Arc`).
+    doc: Option<Arc<Document<'input>>>,
+
     /// The first parse error (mirrors `$this->error`).
     error: Option<String>,
     /// Collected libxml-style errors (mirrors `$this->libxml_errors`).
@@ -50,7 +51,7 @@ impl<'input> FeedParser<'input> {
             )
         } else {
             match Document::parse(data) {
-                Ok(d) => (Some(Rc::new(d)), None, Vec::new()),
+                Ok(d) => (Some(Arc::new(d)), None, Vec::new()),
                 Err(e) => {
                     let msg = e.to_string();
                     (None, Some(msg.clone()), vec![msg])
@@ -170,7 +171,7 @@ impl<'input> FeedParser<'input> {
 
     // --- per-type extraction (the `init()` switch arms) -----------------------
 
-    fn extract_atom(&mut self, doc: &Rc<Document<'input>>) {
+    fn extract_atom(&mut self, doc: &Arc<Document<'input>>) {
         let d = doc.as_ref();
         // title: //atom:feed/atom:title ?? //atom03:feed/atom03:title
         let title = feed_child(d, NS_ATOM, "title").or_else(|| feed_child(d, NS_ATOM03, "title"));
@@ -224,7 +225,7 @@ impl<'input> FeedParser<'input> {
         }
     }
 
-    fn extract_rss(&mut self, doc: &Rc<Document<'input>>) {
+    fn extract_rss(&mut self, doc: &Arc<Document<'input>>) {
         let d = doc.as_ref();
         // title: //channel/title
         if let Some(t) = child_of(d, "channel", "title") {
@@ -252,7 +253,7 @@ impl<'input> FeedParser<'input> {
         }
     }
 
-    fn extract_rdf(&mut self, doc: &Rc<Document<'input>>) {
+    fn extract_rdf(&mut self, doc: &Arc<Document<'input>>) {
         let d = doc.as_ref();
         // title: //rssfake:channel/rssfake:title
         if let Some(t) = child_of_ns(d, NS_RSS10, "channel", "title") {

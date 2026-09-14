@@ -3,7 +3,7 @@
 //! feed kind (RSS vs Atom); each field getter dispatches on the kind to the
 //! matching extraction logic in [`super::rss`] / [`super::atom`].
 
-use std::rc::Rc;
+use std::sync::Arc;
 
 use roxmltree::{Document, Node, NodeId};
 
@@ -14,7 +14,7 @@ use crate::util::{clean_str, is_numeric, php_str_truthy};
 #[derive(Clone)]
 pub struct FeedItem<'input> {
     /// The document the item lives in (shared with the parser).
-    doc: Rc<Document<'input>>,
+    doc: Arc<Document<'input>>,
     /// The item element's position in the document.
     node_id: NodeId,
     /// The kind of article this was collected as (RSS vs Atom).
@@ -36,7 +36,7 @@ pub struct FeedEnclosure {
 
 impl<'input> FeedItem<'input> {
     /// Collect an item (one per `<item>`/`<entry>`).
-    pub(crate) fn new(doc: Rc<Document<'input>>, node_id: NodeId, kind: FeedKind) -> Self {
+    pub(crate) fn new(doc: Arc<Document<'input>>, node_id: NodeId, kind: FeedKind) -> Self {
         FeedItem { doc, node_id, kind }
     }
 
