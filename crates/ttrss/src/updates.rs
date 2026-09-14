@@ -21,6 +21,9 @@
 //!   equivalent for full-text search; the frozen suite does not assert on it.
 //! - Favicon / `cache_images` / `cache_enclosures` (network + disk-cache) are
 //!   M6c and are skipped here.
+//! - The per-feed purge (`Feeds::_purge`, M6c.4) runs before the success
+//!   stamp, matching the PHP's `update_rss_feed` order (commit → purge →
+//!   stamp the success metadata).
 
 use anyhow::{bail, Context, Result};
 use chrono::{NaiveDateTime, Utc};
@@ -129,6 +132,7 @@ pub struct FeedUpdateResult {
 /// in [`FeedUpdateResult::parse_error`] (the feed's `last_error` is stamped).
 pub async fn process_feed(
     pool: &PgPool,
+    cfg: &Config,
     feed: &FeedRow,
     feed_data: &str,
 ) -> Result<FeedUpdateResult> {
@@ -171,6 +175,7 @@ pub async fn process_feed(
 
     let items: Vec<FeedItem> = parser.get_items().to_vec();
     if items.is_empty() {
+        crate::feeds::purge_feed(pool, cfg, feed.id, 0).await;
         stamp_success(pool, feed.id).await?;
         return Ok(FeedUpdateResult::default());
     }
@@ -195,6 +200,9 @@ pub async fn process_feed(
         .await?;
     }
 
+    // `Feeds::_purge($feed, 0)` — the per-feed purge (M6c.4), before the
+    // success stamp (the PHP's `update_rss_feed` order: commit → purge → stamp).
+    crate::feeds::purge_feed(pool, cfg, feed.id, 0).await;
     stamp_success(pool, feed.id).await?;
     Ok(FeedUpdateResult {
         new_articles,
@@ -206,14 +214,19 @@ pub async fn process_feed(
 /// [`process_feed`]. The feed data is supplied by the caller (the daemon fetches
 /// it in M6c). Returns `true` on a successful parse + upsert, `false` when the
 /// feed is not updatable or the XML failed to parse.
-pub async fn update_rss_feed(pool: &PgPool, feed_id: i32, feed_data: &str) -> Result<bool> {
+pub async fn update_rss_feed(
+    pool: &PgPool,
+    cfg: &Config,
+    feed_id: i32,
+    feed_data: &str,
+) -> Result<bool> {
     if guard_updatable(pool, feed_id).await.is_err() {
         return Ok(false);
     }
     let Some(feed) = load_feed(pool, feed_id).await? else {
         return Ok(false);
     };
-    let result = process_feed(pool, &feed, feed_data).await?;
+    let result = process_feed(pool, cfg, &feed, feed_data).await?;
     Ok(result.parse_error.is_none())
 }
 
@@ -368,7 +381,7 @@ pub async fn fetch_one_feed(pool: &PgPool, cfg: &Config, feed_id: i32) -> Result
             .await;
     }
 
-    let result = process_feed(pool, &feed, feed_data).await?;
+    let result = process_feed(pool, cfg, &feed, feed_data).await?;
     Ok(FeedFetchOutcome {
         success: result.parse_error.is_none(),
         new_articles: result.new_articles,
@@ -1099,6 +1112,12 @@ pub async fn daemon_loop(pool: &PgPool, cfg: &Config, cancel: tokio_util::sync::
                 let _ = result;
             }
         }
+
+        // Housekeeping ("task 0"): run the due scheduled tasks (the PHP's
+        // `housekeeping_common`, invoked after each `update_daemon_common`
+        // cycle). The per-owner variant (`housekeeping_user`) is M8 (plugins).
+        crate::scheduler::run_due_tasks(pool, cfg, &crate::scheduler::system_tasks(cfg)).await;
+
         // Sleep the interval (or exit on graceful shutdown).
         tokio::select! {
             _ = ticker.tick() => {}

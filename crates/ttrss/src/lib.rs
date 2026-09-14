@@ -31,6 +31,7 @@ pub mod render;
 pub mod rpc;
 pub mod rss_utils;
 pub mod sanitizer;
+pub mod scheduler;
 #[cfg(test)]
 mod sanitizer_parity;
 pub mod search;

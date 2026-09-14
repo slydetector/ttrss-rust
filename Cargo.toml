@@ -17,6 +17,7 @@ ctor = "1"
 flate2 = "1.1"
 minijinja = "2"
 chrono-tz = "0.10"
+croner = "4.0"
 chacha20poly1305 = "0.10"
 clap = { version = "4", features = ["derive"] }
 hex = "0.4"

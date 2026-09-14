@@ -113,6 +113,34 @@ pub struct Config {
     /// feeds owned by users whose last login is within this many days (0 or
     /// `SINGLE_USER_MODE` disables the check).
     pub daemon_update_login_limit: i32,
+
+    // -- M6c.4 housekeeping / scheduled tasks (Config.php) ------------------
+    /// `Config::CACHE_MAX_DAYS` (T_INT, default 7): feed-icon cache entries
+    /// older than this are candidates for `cleanup_feed_icons` (a feed that
+    /// still exists gets its mtime refreshed, otherwise the file is deleted).
+    pub cache_max_days: i32,
+    /// `Config::SCHEDULE_PURGE_ORPHANS` (cron, default `@daily`): the schedule
+    /// for the `purge_orphans` task (delete `ttrss_entries` with no remaining
+    /// `ttrss_user_entries`).
+    pub schedule_purge_orphans: String,
+    /// `Config::SCHEDULE_DISK_CACHE_EXPIRE_ALL` (cron, default `@daily`).
+    pub schedule_disk_cache_expire_all: String,
+    /// `Config::SCHEDULE_DISABLE_FAILED_FEEDS` (cron, default `@daily`): the
+    /// schedule for the `disable_failed_feeds` task (auto-disable feeds that
+    /// failed to update for `DAEMON_UNSUCCESSFUL_DAYS_LIMIT` days).
+    pub schedule_disable_failed_feeds: String,
+    /// `Config::SCHEDULE_CLEANUP_FEED_ICONS` (cron, default `@daily`).
+    pub schedule_cleanup_feed_icons: String,
+    /// `Config::SCHEDULE_LOG_DAEMON_UPDATE_LOGIN_LIMIT_USERS` (cron, default
+    /// `@daily`): log the users excluded by the `DAEMON_UPDATE_LOGIN_LIMIT`
+    /// check.
+    pub schedule_log_daemon_update_login_limit_users: String,
+    /// `Config::SCHEDULE_EXPIRE_ERROR_LOG` (cron, default `@hourly`).
+    pub schedule_expire_error_log: String,
+    /// `Config::SCHEDULE_EXPIRE_LOCK_FILES` (cron, default `@hourly`).
+    pub schedule_expire_lock_files: String,
+    /// `Config::SCHEDULE_SEND_HEADLINES_DIGESTS` (cron, default `@hourly`).
+    pub schedule_send_headlines_digests: String,
 }
 
 impl Config {
@@ -174,6 +202,29 @@ impl Config {
             daemon_max_jobs: env("TTRSS_DAEMON_MAX_JOBS", "2")?,
             daemon_feed_limit: env("TTRSS_DAEMON_FEED_LIMIT", "50")?,
             daemon_update_login_limit: env("TTRSS_DAEMON_UPDATE_LOGIN_LIMIT", "30")?,
+            cache_max_days: env("TTRSS_CACHE_MAX_DAYS", "7")?,
+            schedule_purge_orphans: std::env::var("TTRSS_SCHEDULE_PURGE_ORPHANS")
+                .unwrap_or_else(|_| "@daily".into()),
+            schedule_disk_cache_expire_all: std::env::var(
+                "TTRSS_SCHEDULE_DISK_CACHE_EXPIRE_ALL",
+            )
+            .unwrap_or_else(|_| "@daily".into()),
+            schedule_disable_failed_feeds: std::env::var("TTRSS_SCHEDULE_DISABLE_FAILED_FEEDS")
+                .unwrap_or_else(|_| "@daily".into()),
+            schedule_cleanup_feed_icons: std::env::var("TTRSS_SCHEDULE_CLEANUP_FEED_ICONS")
+                .unwrap_or_else(|_| "@daily".into()),
+            schedule_log_daemon_update_login_limit_users: std::env::var(
+                "TTRSS_SCHEDULE_LOG_DAEMON_UPDATE_LOGIN_LIMIT_USERS",
+            )
+            .unwrap_or_else(|_| "@daily".into()),
+            schedule_expire_error_log: std::env::var("TTRSS_SCHEDULE_EXPIRE_ERROR_LOG")
+                .unwrap_or_else(|_| "@hourly".into()),
+            schedule_expire_lock_files: std::env::var("TTRSS_SCHEDULE_EXPIRE_LOCK_FILES")
+                .unwrap_or_else(|_| "@hourly".into()),
+            schedule_send_headlines_digests: std::env::var(
+                "TTRSS_SCHEDULE_SEND_HEADLINES_DIGESTS",
+            )
+            .unwrap_or_else(|_| "@hourly".into()),
         })
     }
 
@@ -280,6 +331,15 @@ mod tests {
             daemon_max_jobs: 2,
             daemon_feed_limit: 50,
             daemon_update_login_limit: 30,
+            cache_max_days: 7,
+            schedule_purge_orphans: String::from("@daily"),
+            schedule_disk_cache_expire_all: String::from("@daily"),
+            schedule_disable_failed_feeds: String::from("@daily"),
+            schedule_cleanup_feed_icons: String::from("@daily"),
+            schedule_log_daemon_update_login_limit_users: String::from("@daily"),
+            schedule_expire_error_log: String::from("@hourly"),
+            schedule_expire_lock_files: String::from("@hourly"),
+            schedule_send_headlines_digests: String::from("@hourly"),
         }
     }
 

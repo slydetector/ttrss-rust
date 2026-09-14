@@ -45,6 +45,15 @@ fn test_config() -> Config {
         daemon_max_jobs: 2,
         daemon_feed_limit: 50,
         daemon_update_login_limit: 30,
+        cache_max_days: 7,
+        schedule_purge_orphans: String::from("@daily"),
+        schedule_disk_cache_expire_all: String::from("@daily"),
+        schedule_disable_failed_feeds: String::from("@daily"),
+        schedule_cleanup_feed_icons: String::from("@daily"),
+        schedule_log_daemon_update_login_limit_users: String::from("@daily"),
+        schedule_expire_error_log: String::from("@hourly"),
+        schedule_expire_lock_files: String::from("@hourly"),
+        schedule_send_headlines_digests: String::from("@hourly"),
         docroot: std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../..")
             .join("tt-rss"),

@@ -476,6 +476,106 @@ pub async fn feed_title(pool: &sqlx::PgPool, id: i64, owner_uid: i64) -> String 
     }
 }
 
+/// `Feeds::_get_purge_interval($feed_id)` — the feed's own `purge_interval`
+/// (days), or the owner's `PURGE_OLD_DAYS` pref (default 60) when the feed
+/// uses the default (`0`). Returns `-1` when the feed does not exist (the
+/// caller treats it as "do not purge").
+async fn feed_purge_interval(pool: &sqlx::PgPool, feed_id: i32) -> i32 {
+    let row = sqlx::query("SELECT purge_interval, owner_uid FROM ttrss_feeds WHERE id = $1")
+        .bind(feed_id)
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten();
+    let Some(r) = row else { return -1 };
+    let feed_purge: i32 = r.get(0);
+    let owner_uid: i32 = r.get(1);
+    if feed_purge != 0 {
+        return feed_purge;
+    }
+    // `Prefs::get(Prefs::PURGE_OLD_DAYS, owner_uid)` (the default profile).
+    let value: Option<String> = sqlx::query_scalar(
+        "SELECT value FROM ttrss_user_prefs2 WHERE owner_uid = $1 AND profile IS NULL \
+         AND pref_name = 'PURGE_OLD_DAYS'",
+    )
+    .bind(owner_uid)
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten();
+    let rows: Vec<(String, Option<i32>, String)> = match value {
+        Some(v) => vec![(prefs::PURGE_OLD_DAYS.to_string(), None, v)],
+        None => Vec::new(),
+    };
+    prefs::resolve(prefs::PURGE_OLD_DAYS, &rows, None).as_int() as i32
+}
+
+/// `Feeds::_purge($feed_id, $purge_interval)` — delete the feed's old entries
+/// (`ttrss_user_entries`): never marked ones, and unread ones only when
+/// `PURGE_UNREAD_ARTICLES` is set (or `FORCE_ARTICLE_PURGE` overrides the
+/// whole purge: interval = `FORCE_ARTICLE_PURGE`, `purge_unread = true`).
+///
+/// `purge_interval = 0` means "resolve it" (the feed's own interval or the
+/// owner's `PURGE_OLD_DAYS` pref). Returns the number of deleted rows, or
+/// `None` when the feed does not exist or purging is disabled
+/// (`purge_interval <= 0`).
+pub async fn purge_feed(
+    pool: &sqlx::PgPool,
+    cfg: &crate::core::config::Config,
+    feed_id: i32,
+    purge_interval: i32,
+) -> Option<i64> {
+    let purge_interval = if purge_interval == 0 {
+        feed_purge_interval(pool, feed_id).await
+    } else {
+        purge_interval
+    };
+
+    let owner_uid: Option<i32> = sqlx::query_scalar("SELECT owner_uid FROM ttrss_feeds WHERE id = $1")
+        .bind(feed_id)
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten();
+    let Some(owner_uid) = owner_uid else { return None };
+
+    let (purge_unread, purge_interval) = if cfg.force_article_purge != 0 {
+        (true, cfg.force_article_purge)
+    } else {
+        let value: Option<String> = sqlx::query_scalar(
+            "SELECT value FROM ttrss_user_prefs2 WHERE owner_uid = $1 AND profile IS NULL \
+             AND pref_name = 'PURGE_UNREAD_ARTICLES'",
+        )
+        .bind(owner_uid)
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten();
+        let rows: Vec<(String, Option<i32>, String)> = match value {
+            Some(v) => vec![(prefs::PURGE_UNREAD_ARTICLES.to_string(), None, v)],
+            None => Vec::new(),
+        };
+        (
+            prefs::resolve(prefs::PURGE_UNREAD_ARTICLES, &rows, None).as_bool(),
+            purge_interval,
+        )
+    };
+
+    let purge_interval = purge_interval as i64;
+    if purge_interval <= 0 {
+        return None;
+    }
+
+    let extra = if purge_unread { "" } else { "unread = false AND " };
+    let sql = format!(
+        "DELETE FROM ttrss_user_entries USING ttrss_entries WHERE ttrss_entries.id = ref_id \
+         AND marked = false AND feed_id = $1 AND {extra} \
+         ttrss_entries.date_updated < NOW() - INTERVAL '{purge_interval} days'"
+    );
+    let res = sqlx::query(&sql).bind(feed_id).execute(pool).await.ok()?;
+    Some(res.rows_affected() as i64)
+}
+
 /// `Feeds::_catchup`: mark the owner's unread entries as read
 /// (`last_read = NOW()`) within the scope of a category / feed / virtual
 /// feed / label / tag name. `mode` is the optional recency window
