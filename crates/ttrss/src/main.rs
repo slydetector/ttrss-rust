@@ -269,6 +269,16 @@ async fn public_handler(
             };
             syndication::handle_rss(&state, &req).await
         }
+        // `Handler_Public::getProfiles` — the login page's Profile dropdown
+        // (the login form fetches `?op=getprofiles&login=…` on field change /
+        // focus / blur).
+        Some("getprofiles") => {
+            let v = auth::get_profiles(&state.db, query.login.as_deref().unwrap_or("")).await;
+            (StatusCode::OK, v.to_string()).into_response()
+        }
+        // `Handler_Public::healthcheck` — the monitoring probe (same body as
+        // the `/healthz` route).
+        Some("healthcheck") => healthz().await.into_response(),
         _ => StatusCode::NOT_FOUND.into_response(),
     }
 }

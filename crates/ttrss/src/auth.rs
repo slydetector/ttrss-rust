@@ -262,3 +262,30 @@ pub fn build_login_session(
     data.set("safe_mode", Value::Bool(safe_mode));
     (core_session::new_session_id(), data)
 }
+
+/// `Handler_Public::getProfiles` — the login page's Profile dropdown list
+/// (the login form fetches `public.php?op=getprofiles&login=…` on login-field
+/// change/focus/blur): `[{label, value}, …]` with the `Default profile` entry
+/// (`value = 0`) always first. The login matches case-insensitively; without
+/// a login an empty array is returned.
+pub async fn get_profiles(db: &Db, login: &str) -> serde_json::Value {
+    let login = crate::util::clean_str(login);
+    if login.is_empty() {
+        return serde_json::json!([]);
+    }
+    let rows: Vec<(String, i32)> = sqlx::query_as(
+        "SELECT p.title, p.id FROM ttrss_settings_profiles p \
+         JOIN ttrss_users u ON u.id = p.owner_uid \
+         WHERE LOWER(u.login) = LOWER($1) ORDER BY p.title ASC",
+    )
+    .bind(login)
+    .fetch_all(db.pool())
+    .await
+    .unwrap_or_default();
+    let mut rv: Vec<serde_json::Value> =
+        vec![serde_json::json!({ "label": "Default profile", "value": 0 })];
+    for (title, id) in rows {
+        rv.push(serde_json::json!({ "label": title, "value": id }));
+    }
+    serde_json::Value::Array(rv)
+}

@@ -287,6 +287,20 @@ Done:
   must-revalidate`, `Pragma: no-cache`, fixed 1981 `Expires`). Non-OTP users get
   `last_auth_attempt` throttling (`AUTH_MIN_INTERVAL`). Verified: `healthcheck`,
   `login_page`, `web_login` (200 challenge), `web_login_otp` (302) all diff clean.
+- **Public-surface dispatch audit** (all IHandler classes diffed PHP vs Rust
+  arms): no gaps on the backend surface (`get_hotkeys_info`/`get_hotkeys_map`
+  are static helpers — the map ships via `sanitycheck` init-params;
+  `decrypt_feed_pass`/`remove_feed`/the `OPML` helpers take required params,
+  which PHP itself refuses; the 7 `Pref_Prefs` plugin methods belong to the
+  unported plugin subsystem). Two public.php endpoints the port lacked were
+  added: **`op=getprofiles`** (the login page's Profile dropdown fetches it on
+  login-field change/focus/blur — `auth::get_profiles`: `[{label, value}]` with
+  the `Default profile` entry first, titles ascending, case-insensitive login;
+  4 tests in `tests/public_getprofiles.rs`) and **`op=healthcheck`** (the
+  monitoring probe — same `OK`/`text/plain` body as the `/healthz` route).
+  `dbupdate`/`confirmDbUpdate` (the web DB-migrator) is a known skip: the
+  schema is frozen at the reference commit and `checkforupdates` reports no
+  updates, so the flow is unreachable in the port.
 - **DB-backed encrypted session middleware** (`crates/ttrss/src/session.rs`):
   reads `ttrss_sid` cookie, loads + decrypts the session (via core `from_stored`),
   exposes a mutable `Sess` handle to handlers, persists back only if dirty
