@@ -610,9 +610,21 @@ clean** on the golden dataset. Done so far:
   keys only), and a `ttrss_filters2`/`_rules`/`_actions` insert from the filter's
   JSON CDATA payload (`filter-type="2"`, rules resolved by feed/cat title via
   `Feeds::_find_by_title`). `import` is login-gated (like all `OPML` ops) but
-  NOT CSRF-ignored (it's a write). 10 DB tests in `tests/opml_import.rs`. Only
-  the read-side `editfeed`/`editfeeds` forms (and the export's settings section)
-  remain for Feed CRUD.
+  NOT CSRF-ignored (it's a write). The RPC surface the UI calls is
+  **`Pref_Feeds.importopml`** (the `opml_import_form` in `Pref_Feeds::index`
+  posts `op=Pref_Feeds&method=importOpml` with the `opml_file` multipart
+  upload — the port initially lacked the dispatch arm and the import 404'd as
+  `E_UNKNOWN_METHOD`); the response body is the PHP `opml_notice` lines (3×
+  `&nbsp;` per depth + `<br/>`: `Processing category:`, `Adding feed:` /
+  `Duplicate feed:` (by title, or URL when untitled), `Adding label` /
+  `Duplicate label:` (HTML-escaped), `Setting preference key … to …`,
+  `Adding filter …` after the insert), and `print_error`'s `format_error`
+  div (`Upload failed with error code 4`, UPLOAD_ERR_NO_FILE) when no file was
+  uploaded. The walker also matches PHP's category-title handling: 250-char
+  truncation, `text` falling back to `title` only when the truncated `text`
+  is falsy, and a falsy (empty) `text`/`title` node treated as a feed, not a
+  category. 12 tests in `tests/opml_import.rs`, incl. a handler-level
+  multipart test for the `importopml` route. Only
 
   A sixth increment ports the read-side **`editfeed`** form-data handler
   (`Pref_Feeds::editfeed`, in `feeds.rs`): the data the single-feed edit dialog

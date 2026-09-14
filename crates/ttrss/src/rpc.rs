@@ -364,6 +364,10 @@ async fn dispatch(
             "batchaddfeeds" => {
                 DispatchOutput::Json(feeds::batch_add_feeds(state, sess, extra).await)
             }
+            // The UI's OPML import dialog (the `opml_import_form` in `Pref_Feeds::index`
+            // posts `op=Pref_Feeds&method=importOpml` with the `opml_file` upload).
+            // The response body is the `opml_notice` lines (printed, not JSON).
+            "importopml" => DispatchOutput::Html(opml::import(state, sess, file).await),
             _ => DispatchOutput::Json(unknown_method("Pref_Feeds", method)),
         },
         "Article" => match method {
@@ -586,7 +590,7 @@ async fn dispatch(
                 let (status, ct, disp, body) = opml::export(state, sess, extra).await;
                 DispatchOutput::Download(status, ct, disp, body)
             }
-            "import" => DispatchOutput::Json(opml::import(state, sess, file).await),
+            "import" => DispatchOutput::Html(opml::import(state, sess, file).await),
             _ => DispatchOutput::Json(unknown_method("OPML", method)),
         },
         other => DispatchOutput::Json(unknown_method(other, method)),

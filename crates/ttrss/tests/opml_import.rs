@@ -104,8 +104,20 @@ async fn test_import_creates_category_and_feed(
     </outline>
   </body>
 </opml>"#;
-    let result = ttrss::opml::import(&state, &sess, Some(opml.as_bytes())).await;
-    assert!(result.get("rc").is_some(), "import ok: {result}");
+    let body = ttrss::opml::import(&state, &sess, Some(opml.as_bytes())).await;
+    // The response body is the `opml_notice` lines (3×`&nbsp;` per depth level).
+    assert!(
+        body.contains("Processing category: Uncategorized<br/>"),
+        "root notice: {body}"
+    );
+    assert!(
+        body.contains("&nbsp;&nbsp;&nbsp;Processing category: New Cat<br/>"),
+        "category notice (1 level): {body}"
+    );
+    assert!(
+        body.contains("&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Adding feed: New Feed<br/>"),
+        "feed notice (2 levels): {body}"
+    );
 
     // The category is created.
     let cat: Option<i32> = sqlx::query_scalar(
@@ -266,14 +278,10 @@ async fn test_import_parse_error_returns_error(
 ) {
     let state = make_state(pool, options).await;
     let sess = sess_for(1);
-    let result = ttrss::opml::import(&state, &sess, Some(b"this is not xml <<<")).await;
+    let body = ttrss::opml::import(&state, &sess, Some(b"this is not xml <<<")).await;
     assert!(
-        result.get("error").is_some(),
-        "parse error reported: {result}"
-    );
-    assert!(
-        result.get("error").is_some(),
-        "parse error reported: {result}"
+        body.contains("Error while parsing document.<br/>"),
+        "parse error reported: {body}"
     );
 }
 
@@ -416,4 +424,115 @@ async fn test_import_filter(
     .await
     .expect("action query");
     assert_eq!(action, 1, "action created");
+}
+
+#[sqlx::test(fixtures(
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
+))]
+async fn test_import_no_file_reports_upload_error(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
+    let state = make_state(pool, options).await;
+    let sess = sess_for(1);
+    let body = ttrss::opml::import(&state, &sess, None).await;
+    // PHP: `$_FILES['opml_file']['error']` = UPLOAD_ERR_NO_FILE (4) → `print_error`.
+    assert!(
+        body.contains("Upload failed with error code 4"),
+        "no-file error: {body}"
+    );
+    assert!(body.contains("alert alert-danger"), "error div: {body}");
+}
+
+/// A full session (uid + access level + stored pwd hash + CSRF token), so
+/// `validate_session` + the CSRF gate pass and the routing is what's under test.
+fn sess_authed(uid: i64) -> Sess {
+    let mut d = ttrss::core::session::Session::new();
+    d.set("uid", ttrss::core::phpser::Value::Int(uid));
+    d.set("access_level", ttrss::core::phpser::Value::Int(10));
+    d.set(
+        "pwd_hash",
+        ttrss::core::phpser::Value::Bytes(b"SHA1:5baa61e4c9b93f3f0682250b6cf8331b7ee68fd8".to_vec()),
+    );
+    d.set(
+        "auth_module",
+        ttrss::core::phpser::Value::Bytes(b"auth_internal".to_vec()),
+    );
+    d.set("name", ttrss::core::phpser::Value::Bytes(b"admin".to_vec()));
+    d.set("csrf_token", ttrss::core::phpser::Value::Bytes(b"tok".to_vec()));
+    let s = Sess::new("test-sid".to_string());
+    s.replace("test-sid".to_string(), d);
+    s
+}
+
+/// The UI's OPML import dialog posts the `opml_import_form` (multipart, field
+/// `opml_file`) to `backend.php` with `op=Pref_Feeds&method=importOpml`. This
+/// drives the full handler to prove the route exists (regression: it used to
+/// 404 as `E_UNKNOWN_METHOD`) and returns the `opml_notice` body.
+#[sqlx::test(fixtures(
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
+))]
+async fn test_dispatch_pref_feeds_importopml(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
+    let state = make_state(pool, options).await;
+    let opml = r#"<?xml version="1.0" encoding="utf-8"?>
+<opml version="1.0">
+  <body>
+    <outline type="rss" text="Imported via RPC" xmlUrl="https://example.com/rpc" htmlUrl="https://example.com"/>
+  </body>
+</opml>"#;
+
+    let boundary = "----testboundary123";
+    let mut body = String::new();
+    for (name, value) in [("op", "Pref_Feeds"), ("method", "importOpml"), ("csrf_token", "tok")] {
+        body.push_str(&format!(
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"\r\n\r\n{value}\r\n"
+        ));
+    }
+    body.push_str(&format!(
+        "--{boundary}\r\nContent-Disposition: form-data; name=\"opml_file\"; filename=\"feeds.opml\"\r\nContent-Type: application/octet-stream\r\n\r\n{opml}\r\n"
+    ));
+    body.push_str(&format!("--{boundary}--\r\n"));
+
+    let req = axum::http::Request::builder()
+        .method(axum::http::Method::POST)
+        .uri("/backend.php")
+        .header(
+            axum::http::header::CONTENT_TYPE,
+            format!("multipart/form-data; boundary={boundary}"),
+        )
+        .body(axum::body::Body::from(body))
+        .unwrap();
+    let res = ttrss::rpc::handler(
+        axum::extract::State(state.clone()),
+        axum::extract::Extension(sess_authed(1)),
+        req,
+    )
+    .await;
+    let bytes = axum::body::to_bytes(res.into_body(), 10 * 1024 * 1024)
+        .await
+        .expect("body");
+    let text = String::from_utf8_lossy(&bytes);
+    assert!(
+        text.contains("Adding feed: Imported via RPC"),
+        "importopml routed + feed notice: {text}"
+    );
+    assert!(
+        text.contains("Processing category: Uncategorized<br/>"),
+        "root notice: {text}"
+    );
+
+    // The feed actually landed (top-level → `Imported feeds` cat).
+    let n: i64 = count(
+        state.db.pool(),
+        "SELECT COUNT(*) FROM ttrss_feeds WHERE feed_url = 'https://example.com/rpc'",
+    )
+    .await;
+    assert_eq!(n, 1, "feed inserted");
 }

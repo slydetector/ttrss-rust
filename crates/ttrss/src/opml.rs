@@ -16,11 +16,12 @@ use quick_xml::events::Event;
 use quick_xml::Reader;
 use quick_xml::XmlVersion;
 use serde::Serialize;
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value};
 use sqlx::Row;
 
 use crate::session::Sess;
 use crate::AppState;
+use crate::util::{format_error, htmlspecialchars};
 
 /// The serializable OPML document (quick-xml `serde` types). `Outline` is
 /// shared by category and feed nodes; attribute fields are `Option`s so they
@@ -436,8 +437,19 @@ async fn add_cat_low(
         .is_ok()
 }
 
+/// `OPML::opml_notice` — one line of the import response body: 3×`&nbsp;` per
+/// depth level, the message, then `<br/>` (the CLI logs instead; only the HTTP
+/// surface is ported here).
+fn opml_notice(body: &mut String, msg: &str, nest: usize) {
+    for _ in 0..nest {
+        body.push_str("&nbsp;&nbsp;&nbsp;");
+    }
+    body.push_str(msg);
+    body.push_str("<br/>");
+}
+
 /// `OPML::opml_import_feed` — insert a feed (deduped by `feed_url` + owner).
-async fn opml_import_feed(db: &Db, uid: i64, node: &XmlNode, cat_id: i64) {
+async fn opml_import_feed(db: &Db, uid: i64, node: &XmlNode, cat_id: i64, body: &mut String, depth: usize) {
     let pool = db.pool();
     let feed_title = attr(node, "text")
         .or_else(|| attr(node, "title"))
@@ -460,9 +472,13 @@ async fn opml_import_feed(db: &Db, uid: i64, node: &XmlNode, cat_id: i64) {
     .ok()
     .flatten()
     .is_some();
+    // PHP notices the feed by title, or the URL when the title is missing.
+    let display = if feed_title.is_empty() { feed_url.as_str() } else { feed_title.as_str() };
     if exists {
+        opml_notice(body, &format!("Duplicate feed: {display}"), depth);
         return;
     }
+    opml_notice(body, &format!("Adding feed: {display}"), depth);
     let feed_title = if feed_title.is_empty() {
         "[Unknown]".to_string()
     } else {
@@ -494,25 +510,28 @@ async fn opml_import_feed(db: &Db, uid: i64, node: &XmlNode, cat_id: i64) {
 }
 
 /// `OPML::opml_import_preference` — set a user pref from `pref-name` / `value`.
-async fn opml_import_preference(db: &Db, uid: i64, node: &XmlNode) {
+async fn opml_import_preference(db: &Db, uid: i64, node: &XmlNode, body: &mut String, depth: usize) {
     let pref_name = match attr(node, "pref-name") {
         Some(n) => n,
         None => return,
     };
     let pref_value = attr(node, "value").unwrap_or("");
+    opml_notice(body, &format!("Setting preference key {pref_name} to {pref_value}"), depth);
     crate::prefs::set(db, pref_name, pref_value, uid, None, true).await;
 }
 
 /// `OPML::opml_import_label` — create a label from `label-name` / `label-fg-color`
 /// / `label-bg-color` (skipped if a label with the caption already exists).
-async fn opml_import_label(db: &Db, uid: i64, node: &XmlNode) {
+async fn opml_import_label(db: &Db, uid: i64, node: &XmlNode, body: &mut String, depth: usize) {
     let label_name = match attr(node, "label-name") {
         Some(n) => n,
         None => return,
     };
     if crate::labels::find_id(db.pool(), label_name, uid).await != 0 {
+        opml_notice(body, &format!("Duplicate label: {}", htmlspecialchars(label_name)), depth);
         return;
     }
+    opml_notice(body, &format!("Adding label {}", htmlspecialchars(label_name)), depth);
     crate::labels::create(
         db,
         label_name,
@@ -547,7 +566,7 @@ async fn find_by_title(db: &Db, title: &str, is_cat: bool, uid: i64) -> i64 {
 
 /// `OPML::opml_import_filter` — insert a filter from a `filter-type="2"` outline
 /// whose text content is a JSON filter definition.
-async fn opml_import_filter(db: &Db, uid: i64, node: &XmlNode) {
+async fn opml_import_filter(db: &Db, uid: i64, node: &XmlNode, body: &mut String, depth: usize) {
     let pool = db.pool();
     if attr(node, "filter-type") != Some("2") {
         return;
@@ -574,7 +593,10 @@ async fn opml_import_filter(db: &Db, uid: i64, node: &XmlNode) {
         .bind(match_any_rule).bind(enabled).bind(inverse).bind(title).bind(uid)
         .fetch_optional(pool).await.ok().flatten()
     {
-        Some(id) => id as i64,
+        Some(id) => {
+            opml_notice(body, &format!("Adding filter {title}..."), depth);
+            id as i64
+        }
         None => return,
     };
     if let Some(rules) = filter.get("rules").and_then(|v| v.as_array()) {
@@ -665,59 +687,88 @@ async fn opml_import_filter(db: &Db, uid: i64, node: &XmlNode) {
 /// in place of the PHP recursion), creating categories and importing feeds / labels /
 /// prefs / filters. A node with `text`/`title` and no `xmlUrl` is a category (or one
 /// of the three settings sections); everything else is a feed or settings item.
-async fn opml_import_category(db: &Db, uid: i64, nodes: &[XmlNode], root: usize) {
+async fn opml_import_category(db: &Db, uid: i64, nodes: &[XmlNode], root: usize, body: &mut String) {
     let default_cat_id = get_feed_category(db, "Imported feeds", uid, 0).await;
-    let mut stack: Vec<(Vec<usize>, i64, Option<&str>)> =
-        vec![(body_outlines(nodes, root), 0, None)];
-    while let Some((outlines, cat_id, cat_title)) = stack.pop() {
+    let mut stack: Vec<(Vec<usize>, i64, Option<String>, usize)> =
+        vec![(body_outlines(nodes, root), 0, None, 0)];
+    while let Some((outlines, cat_id, cat_title, depth)) = stack.pop() {
+        // `Processing category: …` — `Uncategorized` for the root call
+        // (`$root_node = null` → `$cat_title = false`).
+        opml_notice(
+            body,
+            &format!(
+                "Processing category: {}",
+                cat_title.as_deref().unwrap_or("Uncategorized")
+            ),
+            depth,
+        );
         for oi in outlines {
             let node = &nodes[oi];
             let node_cat_title = attr(node, "text").or_else(|| attr(node, "title"));
             let node_feed_url = attr(node, "xmlUrl").or_else(|| attr(node, "xmlURL"));
-            if let Some(title) = node_cat_title.filter(|_| node_feed_url.is_none()) {
+            // PHP: `$node_cat_title && !$node_feed_url` — a falsy (empty) title is a feed.
+            if node_cat_title.is_some_and(|t| !t.is_empty()) && node_feed_url.is_none() {
+                // PHP truncates the category title to 250 chars, falling back to
+                // `title` only when the truncated `text` is falsy.
+                let title = attr(node, "text")
+                    .filter(|t| !t.is_empty())
+                    .map(|t| mb_truncate(t, 250).to_string())
+                    .or_else(|| attr(node, "title").map(|t| mb_truncate(t, 250).to_string()))
+                    .unwrap_or_default();
                 let is_settings =
-                    matches!(title, "tt-rss-prefs" | "tt-rss-labels" | "tt-rss-filters");
+                    matches!(title.as_str(), "tt-rss-prefs" | "tt-rss-labels" | "tt-rss-filters");
                 let new_cat_id = if is_settings {
                     0
-                } else if get_feed_category(db, title, uid, cat_id).await != 0 {
-                    get_feed_category(db, title, uid, cat_id).await
+                } else if get_feed_category(db, &title, uid, cat_id).await != 0 {
+                    get_feed_category(db, &title, uid, cat_id).await
                 } else {
                     let order_id = attr(node, "ttrssSortOrder")
                         .and_then(|v| v.parse::<i64>().ok())
                         .unwrap_or(0);
-                    add_cat_low(db, title, uid, (cat_id != 0).then_some(cat_id), order_id).await;
-                    get_feed_category(db, title, uid, cat_id).await
+                    add_cat_low(db, &title, uid, (cat_id != 0).then_some(cat_id), order_id).await;
+                    get_feed_category(db, &title, uid, cat_id).await
                 };
-                stack.push((outline_children(nodes, oi), new_cat_id, Some(title)));
+                stack.push((outline_children(nodes, oi), new_cat_id, Some(title), depth + 1));
             } else {
                 let dst_cat_id = if cat_id != 0 { cat_id } else { default_cat_id };
-                match cat_title {
-                    Some("tt-rss-prefs") => opml_import_preference(db, uid, node).await,
-                    Some("tt-rss-labels") => opml_import_label(db, uid, node).await,
-                    Some("tt-rss-filters") => opml_import_filter(db, uid, node).await,
-                    _ => opml_import_feed(db, uid, node, dst_cat_id).await,
+                match cat_title.as_deref() {
+                    Some("tt-rss-prefs") => {
+                        opml_import_preference(db, uid, node, body, depth + 1).await
+                    }
+                    Some("tt-rss-labels") => {
+                        opml_import_label(db, uid, node, body, depth + 1).await
+                    }
+                    Some("tt-rss-filters") => {
+                        opml_import_filter(db, uid, node, body, depth + 1).await
+                    }
+                    _ => opml_import_feed(db, uid, node, dst_cat_id, body, depth + 1).await,
                 }
             }
         }
     }
 }
 
-/// `OPML::importOpml` / `opml_import` — import the uploaded OPML file (the bytes of
-/// the `opml_file` multipart field). Returns a JSON status.
-pub async fn import(state: &AppState, sess: &Sess, file: Option<&[u8]>) -> Value {
+/// `Pref_Feeds::importOpml` / `OPML::opml_import` — import the uploaded OPML (the
+/// bytes of the multipart `opml_file` field) and return the response body: the
+/// `opml_notice` lines, or `print_error`'s `format_error` div when no file was
+/// uploaded (PHP `$_FILES['opml_file']['error']` = UPLOAD_ERR_NO_FILE, 4).
+pub async fn import(state: &AppState, sess: &Sess, file: Option<&[u8]>) -> String {
     let uid = sess.data().uid().unwrap_or(0);
     if uid == 0 {
-        return json!({"error": "no user"});
+        return String::new();
     }
-    let opml = match file {
-        Some(b) => b,
-        None => return json!({"error": "no file"}),
+    let Some(bytes) = file else {
+        return format_error("Upload failed with error code 4", "");
     };
-    let text = String::from_utf8_lossy(opml);
-    let (nodes, root) = match parse_opml(&text) {
-        Ok(r) => r,
-        Err(e) => return json!({"error": format!("parse error: {e}")}),
-    };
-    opml_import_category(&state.db, uid, &nodes, root).await;
-    json!({"rc": 0})
+    let text = String::from_utf8_lossy(bytes);
+    let mut body = String::new();
+    match parse_opml(&text) {
+        Ok((nodes, root)) => {
+            opml_import_category(&state.db, uid, &nodes, root, &mut body).await;
+        }
+        Err(_) => {
+            opml_notice(&mut body, "Error while parsing document.", 0);
+        }
+    }
+    body
 }
