@@ -45,12 +45,18 @@ impl Db {
     /// Open a connection pool, applying the PHP session setup to each new
     /// connection.
     pub async fn connect(cfg: &Config) -> Result<Self> {
-        Self::connect_url(&cfg.db_url()).await
+        Self::connect_pool(&cfg.db_url(), cfg.db_max_connections).await
     }
 
     /// Open a connection pool from an explicit URL, applying the same PHP
     /// session setup as [`Db::connect`] (used by the DB-backed test suites).
     pub async fn connect_url(url: &str) -> Result<Self> {
+        Self::connect_pool(url, 10).await
+    }
+
+    /// Open a pool from an explicit URL with an explicit `max_connections`, applying
+    /// the same PHP session setup as [`Db::connect`].
+    pub async fn connect_pool(url: &str, max_connections: u32) -> Result<Self> {
         let options = PgConnectOptions::from_str(url)?
             // sqlx 0.7 keeps a per-connection statement cache keyed by SQL
             // text (default capacity 100): re-Parsing the same text with
@@ -61,7 +67,7 @@ impl Db {
             .statement_cache_capacity(0);
 
         let pool = PoolOptions::<sqlx::Postgres>::new()
-            .max_connections(10)
+            .max_connections(max_connections)
             // `after_connect` runs once per *new* connection (not on every
             // checkout). The four statements are session GUCs that persist for
             // the connection's life — sqlx's pool only `ping`s idle connections
@@ -113,6 +119,7 @@ mod tests {
             db_pass: "password".into(),
             db_name: "postgres".into(),
             db_sslmode: "prefer".into(),
+            db_max_connections: 10,
             self_url: "http://127.0.0.1:8280/tt-rss/".into(),
             encryption_key: None,
             single_user_mode: false,

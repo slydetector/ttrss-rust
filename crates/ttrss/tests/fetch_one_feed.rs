@@ -35,6 +35,7 @@ fn test_config() -> Config {
         db_pass: String::new(),
         db_name: String::new(),
         db_sslmode: String::new(),
+        db_max_connections: 10,
         self_url: String::new(),
         encryption_key: None,
         single_user_mode: false,

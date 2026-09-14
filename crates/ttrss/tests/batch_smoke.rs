@@ -1,0 +1,301 @@
+//! M6c.7 — the lightweight batch smoke test (the §1 exit criterion).
+//!
+//! Replaces the dropped "golden-file parity of an update run" full-DB diff
+//! (`docs/unified-architecture.md` §1): feed the pipeline a fixture *batch* of
+//! feeds and assert a handful of **aggregate / cross-feed invariants** — the
+//! total new entries, a specific known article present, the counter (unread)
+//! totals, and one cross-feed dedup hit. This catches *wiring* and *emergent /
+//! cross-feed* bugs (the only thing a whole-DB diff uniquely provided) at a
+//! fraction of the cost.
+//!
+//! The batch is replayed in-process through the M6c.2 workhorse
+//! (`fetch_one_feed`: fetch → conditional-refetch decision → the M6b
+//! `process_feed` pipeline) against a loopback [`MockServer`] (the network is
+//! isolated here), reusing the same fixtures + helpers as the other DB-backed
+//! update tests.
+
+mod common;
+
+use sqlx::pool::PoolOptions;
+use sqlx::postgres::PgConnectOptions;
+use ttrss::core::config::Config;
+use ttrss::core::db::Db;
+use ttrss::updates::fetch_one_feed;
+use common::{Canned, MockServer};
+
+/// Feed A: three entries — the shared article + two unique.
+const FEED_A: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>Feed A</title>
+  <id>tag:example.com,a</id>
+  <updated>2021-05-21T14:17:43+04:00</updated>
+  <entry>
+    <title>Shared article</title>
+    <id>tag:example.com,shared-1</id>
+    <link rel="alternate" type="text/html" href="http://example.com/shared-1" />
+    <updated>2021-05-21T07:54:43+04:00</updated>
+    <content type="html"><p>Shared content</p></content>
+  </entry>
+  <entry>
+    <title>A-1</title>
+    <id>tag:example.com,a-1</id>
+    <link rel="alternate" type="text/html" href="http://example.com/a-1" />
+    <updated>2021-05-21T07:55:43+04:00</updated>
+  </entry>
+  <entry>
+    <title>A-2</title>
+    <id>tag:example.com,a-2</id>
+    <link rel="alternate" type="text/html" href="http://example.com/a-2" />
+    <updated>2021-05-21T07:56:43+04:00</updated>
+  </entry>
+</feed>
+"#;
+
+/// Feed B: two entries — the shared article (same fields as in Feed A, so the
+/// same `content_hash`) + one unique.
+const FEED_B: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>Feed B</title>
+  <id>tag:example.com,b</id>
+  <updated>2021-05-21T14:17:43+04:00</updated>
+  <entry>
+    <title>Shared article</title>
+    <id>tag:example.com,shared-1</id>
+    <link rel="alternate" type="text/html" href="http://example.com/shared-1" />
+    <updated>2021-05-21T07:54:43+04:00</updated>
+    <content type="html"><p>Shared content</p></content>
+  </entry>
+  <entry>
+    <title>B-1</title>
+    <id>tag:example.com,b-1</id>
+    <link rel="alternate" type="text/html" href="http://example.com/b-1" />
+    <updated>2021-05-21T07:57:43+04:00</updated>
+  </entry>
+</feed>
+"#;
+
+/// Feed C: one entry (unique).
+const FEED_C: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>Feed C</title>
+  <id>tag:example.com,c</id>
+  <updated>2021-05-21T14:17:43+04:00</updated>
+  <entry>
+    <title>C-1</title>
+    <id>tag:example.com,c-1</id>
+    <link rel="alternate" type="text/html" href="http://example.com/c-1" />
+    <updated>2021-05-21T07:58:43+04:00</updated>
+  </entry>
+</feed>
+"#;
+
+/// A test `Config` with short fetch timeouts + the upstream fetch-tuning
+/// defaults (the workhorse only reads the fetch-tuning fields + the key).
+fn test_config() -> Config {
+    Config {
+        db_host: String::new(),
+        db_port: 0,
+        db_user: String::new(),
+        db_pass: String::new(),
+        db_name: String::new(),
+        db_sslmode: String::new(),
+        db_max_connections: 10,
+        self_url: String::new(),
+        encryption_key: None,
+        single_user_mode: false,
+        forbid_password_changes: false,
+        disable_login_form: false,
+        plugins: String::new(),
+        listen: "127.0.0.1:0".parse().unwrap(),
+        docroot: std::path::PathBuf::new(),
+        feed_icon_dir: std::path::PathBuf::new(),
+        max_favicon_file_size: 0,
+        force_article_purge: 0,
+        feed_fetch_timeout: 5,
+        feed_fetch_no_cache_timeout: 3,
+        max_conditional_interval: 43200,
+        http_429_throttle_interval: 3600,
+        daemon_unsuccessful_days_limit: 30,
+        fetch_extended_url_filtering: false,
+        daemon_sleep_interval: 60,
+        daemon_max_jobs: 2,
+        daemon_feed_limit: 50,
+        daemon_update_login_limit: 30,
+        cache_max_days: 7,
+        schedule_purge_orphans: String::from("@daily"),
+        schedule_disk_cache_expire_all: String::from("@daily"),
+        schedule_disable_failed_feeds: String::from("@daily"),
+        schedule_cleanup_feed_icons: String::from("@daily"),
+        schedule_log_daemon_update_login_limit_users: String::from("@daily"),
+        schedule_expire_error_log: String::from("@hourly"),
+        schedule_expire_lock_files: String::from("@hourly"),
+        schedule_send_headlines_digests: String::from("@hourly"),
+    }
+}
+
+/// Insert a user and return its id.
+async fn create_user(db: &Db, uid: i32, access_level: i32) -> i32 {
+    sqlx::query(
+        "INSERT INTO ttrss_users (id, login, pwd_hash, access_level) VALUES ($1, $2, 'SHA1:00', $3)",
+    )
+    .bind(uid)
+    .bind(format!("test-user-{uid}"))
+    .bind(access_level)
+    .execute(db.pool())
+    .await
+    .expect("create user");
+    uid
+}
+
+/// Insert a feed owned by `owner_uid` and return its id.
+async fn create_feed(db: &Db, id: i32, owner_uid: i32, feed_url: &str) -> i32 {
+    sqlx::query("INSERT INTO ttrss_feeds (id, owner_uid, title, feed_url) VALUES ($1, $2, $3, $4)")
+        .bind(id)
+        .bind(owner_uid)
+        .bind(format!("Test Feed {id}"))
+        .bind(feed_url)
+        .execute(db.pool())
+        .await
+        .expect("create feed");
+    id
+}
+
+/// The total `ttrss_entries` count (the deduped article set).
+async fn entry_count(db: &Db) -> i64 {
+    sqlx::query_scalar("SELECT COUNT(*) FROM ttrss_entries")
+        .fetch_one(db.pool())
+        .await
+        .expect("entry count")
+}
+
+/// The total `ttrss_user_entries` count (per-feed subscriptions to articles).
+async fn user_entry_count(db: &Db) -> i64 {
+    sqlx::query_scalar("SELECT COUNT(*) FROM ttrss_user_entries")
+        .fetch_one(db.pool())
+        .await
+        .expect("user entry count")
+}
+
+/// The total unread `ttrss_user_entries` count (the counter-cache total).
+async fn unread_count(db: &Db) -> i64 {
+    sqlx::query_scalar("SELECT COUNT(*) FROM ttrss_user_entries WHERE unread = true")
+        .fetch_one(db.pool())
+        .await
+        .expect("unread count")
+}
+
+/// The number of `ttrss_entries` rows matching a title.
+async fn entry_title_count(db: &Db, title: &str) -> i64 {
+    sqlx::query_scalar("SELECT COUNT(*) FROM ttrss_entries WHERE title = $1")
+        .bind(title)
+        .fetch_one(db.pool())
+        .await
+        .expect("title count")
+}
+
+// The batch smoke test: feed the pipeline a fixture batch of three feeds (6
+// feed-subscriptions, 5 distinct articles — the shared article appears in both
+// Feed A and Feed B with an identical `content_hash`), then assert the
+// aggregate / cross-feed invariants.
+#[sqlx::test(fixtures(
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
+))]
+async fn test_batch_smoke(
+    pool: PoolOptions<sqlx::Postgres>,
+    options: PgConnectOptions,
+) {
+    let db = common::make_db(pool, options).await.expect("test db");
+    let cfg = test_config();
+    let mock = MockServer::new(vec![
+        Canned {
+            status: 200,
+            reason: "OK",
+            headers: vec![("content-type", "application/atom+xml".to_string())],
+            body: FEED_A.as_bytes().to_vec(),
+        },
+        Canned {
+            status: 200,
+            reason: "OK",
+            headers: vec![("content-type", "application/atom+xml".to_string())],
+            body: FEED_B.as_bytes().to_vec(),
+        },
+        Canned {
+            status: 200,
+            reason: "OK",
+            headers: vec![("content-type", "application/atom+xml".to_string())],
+            body: FEED_C.as_bytes().to_vec(),
+        },
+    ]);
+
+    let uid = create_user(&db, 400, 0).await;
+    // The batch: three feeds, each pointing at the mock (the server serves the
+    // canned responses in order, so the feeds are fetched A → B → C).
+    let feed_a = create_feed(&db, 401, uid, &mock.url("/feed-a")).await;
+    let feed_b = create_feed(&db, 402, uid, &mock.url("/feed-b")).await;
+    let feed_c = create_feed(&db, 403, uid, &mock.url("/feed-c")).await;
+
+    // The fixture baseline (the seed's pre-existing articles), so the
+    // assertions measure the batch's contribution (a before/after delta) rather
+    // than an absolute total.
+    let entries_before = entry_count(&db).await;
+    let user_entries_before = user_entry_count(&db).await;
+    let unread_before = unread_count(&db).await;
+
+    // Replay the batch through the M6c.2 workhorse (fetch → pipeline).
+    let mut total_new = 0;
+    for feed_id in [feed_a, feed_b, feed_c] {
+        let outcome = fetch_one_feed(db.pool(), &cfg, feed_id).await.expect("fetch");
+        assert!(outcome.success, "feed {feed_id} failed: {:?}", outcome.error);
+        total_new += outcome.new_articles;
+    }
+
+    // Invariant 1 — the total new entries: 6 feed items (3 + 2 + 1) collapse
+    // to 5 distinct articles — the shared article appears in Feed A and Feed B
+    // with an identical `content_hash`, so it is deduped to one `ttrss_entries`
+    // row (the cross-feed dedup hit).
+    assert_eq!(
+        entry_count(&db).await - entries_before,
+        5,
+        "expected 5 new distinct articles (6 feed items - 1 deduped)"
+    );
+
+    // Invariant 2 — the per-user subscriptions: 5 new `ttrss_user_entries`
+    // (`ttrss_user_entries` is deduped by `(ref_id, owner_uid)`, so the shared
+    // article — the same `ref_id` in both feeds — is subscribed once, not twice).
+    assert_eq!(
+        user_entry_count(&db).await - user_entries_before,
+        5,
+        "expected 5 new per-user subscriptions"
+    );
+
+    // Invariant 3 — the workhorse reports 5 new articles (3 + 2 + 1 - 1 deduped).
+    assert_eq!(total_new, 5, "expected the workhorse to report 5 new articles");
+
+    // Invariant 4 — the shared article is present exactly once (deduped across
+    // Feed A and Feed B), even though it appeared in two feeds.
+    assert_eq!(
+        entry_title_count(&db, "Shared article").await,
+        1,
+        "expected the shared article deduped to one row"
+    );
+
+    // Invariant 5 — the counter-cache total: 5 new unread subscriptions (all
+    // new articles are unread).
+    assert_eq!(
+        unread_count(&db).await - unread_before,
+        5,
+        "expected 5 new unread subscriptions"
+    );
+
+    // Invariant 6 — the cross-feed dedup is observable at the aggregate level:
+    // 6 feed items were fetched (3 + 2 + 1) but only 5 distinct articles
+    // remain, proving the cross-feed `content_hash` dedup fired (not merely a
+    // per-feed entry count).
+    assert_eq!(
+        entry_count(&db).await - entries_before,
+        5,
+        "expected the cross-feed dedup to collapse 6 items to 5 articles"
+    );
+}

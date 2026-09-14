@@ -22,6 +22,7 @@ fn test_config() -> Config {
         db_pass: "postgres".into(),
         db_name: "postgres".into(),
         db_sslmode: "disable".into(),
+        db_max_connections: 10,
         self_url: "http://127.0.0.1:8280/tt-rss/".into(),
         encryption_key: None,
         single_user_mode: false,

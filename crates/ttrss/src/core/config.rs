@@ -31,6 +31,12 @@ pub struct Config {
     pub db_name: String,
     pub db_sslmode: String,
 
+    /// Max shared-`PgPool` connections (the D3 = b single-pool knob). The
+    /// daemon's `Semaphore(N)` bounds concurrent workhorse jobs (D4 = 2), so a
+    /// pool size comfortably above `N` + the web-server's concurrent queries
+    /// avoids pool exhaustion. Default 10 (the pre-knob hardcoded value).
+    pub db_max_connections: u32,
+
     /// Self URL (Config.php SELF_URL_PATH), e.g. `http://127.0.0.1:8280/tt-rss`.
     pub self_url: String,
 
@@ -165,6 +171,7 @@ impl Config {
             db_pass: std::env::var("TTRSS_DB_PASS").unwrap_or_default(),
             db_name,
             db_sslmode: std::env::var("TTRSS_DB_SSLMODE").unwrap_or_else(|_| "prefer".into()),
+            db_max_connections: env("TTRSS_DB_MAX_CONNECTIONS", "10")?,
             self_url: std::env::var("TTRSS_SELF_URL_PATH")
                 .unwrap_or_else(|_| "http://127.0.0.1:8280/tt-rss/".into()),
             encryption_key: match std::env::var("TTRSS_ENCRYPTION_KEY") {
@@ -310,6 +317,7 @@ mod tests {
             db_pass: "password".into(),
             db_name: "postgres".into(),
             db_sslmode: "prefer".into(),
+            db_max_connections: 10,
             self_url: self_url.into(),
             encryption_key: None,
             single_user_mode: false,
