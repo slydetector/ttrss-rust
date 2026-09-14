@@ -31,6 +31,16 @@ DB_PASS := $(shell grep -E '^TTRSS_DB_PASS=' oracle/.env 2>/dev/null | cut -d= -
 PLUGINS := $(shell grep -E '^TTRSS_PLUGINS=' oracle/.env 2>/dev/null | cut -d= -f2-)
 ENC_KEY := $(shell grep -E '^TTRSS_ENCRYPTION_KEY=' oracle/.env 2>/dev/null | cut -d= -f2-)
 
+# --- demo (LAN poking) ------------------------------------------------------
+DEMO_PID  := demo.pid
+DEMO_LOG  := demo.log
+# The LAN IP for the self-URL (auto-detected from the default route; override
+# with `make demo-start LAN_IP=<ip>`).
+LAN_IP    ?= $(shell ip route get 1 2>/dev/null | awk '{for (i = 1; i < NF; i++) if ($$i == "src") print $$(i+1)}')
+# The demo server's log level (the daemon loop's per-feed lines are debug;
+# scoped to the ttrss crate so sqlx's per-query debug noise stays off).
+RUST_LOG  ?= ttrss=debug
+
 .PHONY: help
 help: ## (default) list targets
 	@echo "ttrss — oracle + record/replay harness workflow"
@@ -89,7 +99,68 @@ run: build-server ## run the (release by default) Rust server (canonical env, po
 	TTRSS_PLUGINS=$(PLUGINS) TTRSS_ENCRYPTION_KEY=$(ENC_KEY) \
 	TTRSS_SELF_URL_PATH=$(BASE_URL) TTRSS_RUST_LISTEN=127.0.0.1:$(RUST_PORT) \
 	TTRSS_RUST_DOCROOT=$(CURDIR)/tt-rss TTRSS_RUST_FEED_ICONS_DIR=$(CURDIR)/oracle/data/feed-icons \
-	$(SERVER_BIN)
+$(SERVER_BIN)
+
+# --- demo (LAN poking) ------------------------------------------------------
+# Bring up ONLY the oracle Postgres + the (release) Rust server on 0.0.0.0,
+# so the app is reachable from the LAN. The PHP stack is stopped (if running)
+# so only Rust serves the shared golden DB. demo-start never resets the DB —
+# it starts against the DB in whatever state it is in; use demo-reset for a
+# fresh golden baseline.
+.PHONY: demo-db
+demo-db: ## (internal) bring up the oracle db + wait for healthy
+	@( cd oracle && docker compose up -d db )
+	@for i in $$(seq 1 60); do \
+		s=$$(docker inspect --format '{{.State.Health.Status}}' ttrss-oracle-db-1 2>/dev/null); \
+		[ "$$s" = "healthy" ] && break; sleep 1; \
+	done
+	@docker inspect --format '{{.State.Health.Status}}' ttrss-oracle-db-1 2>/dev/null | grep -q healthy \
+		|| { echo "error: oracle db did not become healthy"; exit 1; }
+
+.PHONY: demo-reset
+demo-reset: demo-db ## reset the oracle DB to the golden baseline (no server management)
+	$(SCRIPTS)/reset-db.sh
+
+.PHONY: demo-start
+demo-start: build-server demo-db ## start the (release) Rust server on 0.0.0.0:8281 against the oracle DB, in its current state (LAN)
+	@test -n "$(LAN_IP)" || { echo "error: could not detect a LAN IP; set one explicitly: make demo-start LAN_IP=<ip>"; exit 1; }
+	@echo "stopping the PHP stack (app/updater/web), if running..."
+	@( cd oracle && docker compose stop app updater web >/dev/null 2>&1 ) || true
+	@if [ -f $(DEMO_PID) ] && kill -0 "$$(cat $(DEMO_PID))" 2>/dev/null; then \
+		echo "stopping previous demo instance (pid $$(cat $(DEMO_PID)))..."; \
+		kill "$$(cat $(DEMO_PID))" 2>/dev/null || true; sleep 1; \
+	fi
+	@echo "starting $(SERVER_BIN) on 0.0.0.0:$(RUST_PORT) (self url http://$(LAN_IP):$(RUST_PORT)/tt-rss/)"
+	@TTRSS_DB_HOST=127.0.0.1 TTRSS_DB_PORT=5432 \
+	TTRSS_DB_USER=$(DB_USER) TTRSS_DB_NAME=$(DB_NAME) TTRSS_DB_PASS=$(DB_PASS) \
+	TTRSS_PLUGINS=$(PLUGINS) TTRSS_ENCRYPTION_KEY=$(ENC_KEY) \
+	TTRSS_SELF_URL_PATH=http://$(LAN_IP):$(RUST_PORT)/tt-rss/ TTRSS_RUST_LISTEN=0.0.0.0:$(RUST_PORT) \
+	TTRSS_RUST_DOCROOT=$(CURDIR)/tt-rss TTRSS_RUST_FEED_ICONS_DIR=$(CURDIR)/oracle/data/feed-icons \
+	RUST_LOG=$(RUST_LOG) nohup $(SERVER_BIN) > $(DEMO_LOG) 2>&1 & echo $$! > $(DEMO_PID)
+	@for i in $$(seq 1 30); do \
+		if resp=$$(curl -sf http://127.0.0.1:$(RUST_PORT)/tt-rss/healthz 2>/dev/null) && [ "$$resp" = "OK" ]; then break; fi; \
+		sleep 1; \
+	done
+	@if curl -sf http://127.0.0.1:$(RUST_PORT)/tt-rss/healthz >/dev/null 2>&1; then \
+		echo ""; \
+		echo "ttrss (Rust, release) is serving: http://$(LAN_IP):$(RUST_PORT)/tt-rss/"; \
+		echo "  pid $$(cat $(DEMO_PID))  |  log: $(DEMO_LOG)  |  stop: make demo-stop  |  fresh baseline: make demo-reset"; \
+		echo "  logins: admin/admin  |  otpuser/otppass (TOTP)  |  readonly/readpass  |  testuser/testpass"; \
+	else \
+		echo "error: server did not answer healthz on :$(RUST_PORT) — check $(DEMO_LOG)" >&2; exit 1; \
+	fi
+
+.PHONY: demo-stop
+demo-stop: ## stop the server started by `make demo-start` (the db container stays up)
+	@if [ ! -f $(DEMO_PID) ]; then echo "no $(DEMO_PID); nothing to stop"; exit 0; fi
+	@echo "stopping demo instance (pid $$(cat $(DEMO_PID)))"
+	@kill "$$(cat $(DEMO_PID))" 2>/dev/null || true
+	@rm -f $(DEMO_PID)
+
+.PHONY: demo-follow
+demo-follow: ## follow the demo server's log output (tail -f)
+	@test -f $(DEMO_LOG) || { echo "no $(DEMO_LOG); start the server first: make demo-start"; exit 1; }
+	@tail -n 50 -f $(DEMO_LOG)
 
 .PHONY: test
 test: ## run the full workspace test suite (cargo nextest)

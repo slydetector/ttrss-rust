@@ -1,6 +1,7 @@
 # Build artifacts
 target/
 *.rs.bk
+demo.pid
 
 # Oracle generated data (dumps, fixtures, logs)
 oracle/data/
