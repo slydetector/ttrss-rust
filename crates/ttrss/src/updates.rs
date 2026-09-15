@@ -19,8 +19,12 @@
 //! - `tsvector_combined` uses `strip_tags(title) . " " . strip_tags(content)`
 //!   in place of PHP's `Soundasleep\Html2Text::convert(content)` — functionally
 //!   equivalent for full-text search; the frozen suite does not assert on it.
-//! - Favicon / `cache_images` / `cache_enclosures` (network + disk-cache) are
-//!   M6c and are skipped here.
+//! - Enclosures are parsed (`FeedItem::get_enclosures`), link-rewritten and
+//!   persisted to `ttrss_enclosures` (deduped on content_url/content_type/post_id)
+//!   and fed into the article hash — the PHP's `update_rss_feed` enclosure pass.
+//!   Only `cache_enclosures` / `cache_media` (the network + disk-cache image
+//!   download, gated on the feed's `cache_images`) and the favicon fetch remain
+//!   out of scope (M6c).
 //! - The per-feed purge (`Feeds::_purge`, M6c.4) runs before the success
 //!   stamp, matching the PHP's `update_rss_feed` order (commit → purge →
 //!   stamp the success metadata).
@@ -38,7 +42,7 @@ use rand::Rng;
 use std::sync::Arc;
 
 use crate::core::config::Config;
-use crate::core::feed::{FeedItem, FeedParser};
+use crate::core::feed::{FeedEnclosure, FeedItem, FeedParser};
 use crate::core::filters::{
     calculate_article_score, eval_article_filters, has_article_filter_action, EvalFilter, EvalRule,
     FilterAction, RuleType,
@@ -48,7 +52,7 @@ use crate::counters::parent_cats;
 use crate::feeds::decrypt_feed_pass;
 use crate::rss_utils::{calculate_article_hash, make_guid_from_title};
 use crate::urlhelper::{fetch, FetchOptions, rewrite_relative};
-use crate::util::{clean_str, normalize_categories, sha1_hex, strip_tags};
+use crate::util::{clean_str, normalize_categories, php_int_cast, sha1_hex, strip_tags};
 
 /// The subset of `ttrss_feeds` the pipeline reads.
 #[derive(Debug, Clone)]
@@ -821,6 +825,15 @@ fn article_hashed_fields(
     ]
 }
 
+/// PHP `FeedEnclosure::__toString()` — the string form `calculate_article_hash`
+/// feeds into `implode(',', $enclosures)`. Field order and labels match the PHP
+/// `sprintf` exactly.
+fn enclosure_to_string(enc: &FeedEnclosure) -> String {
+    format!(
+        "FeedEnclosure(link={}, type={}, length={}, title={}, height={}, width={})",
+        enc.link, enc.enc_type, enc.length, enc.title, enc.height, enc.width
+    )
+}
 /// Collect + upsert a single feed item (the deterministic core of the PHP's
 /// per-article loop). Returns 1 if a new `ttrss_entries` row was created, else 0.
 #[allow(clippy::too_many_arguments)] // the per-article upsert context (mirrors the PHP's many locals)
@@ -912,8 +925,32 @@ async fn upsert_article(
     );
     dlog(log.as_deref_mut(), DEBUG_LEVEL_VERBOSE, "done collecting data.".into());
     dlog(log.as_deref_mut(), DEBUG_LEVEL_VERBOSE, "looking for enclosures...".into());
-    // No enclosures in this pass → the hash contribution is the empty string.
-    let enclosures_hash = String::new();
+    // PHP: `$encs = $item->get_enclosures();` then, per enclosure, rewrite the
+    // link against the feed's site URL (`UrlHelper::rewrite_relative`) and drop
+    // any whose link fails validation. (The `HOOK_ENCLOSURE_IMPORTED` plugin hook
+    // is a no-op with no plugins loaded.)
+    let mut enclosures: Vec<FeedEnclosure> = Vec::new();
+    for mut enc in item.get_enclosures() {
+        match crate::sanitizer::rewrite_relative(site_url, &enc.link, "", "", &enc.enc_type) {
+            Some(url) => enc.link = url,
+            None => {
+                dlog(
+                    log.as_deref_mut(),
+                    DEBUG_LEVEL_VERBOSE,
+                    "Skipping enclosure whose link failed validation.".into(),
+                );
+                continue;
+            }
+        }
+        enclosures.push(enc);
+    }
+    // The hash contribution is `implode(',', $enclosures)` — each element
+    // stringified via `FeedEnclosure::__toString()`.
+    let enclosures_hash = enclosures
+        .iter()
+        .map(enclosure_to_string)
+        .collect::<Vec<_>>()
+        .join(",");
 
     // --- look up the existing base entry (by any of the 3 guid forms) ---
     let existing: Option<(i32, String)> =
@@ -1273,16 +1310,58 @@ async fn upsert_article(
             }
         }
     }
-    // The PHP's `LOG_EXTENDED` "article enclosures:" dump (unconditional body —
-    // `print_r` of the parsed enclosures). The port stores no enclosures
-    // (dropped in the M6c scope cut), so the array is always empty: the PHP's
-    // `print_r([])` body is logged verbatim.
+    // The PHP's `LOG_EXTENDED` "article enclosures:" dump — `print_r` of the
+    // parsed enclosures (the established `{:?}`-for-`print_r` approximation;
+    // empty is the PHP's `print_r([])` body).
     dlog(
         log.as_deref_mut(),
         DEBUG_LEVEL_EXTENDED,
         "article enclosures:".into(),
     );
-    dlog(log.as_deref_mut(), DEBUG_LEVEL_EXTENDED, "Array (\n)".into());
+    dlog(
+        log.as_deref_mut(),
+        DEBUG_LEVEL_EXTENDED,
+        if enclosures.is_empty() {
+            "Array (\n)".to_string()
+        } else {
+            format!("{enclosures:?}")
+        },
+    );
+
+    // Persist the enclosures (PHP lines 1221–1234): dedupe on
+    // (content_url, content_type, post_id) and INSERT the rest. `post_id` is the
+    // base entry id (`ttrss_entries.id` = `ref_id`), matching the read side's
+    // `num_enclosures` / `_get_enclosures` subqueries. (`cache_enclosures` is
+    // gated on the feed's `cache_images`, off by default, and is out of scope —
+    // network + disk-cache, like `cache_media`.)
+    for enc in &enclosures {
+        let exists: Option<i32> = sqlx::query_scalar(
+            "SELECT id FROM ttrss_enclosures \
+             WHERE content_url = $1 AND content_type = $2 AND post_id = $3",
+        )
+        .bind(&enc.link)
+        .bind(&enc.enc_type)
+        .bind(ref_id)
+        .fetch_optional(pool)
+        .await
+        .unwrap_or(None);
+        if exists.is_none() {
+            let _ = sqlx::query(
+                "INSERT INTO ttrss_enclosures \
+                 (content_url, content_type, title, duration, post_id, width, height) \
+                 VALUES ($1, $2, $3, $4, $5, $6, $7)",
+            )
+            .bind(&enc.link)
+            .bind(&enc.enc_type)
+            .bind(&enc.title)
+            .bind(php_int_cast(&enc.length).to_string())
+            .bind(ref_id)
+            .bind(php_int_cast(&enc.width) as i32)
+            .bind(php_int_cast(&enc.height) as i32)
+            .execute(pool)
+            .await;
+        }
+    }
 
     // --- article tags: feed categories + filter `tag`/`ignore-tag`, minus the
     //     user's blacklisted tags (the whole set is re-normalized at the end) ---
@@ -1537,5 +1616,66 @@ pub async fn daemon_loop(pool: &PgPool, cfg: &Config, cancel: tokio_util::sync::
             _ = ticker.tick() => {}
             _ = cancel.cancelled() => break,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::feed::FeedEnclosure;
+
+    /// PHP `FeedEnclosure::__toString()` — the string form the article hash
+    /// feeds via `implode(',', $enclosures)`. The labels, field order, and the
+    /// empty-string defaults are the observable contract (a wrong format
+    /// silently changes the dedup hash for every article with enclosures).
+    #[test]
+    fn test_enclosure_to_string_matches_php() {
+        let enc = FeedEnclosure {
+            link: "https://example.com/media/abc.png".to_string(),
+            enc_type: "image/jpeg".to_string(),
+            length: "0".to_string(),
+            title: String::new(),
+            height: String::new(),
+            width: String::new(),
+        };
+        assert_eq!(
+            enclosure_to_string(&enc),
+            "FeedEnclosure(link=https://example.com/media/abc.png, type=image/jpeg, length=0, title=, height=, width=)"
+        );
+    }
+
+    /// The hash contribution is `implode(',', $enclosures)` — one element per
+    /// (post-rewrite) enclosure, comma-joined, empty string for none.
+    #[test]
+    fn test_enclosures_hash_contribution() {
+        let none: Vec<FeedEnclosure> = Vec::new();
+        assert_eq!(none.iter().map(enclosure_to_string).collect::<Vec<_>>().join(","), "");
+
+        let one = FeedEnclosure {
+            link: "https://example.com/a.mp3".to_string(),
+            enc_type: "audio/mpeg".to_string(),
+            length: "120".to_string(),
+            title: "Song".to_string(),
+            height: String::new(),
+            width: String::new(),
+        };
+        let encs = [one.clone(), one];
+        assert_eq!(
+            encs.iter().map(enclosure_to_string).collect::<Vec<_>>().join(","),
+            "FeedEnclosure(link=https://example.com/a.mp3, type=audio/mpeg, length=120, title=Song, height=, width=),"
+                .to_string() +
+                "FeedEnclosure(link=https://example.com/a.mp3, type=audio/mpeg, length=120, title=Song, height=, width=)"
+        );
+    }
+
+    /// The PHP `(int)` casts on length/width/height (bound into the
+    /// `integer`/`text` columns) must match PHP's leading-numeric cast.
+    #[test]
+    fn test_enclosure_dim_casts() {
+        assert_eq!(php_int_cast("0"), 0);
+        assert_eq!(php_int_cast(""), 0);
+        assert_eq!(php_int_cast("1234"), 1234);
+        assert_eq!(php_int_cast("12.9"), 12); // PHP `(int)` truncates the fraction
+        assert_eq!(php_int_cast("  5  "), 5); // leading/trailing ws ignored
     }
 }

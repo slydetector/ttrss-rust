@@ -22,6 +22,25 @@ const MOCK_FEED: &str = include_str!("../../../tt-rss/tests_integration/feed.xml
 /// The PHP suite's invalid-XML string.
 const BAD_FEED: &str = "<invalid-xml><unclosed>";
 
+/// A single-entry Atom feed with one `<link rel="enclosure">` (absolute href,
+/// so `rewrite_relative` leaves it untouched) — the fixture for the enclosure
+/// storage test. The PHP reference parses + stores enclosures on update.
+const ENCLOSURE_FEED: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:base="https://mfw.fakecake.org/testfeeds/">
+  <title type="text">Atom:enclosure testfeed</title>
+  <id>tag:fakecake.org,2021:minerva-enc-feed</id>
+  <updated>2021-05-21T14:17:43+04:00</updated>
+  <entry>
+    <title>x-21may2020</title>
+    <link rel="alternate" type="text/html" href="clouds.png" />
+    <link rel="enclosure" type="image/jpeg" href="https://mfw.fakecake.org/testfeeds/img.png" />
+    <id>tag:fakecake.org,2021:minerva-enc-2021-05-20</id>
+    <updated>2021-05-21T07:54:43+04:00</updated>
+    <published>2021-05-21T07:54:43+04:00</published>
+    <content type="html">...</content>
+  </entry>
+</feed>"#;
+
 
 /// A test `Config` (the pipeline reads `force_article_purge` from it; the
 /// defaults match a fresh upstream install).
@@ -243,6 +262,53 @@ async fn test_article_fields_stored_correctly(
     assert_eq!(num_comments, 0);
 }
 
+// Rust-only (no direct PHP `update_rss_feed` test asserts enclosures): the
+// enclosure parsed from the feed's Atom `<link rel="enclosure">` must be
+// persisted to `ttrss_enclosures` with `post_id` = the base entry id, which is
+// what the read side's `num_enclosures` / inline-image path keys on.
+#[sqlx::test(fixtures(
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
+))]
+async fn test_enclosure_stored_on_update(
+    pool: PoolOptions<sqlx::Postgres>,
+    options: PgConnectOptions,
+) {
+    let db = common::make_db(pool, options).await.expect("test db");
+    let uid = create_user(&db, 106, 0 /* USER */).await;
+    let feed_id = create_feed(&db, 106, uid, "http://example.com/f9.xml").await;
+
+    assert!(update_rss_feed(db.pool(), &test_config(), feed_id, ENCLOSURE_FEED, &FeedUpdateFlags::default(), None)
+        .await
+        .expect("update"));
+
+    // The base entry id (the `post_id` the enclosure must point at).
+    let entry_id: i32 = sqlx::query_scalar(
+        "SELECT e.id FROM ttrss_entries e \
+         JOIN ttrss_user_entries ue ON e.id = ue.ref_id WHERE ue.feed_id = $1",
+    )
+    .bind(feed_id)
+    .fetch_one(db.pool())
+    .await
+    .expect("entry id");
+
+    let row = sqlx::query(
+        "SELECT content_url, content_type, title, post_id FROM ttrss_enclosures WHERE post_id = $1",
+    )
+    .bind(entry_id)
+    .fetch_one(db.pool())
+    .await
+    .expect("enclosure row");
+    let content_url: &str = row.get(0);
+    let content_type: &str = row.get(1);
+    let title: &str = row.get(2);
+    let post_id: i32 = row.get(3);
+    assert_eq!(content_url, "https://mfw.fakecake.org/testfeeds/img.png");
+    assert_eq!(content_type, "image/jpeg");
+    assert_eq!(title, "");
+    assert_eq!(post_id, entry_id, "post_id must be the base entry id");
+}
 // PHP: testSecondUpdateDoesNotCreateDuplicate
 #[sqlx::test(fixtures(
     "../../test-db/fixtures/schema.sql",
