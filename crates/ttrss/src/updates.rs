@@ -799,6 +799,7 @@ async fn blacklisted_tags(pool: &PgPool, owner_uid: i32) -> std::collections::BT
 
 /// The PHP `$article` field values, in hash order, with the PHP stringification
 /// applied (`content` stripped of tags; `tags`/`enclosures` comma-joined).
+#[allow(clippy::too_many_arguments)] // mirrors the PHP `$article` field list
 fn article_hashed_fields(
     title: &str,
     content: &str,
@@ -863,7 +864,7 @@ async fn upsert_article(
         return Ok(0); // `continue`
     }
 
-    let guid_hashed_compat = format!("SHA1:{}", sha1_hex(&format!("{owner},{entry_guid}")));
+    let guid_hashed_compat = format!("SHA1:{}", sha1_hex(format!("{owner},{entry_guid}")));
     let guid_hashed = json!({
         "ver": 2,
         "uid": owner,
@@ -1474,10 +1475,9 @@ pub struct DueFeed {
 /// The `update_daemon_common` selection SQL — the due feeds (the least recently
 /// updated first, capped at `limit`). The PHP ref: `RSSUtils::update_daemon_common`
 /// (the base feed query). `update_interval = 0` means "use the default
-/// interval" (the `DEFAULT_UPDATE_INTERVAL` pref, default 30 min); `update_interval
-/// > 0` means the feed's own interval (minutes); `update_interval = -1` means
-/// disabled. A feed that has never been updated (`last_updated` NULL or the
-/// epoch) is always due.
+/// interval" (the `DEFAULT_UPDATE_INTERVAL` pref, default 30 min); a positive
+/// value is the feed's own interval (minutes); `-1` means disabled. A feed that
+/// has never been updated (`last_updated` NULL or the epoch) is always due.
 pub async fn select_due_feeds(pool: &PgPool, cfg: &Config, limit: i32) -> Vec<DueFeed> {
     let default_interval: i64 = 30; // Prefs::DEFAULT_UPDATE_INTERVAL
     let login_thresh = if !cfg.single_user_mode && cfg.daemon_update_login_limit > 0 {

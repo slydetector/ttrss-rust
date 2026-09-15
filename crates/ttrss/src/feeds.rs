@@ -539,7 +539,7 @@ pub async fn purge_feed(
         .await
         .ok()
         .flatten();
-    let Some(owner_uid) = owner_uid else { return None };
+    let owner_uid = owner_uid?;
 
     let (purge_unread, purge_interval) = if cfg.force_article_purge != 0 {
         (true, cfg.force_article_purge)
@@ -997,6 +997,7 @@ pub fn get_feeds_from_html(url: &str, content: &str) -> Vec<(String, String)> {
 /// — then runs the immediate first update (`RSSUtils::update_basic_info`).
 /// Returns the PHP's `{code, …}` array. The `HOOK_PRE_SUBSCRIBE` /
 /// `HOOK_SUBSCRIBE_FEED` plugin hooks (M8) are not ported.
+#[allow(clippy::too_many_arguments)] // mirrors `Feeds::_subscribe`'s parameter list
 pub async fn subscribe(
     cfg: &crate::core::config::Config,
     pool: &sqlx::PgPool,

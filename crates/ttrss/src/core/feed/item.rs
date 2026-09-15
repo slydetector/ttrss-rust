@@ -478,11 +478,13 @@ pub(super) fn media_enclosures<'a, 'input>(node: Node<'a, 'input>) -> Vec<FeedEn
         }
     }
     for thumb in all_desc_ns(node, NS_MEDIA, "thumbnail") {
-        let mut enc = FeedEnclosure::default();
-        enc.enc_type = "image/generic".to_string();
-        enc.link = clean_str(thumb.attribute("url").unwrap_or(""));
-        enc.height = clean_str(thumb.attribute("height").unwrap_or(""));
-        enc.width = clean_str(thumb.attribute("width").unwrap_or(""));
+        let enc = FeedEnclosure {
+            enc_type: "image/generic".to_string(),
+            link: clean_str(thumb.attribute("url").unwrap_or("")),
+            height: clean_str(thumb.attribute("height").unwrap_or("")),
+            width: clean_str(thumb.attribute("width").unwrap_or("")),
+            ..Default::default()
+        };
         encs.push(enc);
     }
     encs
@@ -491,12 +493,14 @@ pub(super) fn media_enclosures<'a, 'input>(node: Node<'a, 'input>) -> Vec<FeedEn
 /// Build a `FeedEnclosure` from a `media:content` element (type/url/length/
 /// height/width + the `medium` fallback + the `media:description` child).
 fn media_content_enclosure<'a, 'input>(content: Node<'a, 'input>) -> FeedEnclosure {
-    let mut enc = FeedEnclosure::default();
-    enc.enc_type = clean_str(content.attribute("type").unwrap_or(""));
-    enc.link = clean_str(content.attribute("url").unwrap_or(""));
-    enc.length = clean_str(content.attribute("length").unwrap_or(""));
-    enc.height = clean_str(content.attribute("height").unwrap_or(""));
-    enc.width = clean_str(content.attribute("width").unwrap_or(""));
+    let mut enc = FeedEnclosure {
+        enc_type: clean_str(content.attribute("type").unwrap_or("")),
+        link: clean_str(content.attribute("url").unwrap_or("")),
+        length: clean_str(content.attribute("length").unwrap_or("")),
+        height: clean_str(content.attribute("height").unwrap_or("")),
+        width: clean_str(content.attribute("width").unwrap_or("")),
+        ..Default::default()
+    };
     let medium = clean_str(content.attribute("medium").unwrap_or(""));
     if enc.enc_type.is_empty() && !medium.is_empty() {
         enc.enc_type = format!("{}/generic", medium.to_lowercase());

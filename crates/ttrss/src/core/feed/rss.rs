@@ -106,12 +106,14 @@ pub(super) fn get_categories<'a, 'input>(node: Node<'a, 'input>) -> Vec<String> 
 pub(super) fn get_enclosures<'a, 'input>(node: Node<'a, 'input>) -> Vec<FeedEnclosure> {
     let mut encs: Vec<FeedEnclosure> = Vec::new();
     for enc in all_desc_local(node, "enclosure") {
-        let mut e = FeedEnclosure::default();
-        e.enc_type = clean_str(enc.attribute("type").unwrap_or(""));
-        e.link = clean_str(enc.attribute("url").unwrap_or(""));
-        e.length = clean_str(enc.attribute("length").unwrap_or(""));
-        e.height = clean_str(enc.attribute("height").unwrap_or(""));
-        e.width = clean_str(enc.attribute("width").unwrap_or(""));
+        let e = FeedEnclosure {
+            enc_type: clean_str(enc.attribute("type").unwrap_or("")),
+            link: clean_str(enc.attribute("url").unwrap_or("")),
+            length: clean_str(enc.attribute("length").unwrap_or("")),
+            height: clean_str(enc.attribute("height").unwrap_or("")),
+            width: clean_str(enc.attribute("width").unwrap_or("")),
+            ..Default::default()
+        };
         encs.push(e);
     }
     encs.extend(media_enclosures(node));

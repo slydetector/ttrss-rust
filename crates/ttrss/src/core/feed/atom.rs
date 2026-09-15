@@ -122,16 +122,18 @@ pub(super) fn get_enclosures<'a, 'input>(node: Node<'a, 'input>) -> Vec<FeedEncl
             continue;
         }
         let base = xml_base(link);
-        let mut enc = FeedEnclosure::default();
-        enc.enc_type = clean_str(link.attribute("type").unwrap_or(""));
-        enc.length = clean_str(link.attribute("length").unwrap_or(""));
         let mut link_val = clean_str(href);
         if let Some(b) = &base {
             if let Some(rewritten) = rewrite_relative(b, &link_val) {
                 link_val = rewritten;
             }
         }
-        enc.link = link_val;
+        let enc = FeedEnclosure {
+            enc_type: clean_str(link.attribute("type").unwrap_or("")),
+            length: clean_str(link.attribute("length").unwrap_or("")),
+            link: link_val,
+            ..Default::default()
+        };
         encs.push(enc);
     }
     encs.extend(media_enclosures(node));

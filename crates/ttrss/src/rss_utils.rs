@@ -84,7 +84,7 @@ pub fn make_guid_from_title(title: &str) -> String {
 pub fn calculate_article_hash(hashed_fields: &[(String, String)]) -> String {
     let mut tmp = String::new();
     for (k, v) in hashed_fields {
-        tmp.push_str(&crate::util::sha1_hex(&format!(
+        tmp.push_str(&crate::util::sha1_hex(format!(
             "{k}:{}",
             crate::util::sha1_hex(v)
         )));

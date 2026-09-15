@@ -211,7 +211,7 @@ async fn do_reset(
 
     match user {
         Some((uid,)) => {
-            let token = util::sha1_hex(&util::get_random_bytes(128));
+            let token = util::sha1_hex(util::get_random_bytes(128));
             let link = format!(
                 "{}/public.php?op=forgotpass&hash={}&login={}",
                 state.config.self_url_rtrim(),
