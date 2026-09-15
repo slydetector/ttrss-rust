@@ -181,6 +181,9 @@ harness-keep: ## like `harness` but leave the Rust server running
 
 .PHONY: record
 record: ## record a fresh oracle baseline -> oracle/data/runs/oracle-a
+	@echo "stopping the updater (static oracle) + resetting the DB to the golden baseline ..."
+	@( cd oracle && docker compose stop updater >/dev/null 2>&1 ) || true
+	oracle/scripts/reset-db.sh
 	$(SCRIPTS)/check_sync.py
 	$(HARNESS_BIN) run --base-url $(ORACLE_URL) \
 		--scenarios $(SCENARIOS) --vars $(VARS) --out oracle/data/runs/oracle-a

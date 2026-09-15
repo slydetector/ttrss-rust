@@ -330,6 +330,15 @@ path = "/api/index.php"
 json = { op = "getcategories", include_empty = true }
 expect_status = 200
 
+# M5a.2: the tt-rss-android client's root-category list (`enable_nested`:
+# top-level only, descendants' unread folded into each root).
+[[step]]
+name = "api_get_categories_nested"
+method = "POST"
+path = "/api/index.php"
+json = { op = "getcategories", enable_nested = true }
+expect_status = 200
+
 [[step]]
 name = "api_get_feed_tree"
 method = "POST"

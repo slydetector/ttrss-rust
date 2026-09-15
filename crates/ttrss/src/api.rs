@@ -490,14 +490,23 @@ async fn get_categories(
     let uid = uid.unwrap_or(0);
     let pool = state.db.pool();
     let unread_only = param_to_bool(body.get("unread_only"));
+    // `enable_nested` — the Android client's "top level categories only":
+    // list just the roots and fold every descendant's unread into each root.
+    let enable_nested = param_to_bool(body.get("enable_nested"));
     let include_empty = param_to_bool(body.get("include_empty"));
     let mut cats: Vec<Value> = Vec::new();
-    let rows = sqlx::query(
+    let q = if enable_nested {
         "SELECT c.id, c.title, c.order_id,
                 (SELECT COUNT(f.id) FROM ttrss_feeds f WHERE f.cat_id = c.id) AS num_feeds,
                 (SELECT COUNT(c2.id) FROM ttrss_feed_categories c2 WHERE c2.parent_cat = c.id) AS num_cats
-         FROM ttrss_feed_categories c WHERE c.owner_uid = $1",
-    )
+         FROM ttrss_feed_categories c WHERE c.owner_uid = $1 AND c.parent_cat IS NULL"
+    } else {
+        "SELECT c.id, c.title, c.order_id,
+                (SELECT COUNT(f.id) FROM ttrss_feeds f WHERE f.cat_id = c.id) AS num_feeds,
+                (SELECT COUNT(c2.id) FROM ttrss_feed_categories c2 WHERE c2.parent_cat = c.id) AS num_cats
+         FROM ttrss_feed_categories c WHERE c.owner_uid = $1"
+    };
+    let rows = sqlx::query(q)
     .bind(uid)
     .fetch_all(pool)
     .await
@@ -507,7 +516,7 @@ async fn get_categories(
         let num_feeds: i64 = r.get("num_feeds");
         let num_cats: i64 = r.get("num_cats");
         if include_empty || num_feeds > 0 || num_cats > 0 {
-            let unread = counters::get_counters(
+            let mut unread = counters::get_counters(
                 &state.db,
                 uid,
                 counters::FeedOrTag::Feed(id as i64),
@@ -516,6 +525,11 @@ async fn get_categories(
                 None,
             )
             .await;
+            // The base counter only covers this category's direct feeds;
+            // `enable_nested` folds in every descendant's (recursive).
+            if enable_nested {
+                unread += counters::cat_children_unread(pool, uid, id as i64).await;
+            }
             if unread != 0 || !unread_only {
                 cats.push(json!({
                     "id": id,
@@ -558,24 +572,29 @@ fn cat_title(cat_id: i64) -> &'static str {
     }
 }
 
-/// `API::_is_cat_empty` — no feeds in the category.
+/// `API::_is_cat_empty` — the PHP only ever answers `true` for LABELS (no
+/// labels owned) and UNCATEGORIZED (no uncategorized feeds); every other id
+/// (incl. SPECIAL) is "never empty".
 async fn cat_empty(pool: &sqlx::PgPool, uid: i64, cat_id: i64) -> bool {
-    let n = if cat_id == CAT_UNCATEGORIZED {
+    if cat_id == CAT_LABELS {
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(id) FROM ttrss_labels2 WHERE owner_uid = $1")
+            .bind(uid)
+            .fetch_one(pool)
+            .await
+            .unwrap_or(0)
+            == 0
+    } else if cat_id == CAT_UNCATEGORIZED {
         sqlx::query_scalar::<_, i64>(
             "SELECT COUNT(id) FROM ttrss_feeds WHERE cat_id IS NULL AND owner_uid = $1",
         )
         .bind(uid)
+        .fetch_one(pool)
+        .await
+        .unwrap_or(0)
+        == 0
     } else {
-        sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(id) FROM ttrss_feeds WHERE cat_id = $2 AND owner_uid = $1",
-        )
-        .bind(uid)
-        .bind(cat_id as i32)
+        false
     }
-    .fetch_one(pool)
-    .await
-    .unwrap_or(0);
-    n == 0
 }
 
 async fn get_feed_tree(state: &AppState, sess: &Sess, body: &Map<String, Value>) -> (i64, Value) {

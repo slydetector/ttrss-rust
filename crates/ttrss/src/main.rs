@@ -39,20 +39,32 @@ async fn main() -> anyhow::Result<()> {
     };
     // The M6c.3 daemon/scheduler loop, hosted in this process (D1 = B):
     // the background feed-update batches + the cron housekeeping tasks.
+    // `TTRSS_DAEMON=0` skips it (env-only switch — the PHP daemon is a
+    // separate process that simply isn't run; the record/replay harness
+    // needs a static DB, so it runs with this off).
+    let daemon_enabled = std::env::var("TTRSS_DAEMON")
+        .ok()
+        .filter(|v| !v.is_empty())
+        .map(|v| ttrss::core::config::sql_bool_to_bool(&v))
+        .unwrap_or(true);
     let cancel = tokio_util::sync::CancellationToken::new();
-    {
-        let pool = state.db.pool().clone();
-        let cfg = state.config.clone();
-        let loop_cancel = cancel.clone();
-        tokio::spawn(async move {
-            ttrss::updates::daemon_loop(&pool, &cfg, loop_cancel).await;
-        });
+    if daemon_enabled {
+        {
+            let pool = state.db.pool().clone();
+            let cfg = state.config.clone();
+            let loop_cancel = cancel.clone();
+            tokio::spawn(async move {
+                ttrss::updates::daemon_loop(&pool, &cfg, loop_cancel).await;
+            });
+        }
+        tracing::info!(
+            interval_secs = state.config.daemon_sleep_interval,
+            max_jobs = state.config.daemon_max_jobs,
+            "daemon loop started"
+        );
+    } else {
+        tracing::info!("daemon loop disabled (TTRSS_DAEMON=0)");
     }
-    tracing::info!(
-        interval_secs = state.config.daemon_sleep_interval,
-        max_jobs = state.config.daemon_max_jobs,
-        "daemon loop started"
-    );
 
     let app = http::build_router(&state).with_state(state);
     let listener = tokio::net::TcpListener::bind(config.listen).await?;

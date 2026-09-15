@@ -134,6 +134,10 @@ export TTRSS_DB_USER="$DB_USER"
 export TTRSS_DB_NAME="$DB_NAME"
 export TTRSS_DB_PASS="$DB_PASS"
 export TTRSS_PLUGINS="$PLUGINS"
+# Static DB for the record/replay diff: no background feed updates mid-run
+# (the oracle side gets the same staticness by running with the updater
+# container stopped).
+export TTRSS_DAEMON=0
 export TTRSS_ENCRYPTION_KEY="$ENC_KEY"
 export TTRSS_SELF_URL_PATH="$BASE_URL"
 export TTRSS_RUST_LISTEN="127.0.0.1:${BASE_PORT}"
