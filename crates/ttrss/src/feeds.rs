@@ -1216,30 +1216,26 @@ const UPDATE_DEBUGGER_TEMPLATE: &str = r#"		<!DOCTYPE html>
                value="@FEEDID@">
 						<fieldset>
 							<label>
-							<select dojoType='fox.form.Select' name="xdebug"
-         id="" name="xdebug" ><option value="1" selected="selected">LOG_VERBOSE</option><option value="2" >LOG_EXTENDED</option></select></label>
+				<select dojoType='fox.form.Select' name="xdebug" id="" name="xdebug" ><option value="1" @SEL_VERBOSE@>LOG_VERBOSE</option><option value="2" @SEL_EXTENDED@>LOG_EXTENDED</option></select></label>
 						</fieldset>
 
 						<fieldset>
-							<label class="checkbox"><input dojoType='dijit.form.CheckBox' name="force_refetch"
-                     id=""> Force refetch</label>
+				<label class="checkbox"><input dojoType='dijit.form.CheckBox' name="force_refetch" @CHECKED_REFETCH@id=""> Force refetch</label>
 						</fieldset>
 
 						<fieldset class="narrow">
-							<label class="checkbox"><input dojoType='dijit.form.CheckBox' name="force_rehash"
-                     id=""> Force rehash</label>
+				<label class="checkbox"><input dojoType='dijit.form.CheckBox' name="force_rehash" @CHECKED_REHASH@id=""> Force rehash</label>
 						</fieldset>
 
 						<fieldset class="narrow">
-							<label class="checkbox"><input dojoType='dijit.form.CheckBox' name="dump_feed_xml"
-                     id=""> Dump feed XML</label>
+				<label class="checkbox"><input dojoType='dijit.form.CheckBox' name="dump_feed_xml" @CHECKED_DUMP@id=""> Dump feed XML</label>
 						</fieldset>
 
 						<button dojoType="dijit.form.Button" class="alt-primary" type="submit">Continue</button>					</form>
 
 					<hr>
 
-					<pre></pre>
+				<pre>@LOG@</pre>
 				</div>
 			</div>
 		</body>
@@ -1256,11 +1252,123 @@ pub async fn updatedebugger(
     let pool = state.db.pool();
     let uid = sess.data().uid().unwrap_or(0);
     let feed_id = crate::util::clean_int(extra.get("feed_id"));
+
+    // The PHP's ownership gate: the feed must exist and be owned by the user.
+    let owned: Option<i32> =
+        sqlx::query_scalar("SELECT id FROM ttrss_feeds WHERE id = $1 AND owner_uid = $2")
+            .bind(feed_id as i32)
+            .bind(uid)
+            .fetch_optional(pool)
+            .await
+            .ok()
+            .flatten();
+    if owned.is_none() {
+        return "Access denied.".to_string();
+    }
+
+    // The form's `xdebug` select (the PHP's `Debug::map_loglevel` gate: only
+    // `-1, 0, 1, 2` are valid; a missing select — the initial GET — is
+    // `LOG_VERBOSE`).
+    let xdebug = match extra.get("xdebug") {
+        Some(v) => match crate::util::clean_int(Some(v)) {
+            v if (-1..=2).contains(&v) => v,
+            _ => crate::updates::DEBUG_LEVEL_VERBOSE as i64,
+        },
+        None => crate::updates::DEBUG_LEVEL_VERBOSE as i64,
+    };
+    let flags = crate::updates::FeedUpdateFlags {
+        force_refetch: extra.contains_key("force_refetch"),
+        force_rehash: extra.contains_key("force_rehash"),
+        dump_feed_xml: extra.contains_key("dump_feed_xml"),
+        no_cache: true, // the PHP's `update_rss_feed($feed_id, true, true)`
+    };
+
+    // `action=do_update` (the form's hidden field): run the update, capturing
+    // its `Debug::log` output for the `<pre>` below.
+    let mut log = crate::updates::FeedDebugLog::default();
+    if extra.get("action").and_then(Value::as_str) == Some("do_update") {
+        let _ = crate::updates::fetch_one_feed(
+            pool,
+            &state.config,
+            feed_id as i32,
+            &flags,
+            Some(&mut log),
+        )
+        .await;
+    }
+
     let title = feed_title(pool, feed_id, uid).await;
+
     UPDATE_DEBUGGER_TEMPLATE
         .replace("@CSRF@", csrf)
         .replace("@FEEDID@", &feed_id.to_string())
         .replace("@TITLE@", &title)
+        .replace("@LOG@", &render_debug_log(&log, xdebug))
+        .replace(
+            "@SEL_VERBOSE@",
+            if xdebug == 1 { "selected=\"selected\"" } else { "" },
+        )
+        .replace(
+            "@SEL_EXTENDED@",
+            if xdebug == 2 { "selected=\"selected\"" } else { "" },
+        )
+        .replace(
+            "@CHECKED_REFETCH@",
+            if flags.force_refetch { "checked" } else { "" },
+        )
+        .replace(
+            "@CHECKED_REHASH@",
+            if flags.force_rehash { "checked" } else { "" },
+        )
+        .replace(
+            "@CHECKED_DUMP@",
+            if flags.dump_feed_xml { "checked" } else { "" },
+        )
+}
+
+/// Render the captured update log for the debugger page's `<pre>` — the PHP's
+/// `Debug::enable_html(true)` output: each line is
+/// `<span class='log-timestamp'>H:i:s/PID</span> <span class='log-message'>…</span>`
+/// (timestamp html-escaped by the CSS into `[…]`), `<hr/>` for separators,
+/// `<code class='feed-xml'>…</code>` for XML dumps. Only lines whose level is
+/// ≤ the selected one are shown (`Debug::$loglevel` gate); the XML dump is
+/// gated by its own `dump_feed_xml` flag, not the level.
+fn render_debug_log(log: &crate::updates::FeedDebugLog, xdebug: i64) -> String {
+    use crate::updates::{
+        DebugEntry, DEBUG_SEPARATOR,
+    };
+    let ts = format!(
+        "{}/{}",
+        chrono::Local::now().format("%H:%M:%S"),
+        std::process::id()
+    );
+    let esc = |s: &String| crate::util::htmlspecialchars(s);
+    let mut out = String::new();
+    for entry in &log.entries {
+        match entry {
+            DebugEntry::Xml(xml) => {
+                out.push_str(&format!(
+                    "<code class='feed-xml'>{}</code>\n",
+                    esc(xml)
+                ));
+            }
+            DebugEntry::Log { level, message } => {
+                // The PHP gate: `self::$loglevel < $level` → skip.
+                if xdebug < *level as i64 {
+                    continue;
+                }
+                if message == DEBUG_SEPARATOR {
+                    out.push_str("<hr/>\n");
+                } else {
+                    out.push_str(&format!(
+                        "<span class='log-timestamp'>{ts}</span> <span class='log-message'>{}</span>\n",
+                        esc(message)
+                    ));
+                }
+            }
+        }
+    }
+    out
 }
 
 /// `Feeds::_get_cat_title($cat_id, $owner_uid)`.
@@ -2933,4 +3041,71 @@ fn editfeeds_env() -> &'static Environment<'static> {
         .expect("valid editfeeds template");
         env
     })
+}
+
+#[cfg(test)]
+mod debugger_tests {
+    use crate::updates::{
+        DebugEntry, DEBUG_LEVEL_EXTENDED, DEBUG_LEVEL_NORMAL, DEBUG_LEVEL_VERBOSE, DEBUG_SEPARATOR,
+        FeedDebugLog,
+    };
+
+    fn log_with(entries: Vec<crate::updates::DebugEntry>) -> FeedDebugLog {
+        FeedDebugLog { entries }
+    }
+
+    #[test]
+    fn empty_log_renders_empty() {
+        let out = super::render_debug_log(&log_with(vec![]), 1);
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn level_gating_hides_higher_levels() {
+        let log = log_with(vec![
+            DebugEntry::Log { level: DEBUG_LEVEL_NORMAL, message: "normal".into() },
+            DebugEntry::Log { level: DEBUG_LEVEL_VERBOSE, message: "verbose".into() },
+            DebugEntry::Log { level: DEBUG_LEVEL_EXTENDED, message: "extended".into() },
+        ]);
+        // xdebug=1 (LOG_VERBOSE): normal + verbose shown, extended hidden.
+        let out = super::render_debug_log(&log, 1);
+        assert!(out.contains(">normal</span>"));
+        assert!(out.contains(">verbose</span>"));
+        assert!(!out.contains("extended"));
+        // xdebug=2 (LOG_EXTENDED): everything.
+        let out = super::render_debug_log(&log, 2);
+        assert!(out.contains(">extended</span>"));
+        // xdebug=-1 (LOG_DISABLED): nothing.
+        assert!(super::render_debug_log(&log, -1).is_empty());
+    }
+
+    #[test]
+    fn separator_renders_hr() {
+        let log = log_with(vec![DebugEntry::Log {
+            level: DEBUG_LEVEL_NORMAL,
+            message: DEBUG_SEPARATOR.into(),
+        }]);
+        let out = super::render_debug_log(&log, 0);
+        assert_eq!(out.trim(), "<hr/>");
+    }
+
+    #[test]
+    fn xml_dump_is_escaped_and_classed() {
+        let log = log_with(vec![DebugEntry::Xml("<feed><title>a &amp; b</title></feed>".into())]);
+        let out = super::render_debug_log(&log, 0);
+        assert!(out.starts_with("<code class='feed-xml'>"));
+        assert!(out.contains("&lt;feed&gt;"));
+        assert!(!out.contains("<feed>"));
+    }
+
+    #[test]
+    fn messages_are_html_escaped() {
+        let log = log_with(vec![DebugEntry::Log {
+            level: DEBUG_LEVEL_NORMAL,
+            message: "fetching http://x/<img src=1>".into(),
+        }]);
+        let out = super::render_debug_log(&log, 0);
+        assert!(out.contains("http://x/&lt;img src=1&gt;"));
+        assert!(!out.contains("<img"));
+    }
 }

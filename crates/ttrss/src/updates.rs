@@ -25,6 +25,11 @@
 //!   stamp, matching the PHP's `update_rss_feed` order (commit → purge →
 //!   stamp the success metadata).
 
+// `log.as_deref_mut()` reborrows the multi-use `Option<&mut FeedDebugLog>`
+// parameter at each `dlog`/`process_feed`/`upsert_article` call site; the
+// lint's alternative (passing `log` directly) would move it (E0382).
+#![allow(clippy::needless_option_as_deref)]
+
 use anyhow::{bail, Context, Result};
 use chrono::{NaiveDateTime, Utc};
 use serde_json::{json, Value};
@@ -135,6 +140,8 @@ pub async fn process_feed(
     cfg: &Config,
     feed: &FeedRow,
     feed_data: &str,
+    flags: &FeedUpdateFlags,
+    mut log: Option<&mut FeedDebugLog>,
 ) -> Result<FeedUpdateResult> {
     let feed_language = if feed.feed_language.trim().is_empty() {
         "simple".to_string()
@@ -145,6 +152,13 @@ pub async fn process_feed(
     let mut parser = FeedParser::new(feed_data);
     if !parser.init() {
         let err = parser.error();
+        // The PHP's parse-failure lines (`mb_substr($rss->error(), 0, 245)`).
+        dlog(
+            log.as_deref_mut(),
+            DEBUG_LEVEL_VERBOSE,
+            format!("fetch error: {}", err.chars().take(245).collect::<String>()),
+        );
+        dlog(log.as_deref_mut(), DEBUG_LEVEL_VERBOSE, "update failed.".into());
         let _ = sqlx::query(
             "UPDATE ttrss_feeds SET last_updated = NOW(), \
              last_unconditional = NOW(), last_error = $1 WHERE id = $2",
@@ -159,6 +173,9 @@ pub async fn process_feed(
         });
     }
 
+    dlog(log.as_deref_mut(), DEBUG_LEVEL_VERBOSE, format!("language: {feed_language}"));
+    dlog(log.as_deref_mut(), DEBUG_LEVEL_VERBOSE, "processing feed data...".into());
+
     // site_url fallback (PHP: `if (empty($feed_obj->site_url))`).
     let site_url = if feed.site_url.trim().is_empty() {
         let fallback =
@@ -172,9 +189,16 @@ pub async fn process_feed(
     } else {
         feed.site_url.clone()
     };
+    dlog(log.as_deref_mut(), DEBUG_LEVEL_VERBOSE, format!("site_url: {site_url}"));
+    dlog(
+        log.as_deref_mut(),
+        DEBUG_LEVEL_VERBOSE,
+        format!("feed_title: {}", parser.get_title()),
+    );
 
     let items: Vec<FeedItem> = parser.get_items().to_vec();
     if items.is_empty() {
+        dlog(log.as_deref_mut(), DEBUG_LEVEL_VERBOSE, "no articles found.".into());
         crate::feeds::purge_feed(pool, cfg, feed.id, 0).await;
         stamp_success(pool, feed.id).await?;
         return Ok(FeedUpdateResult::default());
@@ -185,8 +209,28 @@ pub async fn process_feed(
     // user's blacklisted tags, each loaded once per feed update.
     let filters = load_filters(pool, feed.id, feed.owner_uid).await?;
     let blacklisted = blacklisted_tags(pool, feed.owner_uid).await;
+    // The PHP's `loading filters & labels...` (the port's label lookup happens
+    // per article; the filters dump is the PHP's `print_r` at `LOG_EXTENDED`).
+    dlog(log.as_deref_mut(), DEBUG_LEVEL_VERBOSE, "loading filters & labels...".into());
+    dlog(
+        log.as_deref_mut(),
+        DEBUG_LEVEL_EXTENDED,
+        if filters.is_empty() {
+            // the PHP's `print_r` of an empty array
+            "Array (\n)".to_string()
+        } else {
+            format!("{filters:?}")
+        },
+    );
+    dlog(
+        log.as_deref_mut(),
+        DEBUG_LEVEL_VERBOSE,
+        format!("{} filters loaded.", filters.len()),
+    );
+    dlog(log.as_deref_mut(), DEBUG_LEVEL_VERBOSE, "processing articles...".into());
     let mut new_articles = 0;
     for item in &items {
+        dlog(log.as_deref_mut(), DEBUG_LEVEL_VERBOSE, DEBUG_SEPARATOR.into());
         new_articles += upsert_article(
             pool,
             feed,
@@ -196,14 +240,19 @@ pub async fn process_feed(
             item,
             &filters,
             &blacklisted,
+            flags,
+            log.as_deref_mut(),
         )
         .await?;
     }
 
     // `Feeds::_purge($feed, 0)` — the per-feed purge (M6c.4), before the
     // success stamp (the PHP's `update_rss_feed` order: commit → purge → stamp).
+    dlog(log.as_deref_mut(), DEBUG_LEVEL_VERBOSE, DEBUG_SEPARATOR.into());
+    dlog(log.as_deref_mut(), DEBUG_LEVEL_VERBOSE, "purging feed...".into());
     crate::feeds::purge_feed(pool, cfg, feed.id, 0).await;
     stamp_success(pool, feed.id).await?;
+    dlog(log.as_deref_mut(), DEBUG_LEVEL_VERBOSE, "update done.".into());
     Ok(FeedUpdateResult {
         new_articles,
         parse_error: None,
@@ -219,6 +268,8 @@ pub async fn update_rss_feed(
     cfg: &Config,
     feed_id: i32,
     feed_data: &str,
+    flags: &FeedUpdateFlags,
+    mut log: Option<&mut FeedDebugLog>,
 ) -> Result<bool> {
     if guard_updatable(pool, feed_id).await.is_err() {
         return Ok(false);
@@ -226,8 +277,80 @@ pub async fn update_rss_feed(
     let Some(feed) = load_feed(pool, feed_id).await? else {
         return Ok(false);
     };
-    let result = process_feed(pool, cfg, &feed, feed_data).await?;
+    let result = process_feed(pool, cfg, &feed, feed_data, flags, log.as_deref_mut()).await?;
     Ok(result.parse_error.is_none())
+}
+
+// ── Feed-debugger debug-log capture (the PHP's `Debug::log` + `enable_html`) ──
+
+/// The PHP's `Debug` levels (`classes/Debug.php`). A line is shown on the
+/// debugger page when its level is ≤ the page's selected level (the form
+/// offers `LOG_VERBOSE` = 1, the default, and `LOG_EXTENDED` = 2).
+pub const DEBUG_LEVEL_NORMAL: u8 = 0;
+pub const DEBUG_LEVEL_VERBOSE: u8 = 1;
+pub const DEBUG_LEVEL_EXTENDED: u8 = 2;
+
+/// `Debug::SEPARATOR` (rendered as `<hr/>` on the debugger page).
+pub const DEBUG_SEPARATOR: &str = "<-{log-separator}->";
+
+/// One captured line of the feed-update debug output (the PHP's
+/// `Debug::log(…, html_output = true)` stdout, plus the direct `dump_feed_xml`
+/// prints).
+#[derive(Debug, Clone)]
+pub enum DebugEntry {
+    /// A `Debug::log` line (a `DEBUG_SEPARATOR` message renders as `<hr/>`).
+    Log { level: u8, message: String },
+    /// A `dump_feed_xml` dump (rendered as `<code class='feed-xml'>…</code>`;
+    /// the PHP prints it directly, without a timestamp).
+    Xml(String),
+}
+
+/// The collector for [`DebugEntry`]s. Attached only by the feed debugger page
+/// (`Feeds::update_debugger`); the daemon passes `None`.
+#[derive(Debug, Clone, Default)]
+pub struct FeedDebugLog {
+    pub entries: Vec<DebugEntry>,
+}
+
+impl FeedDebugLog {
+    pub fn log(&mut self, level: u8, message: impl Into<String>) {
+        self.entries
+            .push(DebugEntry::Log { level, message: message.into() });
+    }
+    /// `Debug::SEPARATOR` (the PHP's `<hr/>` line).
+    pub fn separator(&mut self) {
+        self.entries.push(DebugEntry::Log {
+            level: DEBUG_LEVEL_VERBOSE,
+            message: DEBUG_SEPARATOR.into(),
+        });
+    }
+    pub fn xml(&mut self, data: String) {
+        self.entries.push(DebugEntry::Xml(data));
+    }
+}
+
+/// The update flags the PHP's `update_rss_feed` reads from `$_REQUEST` — set
+/// only by the feed debugger page (the daemon runs with the defaults).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct FeedUpdateFlags {
+    /// `force_refetch` — an unconditional fetch (skips `last_modified`).
+    pub force_refetch: bool,
+    /// `force_rehash` — skip the "stored article seems up to date" early-out
+    /// (re-process articles whose hash is unchanged).
+    pub force_rehash: bool,
+    /// `dump_feed_xml` — print the fetched XML on the page (twice: the PHP's
+    /// "before hooks" / "after hooks" — identical with no plugins).
+    pub dump_feed_xml: bool,
+    /// The PHP's `$no_cache` (the debugger calls with `true`): the fetch uses
+    /// `feed_fetch_no_cache_timeout` instead of `feed_fetch_timeout`.
+    pub no_cache: bool,
+}
+
+/// Emit a debug line when a collector is attached (the daemon passes `None`).
+fn dlog(log: Option<&mut FeedDebugLog>, level: u8, message: String) {
+    if let Some(l) = log {
+        l.log(level, message);
+    }
 }
 
 /// The outcome of a single-feed fetch + update (M6c.2).
@@ -254,8 +377,20 @@ pub struct FeedFetchOutcome {
 /// - Any other **failure** stamps `last_error` + `last_updated = now`.
 /// - A **200** updates `last_modified` (if changed) and runs `process_feed`
 ///   (which stamps the success / parse-failure metadata).
-pub async fn fetch_one_feed(pool: &PgPool, cfg: &Config, feed_id: i32) -> Result<FeedFetchOutcome> {
+pub async fn fetch_one_feed(
+    pool: &PgPool,
+    cfg: &Config,
+    feed_id: i32,
+    flags: &FeedUpdateFlags,
+    mut log: Option<&mut FeedDebugLog>,
+) -> Result<FeedFetchOutcome> {
+    dlog(log.as_deref_mut(), DEBUG_LEVEL_VERBOSE, "start".into());
     let Some(feed) = load_feed(pool, feed_id).await? else {
+        dlog(
+            log.as_deref_mut(),
+            DEBUG_LEVEL_NORMAL,
+            format!("error: feeds table record not found for feed: {feed_id}"),
+        );
         return Ok(FeedFetchOutcome {
             success: false,
             new_articles: 0,
@@ -263,6 +398,7 @@ pub async fn fetch_one_feed(pool: &PgPool, cfg: &Config, feed_id: i32) -> Result
         });
     };
     if let Err(e) = guard_updatable(pool, feed_id).await {
+        dlog(log.as_deref_mut(), DEBUG_LEVEL_NORMAL, format!("error: {e}"));
         return Ok(FeedFetchOutcome {
             success: false,
             new_articles: 0,
@@ -278,10 +414,41 @@ pub async fn fetch_one_feed(pool: &PgPool, cfg: &Config, feed_id: i32) -> Result
 
     // Conditional-refetch decision: force an unconditional fetch once
     // `last_unconditional` is older than `MAX_CONDITIONAL_INTERVAL`.
-    let force_refetch = match feed.last_unconditional {
+    let computed_force = match feed.last_unconditional {
         Some(lu) => (Utc::now().naive_utc() - lu).num_seconds() > cfg.max_conditional_interval,
         None => true,
     };
+    // The PHP's conditional-decision debug lines (the request flag can only
+    // *add* a force, as in the PHP).
+    dlog(
+        log.as_deref_mut(),
+        DEBUG_LEVEL_VERBOSE,
+        format!(
+            "last unconditional update request: {}",
+            feed.last_unconditional
+                .map(|d| d.format("%Y-%m-%d %H:%M:%S").to_string())
+                .unwrap_or_default()
+        ),
+    );
+    if computed_force {
+        dlog(
+            log.as_deref_mut(),
+            DEBUG_LEVEL_VERBOSE,
+            "maximum allowed interval for conditional requests exceeded, forcing refetch".into(),
+        );
+    } else {
+        dlog(
+            log.as_deref_mut(),
+            DEBUG_LEVEL_VERBOSE,
+            format!("stored last modified for conditional request: {}", feed.last_modified),
+        );
+    }
+    let force_refetch = computed_force || flags.force_refetch;
+    dlog(
+        log.as_deref_mut(),
+        DEBUG_LEVEL_VERBOSE,
+        format!("fetching {} (force_refetch: {force_refetch})...", feed.feed_url),
+    );
 
     // The feed's auth (the `auth_pass` is decrypted from its stored envelope).
     let auth_pass = decrypt_feed_pass(&feed.auth_pass, cfg.encryption_key.as_ref());
@@ -298,7 +465,13 @@ pub async fn fetch_one_feed(pool: &PgPool, cfg: &Config, feed_id: i32) -> Result
         } else {
             Some(auth_pass)
         },
-        timeout: Some(std::time::Duration::from_secs(cfg.feed_fetch_timeout)),
+        timeout: Some(std::time::Duration::from_secs(
+            if flags.no_cache {
+                cfg.feed_fetch_no_cache_timeout
+            } else {
+                cfg.feed_fetch_timeout
+            },
+        )),
         last_modified: if force_refetch {
             None
         } else {
@@ -308,6 +481,20 @@ pub async fn fetch_one_feed(pool: &PgPool, cfg: &Config, feed_id: i32) -> Result
         ..Default::default()
     })
     .await;
+    dlog(log.as_deref_mut(), DEBUG_LEVEL_VERBOSE, "fetch done.".into());
+    dlog(
+        log.as_deref_mut(),
+        DEBUG_LEVEL_VERBOSE,
+        format!(
+            "effective URL (after redirects): {} (IP: {}) ",
+            res.effective_url, res.effective_ip
+        ),
+    );
+    dlog(
+        log.as_deref_mut(),
+        DEBUG_LEVEL_VERBOSE,
+        format!("server last modified: {}", res.last_modified),
+    );
 
     let body = res
         .body
@@ -317,9 +504,19 @@ pub async fn fetch_one_feed(pool: &PgPool, cfg: &Config, feed_id: i32) -> Result
 
     // Empty body → the error path (304 / 429 / other).
     if feed_data.is_empty() {
+        dlog(
+            log.as_deref_mut(),
+            DEBUG_LEVEL_VERBOSE,
+            format!("unable to fetch: {} [{}]", res.error, res.error_code),
+        );
         let now = Utc::now();
         return if res.error_code == 304 {
             // 304: the source claims the feed is unchanged.
+            dlog(
+                log.as_deref_mut(),
+                DEBUG_LEVEL_VERBOSE,
+                "source claims data not modified (304), nothing to do.".into(),
+            );
             let _ = sqlx::query(
                 "UPDATE ttrss_feeds SET last_error = '', last_successful_update = $1, \
                  last_updated = $1 WHERE id = $2",
@@ -339,6 +536,13 @@ pub async fn fetch_one_feed(pool: &PgPool, cfg: &Config, feed_id: i32) -> Result
             let interval: i64 = rand::thread_rng().gen_range(base..=base * 2);
             let future = now + chrono::Duration::seconds(interval);
             let err_msg = format!("{} (updates throttled for {} seconds.)", res.error, interval);
+            dlog(
+                log.as_deref_mut(),
+                DEBUG_LEVEL_VERBOSE,
+                format!(
+                    "source claims we're requesting too often (429), throttling updates for {interval} seconds."
+                ),
+            );
             let _ = sqlx::query(
                 "UPDATE ttrss_feeds SET last_error = $1, last_successful_update = $2, \
                  last_updated = $2 WHERE id = $3",
@@ -381,7 +585,23 @@ pub async fn fetch_one_feed(pool: &PgPool, cfg: &Config, feed_id: i32) -> Result
             .await;
     }
 
-    let result = process_feed(pool, cfg, &feed, feed_data).await?;
+    // The PHP's `dump_feed_xml` (before/after the (absent) plugin hooks — the
+    // two dumps are identical with no plugins, as in the PHP).
+    if flags.dump_feed_xml {
+        dlog(log.as_deref_mut(), DEBUG_LEVEL_VERBOSE, "feed data before hooks:".into());
+        dlog(log.as_deref_mut(), DEBUG_LEVEL_VERBOSE, DEBUG_SEPARATOR.into());
+        if let Some(l) = log.as_deref_mut() {
+            l.xml(feed_data.to_string());
+        }
+        dlog(log.as_deref_mut(), DEBUG_LEVEL_VERBOSE, DEBUG_SEPARATOR.into());
+        dlog(log.as_deref_mut(), DEBUG_LEVEL_VERBOSE, "feed data after hooks:".into());
+        dlog(log.as_deref_mut(), DEBUG_LEVEL_VERBOSE, DEBUG_SEPARATOR.into());
+        if let Some(l) = log.as_deref_mut() {
+            l.xml(feed_data.to_string());
+        }
+        dlog(log.as_deref_mut(), DEBUG_LEVEL_VERBOSE, DEBUG_SEPARATOR.into());
+    }
+    let result = process_feed(pool, cfg, &feed, feed_data, flags, log.as_deref_mut()).await?;
     Ok(FeedFetchOutcome {
         success: result.parse_error.is_none(),
         new_articles: result.new_articles,
@@ -613,6 +833,8 @@ async fn upsert_article(
     item: &FeedItem<'_>,
     filters: &[EvalFilter],
     blacklisted: &std::collections::BTreeSet<String>,
+    flags: &FeedUpdateFlags,
+    mut log: Option<&mut FeedDebugLog>,
 ) -> Result<i32> {
     let owner = feed.owner_uid;
 
@@ -637,9 +859,19 @@ async fn upsert_article(
     .to_string();
     let entry_guid = format!("{owner},{entry_guid}");
     let entry_guid = entry_guid.chars().take(245).collect::<String>();
+    dlog(
+        log.as_deref_mut(),
+        DEBUG_LEVEL_VERBOSE,
+        format!("guid {entry_guid} (hash: {guid_hashed} compat: {guid_hashed_compat})"),
+    );
 
     // --- field collection ---
     let entry_timestamp = item.get_date().unwrap_or(0);
+    dlog(
+        log.as_deref_mut(),
+        DEBUG_LEVEL_VERBOSE,
+        format!("orig date: {entry_timestamp} ({})", ts_to_fmt(entry_timestamp)),
+    );
     let mut entry_title = strip_tags(&item.get_title());
     let entry_link =
         rewrite_relative(site_url, &clean_str(&item.get_link())).unwrap_or_else(|| item.get_link());
@@ -653,6 +885,9 @@ async fn upsert_article(
         // `date("Y-m-d H:i:s", $entry_timestamp)`
         entry_title = ts_to_fmt(entry_timestamp);
     }
+    dlog(log.as_deref_mut(), DEBUG_LEVEL_VERBOSE, format!("title {entry_title}"));
+    dlog(log.as_deref_mut(), DEBUG_LEVEL_VERBOSE, format!("link {entry_link}"));
+    dlog(log.as_deref_mut(), DEBUG_LEVEL_VERBOSE, format!("language {entry_language}"));
     let mut entry_content = item.get_content();
     if entry_content.is_empty() {
         entry_content = item.get_description();
@@ -666,8 +901,17 @@ async fn upsert_article(
     let entry_author = strip_tags(&item.get_author())
         .chars()
         .take(245)
-        .collect::<String>();
+    .collect::<String>();
+    dlog(log.as_deref_mut(), DEBUG_LEVEL_VERBOSE, format!("author {entry_author}"));
+    dlog(log.as_deref_mut(), DEBUG_LEVEL_VERBOSE, "looking for tags...".into());
     let entry_tags = item.get_categories();
+    dlog(
+        log.as_deref_mut(),
+        DEBUG_LEVEL_VERBOSE,
+        format!("tags found: {}", entry_tags.join(", ")),
+    );
+    dlog(log.as_deref_mut(), DEBUG_LEVEL_VERBOSE, "done collecting data.".into());
+    dlog(log.as_deref_mut(), DEBUG_LEVEL_VERBOSE, "looking for enclosures...".into());
     // No enclosures in this pass → the hash contribution is the empty string.
     let enclosures_hash = String::new();
 
@@ -718,33 +962,58 @@ async fn upsert_article(
         &existing_tags,
         &enclosures_hash,
     ));
-
-    if entry_current_hash == entry_stored_hash {
-        // "stored article seems up to date, updating timestamp only."
-        if let Some(id) = base_entry_id {
-            let _ = sqlx::query("UPDATE ttrss_entries SET date_updated = NOW() WHERE id = $1")
-                .bind(id)
-                .execute(pool)
-                .await;
-        }
-        return Ok(0);
-    }
-
-    // M6b.2c — run the article through the loaded filters.
-    let outcome = eval_article_filters(
-        filters,
-        &entry_title,
-        &entry_content,
-        &entry_link,
-        &entry_author,
-        &existing_tags,
+    dlog(
+        log.as_deref_mut(),
+        DEBUG_LEVEL_VERBOSE,
+        format!(
+            "article hash: {entry_current_hash} [stored={entry_stored_hash}]"
+        ),
     );
 
-    // --- resolve the base entry (create it if missing) ---
+    if entry_current_hash == entry_stored_hash {
+        // The PHP's `force_rehash` flag skips this early-out (re-process the
+        // article even though its hash is unchanged).
+        if !flags.force_rehash {
+            // "stored article seems up to date, updating timestamp only."
+            dlog(
+                log.as_deref_mut(),
+                DEBUG_LEVEL_VERBOSE,
+                format!(
+                    "stored article seems up to date [IID: {}], updating timestamp only.",
+                    base_entry_id.map(|i| i.to_string()).unwrap_or_default()
+                ),
+            );
+            if let Some(id) = base_entry_id {
+                let _ = sqlx::query("UPDATE ttrss_entries SET date_updated = NOW() WHERE id = $1")
+                    .bind(id)
+                    .execute(pool)
+                    .await;
+            }
+            return Ok(0);
+        }
+    } else {
+        dlog(
+            log.as_deref_mut(),
+            DEBUG_LEVEL_VERBOSE,
+            "hash differs, running HOOK_ARTICLE_FILTER handlers...".into(),
+        );
+    }
+
+    // --- resolve the base entry (create it if missing) — the PHP does this
+    //     *before* running the filters, so the RID lines appear between
+    //     "hash differs..." and the matched-filter dumps ---
     let base_record_created = base_entry_id.is_none();
     let ref_id: i32 = match base_entry_id {
-        Some(id) => id,
+        Some(id) => {
+            dlog(log.as_deref_mut(), DEBUG_LEVEL_VERBOSE, format!("select returned RID: {id}"));
+            id
+        },
         None => {
+            dlog(
+                log.as_deref_mut(),
+                DEBUG_LEVEL_VERBOSE,
+                format!("base guid [{entry_guid} or {guid_hashed}] not found, creating..."),
+            );
             let updated = ts_to_naive(entry_timestamp);
             let ts_content = format!(
                 "{} {}",
@@ -770,12 +1039,76 @@ async fn upsert_article(
             .fetch_one(pool)
             .await
             .context("insert base entry")?;
+            dlog(log.as_deref_mut(), DEBUG_LEVEL_VERBOSE, format!("insert returned RID: {id}"));
             id
         }
     };
+    dlog(
+        log.as_deref_mut(),
+        DEBUG_LEVEL_VERBOSE,
+        format!("base record with RID: {ref_id} found, checking for user record"),
+    );
+    // The PHP's `Article::_get_labels` (fetched once after the base record is
+    // resolved — a just-created record has none): feeds the `LOG_EXTENDED`
+    // "article labels:" dump and the "labels [other]" re-apply below.
+    let article_labels =
+        crate::article::get_labels(pool, owner as i64, ref_id, Some(owner as i64)).await;
+
+    // M6b.2c — run the article through the loaded filters.
+    let outcome = eval_article_filters(
+        filters,
+        &entry_title,
+        &entry_content,
+        &entry_link,
+        &entry_author,
+        &existing_tags,
+    );
+    // The PHP's `LOG_EXTENDED`-gated filter dumps: the three headers are
+    // logged unconditionally at level 2; the array bodies only when non-empty
+    // (`{:?}` stands in for the PHP's `print_r`).
+    dlog(log.as_deref_mut(), DEBUG_LEVEL_EXTENDED, "matched filters: ".into());
+    if !outcome.matched_filters.is_empty() {
+        dlog(
+            log.as_deref_mut(),
+            DEBUG_LEVEL_EXTENDED,
+            format!("{:?}", outcome.matched_filters),
+        );
+    }
+    dlog(log.as_deref_mut(), DEBUG_LEVEL_EXTENDED, "matched filter rules: ".into());
+    if !outcome.matched_rules.is_empty() {
+        dlog(
+            log.as_deref_mut(),
+            DEBUG_LEVEL_EXTENDED,
+            format!("{:?}", outcome.matched_rules),
+        );
+    }
+    dlog(log.as_deref_mut(), DEBUG_LEVEL_EXTENDED, "filter actions: ".into());
+    if !outcome.actions.is_empty() {
+        dlog(
+            log.as_deref_mut(),
+            DEBUG_LEVEL_EXTENDED,
+            format!("{:?}", outcome.actions),
+        );
+    }
+    dlog(
+        log.as_deref_mut(),
+        DEBUG_LEVEL_VERBOSE,
+        format!("num_comments: {num_comments}"),
+    );
+    dlog(log.as_deref_mut(), DEBUG_LEVEL_EXTENDED, "article labels:".into());
+    if !article_labels.is_empty() {
+        dlog(
+            log.as_deref_mut(),
+            DEBUG_LEVEL_EXTENDED,
+            format!("{:?}", article_labels),
+        );
+    }
+    dlog(log.as_deref_mut(), DEBUG_LEVEL_VERBOSE, "force catchup: false".into());
+
     // A `filter` action drops the article: the base record is kept, but no user
     // entry is created (PHP `continue`s here).
     if has_article_filter_action(&outcome.actions, "filter") {
+        dlog(log.as_deref_mut(), DEBUG_LEVEL_VERBOSE, "article is filtered out, nothing to do.".into());
         return Ok(if base_record_created { 1 } else { 0 });
     }
 
@@ -783,6 +1116,14 @@ async fn upsert_article(
     // `$score = calculate_article_score($actions) + $entry_score_modifier`
     // (`score_modifier` is 0 here — no plugin recalculation).
     let score = calculate_article_score(&outcome.actions);
+    dlog(
+        log.as_deref_mut(),
+        DEBUG_LEVEL_VERBOSE,
+        format!("initial score: {score} [including plugin modifier: 0]"),
+    );
+    // The PHP wraps the user-entry work in a transaction (this port's
+    // statements are individually durable); the lines keep the output parity.
+    dlog(log.as_deref_mut(), DEBUG_LEVEL_VERBOSE, "begin pdo transaction...".into());
     let has_catchup = has_article_filter_action(&outcome.actions, "catchup");
     // NOTE: the PHP's `!$entry_force_catchup` guard is omitted. That flag is
     // the plugin "force catchup" hook (the `$article["force_catchup"]` "ugly
@@ -813,8 +1154,16 @@ async fn upsert_article(
     .map(|r| (r.get(0), r.get(1)));
 
     let entry_int_id: i32 = match user_row {
-        Some((_, int_id)) => int_id,
+        Some((_, int_id)) => {
+            dlog(
+                log.as_deref_mut(),
+                DEBUG_LEVEL_VERBOSE,
+                format!("user record FOUND: RID: {ref_id}, IID: {int_id}"),
+            );
+            int_id
+        },
         None => {
+            dlog(log.as_deref_mut(), DEBUG_LEVEL_VERBOSE, "user record not found, creating...".into());
             let last_read: Option<NaiveDateTime> = if unread {
                 None
             } else {
@@ -842,6 +1191,11 @@ async fn upsert_article(
             int_id
         }
     };
+    dlog(
+        log.as_deref_mut(),
+        DEBUG_LEVEL_VERBOSE,
+        format!("resulting RID: {ref_id}, IID: {entry_int_id}"),
+    );
 
     // --- update the base entry's mutable fields (only when not just created) ---
     if !base_record_created {
@@ -880,6 +1234,11 @@ async fn upsert_article(
     .execute(pool)
     .await;
     if feed.mark_unread_on_update && !has_catchup {
+        dlog(
+            log.as_deref_mut(),
+            DEBUG_LEVEL_VERBOSE,
+            "article updated, marking unread as requested.".into(),
+        );
         let _ = sqlx::query(
             "UPDATE ttrss_user_entries SET last_read = NULL, unread = true \
              WHERE ref_id = $1 AND owner_uid = $2",
@@ -888,19 +1247,25 @@ async fn upsert_article(
         .bind(owner)
         .execute(pool)
         .await;
+    } else {
+        dlog(
+            log.as_deref_mut(),
+            DEBUG_LEVEL_VERBOSE,
+            "article updated, but we're forbidden to mark it unread.".into(),
+        );
     }
 
     // --- labels [other]: re-apply the article's existing labels, then [filters]:
     //     every `label` action's caption (the PHP adds both unconditionally — its
     //     `in_array` guard is a no-op; `add_article` is idempotent and skips
     //     unknown labels) ---
-    let article_labels =
-        crate::article::get_labels(pool, owner as i64, ref_id, Some(owner as i64)).await;
+    dlog(log.as_deref_mut(), DEBUG_LEVEL_VERBOSE, "assigning labels [other]...".into());
     for label in &article_labels {
         if let Some(caption) = label.get(1).and_then(Value::as_str) {
             crate::labels::add_article(pool, ref_id, caption, owner as i64).await;
         }
     }
+    dlog(log.as_deref_mut(), DEBUG_LEVEL_VERBOSE, "assigning labels [filters]...".into());
     for fa in &outcome.actions {
         if fa.action_type.as_deref() == Some("label") {
             if let Some(param) = fa.param.as_deref() {
@@ -908,6 +1273,16 @@ async fn upsert_article(
             }
         }
     }
+    // The PHP's `LOG_EXTENDED` "article enclosures:" dump (unconditional body —
+    // `print_r` of the parsed enclosures). The port stores no enclosures
+    // (dropped in the M6c scope cut), so the array is always empty: the PHP's
+    // `print_r([])` body is logged verbatim.
+    dlog(
+        log.as_deref_mut(),
+        DEBUG_LEVEL_EXTENDED,
+        "article enclosures:".into(),
+    );
+    dlog(log.as_deref_mut(), DEBUG_LEVEL_EXTENDED, "Array (\n)".into());
 
     // --- article tags: feed categories + filter `tag`/`ignore-tag`, minus the
     //     user's blacklisted tags (the whole set is re-normalized at the end) ---
@@ -944,6 +1319,11 @@ async fn upsert_article(
         .cloned()
         .collect();
     let final_tags = normalize_categories(&final_tags);
+    dlog(
+        log.as_deref_mut(),
+        DEBUG_LEVEL_VERBOSE,
+        format!("resulting article tags: {}", final_tags.join(", ")),
+    );
 
     if !final_tags.is_empty() {
         for tag in &final_tags {
@@ -976,6 +1356,8 @@ async fn upsert_article(
         .execute(pool)
         .await;
     }
+    dlog(log.as_deref_mut(), DEBUG_LEVEL_VERBOSE, "commit pdo transaction...".into());
+    dlog(log.as_deref_mut(), DEBUG_LEVEL_VERBOSE, "article processed.".into());
 
     Ok(if base_record_created { 1 } else { 0 })
 }
@@ -1110,7 +1492,14 @@ pub async fn daemon_loop(pool: &PgPool, cfg: &Config, cancel: tokio_util::sync::
                 let title = feed.feed_title.clone();
                 join_set.spawn(async move {
                     let _permit = permit;
-                    let outcome = fetch_one_feed(&pool, &cfg, id).await;
+                    let outcome = fetch_one_feed(
+                        &pool,
+                        &cfg,
+                        id,
+                        &FeedUpdateFlags::default(),
+                        None,
+                    )
+                    .await;
                     // Per-feed visibility (debug on success, warn on failure):
                     // the batch results used to be discarded silently.
                     match &outcome {

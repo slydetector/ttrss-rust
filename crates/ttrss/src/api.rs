@@ -1130,7 +1130,14 @@ pub async fn update_feed(
     if in_flight.unwrap_or(false) {
         return (STATUS_OK, json!({ "status": "OK" }));
     }
-    let _ = crate::updates::fetch_one_feed(pool, &state.config, feed_id).await;
+    let _ = crate::updates::fetch_one_feed(
+        pool,
+        &state.config,
+        feed_id,
+        &crate::updates::FeedUpdateFlags::default(),
+        None,
+    )
+    .await;
     (STATUS_OK, json!({ "status": "OK" }))
 }
 
