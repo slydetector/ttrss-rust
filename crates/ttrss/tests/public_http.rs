@@ -13,6 +13,7 @@ use axum::body::Body;
 use axum::http::{Method, Request, StatusCode};
 use axum::Router;
 use tower::ServiceExt;
+use serde_json::Value;
 use ttrss::core::db::Db;
 use ttrss::http;
 use ttrss::AppState;
@@ -209,4 +210,130 @@ async fn test_getprofiles_form_post_missing_login_returns_empty(
         .expect("response");
     assert_eq!(resp.status(), StatusCode::OK);
     assert_eq!(body_json(resp).await, serde_json::json!([]));
+}
+
+// ── M5a.1: the client directory-URL API routes (`POST /api/`, `POST /api`) ──
+
+/// Insert a user with a valid app password for the `_api` service (the
+/// external-API credential, `ALGO:HASH:SALT`); returns the login name.
+async fn add_user_with_api_password(state: &AppState) -> &'static str {
+    let pool = state.db.pool();
+    let uid: i32 = sqlx::query_scalar(
+        "INSERT INTO ttrss_users (login, pwd_hash, access_level) VALUES ($1, 'SHA1:x', 0) RETURNING id",
+    )
+    .bind("apilogin")
+    .fetch_one(pool)
+    .await
+    .expect("user insert");
+    let salt = "testsalt";
+    let inner = ttrss::core::user::hash_password(
+        "apipass",
+        salt,
+        ttrss::core::user::ALGO_SSHA512,
+    )
+    .expect("hash");
+    sqlx::query(
+        "INSERT INTO ttrss_app_passwords (title, owner_uid, pwd_hash, service, created) \
+         VALUES ('t', $1, $2, '_api', NOW())",
+    )
+    .bind(uid)
+    .bind(format!("{inner}:{salt}"))
+    .execute(pool)
+    .await
+    .expect("app password insert");
+    // PHP's `ENABLE_API_ACCESS` pref defaults to **false** — the user must
+    // have enabled API access for `API::login` to succeed.
+    sqlx::query(
+        "INSERT INTO ttrss_user_prefs2 (owner_uid, pref_name, value) \
+         VALUES ($1, 'ENABLE_API_ACCESS', 't')",
+    )
+    .bind(uid)
+    .execute(pool)
+    .await
+    .expect("pref insert");
+    "apilogin"
+}
+
+/// POST a JSON body to the API at the given path (the client's request shape:
+/// JSON body, params as keys, no query string).
+fn post_json_api(path: &str, body: &str) -> Request<Body> {
+    Request::builder()
+        .method(Method::POST)
+        .uri(path)
+        .header("content-type", "application/json")
+        .body(Body::from(body.to_string()))
+        .expect("request")
+}
+
+/// The successful-login envelope: `status 0` with `session_id` + `api_level`
+/// (the two fields the client stores after login).
+async fn expect_api_login_envelope(resp: axum::response::Response) {
+    assert_eq!(resp.status(), StatusCode::OK);
+    assert_eq!(
+        resp.headers()
+            .get(axum::http::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or(""),
+        "application/json"
+    );
+    let v = body_json(resp).await;
+    assert_eq!(v.get("status").and_then(Value::as_i64), Some(0), "envelope={v:?}");
+    let content = v.get("content").expect("content");
+    assert!(
+        content
+            .get("session_id")
+            .and_then(Value::as_str)
+            .is_some_and(|s| !s.is_empty()),
+        "session_id={content:?}"
+    );
+    assert_eq!(content.get("api_level").and_then(Value::as_i64), Some(23));
+}
+
+#[sqlx::test(fixtures(
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
+))]
+async fn test_api_login_via_directory_url(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
+    let state = make_state(pool, options).await;
+    add_user_with_api_password(&state).await;
+    let app = app(state);
+
+    // `ApiCommon.performRequest`: `<ttrss_url>/api/` (trailing slash, no
+    // index.php) — the client's actual endpoint.
+    let resp = app
+        .oneshot(post_json_api(
+            "/tt-rss/api/",
+            r#"{"op":"login","user":"apilogin","password":"apipass"}"#,
+        ))
+        .await
+        .expect("response");
+    expect_api_login_envelope(resp).await;
+}
+
+#[sqlx::test(fixtures(
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
+))]
+async fn test_api_login_via_bare_path(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
+    let state = make_state(pool, options).await;
+    add_user_with_api_password(&state).await;
+    let app = app(state);
+
+    // The slash-less form: served directly (no Apache 301).
+    let resp = app
+        .oneshot(post_json_api(
+            "/tt-rss/api",
+            r#"{"op":"login","user":"apilogin","password":"apipass"}"#,
+        ))
+        .await
+        .expect("response");
+    expect_api_login_envelope(resp).await;
 }

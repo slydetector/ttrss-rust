@@ -38,6 +38,13 @@ pub fn build_router(state: &AppState) -> Router<AppState> {
         .route("/public.php", get(public_handler).post(public_handler))
         .route("/backend.php", get(rpc::handler).post(rpc::handler))
         .route("/api/index.php", post(api::handler))
+        // M5a.1: the tt-rss-android client POSTs to the bare directory URL
+        // (`<ttrss_url>/api/`); Apache resolves it to `api/index.php` via
+        // DirectoryIndex. Serve the handler directly at both `/api/` and `/api`
+        // (the 301 the Apache would send for the slash-less form is
+        // infrastructure, not tt-rss behavior).
+        .route("/api", post(api::handler))
+        .route("/api/", post(api::handler))
         .fallback(static_handler);
 
     let app = if base.is_empty() {
