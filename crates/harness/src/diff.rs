@@ -273,6 +273,22 @@ fn diff_json(a: &serde_json::Value, b: &serde_json::Value, path: &str, out: &mut
                 diff_json(x, y, &format!("{path}[{i}]"), out);
             }
         }
+        // HTML string fields (article `content`, plugin buttons, …) compare as
+        // canonical DOM trees, not raw text: the port's sanitizer re-serializes
+        // through html5ever while PHP uses libxml, so byte spelling (boolean
+        // attributes, entity form, inter-tag whitespace) legitimately differs
+        // while the structure matches. (Mirrors the top-level HTML body path.)
+        (String(x), String(y))
+            if html::is_html_fragment(x) && html::is_html_fragment(y) =>
+        {
+            if html::canonical_html(x) != html::canonical_html(y) {
+                out.push(format!(
+                    "{path}: html differs: {} vs {}",
+                    summary(&serde_json::Value::String(x.clone())),
+                    summary(&serde_json::Value::String(y.clone()))
+                ));
+            }
+        }
         (x, y) if x == y => {}
         (x, y) => out.push(format!("{path}: {} vs {}", summary(x), summary(y))),
     }

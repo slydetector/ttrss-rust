@@ -457,7 +457,7 @@ fn rewrite_single_element(
         // rewrite coerces `false` to the empty string (href="").
         match rewrite_relative(base, &href, &name, "href", "") {
             Some(u) => {
-                el.attributes.borrow_mut().insert("href", u);
+                el.attributes.borrow_mut().insert("href", libxml_space_encode(&u));
             }
             None => {
                 el.attributes.borrow_mut().insert("href", String::new());
@@ -477,10 +477,10 @@ fn rewrite_single_element(
     if let Some(src) = src {
         match rewrite_relative(base, &src, &name, "src", "") {
             Some(u) if u.to_lowercase().starts_with("data:") => {
-                el.attributes.borrow_mut().insert("src", u);
+                el.attributes.borrow_mut().insert("src", libxml_space_encode(&u));
             }
             Some(u) if !has_disallowed_ip(&u) => {
-                el.attributes.borrow_mut().insert("src", u);
+                el.attributes.borrow_mut().insert("src", libxml_space_encode(&u));
             }
             _ => {
                 should_replace_element = true;
@@ -1020,6 +1020,24 @@ fn rawurldecode(s: &str) -> String {
         }
     }
     String::from_utf8_lossy(&out).into_owned()
+}
+
+/// libxml serialization quirk we must reproduce for byte-parity with PHP.
+///
+/// The reference sanitizer sets `href`/`src` to the value returned by
+/// `rewrite_relative` — which keeps a literal space intact (verified against the
+/// oracle: `rewrite_relative("…/en/", " https://…")` returns the space, not
+/// `%20`). The `%20` only appears when libxml serializes the DOM: its
+/// `saveHTML()` percent-encodes literal spaces in **URI attributes (`href` and
+/// `src`) only** — `class`/`title`/`alt`/`data-*` and even `poster` keep literal
+/// spaces. Our html5ever serializer keeps the space literal everywhere, so on a
+/// feed whose href carries a stray space (WordPress emits `href=" https://…"`)
+/// the output would diverge. Encode the space at the point the URL is finalized
+/// so the serialized HTML matches PHP byte-for-byte. Only the space (0x20) is
+/// affected; well-formed URLs have none, so this is a no-op in practice except
+/// for such malformed inputs.
+fn libxml_space_encode(url: &str) -> String {
+    url.replace(' ', "%20")
 }
 
 /// Port of `UrlHelper::rewrite_relative`: convert a (possibly) relative URL

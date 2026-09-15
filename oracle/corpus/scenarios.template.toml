@@ -367,6 +367,16 @@ path = "/api/index.php"
 json = { op = "getheadlines", feed_id = "{{categories.tech_news}}", is_cat = true, limit = 10, skip = 0 }
 expect_status = 200
 
+# M5a.3: the client's `has_sandbox` capability flag — when set, the sanitizer
+# keeps (hardened) `<iframe>` embeds in article content. Feed 21 (Mozilla
+# Blog) carries four iframe articles in the golden dataset.
+[[step]]
+name = "api_get_headlines_has_sandbox"
+method = "POST"
+path = "/api/index.php"
+json = { op = "getheadlines", feed_id = "{{feeds.https://blog.mozilla.org/feed/}}", limit = 200, skip = 0, show_content = true, has_sandbox = true }
+expect_status = 200
+
 [[step]]
 name = "api_get_article"
 method = "POST"

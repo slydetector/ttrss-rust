@@ -12,6 +12,7 @@
 //! `getArticle`, `getPref`). Mutating methods and the plugin-API fallback land
 //! in later milestones.
 
+use crate::core::phpser::Value as PValue;
 use crate::core::user;
 use axum::body::Body;
 use axum::extract::{Extension, Request, State};
@@ -146,7 +147,7 @@ pub async fn before_and_dispatch(
         "getfeedtree" => get_feed_tree(state, sess, body).await,
         "getlabels" => get_labels(state, uid, body).await,
         "getheadlines" => get_headlines(state, sess, body).await,
-        "getarticle" => get_article(state, uid, body).await,
+        "getarticle" => get_article(state, sess, uid, body).await,
         "getpref" => get_pref(state, sess, body).await,
         "getversion" => (
             STATUS_OK,
@@ -684,6 +685,11 @@ async fn get_headlines(state: &AppState, sess: &Sess, body: &Map<String, Value>)
     let include_nested = param_to_bool(body.get("include_nested"));
     let sanitize_content = param_bool_default(body, "sanitize", true);
     let excerpt_length = clean_int(body.get("excerpt_length"));
+    // `API::getHeadlines`: per-request capability flag; PHP stores it in the
+    // session (`$_SESSION['hasSandbox']`) for the sanitizer (and for later
+    // `getArticle` calls in the same session).
+    let has_sandbox = param_to_bool(body.get("has_sandbox"));
+    sess.with_mut(|d| d.set("hasSandbox", PValue::Bool(has_sandbox)));
     let include_header = param_to_bool(body.get("include_header"));
 
     let (override_order, skip_first_id_check) = headlines::order_to_override_query(&clean_str(
@@ -716,6 +722,7 @@ async fn get_headlines(state: &AppState, sess: &Sess, body: &Map<String, Value>)
             show_excerpt,
             show_content,
             sanitize_content,
+            has_sandbox,
             include_attachments,
             excerpt_length,
             state,
@@ -770,6 +777,7 @@ async fn api_headline_row(
     show_excerpt: bool,
     show_content: bool,
     sanitize_content: bool,
+    has_sandbox: bool,
     include_attachments: bool,
     excerpt_length: i64,
     state: &AppState,
@@ -829,16 +837,17 @@ async fn api_headline_row(
     );
     m.insert("tags".into(), Value::Array(tags));
 
+    // PHP always fetches enclosures for the flavor image; it emits them only
+    // when `include_attachments` is set.
+    let enclosures = if show_content || include_attachments {
+        article::get_enclosures(pool, id).await
+    } else {
+        Vec::new()
+    };
     if include_attachments {
         m.insert(
             "attachments".into(),
-            Value::Array(
-                article::get_enclosures(pool, id)
-                    .await
-                    .into_iter()
-                    .map(Value::Object)
-                    .collect(),
-            ),
+            Value::Array(enclosures.iter().cloned().map(Value::Object).collect()),
         );
     }
     if show_excerpt {
@@ -851,7 +860,7 @@ async fn api_headline_row(
                 &content,
                 hide_images.unwrap_or(false),
                 false,
-                false,
+                has_sandbox,
                 false,
                 Some(site_url.as_str()).filter(|s| !s.is_empty()),
                 None,
@@ -860,6 +869,16 @@ async fn api_headline_row(
             content.clone()
         };
         m.insert("content".into(), Value::from(content_out));
+
+        // `Article::_get_image` (the UNSANITIZED content): the article's
+        // representative image / stream / kind, used by clients for thumbnails.
+        let (flavor_image, flavor_stream, flavor_kind) =
+            article::get_image(&enclosures, &content, &site_url);
+        m.insert("flavor_image".into(), Value::from(flavor_image));
+        m.insert("flavor_stream".into(), Value::from(flavor_stream));
+        if flavor_kind != 0 {
+            m.insert("flavor_kind".into(), json!(flavor_kind));
+        }
     }
 
     let labels = api_labels(&label_cache, pool, uid, id).await;
@@ -921,6 +940,7 @@ async fn api_labels(label_cache: &str, pool: &sqlx::PgPool, uid: i64, id: i32) -
 
 async fn get_article(
     state: &AppState,
+    sess: &Sess,
     uid: Option<i64>,
     body: &Map<String, Value>,
 ) -> (i64, Value) {
@@ -979,6 +999,9 @@ async fn get_article(
 
     let sanitize_rows = prefs::load_rows(&state.db, uid, None).await;
     let strip_images = prefs::resolve(prefs::STRIP_IMAGES, &sanitize_rows, None).as_bool();
+    // `API::getArticle` sanitizes with the session's `hasSandbox` (set by the
+    // client's `getHeadlines` calls) — no request param of its own.
+    let has_sandbox = sess.data().get_bool("hasSandbox").unwrap_or(false);
 
     let mut out: Vec<Value> = Vec::new();
     for r in &rows {
@@ -1044,7 +1067,7 @@ async fn get_article(
                 &content,
                 hide_images.unwrap_or(false),
                 strip_images,
-                false,
+                has_sandbox,
                 false,
                 site_url.as_deref().filter(|s| !s.is_empty()),
                 None,

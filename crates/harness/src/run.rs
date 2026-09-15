@@ -38,6 +38,17 @@ pub async fn run(
     vars.insert("base".to_string(), base_url.clone());
 
     std::fs::create_dir_all(out).with_context(|| format!("creating {}", out.display()))?;
+    // Clear stale fixtures: step numbering shifts when scenarios change, and a
+    // leftover `NNN_*.json` from an older run would otherwise poison the diff.
+    for entry in std::fs::read_dir(out)
+        .with_context(|| format!("reading {}", out.display()))?
+    {
+        let p = entry?.path();
+        if p.is_file() && p.extension().is_some_and(|e| e == "json") {
+            std::fs::remove_file(&p)
+                .with_context(|| format!("removing stale fixture {}", p.display()))?;
+        }
+    }
 
     let client = reqwest::Client::builder()
         .cookie_store(true)
