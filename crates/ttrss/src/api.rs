@@ -23,7 +23,7 @@ use sqlx::Row;
 
 use crate::article;
 use crate::auth;
-use crate::cats::{CAT_LABELS, CAT_SPECIAL, CAT_UNCATEGORIZED};
+use crate::cats::{CAT_ALL, CAT_ALL_EXCEPT_VIRTUAL, CAT_LABELS, CAT_SPECIAL, CAT_UNCATEGORIZED};
 use crate::counters;
 use crate::feeds;
 use crate::headlines;
@@ -426,61 +426,167 @@ fn detect_image_mime(bytes: &[u8]) -> &'static str {
 
 // ── Stubs (implemented in subsequent increments) ────────────────────────────
 
+/// `API::getFeeds` / `API::_api_get_feeds` — the client's feed-list source.
+/// Returns a *mixed* flat list, in PHP's block order: labels, special/virtual
+/// feeds, child categories (when `include_nested`), then real feeds — each
+/// block gated by `unread_only`. The exact per-entry shapes are what the
+/// Android client parses.
 async fn get_feeds(state: &AppState, uid: Option<i64>, body: &Map<String, Value>) -> (i64, Value) {
     let uid = uid.unwrap_or(0);
     let pool = state.db.pool();
     let cat_id = clean_int(body.get("cat_id"));
-    // NOTE: the corpus sends `category_id`, but PHP reads `cat_id` → 0 (feeds
-    // with cat_id=0 don't exist) → empty array. Match the parameter name exactly.
-    let rows = sqlx::query(
-        "SELECT id, title, site_url, rss_url, image_url, language, category_id,
-                (SELECT COUNT(ue.id) FROM ttrss_user_entries ue
-                 WHERE ue.feed_id = f.id AND ue.owner_uid = $2) AS num_entries,
-                (SELECT COUNT(ue.id) FROM ttrss_user_entries ue
-                 WHERE ue.feed_id = f.id AND ue.owner_uid = $2 AND ue.unread) AS num_unread
-         FROM ttrss_feeds f WHERE f.cat_id = $1 AND f.owner_uid = $2",
-    )
-    .bind(if cat_id == 0 {
-        None
-    } else {
-        Some(cat_id as i32)
-    })
-    .bind(uid)
-    .fetch_all(pool)
-    .await
-    .unwrap_or_default();
-    let rv = rows
-        .iter()
-        .map(|r| {
-            Map::from_iter([
-                ("id".into(), json!(r.get::<i32, _>("id"))),
-                ("title".into(), Value::from(r.get::<String, _>("title"))),
-                (
-                    "site_url".into(),
-                    Value::from(r.get::<String, _>("site_url")),
-                ),
-                ("rss_url".into(), Value::from(r.get::<String, _>("rss_url"))),
-                (
-                    "image_url".into(),
-                    Value::from(r.get::<Option<String>, _>("image_url")),
-                ),
-                (
-                    "language".into(),
-                    Value::from(r.get::<String, _>("language")),
-                ),
-                (
-                    "category_id".into(),
-                    Value::from(r.get::<Option<i32>, _>("category_id")),
-                ),
-                ("num_entries".into(), json!(r.get::<i64, _>("num_entries"))),
-                ("num_unread".into(), json!(r.get::<i64, _>("num_unread"))),
-            ])
-        })
-        .collect::<Vec<_>>();
-    (
-        STATUS_OK,
-        Value::Array(rv.into_iter().map(Value::Object).collect()),
-    )
+    let unread_only = param_to_bool(body.get("unread_only"));
+    let limit = clean_int(body.get("limit"));
+    let offset = clean_int(body.get("offset"));
+    let include_nested = param_to_bool(body.get("include_nested"));
+    let icon_dir = &state.config.feed_icon_dir;
+
+    let mut feeds: Vec<Value> = Vec::new();
+
+    // Labels — API-only `cat_id` values: All (-4) or Labels (-2).
+    if cat_id == CAT_ALL || cat_id == CAT_LABELS {
+        for cv in counters::get_labels(&state.db, uid, None).await {
+            let unread = cv["counter"].as_i64().unwrap_or(0);
+            if unread != 0 || !unread_only {
+                feeds.push(json!({
+                    "id": cv["id"].clone(),
+                    "title": cv["description"].clone(),
+                    "unread": unread,
+                    "cat_id": CAT_LABELS,
+                }));
+            }
+        }
+    }
+
+    // Special/virtual feeds — API-only All (-4) or Special (-1). The PHP
+    // plugin-host virtual-feed loop is a no-op pre-M7 (no plugin feeds exist).
+    if cat_id == CAT_ALL || cat_id == CAT_SPECIAL {
+        for feed_id in [
+            feeds::FEED_STARRED,
+            feeds::FEED_PUBLISHED,
+            feeds::FEED_FRESH,
+            feeds::FEED_ALL,
+            feeds::FEED_RECENTLY_READ,
+            feeds::FEED_ARCHIVED,
+        ] {
+            let unread = counters::get_counters(
+                &state.db,
+                uid,
+                counters::FeedOrTag::Feed(feed_id),
+                false,
+                true,
+                None,
+            )
+            .await;
+            if unread != 0 || !unread_only {
+                let title = feeds::feed_title(pool, feed_id, uid).await;
+                feeds.push(json!({
+                    "id": feed_id,
+                    "title": title,
+                    "unread": unread,
+                    "cat_id": CAT_SPECIAL,
+                }));
+            }
+        }
+    }
+
+    // Child categories — `include_nested && cat_id != 0`. Each category's
+    // unread folds in every descendant's, matching PHP's
+    // `Feeds::_get_counters($id, true, true) + Feeds::_get_cat_children_unread($id)`.
+    if include_nested && cat_id != 0 {
+        let cats = sqlx::query(
+            "SELECT id, title, order_id FROM ttrss_feed_categories \
+             WHERE parent_cat = $1 AND owner_uid = $2 \
+             ORDER BY order_id ASC, title ASC",
+        )
+        .bind(cat_id as i32)
+        .bind(uid)
+        .fetch_all(pool)
+        .await
+        .unwrap_or_default();
+        for c in &cats {
+            let cid: i32 = c.get("id");
+            let unread =
+                counters::get_counters(
+                    &state.db,
+                    uid,
+                    counters::FeedOrTag::Feed(cid as i64),
+                    true,
+                    true,
+                    None,
+                )
+                .await
+                    + counters::cat_children_unread(pool, uid, cid as i64).await;
+            if unread != 0 || !unread_only {
+                feeds.push(json!({
+                    "id": cid,
+                    "title": c.get::<String, _>("title"),
+                    "unread": unread,
+                    "is_cat": true,
+                    "order_id": c.get::<i32, _>("order_id"),
+                }));
+            }
+        }
+    }
+
+    // Real feeds. `last_updated` via `FLOOR(EXTRACT(EPOCH FROM …))` mirrors
+    // PHP's `strtotime(SUBSTRING_FOR_DATE(last_updated,1,19))` (both UTC —
+    // verified against the oracle); `has_icon` is the feed-icons disk-cache
+    // file-existence check (`Feeds::_has_icon`). No `cat_id` filter for the
+    // API-only All (-4) / All-except-virtual (-3) values.
+    let no_cat_filter = cat_id == CAT_ALL_EXCEPT_VIRTUAL || cat_id == CAT_ALL;
+    let mut q = String::from(
+        "SELECT id, feed_url, cat_id, title, order_id, last_error, update_interval, \
+                FLOOR(EXTRACT(EPOCH FROM last_updated))::bigint AS last_updated \
+         FROM ttrss_feeds WHERE owner_uid = $1",
+    );
+    if !no_cat_filter {
+        q.push_str(" AND (cat_id = $2 OR ($2 = 0 AND cat_id IS NULL))");
+    }
+    q.push_str(" ORDER BY order_id ASC, title ASC");
+    if limit > 0 {
+        q.push_str(&format!(" LIMIT {limit}"));
+    }
+    if offset > 0 {
+        q.push_str(&format!(" OFFSET {offset}"));
+    }
+    let mut query = sqlx::query(&q);
+    query = query.bind(uid);
+    if !no_cat_filter {
+        query = query.bind(cat_id as i32);
+    }
+    let rows = query.fetch_all(pool).await.unwrap_or_default();
+    for r in &rows {
+        let feed_id: i32 = r.get("id");
+        let unread = counters::get_counters(
+            &state.db,
+            uid,
+            counters::FeedOrTag::Feed(feed_id as i64),
+            false,
+            true,
+            None,
+        )
+        .await;
+        if unread != 0 || !unread_only {
+            let has_icon = icon_dir.join(feed_id.to_string()).is_file();
+            feeds.push(json!({
+                "feed_url": r.get::<String, _>("feed_url"),
+                "title": r.get::<String, _>("title"),
+                "id": feed_id,
+                "unread": unread,
+                "has_icon": has_icon,
+                "cat_id": r.get::<Option<i32>, _>("cat_id").map(|c| c as i64).unwrap_or(0),
+                // PHP: `(int) strtotime($feed->last_updated ?? '')` → NULL last_updated
+                // (never-updated feed) yields `(int) false` = 0.
+                "last_updated": r.get::<Option<i64>, _>("last_updated").unwrap_or(0),
+                "order_id": r.get::<i32, _>("order_id"),
+                "last_error": r.get::<Option<String>, _>("last_error"),
+                "update_interval": r.get::<i32, _>("update_interval") as i64,
+            }));
+        }
+    }
+
+    (STATUS_OK, Value::Array(feeds))
 }
 
 async fn get_categories(

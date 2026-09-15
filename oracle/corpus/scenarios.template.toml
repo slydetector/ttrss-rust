@@ -323,6 +323,47 @@ path = "/api/index.php"
 json = { op = "getfeeds", category_id = "{{categories.news}}", unread_only = false, limit = 0, offset = 0, include_nested = true }
 expect_status = 200
 
+# M5a.4: faithful getFeeds (`API::_api_get_feeds`) — the client's feed list.
+# Real `cat_id` values: the special/label/all sentinels, a real category with
+# children (include_nested folds in child categories), and a nested leaf cat.
+# (The `api_get_feeds` step above sends the wrong name `category_id`, which
+# PHP/Rust both read as 0 → the degenerate uncategorized case; it stays to
+# document that behavior.)
+[[step]]
+name = "api_get_feeds_special"
+method = "POST"
+path = "/api/index.php"
+json = { op = "getfeeds", cat_id = -1, unread_only = false, include_nested = false }
+expect_status = 200
+
+[[step]]
+name = "api_get_feeds_labels"
+method = "POST"
+path = "/api/index.php"
+json = { op = "getfeeds", cat_id = -2, unread_only = false, include_nested = false }
+expect_status = 200
+
+[[step]]
+name = "api_get_feeds_all"
+method = "POST"
+path = "/api/index.php"
+json = { op = "getfeeds", cat_id = -3, unread_only = false, include_nested = false }
+expect_status = 200
+
+[[step]]
+name = "api_get_feeds_cat"
+method = "POST"
+path = "/api/index.php"
+json = { op = "getfeeds", cat_id = "{{categories.news}}", unread_only = false, include_nested = true }
+expect_status = 200
+
+[[step]]
+name = "api_get_feeds_nested_cat"
+method = "POST"
+path = "/api/index.php"
+json = { op = "getfeeds", cat_id = "{{categories.rust}}", unread_only = false, include_nested = true }
+expect_status = 200
+
 [[step]]
 name = "api_get_categories"
 method = "POST"
