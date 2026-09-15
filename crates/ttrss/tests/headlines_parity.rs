@@ -347,6 +347,114 @@ async fn test_get_headlines_view_mode_published(
     );
 }
 
+// Rust-only. `adaptive` is the default view mode but the PHP suite exercises
+// the explicit "unread"/"marked"/"published" modes, not adaptive. The ported
+// behavior: a concrete feed with any unread is scoped to unread; with no
+// unread it falls back to all articles (Feeds.php `$view_mode == "adaptive"`).
+#[sqlx::test(fixtures(
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
+))]
+async fn test_get_headlines_view_mode_adaptive_scopes_to_unread(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
+    let db = setup(pool, options).await;
+    let mut p = params(1); // Hacker News (3 articles: 2 unread, 1 read)
+    p.view_mode = "adaptive".into();
+    let q = get_headlines_query(&db, &p).await;
+
+    assert_eq!(
+        2,
+        q.article_rows.len(),
+        "adaptive should show only the 2 unread articles"
+    );
+    for row in &q.article_rows {
+        assert!(
+            row.try_get::<bool, _>("unread").unwrap(),
+            "each adaptive headline should be unread"
+        );
+    }
+}
+
+#[sqlx::test(fixtures(
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
+))]
+async fn test_get_headlines_view_mode_adaptive_falls_back_to_all(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
+    let db = setup(pool, options).await;
+    // Mark every article in feed 1 read so there is no unread to scope to.
+    let ids: Vec<i32> = sqlx::query_scalar(
+        "SELECT e.id FROM ttrss_entries e \
+         JOIN ttrss_user_entries ue ON e.id = ue.ref_id \
+         WHERE ue.feed_id = 1 AND ue.owner_uid = 1",
+    )
+    .fetch_all(db.pool())
+    .await
+    .expect("feed 1 article ids");
+    ttrss::article::catchup_by_id(
+        db.pool(),
+        &ids,
+        ttrss::article::CATCHUP_MODE_MARK_AS_READ,
+        SESSION_UID,
+        None,
+    )
+    .await;
+
+    let mut p = params(1);
+    p.view_mode = "adaptive".into();
+    let q = get_headlines_query(&db, &p).await;
+
+    assert_eq!(
+        ids.len(),
+        q.article_rows.len(),
+        "adaptive with no unread should fall back to all articles"
+    );
+}
+
+#[sqlx::test(fixtures(
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
+))]
+async fn test_get_headlines_view_mode_adaptive_category(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
+    let db = setup(pool, options).await;
+    let mut p = params(1); // category 1 = Technology (feeds 1, 2, 3)
+    p.cat_view = true;
+    p.view_mode = "adaptive".into();
+    let q = get_headlines_query(&db, &p).await;
+
+    // Independent oracle: the unread articles in category 1.
+    let expected_unread: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM ttrss_user_entries ue \
+         JOIN ttrss_feeds f ON f.id = ue.feed_id \
+         WHERE f.cat_id = 1 AND ue.unread AND ue.owner_uid = 1",
+    )
+    .fetch_one(db.pool())
+    .await
+    .expect("cat 1 unread");
+    assert!(expected_unread > 0, "category 1 should have unread in the seed");
+    assert_eq!(
+        expected_unread as usize,
+        q.article_rows.len(),
+        "adaptive category view should show exactly the unread articles"
+    );
+    for row in &q.article_rows {
+        assert!(
+            row.try_get::<bool, _>("unread").unwrap(),
+            "each adaptive category headline should be unread"
+        );
+    }
+}
+
 // ── Pagination ──────────────────────────────────────────────────────────────
 
 // PHP: test_get_headlines_limit

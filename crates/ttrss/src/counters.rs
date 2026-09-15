@@ -804,6 +804,32 @@ async fn cat_unread(pool: &sqlx::PgPool, uid: i64, cat: i64, _fresh_max_age: i64
     0
 }
 
+/// PHP `Feeds::_get_cat_children_unread` — the total unread across all
+/// *descendant* categories of `cat` (each child's own unread plus its
+/// descendants'). Ported iteratively (explicit work stack) rather than the
+/// PHP's recursion, per the working-style note.
+pub(crate) async fn cat_children_unread(pool: &sqlx::PgPool, uid: i64, cat: i64) -> i64 {
+    let mut unread = 0i64;
+    let mut stack = vec![cat];
+    while let Some(c) = stack.pop() {
+        let children: Vec<i64> = sqlx::query(
+            "SELECT id FROM ttrss_feed_categories WHERE parent_cat = $1 AND owner_uid = $2",
+        )
+        .bind(c)
+        .bind(uid)
+        .fetch_all(pool)
+        .await
+        .unwrap_or_default()
+        .iter()
+        .map(|r| r.get::<i32, _>(0) as i64)
+        .collect();
+        for ch in children {
+            unread += cat_unread(pool, uid, ch, 0).await;
+            stack.push(ch);
+        }
+    }
+    unread
+}
 /// `Feeds::_get_cat_marked`.
 async fn cat_marked(pool: &sqlx::PgPool, uid: i64, cat: i64, _fresh_max_age: i64) -> i64 {
     if cat >= 0 {

@@ -402,7 +402,7 @@ async fn format_headlines_list(
 
     // ---- `_get_headlines` ----
     let q = get_headlines(
-        pool,
+        &state.db,
         uid,
         feed,
         feed_num,
@@ -1053,11 +1053,10 @@ pub async fn get_headlines_query(
     db: &crate::core::db::Db,
     params: &HeadlinesParams,
 ) -> HeadlinesQuery {
-    let pool = db.pool();
     let feed_num: Option<i64> = params.feed.trim().parse::<i64>().ok();
     let rows = prefs::load_rows(db, params.owner_uid, None).await;
     get_headlines(
-        pool,
+        db,
         params.owner_uid,
         &params.feed,
         feed_num,
@@ -1086,7 +1085,7 @@ pub async fn get_headlines_query(
 /// parameters).
 #[allow(clippy::too_many_arguments)]
 async fn get_headlines(
-    pool: &sqlx::PgPool,
+    db: &crate::core::db::Db,
     uid: i64,
     feed: &str,
     feed_num: Option<i64>,
@@ -1110,6 +1109,7 @@ async fn get_headlines(
     // The branch logic below mutates `$override_order` (starred / published /
     // recently-read get a default order unless the caller supplied one).
     let mut override_order = override_order.to_string();
+    let pool = db.pool();
 
     // `$start_ts_query_part = $start_ts ? "date_entered >= 'Y/m/d H:i:s' AND " : ''`
     //
@@ -1146,8 +1146,27 @@ async fn get_headlines(
     // $view_query_part
     let mut view_query_part = String::new();
     if view_mode == "adaptive" {
-        // not exercised in the corpus (view_mode="" in all steps)
-        let _ = (feed_num, cat_view, include_children);
+        // PHP: a search → no view filter; a concrete feed (`$feed != -1`) scopes
+        // the list to unread when that feed (a category, plus its children when
+        // `include_children`) has any unread, otherwise shows everything.
+        if search.is_empty() && feed_num != Some(-1) {
+            let feed_or_tag: crate::counters::FeedOrTag<'_> = match feed_num {
+                Some(n) => crate::counters::FeedOrTag::Feed(n),
+                None => crate::counters::FeedOrTag::Tag(feed),
+            };
+            let mut unread =
+                crate::counters::get_counters(db, uid, feed_or_tag, cat_view, true, None).await;
+            if cat_view {
+                if let Some(f) = feed_num {
+                    if f > 0 && include_children {
+                        unread += crate::counters::cat_children_unread(pool, uid, f).await;
+                    }
+                }
+            }
+            if unread > 0 {
+                view_query_part = " unread = true AND ".into();
+            }
+        }
     }
     view_query_part = match view_mode {
         "marked" => " marked = true AND ".into(),
