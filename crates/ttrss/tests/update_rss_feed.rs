@@ -14,7 +14,7 @@ use sqlx::postgres::PgConnectOptions;
 use sqlx::Row;
 use ttrss::core::config::Config;
 use ttrss::core::db::Db;
-use ttrss::updates::update_rss_feed;
+use ttrss::updates::{update_rss_feed, FeedUpdateFlags};
 
 /// The recorded mock feed (a single Atom entry, "x-21may2020").
 const MOCK_FEED: &str = include_str!("../../../tt-rss/tests_integration/feed.xml");
@@ -135,7 +135,7 @@ async fn test_nonexistent_feed_returns_false(
     options: PgConnectOptions,
 ) {
     let db = common::make_db(pool, options).await.expect("test db");
-    assert!(!update_rss_feed(db.pool(), &test_config(), 9999, MOCK_FEED)
+    assert!(!update_rss_feed(db.pool(), &test_config(), 9999, MOCK_FEED, &FeedUpdateFlags::default(), None)
         .await
         .expect("update"));
 }
@@ -154,7 +154,7 @@ async fn test_readonly_user_cannot_update_feed(
     let readonly_uid = create_user(&db, 100, -1 /* READONLY */).await;
     let feed_id = create_feed(&db, 100, readonly_uid, "http://example.com/feed1.xml").await;
 
-    assert!(!update_rss_feed(db.pool(), &test_config(), feed_id, MOCK_FEED)
+    assert!(!update_rss_feed(db.pool(), &test_config(), feed_id, MOCK_FEED, &FeedUpdateFlags::default(), None)
         .await
         .expect("update"));
 }
@@ -173,7 +173,7 @@ async fn test_successful_update_returns_true(
     let uid = create_user(&db, 101, 0 /* USER */).await;
     let feed_id = create_feed(&db, 101, uid, "http://example.com/feed2.xml").await;
 
-    assert!(update_rss_feed(db.pool(), &test_config(), feed_id, MOCK_FEED)
+    assert!(update_rss_feed(db.pool(), &test_config(), feed_id, MOCK_FEED, &FeedUpdateFlags::default(), None)
         .await
         .expect("update"));
     assert_eq!(entry_count(&db, feed_id).await, 1);
@@ -190,7 +190,7 @@ async fn test_feed_metadata_updated(pool: PoolOptions<sqlx::Postgres>, options: 
     let uid = create_user(&db, 102, 0).await;
     let feed_id = create_feed(&db, 102, uid, "http://example.com/feed3.xml").await;
 
-    assert!(update_rss_feed(db.pool(), &test_config(), feed_id, MOCK_FEED)
+    assert!(update_rss_feed(db.pool(), &test_config(), feed_id, MOCK_FEED, &FeedUpdateFlags::default(), None)
         .await
         .expect("update"));
     assert!(last_successful_update_is_set(&db, feed_id).await);
@@ -211,7 +211,7 @@ async fn test_article_fields_stored_correctly(
     let uid = create_user(&db, 103, 0).await;
     let feed_id = create_feed(&db, 103, uid, "http://example.com/feed4.xml").await;
 
-    assert!(update_rss_feed(db.pool(), &test_config(), feed_id, MOCK_FEED)
+    assert!(update_rss_feed(db.pool(), &test_config(), feed_id, MOCK_FEED, &FeedUpdateFlags::default(), None)
         .await
         .expect("update"));
 
@@ -257,12 +257,12 @@ async fn test_second_update_does_not_create_duplicate(
     let uid = create_user(&db, 104, 0).await;
     let feed_id = create_feed(&db, 104, uid, "http://example.com/feed5.xml").await;
 
-    assert!(update_rss_feed(db.pool(), &test_config(), feed_id, MOCK_FEED)
+    assert!(update_rss_feed(db.pool(), &test_config(), feed_id, MOCK_FEED, &FeedUpdateFlags::default(), None)
         .await
         .expect("update #1"));
     assert_eq!(entry_count(&db, feed_id).await, 1);
 
-    assert!(update_rss_feed(db.pool(), &test_config(), feed_id, MOCK_FEED)
+    assert!(update_rss_feed(db.pool(), &test_config(), feed_id, MOCK_FEED, &FeedUpdateFlags::default(), None)
         .await
         .expect("update #2"));
     assert_eq!(entry_count(&db, feed_id).await, 1); // still 1, not 2
@@ -282,7 +282,7 @@ async fn test_parse_error_returns_false(
     let uid = create_user(&db, 105, 0).await;
     let feed_id = create_feed(&db, 105, uid, "http://example.com/feed6.xml").await;
 
-    assert!(!update_rss_feed(db.pool(), &test_config(), feed_id, BAD_FEED)
+    assert!(!update_rss_feed(db.pool(), &test_config(), feed_id, BAD_FEED, &FeedUpdateFlags::default(), None)
         .await
         .expect("update"));
     assert!(!last_error(&db, feed_id).await.is_empty());
@@ -386,7 +386,7 @@ async fn test_filter_action_drops_article(
         .await
         .expect("base count");
 
-    assert!(update_rss_feed(db.pool(), &test_config(), feed_id, MOCK_FEED)
+    assert!(update_rss_feed(db.pool(), &test_config(), feed_id, MOCK_FEED, &FeedUpdateFlags::default(), None)
         .await
         .expect("update"));
     // The base entry is created, but the `filter` action drops it (no user entry).
@@ -421,7 +421,7 @@ async fn test_score_action_marks_starred(
     let filter_id = create_filter(&db, uid, TITLE_RULE, 1).await;
     add_filter_action(&db, filter_id, ACT_SCORE, "2000").await;
 
-    assert!(update_rss_feed(db.pool(), &test_config(), feed_id, MOCK_FEED)
+    assert!(update_rss_feed(db.pool(), &test_config(), feed_id, MOCK_FEED, &FeedUpdateFlags::default(), None)
         .await
         .expect("update"));
     let (unread, marked) = user_entry_flags(&db, feed_id).await.expect("flags");
@@ -444,7 +444,7 @@ async fn test_score_action_below_read_threshold(
     let filter_id = create_filter(&db, uid, TITLE_RULE, 1).await;
     add_filter_action(&db, filter_id, ACT_SCORE, "-1000").await;
 
-    assert!(update_rss_feed(db.pool(), &test_config(), feed_id, MOCK_FEED)
+    assert!(update_rss_feed(db.pool(), &test_config(), feed_id, MOCK_FEED, &FeedUpdateFlags::default(), None)
         .await
         .expect("update"));
     let (unread, marked) = user_entry_flags(&db, feed_id).await.expect("flags");
@@ -467,7 +467,7 @@ async fn test_catchup_action_marks_read(
     let filter_id = create_filter(&db, uid, TITLE_RULE, 1).await;
     add_filter_action(&db, filter_id, ACT_CATCHUP, "").await;
 
-    assert!(update_rss_feed(db.pool(), &test_config(), feed_id, MOCK_FEED)
+    assert!(update_rss_feed(db.pool(), &test_config(), feed_id, MOCK_FEED, &FeedUpdateFlags::default(), None)
         .await
         .expect("update"));
     let (unread, _marked) = user_entry_flags(&db, feed_id).await.expect("flags");
@@ -486,7 +486,7 @@ async fn test_tag_action_adds_tags(pool: PoolOptions<sqlx::Postgres>, options: P
     let filter_id = create_filter(&db, uid, TITLE_RULE, 1).await;
     add_filter_action(&db, filter_id, ACT_TAG, "rust, tiny-rss").await;
 
-    assert!(update_rss_feed(db.pool(), &test_config(), feed_id, MOCK_FEED)
+    assert!(update_rss_feed(db.pool(), &test_config(), feed_id, MOCK_FEED, &FeedUpdateFlags::default(), None)
         .await
         .expect("update"));
     let tags = article_tags(&db, feed_id).await;
@@ -507,7 +507,7 @@ async fn test_ignore_tag_removes_tag(pool: PoolOptions<sqlx::Postgres>, options:
     add_filter_action(&db, filter_id, ACT_TAG, "rust, spam").await;
     add_filter_action(&db, filter_id, ACT_IGNORE_TAG, "spam").await;
 
-    assert!(update_rss_feed(db.pool(), &test_config(), feed_id, MOCK_FEED)
+    assert!(update_rss_feed(db.pool(), &test_config(), feed_id, MOCK_FEED, &FeedUpdateFlags::default(), None)
         .await
         .expect("update"));
     let tags = article_tags(&db, feed_id).await;
@@ -541,7 +541,7 @@ async fn test_blacklisted_tag_removed(
     let filter_id = create_filter(&db, uid, TITLE_RULE, 1).await;
     add_filter_action(&db, filter_id, ACT_TAG, "rust, spam").await;
 
-    assert!(update_rss_feed(db.pool(), &test_config(), feed_id, MOCK_FEED)
+    assert!(update_rss_feed(db.pool(), &test_config(), feed_id, MOCK_FEED, &FeedUpdateFlags::default(), None)
         .await
         .expect("update"));
     let tags = article_tags(&db, feed_id).await;
@@ -574,7 +574,7 @@ async fn test_label_action_assigns_label(
     let filter_id = create_filter(&db, uid, TITLE_RULE, 1).await;
     add_filter_action(&db, filter_id, ACT_LABEL, "My Label").await;
 
-    assert!(update_rss_feed(db.pool(), &test_config(), feed_id, MOCK_FEED)
+    assert!(update_rss_feed(db.pool(), &test_config(), feed_id, MOCK_FEED, &FeedUpdateFlags::default(), None)
         .await
         .expect("update"));
     let n: i64 = sqlx::query_scalar(
