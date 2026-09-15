@@ -11,6 +11,7 @@ path = "src/main.rs"
 [dev-dependencies]
 ctor.workspace = true
 test-db = { path = "../test-db" }
+tower.workspace = true
 
 [dependencies]
 anyhow.workspace = true

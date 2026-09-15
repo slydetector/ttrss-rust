@@ -4556,6 +4556,7 @@ dependencies = [
  "test-db",
  "tokio",
  "tokio-util",
+ "tower",
  "tracing",
  "tracing-subscriber",
  "url",

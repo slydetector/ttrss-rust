@@ -4,7 +4,9 @@
 //! entry first, profiles title-asc, case-insensitive login match.
 //!
 //! Drives `ttrss::auth::get_profiles` directly against a fresh Postgres
-//! fixture (the `public_handler` arm is a thin delegate in the binary).
+//! fixture. The axum layer above it (`ttrss::http`) is covered at the HTTP
+//! level in `public_http.rs` (params from the form body, as the login page
+//! sends them).
 
 mod common;
 

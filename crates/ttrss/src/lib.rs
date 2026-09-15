@@ -19,6 +19,7 @@ pub mod filters;
 pub mod forgotpass;
 pub mod headlines;
 pub mod hotkeys;
+pub mod http;
 pub mod labels;
 pub mod mime;
 pub mod opml;
