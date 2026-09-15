@@ -4,7 +4,7 @@
 	<title>Tiny Tiny RSS</title>
     <meta name="viewport" content="initial-scale=1,width=device-width" />
 
-	
+	__THEME_CSS_LINK__
 	
 	<script type="text/javascript">
 		const __csrf_token = "__CSRF_TOKEN__";

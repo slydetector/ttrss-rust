@@ -110,24 +110,53 @@ pub fn render_otp_challenge(config: &Config, return_url: &str, form: &OtpForm) -
         .replace("__PROFILE__", &html_escape(&form.profile))
 }
 
+/// `stylesheet_tag(get_theme_path($theme), ['id' => 'theme_css'])` — the shell's
+/// per-user theme `<link>` (PHP `index.php`/`prefs.php` head). Emits nothing when
+/// the pref is empty or the theme file doesn't exist (`theme_exists`); the
+/// resolved path carries its mtime cache-buster via [`theme_path`].
+pub fn theme_css_link(docroot: &Path, theme: &str) -> String {
+    if theme.is_empty() {
+        return String::new();
+    }
+    let exists = docroot
+        .join("themes")
+        .join(theme)
+        .exists()
+        || docroot.join("themes.local").join(theme).exists();
+    if !exists {
+        return String::new();
+    }
+    let path = theme_path(docroot, theme, "");
+    format!(
+        "<link href=\"{path}\" rel=\"stylesheet\" type=\"text/css\" data-orig-href=\"{path}\" id=\"theme_css\"/>"
+    )
+}
+
 /// Render the authenticated SPA shell (`index.php`). The skeleton (container
 /// divs, per-plugin `Plugins.*` blocks, theme/PWA metadata) is fixed for the
-/// golden dataset; the only per-session dynamic value is the CSRF token, plus
-/// the environment-derived scripts cache-bust timestamp.
-pub fn render_shell(csrf_token: &str, scripts_ts: i64) -> String {
+/// golden dataset; the per-session dynamic values are the CSRF token, the
+/// scripts cache-bust timestamp and the per-user theme link.
+pub fn render_shell(csrf_token: &str, scripts_ts: i64, theme_css_link: &str) -> String {
     SHELL_TEMPLATE
         .replace("__CSRF_TOKEN__", csrf_token)
         .replace("__SCRIPTS_TS__", &scripts_ts.to_string())
+        .replace("__THEME_CSS_LINK__", theme_css_link)
 }
 
 /// Render the preferences SPA page (`prefs.php`). The skeleton is fixed for the
 /// golden dataset (no custom theme, empty plugin prefs CSS, the `share`
 /// plugin's prefs JS baked in); the per-session dynamic values are the CSRF
 /// token and the scripts cache-bust, and the Users/System tabs are admin-only.
-pub fn render_prefs_page(csrf_token: &str, scripts_ts: i64, access_level: i64) -> String {
+pub fn render_prefs_page(
+    csrf_token: &str,
+    scripts_ts: i64,
+    access_level: i64,
+    theme_css_link: &str,
+) -> String {
     let mut html = PREFS_TEMPLATE
         .replace("@CSRF@", csrf_token)
-        .replace("@CACHEBUST@", &scripts_ts.to_string());
+        .replace("@CACHEBUST@", &scripts_ts.to_string())
+        .replace("__THEME_CSS_LINK__", theme_css_link);
     if access_level < crate::core::user::ACCESS_LEVEL_ADMIN as i64 {
         html = html.replace(PREFS_ADMIN_TABS, PREFS_NONADMIN_CLOSE);
     }
@@ -234,6 +263,22 @@ mod tests {
         );
         // test_get_theme_path_empty_default
         assert_eq!(theme_path(&docroot, "nonexistent-theme-xyz", ""), "");
+    }
+
+    #[test]
+    fn theme_css_link_matches_php() {
+        let docroot = test_config().docroot;
+        // Empty pref → no link.
+        assert_eq!(theme_css_link(&docroot, ""), "");
+        // Missing theme file → no link (`theme_exists` false).
+        assert_eq!(theme_css_link(&docroot, "nonexistent-theme-xyz"), "");
+        // Real theme → `stylesheet_tag` link with mtime cache-buster.
+        if docroot.join("themes/night.css").is_file() {
+            let link = theme_css_link(&docroot, "night.css");
+            assert!(link.starts_with("<link href=\"themes/night.css?"));
+            assert!(link.contains(" rel=\"stylesheet\" type=\"text/css\""));
+            assert!(link.ends_with("id=\"theme_css\"/>"));
+        }
     }
 
     #[test]

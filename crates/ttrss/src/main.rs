@@ -148,7 +148,8 @@ async fn index(
     // Authenticated → shell.
     let csrf = data.csrf_token().unwrap_or("");
     let ts = render::scripts_timestamp(state.config.docroot.as_path());
-    let html = render::render_shell(csrf, ts);
+    let theme_link = theme_css_link(&state, &data).await;
+    let html = render::render_shell(csrf, ts, &theme_link);
     let etag = format!("\"{}\"", md5_hex(&html));
     // `send_conditional_html`: 304 when the client's validator matches.
     if headers
@@ -191,7 +192,8 @@ async fn prefs_page(
     let csrf = data.csrf_token().unwrap_or("");
     let ts = render::scripts_timestamp(state.config.docroot.as_path());
     let access_level = data.access_level().unwrap_or(0);
-    let html = render::render_prefs_page(csrf, ts, access_level);
+    let theme_link = theme_css_link(&state, &data).await;
+    let html = render::render_prefs_page(csrf, ts, access_level, &theme_link);
     let etag = format!("W/\"{}\"", md5_hex(&html));
     axum::http::Response::builder()
         .status(StatusCode::OK)
@@ -201,6 +203,21 @@ async fn prefs_page(
         .body(Body::from(html))
         .expect("valid response")
 }
+/// The shell/prefs-page per-user theme `<link>` (PHP `index.php`/`prefs.php`
+/// head): the `USER_CSS_THEME` pref resolved per (uid, profile), skipped in
+/// safe mode, and only rendered when the theme file exists.
+async fn theme_css_link(state: &AppState, data: &core_session::Session) -> String {
+    if data.safe_mode() {
+        return String::new();
+    }
+    let uid = data.uid().unwrap_or(0);
+    let profile = data.profile().map(|p| p as i32);
+    let rows = ttrss::prefs::load_rows(&state.db, uid, profile).await;
+    let pref = ttrss::prefs::resolve("USER_CSS_THEME", &rows, profile);
+    let theme = pref.as_str();
+    render::theme_css_link(state.config.docroot.as_path(), theme)
+}
+
 /// `md5` of a byte slice, lowercase hex (for the shell ETag `"<md5>"`).
 fn md5_hex(data: &str) -> String {
     let digest = md5::compute(data.as_bytes());
