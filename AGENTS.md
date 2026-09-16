@@ -50,6 +50,7 @@ The frozen PHP reference in `tt-rss/` (commit `2f7d831`) is the spec.
 - **Address processes by PID, not by name.** Never `pkill`/`killall` unless
   absolutely necessary: names/patterns aren't unique and are susceptible to
   grep misinformation (the shell running the command matches its own pattern).
+- **Don't delete outside the working directory without permission.** Only remove files inside the repo (and `/tmp` files you created). Anything outside the repo — other dirs, `~/Downloads`, system paths, etc. — needs explicit permission first.
 
 ## Build on existing libraries
 
