@@ -203,7 +203,7 @@ async fn login(state: &AppState, sess: &Sess, body: &Map<String, Value>) -> (i64
 
     // `UserHelper::find_user_by_login` (LOWER(login) = LOWER(?)).
     let row = sqlx::query(
-        "SELECT id, login, access_level, pwd_hash
+        "SELECT id, login, access_level, pwd_hash, otp_enabled
          FROM ttrss_users WHERE LOWER(login) = LOWER($1)",
     )
     .bind(&login_name)
@@ -218,6 +218,7 @@ async fn login(state: &AppState, sess: &Sess, body: &Map<String, Value>) -> (i64
     let u_login: String = r.get("login");
     let access_level: i32 = r.get("access_level");
     let pwd_hash: String = r.get("pwd_hash");
+    let otp_enabled: bool = r.get("otp_enabled");
 
     if access_level == user::ACCESS_LEVEL_DISABLED {
         return (STATUS_ERR, json!({ "error": E_LOGIN_ERROR }));
@@ -229,8 +230,19 @@ async fn login(state: &AppState, sess: &Sess, body: &Map<String, Value>) -> (i64
         return (STATUS_ERR, json!({ "error": E_API_DISABLED }));
     }
 
-    // `auth_internal::check_app_password(login, password, '_api')`.
-    if !verify_app_password(pool, &login_name, &password).await {
+    // `auth_internal::authenticate` (service = '_api'): app passwords are tried
+    // first; the *regular* password is a fallback only when OTP is **not**
+    // enabled (an OTP-enabled account must use an app password for service
+    // logins). Mirrors `Auth_Internal::authenticate`'s service-login path.
+    let ok_app_password = verify_app_password(pool, &login_name, &password).await;
+    let ok_main_password =
+        if !ok_app_password && !otp_enabled {
+            // `Auth_Internal::check_password` (service = "") fallback.
+            auth::check_password(pool, uid, &password).await
+        } else {
+            false
+        };
+    if !ok_app_password && !ok_main_password {
         return (STATUS_ERR, json!({ "error": E_LOGIN_ERROR }));
     }
 

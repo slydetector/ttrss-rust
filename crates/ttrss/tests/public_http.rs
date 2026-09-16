@@ -337,3 +337,97 @@ async fn test_api_login_via_bare_path(
         .expect("response");
     expect_api_login_envelope(resp).await;
 }
+
+/// Insert a user with a *main* (web) password and **no** `_api` app password;
+/// returns the login name. Exercises the regular-password fallback in
+/// `API::login` (and the OTP gate that disables it).
+async fn add_user_with_main_password(
+    state: &AppState,
+    login: &'static str,
+    password: &str,
+    otp_enabled: bool,
+) -> &'static str {
+    let pool = state.db.pool();
+    let salt = "mainsalt";
+    let pwd_hash =
+        ttrss::core::user::hash_password(password, salt, ttrss::core::user::ALGO_SSHA512)
+            .expect("hash");
+    let uid: i32 = sqlx::query_scalar(
+        "INSERT INTO ttrss_users (login, pwd_hash, salt, access_level, otp_enabled) \
+         VALUES ($1, $2, $3, 0, $4) RETURNING id",
+    )
+    .bind(login)
+    .bind(&pwd_hash)
+    .bind(salt)
+    .bind(otp_enabled)
+    .fetch_one(pool)
+    .await
+    .expect("user insert");
+    // `ENABLE_API_ACCESS` defaults to false; enable it so `API::login` proceeds.
+    sqlx::query(
+        "INSERT INTO ttrss_user_prefs2 (owner_uid, pref_name, value) \
+         VALUES ($1, 'ENABLE_API_ACCESS', 't')",
+    )
+    .bind(uid)
+    .execute(pool)
+    .await
+    .expect("pref insert");
+    login
+}
+
+/// `API::login` (service `_api`): a user with OTP **off** and no matching app
+/// password authenticates via the *regular* password fallback — the `admin/admin`
+/// scenario the Android client hits.
+#[sqlx::test(fixtures(
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
+))]
+async fn test_api_login_main_password_fallback(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
+    let state = make_state(pool, options).await;
+    let login = add_user_with_main_password(&state, "mainlogin", "mainpass", false).await;
+    let app = app(state);
+
+    let resp = app
+        .oneshot(post_json_api(
+            "/tt-rss/api/",
+            &format!(r#"{{"op":"login","user":"{login}","password":"mainpass"}}"#),
+        ))
+        .await
+        .expect("response");
+    expect_api_login_envelope(resp).await;
+}
+
+/// The fallback must NOT apply to OTP-enabled accounts: with OTP on and no
+/// app password, the regular password is rejected (app passwords only).
+#[sqlx::test(fixtures(
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
+))]
+async fn test_api_login_otp_enabled_requires_app_password(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
+    let state = make_state(pool, options).await;
+    let login = add_user_with_main_password(&state, "otplogin", "otppass", true).await;
+    let app = app(state);
+
+    let resp = app
+        .oneshot(post_json_api(
+            "/tt-rss/api/",
+            &format!(r#"{{"op":"login","user":"{login}","password":"otppass"}}"#),
+        ))
+        .await
+        .expect("response");
+    let v = body_json(resp).await;
+    assert_eq!(v.get("status").and_then(Value::as_i64), Some(1), "envelope={v:?}");
+    assert_eq!(
+        v.get("content").and_then(|c| c.get("error")).and_then(Value::as_str),
+        Some("LOGIN_ERROR"),
+        "envelope={v:?}"
+    );
+}
