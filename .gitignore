@@ -18,6 +18,7 @@ __pycache__/
 # The upstream PHP checkout is its own git repo; keep it out of this one.
 # (Consider adding it as a git submodule once the port stabilizes.)
 /tt-rss/
+/tt-rss-android/
 
 # Local agent state + browser-probe output (transient, regenerated)
 .pi/
