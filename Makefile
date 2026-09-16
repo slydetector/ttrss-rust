@@ -170,6 +170,24 @@ test: ## run the full workspace test suite (cargo nextest)
 clippy: ## run clippy across the workspace
 	cargo clippy --workspace --all-targets
 
+.PHONY: coverage
+coverage: ## run test coverage (cargo-llvm-cov): CLI summary + HTML report
+	@command -v cargo-llvm-cov >/dev/null 2>&1 || { echo "error: cargo-llvm-cov not found. Install:  cargo install cargo-llvm-cov"; exit 1; }
+	@# cargo-llvm-cov needs llvm-cov + llvm-profdata (the llvm-tools-preview component, a system LLVM on PATH, or LLVM_COV/LLVM_PROFDATA).
+	@cargo llvm-cov show-env --sh >/dev/null 2>&1 || { \
+		echo "error: cargo-llvm-cov could not find llvm-cov/llvm-profdata."; \
+		echo "  fix (pick one):"; \
+		echo "    rustup component add llvm-tools-preview"; \
+		echo "    export LLVM_COV=/path/to/llvm-cov LLVM_PROFDATA=/path/to/llvm-profdata"; \
+		exit 1; }
+	@echo "== running the ttrss test suite under LLVM source-based coverage instrumentation (HTML report follows)..."
+	cargo llvm-cov -p ttrss --html
+	@echo ""
+	@echo "== HTML report: target/llvm-cov/html/index.html"
+	@echo "== freeing the instrumented build dir (target/llvm-cov-target, ~18 GB) ..."
+	@rm -rf target/llvm-cov-target
+	@echo "== done - the HTML report above is kept; the extra build dir is removed."
+
 # --- harness (record / replay / diff) ---------------------------------------
 .PHONY: harness
 harness: ## reset DB, build, run the corpus vs the Rust server, diff vs oracle-a
