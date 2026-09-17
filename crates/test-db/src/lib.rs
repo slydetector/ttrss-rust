@@ -7,7 +7,7 @@
 //!   from the oracle stack:
 //!   - `TTRSS_TEST_PG_URL` (env) overrides the server (any dedicated
 //!     instance, e.g. a long-lived local one);
-//!   - otherwise a testcontainers `postgres:15-alpine` container with a
+//!   - otherwise a testcontainers `postgres:17-alpine` container with a
 //!     fixed name ([`CONTAINER_NAME`]) that is *reused* across runs while
 //!     it exists (one-off container startup, cheap attach afterwards).
 //!     Reused containers are **not** removed when their handle is dropped
@@ -78,7 +78,7 @@ impl PgServer {
         loop {
             attempts += 1;
             let request = Postgres::default()
-                .with_tag("15-alpine")
+                .with_tag("17-alpine")
                 .with_container_name(CONTAINER_NAME)
                 .with_reuse(ReuseDirective::Always);
             match request.start().await {

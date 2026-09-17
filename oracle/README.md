@@ -40,7 +40,7 @@ oracle/
 
 ## Stack
 
-- `db` — postgres:15-alpine, single database `postgres`.
+- `db` — postgres:17-alpine, single database `postgres`.
 - `app` — official tt-rss FPM image pinned to `sha-2f7d831`; shares a
   `webroot` volume with `web` and `updater` at `/var/www/html`.
 - `updater` — `update_daemon2.php` in a loop; **stopped by the seed script** so

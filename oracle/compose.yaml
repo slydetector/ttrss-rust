@@ -34,7 +34,7 @@ x-app-env: &app-env
 
 services:
   db:
-    image: postgres:15-alpine
+    image: postgres:17-alpine
     environment:
       POSTGRES_USER: ${TTRSS_DB_USER}
       POSTGRES_PASSWORD: ${TTRSS_DB_PASS}
