@@ -171,6 +171,31 @@ that logins/updates re-stamp between runs) -> `<ts>`;
 percent-encoded) so the oracle (8280) and Rust (8281) compare; all header
 values (notably `set-cookie` and `location`) normalized the same way.
 
+## Known Rust↔Oracle mismatches
+
+The corpus is recorded from the *live* oracle and replayed against Rust a few
+minutes later, and the golden feed content is re-fetched on each re-seed — so
+two cases can show a diff that is not a Rust defect (neither is 15→17 related):
+
+- **`050_api_get_headlines_has_sandbox`** — the golden contains a Firefox-blog
+  article whose body embeds a **YouTube** `<iframe>`. The active
+  `af_youtube_embed` plugin hooks `HOOK_IFRAME_WHITELISTED` for the YouTube
+  hosts, so the oracle applies the *expanded* sandbox
+  (`allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox`)
+  and a bare `allowfullscreen`. The port has no M7 plugin system yet, so
+  `sanitizer::iframe_whitelisted` is a documented `false` stub and Rust emits
+  the restrictive `sandbox="allow-scripts"` (and `allowfullscreen=""`). This is
+  the tracked M7 gap, not a sanitizer defect — it only surfaces once re-seeded
+  content actually contains a whitelisted (YouTube) iframe; a golden without one
+  diffs clean.
+
+- **`019_headlines_category`** — the `updated` field is a relative "N min" age.
+  The diff normalizes tt-rss *smart dates* to `<ts>` (above) but not the
+  sub-hour "N min" form, so if `record` and the Rust replay straddle a minute
+  boundary the sides differ by exactly one minute (`"18 min"` vs `"19 min"`).
+  A timing artifact, not a content divergence; clean when record and replay
+  land in the same minute.
+
 ## Reuse for the Rust server
 
 **The canonical interface is the top-level `Makefile`** — `make harness` resets
