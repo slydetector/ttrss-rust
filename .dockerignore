@@ -1,0 +1,20 @@
+# Build context is the repo root. The image build only needs the workspace
+# (Cargo.* + crates/) and the tt-rss frontend docroot — exclude everything else.
+target/
+oracle/
+docs/
+tt-rss-android/
+.git/
+.pi/
+.ruff_cache/
+.config/
+browser/
+.pi-lens.json
+demo.log
+demo.pid
+AGENTS.md
+README.md
+Makefile
+# shadow/: keep the Dockerfile; exclude local secrets + dump artifacts.
+shadow/.env
+shadow/*.dump

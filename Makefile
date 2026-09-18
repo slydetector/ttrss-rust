@@ -162,6 +162,29 @@ demo-follow: ## follow the demo server's log output (tail -f)
 	@test -f $(DEMO_LOG) || { echo "no $(DEMO_LOG); start the server first: make demo-start"; exit 1; }
 	@tail -n 50 -f $(DEMO_LOG)
 
+# --- shadow (prod-data confidence run) ---------------------------------------
+# Everything lives under shadow/ (see docs/shadow-prod.md). Prod creds go in the
+# gitignored shadow/.env (create from shadow/.env.example). The drift preflight
+# hard-fails unless prod's ttrss_version.schema_version == EXPECTED_SCHEMA_VERSION.
+SHADOW_SCRIPT := shadow/shadow.sh
+
+.PHONY: shadow
+shadow: ## preflight + build + bring up the shadow (db + rust) against a prod copy
+	bash $(SHADOW_SCRIPT) preflight
+	bash $(SHADOW_SCRIPT) up
+
+.PHONY: shadow-copy
+shadow-copy: ## re-sync the shadow from prod (re-dump + restore + restart; no rebuild)
+	bash $(SHADOW_SCRIPT) copy
+
+.PHONY: shadow-stop
+shadow-stop: ## stop the shadow stack (db + rust); keeps the data volume
+	bash $(SHADOW_SCRIPT) stop
+
+.PHONY: shadow-db
+shadow-db: ## (internal) ensure the shadow db is up + reset the shadow database
+	bash $(SHADOW_SCRIPT) db
+
 .PHONY: test
 test: ## run the full workspace test suite (cargo nextest)
 	cargo nextest run

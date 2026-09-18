@@ -23,3 +23,6 @@ __pycache__/
 # Local agent state + browser-probe output (transient, regenerated)
 .pi/
 browser/out/
+
+# Shadow-prod dump artifact (the prod DB copy; shadow/.env is covered by .env above)
+shadow/*.dump
