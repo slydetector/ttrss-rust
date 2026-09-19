@@ -62,7 +62,7 @@ use sqlx::PgPool;
 
 use crate::render::urlencode;
 
-use super::plugin::Plugin;
+use super::plugin::{BoxFuture, Plugin};
 
 /// `PluginHost::API_VERSION` (classes/PluginHost.php:40) — the minimum
 /// plugin API version the host will load.
@@ -621,32 +621,39 @@ impl<'a> HostCtx<'a> {
     }
 
     // -- the four run modes (PHP's `run_hooks*`) ------------------------------
-
+    //
+    // The invoke closures return a `BoxFuture` borrowing the per-call
+    // `plugin`/`ctx` arguments (`for<'x>`), so a closure's *captures* must
+    // be owned or `'static`-ish: clone per call (`let v = v.clone();` before
+    // the `async move`) or pass references the data outlives.
     /// `run_hooks($hook, ...$args)` — invoke every active plugin's hook in
     /// priority order; results ignored.
-    pub fn run_hooks<F: FnMut(&dyn Plugin, &mut HostCtx)>(
-        &mut self,
-        hook: &str,
-        mut invoke: F,
-    ) {
+    pub async fn run_hooks<F>(&mut self, hook: &str, mut invoke: F)
+    where
+        for<'x> F: FnMut(&'x dyn Plugin, &'x mut HostCtx<'a>) -> BoxFuture<'x, ()>,
+    {
         let host = self.host;
         for idx in self.hook_order(hook) {
-            invoke(host.plugin(idx), self);
+            invoke(host.plugin(idx), self).await;
         }
     }
 
     /// `run_hooks_until($hook, $check, ...$args)` — invoke in priority order
     /// until a plugin's result satisfies `check` (PHP: `$result == $check`);
     /// returns whether one did.
-    pub fn run_hooks_until<R, C: Fn(&R) -> bool, F: Fn(&dyn Plugin, &mut HostCtx) -> R>(
+    pub async fn run_hooks_until<R, C, F>(
         &mut self,
         hook: &str,
         check: C,
         invoke: F,
-    ) -> bool {
+    ) -> bool
+    where
+        C: Fn(&R) -> bool,
+        for<'x> F: Fn(&'x dyn Plugin, &'x mut HostCtx<'a>) -> BoxFuture<'x, R>,
+    {
         let host = self.host;
         for idx in self.hook_order(hook) {
-            if check(&invoke(host.plugin(idx), self)) {
+            if check(&invoke(host.plugin(idx), self).await) {
                 return true;
             }
         }
@@ -655,15 +662,19 @@ impl<'a> HostCtx<'a> {
 
     /// `run_hooks_callback($hook, $callback, ...$args)` — invoke in priority
     /// order; stop when `stop(&result, plugin)` returns `true`.
-    pub fn run_hooks_callback<R, S: FnMut(&R, &dyn Plugin) -> bool, F: Fn(&dyn Plugin, &mut HostCtx) -> R>(
+    pub async fn run_hooks_callback<R, S, F>(
         &mut self,
         hook: &str,
         invoke: F,
         mut stop: S,
-    ) {
+    )
+    where
+        S: FnMut(&R, &dyn Plugin) -> bool,
+        for<'x> F: Fn(&'x dyn Plugin, &'x mut HostCtx<'a>) -> BoxFuture<'x, R>,
+    {
         let host = self.host;
         for idx in self.hook_order(hook) {
-            if stop(&invoke(host.plugin(idx), self), host.plugin(idx)) {
+            if stop(&invoke(host.plugin(idx), self).await, host.plugin(idx)) {
                 break;
             }
         }
@@ -672,16 +683,20 @@ impl<'a> HostCtx<'a> {
     /// `chain_hooks_callback($hook, $callback, &...$args)` — like
     /// [`HostCtx::run_hooks_callback`], but threads `state` (PHP's
     /// by-reference arguments) mutably through each invocation.
-    pub fn chain_hooks_callback<S, R, St: FnMut(&R, &dyn Plugin) -> bool, F: Fn(&dyn Plugin, &mut HostCtx, &mut S) -> R>(
+    pub async fn chain_hooks_callback<S, R, St, F>(
         &mut self,
         hook: &str,
         state: &mut S,
         invoke: F,
         mut stop: St,
-    ) {
+    )
+    where
+        St: FnMut(&R, &dyn Plugin) -> bool,
+        for<'x> F: Fn(&'x dyn Plugin, &'x mut HostCtx<'a>, &'x mut S) -> BoxFuture<'x, R>,
+    {
         let host = self.host;
         for idx in self.hook_order(hook) {
-            if stop(&invoke(host.plugin(idx), self, state), host.plugin(idx)) {
+            if stop(&invoke(host.plugin(idx), self, state).await, host.plugin(idx)) {
                 break;
             }
         }
@@ -694,12 +709,20 @@ impl<'a> HostCtx<'a> {
     /// undashed name (PHP: `$class->$command($args)`). No first-party plugin
     /// registers a command in the frozen reference, so this is a no-op for
     /// the stock set.
-    pub fn run_commands(&mut self, args: &Value) {
-        for (key, cmd) in self.host.get_commands() {
+    pub async fn run_commands(&mut self, args: &Value) {
+        // Collect up front: the `&mut self` for `invoke_method` may not
+        // overlap the `self.host.get_commands()` borrow.
+        let cmds: Vec<(String, usize)> = self
+            .host
+            .get_commands()
+            .iter()
+            .map(|(k, c)| (k.clone(), c.plugin))
+            .collect();
+        for (key, idx) in cmds {
             if args.get(key.as_str()).is_some() {
                 let method = key.trim_start_matches('-').to_string();
-                let plugin = self.host.plugin(cmd.plugin);
-                if let Err(e) = plugin.invoke_method(self, &method, args) {
+                let plugin = self.host.plugin(idx);
+                if let Err(e) = plugin.invoke_method(self, &method, args).await {
                     tracing::warn!(command = %method, error = %e, "plugin command failed");
                 }
             }
@@ -828,21 +851,29 @@ mod tests {
                 host.add_api_method("m");
             }
         }
-        fn hook_article_button(&self, _host: &mut HostCtx, _line: &Value) -> String {
-            self.calls.lock().unwrap().push(self.name.to_string());
-            self.name.to_string()
+        fn hook_article_button<'a, 'h: 'a>(
+            &'a self,
+            _host: &'a mut HostCtx<'h>,
+            _line: &'a Value,
+        ) -> BoxFuture<'a, String> {
+            Box::pin(async move {
+                self.calls.lock().unwrap().push(self.name.to_string());
+                self.name.to_string()
+            })
         }
-        fn invoke_method(
-            &self,
-            _host: &mut HostCtx,
-            method: &str,
-            _params: &Value,
-        ) -> Result<Value, PluginError> {
-            if method == "my_cmd" {
-                Ok(serde_json::json!({ "called": self.name }))
-            } else {
-                Err(PluginError::UnknownMethod(method.to_string()))
-            }
+        fn invoke_method<'a, 'h: 'a>(
+            &'a self,
+            _host: &'a mut HostCtx<'h>,
+            method: &'a str,
+            _params: &'a Value,
+        ) -> BoxFuture<'a, Result<Value, PluginError>> {
+            Box::pin(async move {
+                if method == "my_cmd" {
+                    Ok(serde_json::json!({ "called": self.name }))
+                } else {
+                    Err(PluginError::UnknownMethod(method.to_string()))
+                }
+            })
         }
     }
 
@@ -908,61 +939,84 @@ mod tests {
     async fn run_modes_until_callback_chain() {
         let (host, c) = host_abc();
         let pool = lazy_pool();
+        // Shadowed as `&Value` (Copy) so the `Fn`/`FnMut` closures can hand
+        // it to their `async move` blocks without moving the `Value`.
         let line = Value::Null;
+        let line = &line;
 
         // run_hooks: all three, in order.
         let mut ctx = HostCtx::for_user(&host, &pool, None, None, 0, &["a", "b", "c"], &[]);
-        ctx.run_hooks(HOOK_ARTICLE_BUTTON, |p, _h| {
-            let _ = p.hook_article_button(_h, &line);
-        });
+        ctx
+            .run_hooks(HOOK_ARTICLE_BUTTON, |_p, _h| {
+                Box::pin(async move {
+                    let _ = _p.hook_article_button(_h, line).await;
+                })
+            })
+            .await;
         assert_eq!(names(&c), vec!["b", "a", "c"]);
 
         // run_hooks_until: stops at the first plugin whose result matches.
         c.lock().unwrap().clear();
         let mut ctx = HostCtx::for_user(&host, &pool, None, None, 0, &["a", "b", "c"], &[]);
-        let matched = ctx.run_hooks_until(
-            HOOK_ARTICLE_BUTTON,
-            |r: &String| r == "a",
-            |p, h| p.hook_article_button(h, &line),
-        );
+        let matched = ctx
+            .run_hooks_until(
+                HOOK_ARTICLE_BUTTON,
+                |r: &String| r == "a",
+                |p, h| {
+                    Box::pin(async move { p.hook_article_button(h, line).await })
+                },
+            )
+            .await;
         assert!(matched);
         assert_eq!(names(&c), vec!["b", "a"]);
 
         // No match → all invoked, false.
         c.lock().unwrap().clear();
         let mut ctx = HostCtx::for_user(&host, &pool, None, None, 0, &["a", "b", "c"], &[]);
-        let matched = ctx.run_hooks_until(
-            HOOK_ARTICLE_BUTTON,
-            |r: &String| r == "zzz",
-            |p, h| p.hook_article_button(h, &line),
-        );
+        let matched = ctx
+            .run_hooks_until(
+                HOOK_ARTICLE_BUTTON,
+                |r: &String| r == "zzz",
+                |p, h| {
+                    Box::pin(async move { p.hook_article_button(h, line).await })
+                },
+            )
+            .await;
         assert!(!matched);
         assert_eq!(names(&c), vec!["b", "a", "c"]);
 
         // run_hooks_callback: stops when the predicate holds.
         c.lock().unwrap().clear();
         let mut ctx = HostCtx::for_user(&host, &pool, None, None, 0, &["a", "b", "c"], &[]);
-        ctx.run_hooks_callback(
-            HOOK_ARTICLE_BUTTON,
-            |p, h| p.hook_article_button(h, &line),
-            |r: &String, _p| *r == "a",
-        );
+        ctx
+            .run_hooks_callback(
+                HOOK_ARTICLE_BUTTON,
+                |p, h| {
+                    Box::pin(async move { p.hook_article_button(h, line).await })
+                },
+                |r: &String, _p| *r == "a",
+            )
+            .await;
         assert_eq!(names(&c), vec!["b", "a"]);
 
         // chain_hooks_callback: threads state through, stops mid-chain.
         c.lock().unwrap().clear();
         let mut ctx = HostCtx::for_user(&host, &pool, None, None, 0, &["a", "b", "c"], &[]);
         let mut acc = String::new();
-        ctx.chain_hooks_callback(
-            HOOK_ARTICLE_BUTTON,
-            &mut acc,
-            |p, h, s| {
-                let r = p.hook_article_button(h, &line);
-                s.push_str(r.as_str());
-                r
-            },
-            |r: &String, _p| *r == "a",
-        );
+        ctx
+            .chain_hooks_callback(
+                HOOK_ARTICLE_BUTTON,
+                &mut acc,
+                |p, h, s| {
+                    Box::pin(async move {
+                        let r = p.hook_article_button(h, line).await;
+                        s.push_str(r.as_str());
+                        r
+                    })
+                },
+                |r: &String, _p| *r == "a",
+            )
+            .await;
         assert_eq!(names(&c), vec!["b", "a"]);
         assert_eq!(acc, "ba");
     }
