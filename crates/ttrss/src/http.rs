@@ -246,7 +246,10 @@ async fn public_handler(
             match crate::pluginhost::dispatch::public_dispatch(&state, &plugin, &pmethod, &request)
                 .await
             {
-                Ok(v) => (StatusCode::OK, v.to_string()).into_response(),
+                Ok(crate::pluginhost::plugin::MethodOutput::Json(v)) =>
+                    (StatusCode::OK, v.to_string()).into_response(),
+                Ok(crate::pluginhost::plugin::MethodOutput::Raw(s)) =>
+                    (StatusCode::OK, s).into_response(),
                 // PHP: an uncaught exception in the public handler — 500.
                 Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
             }

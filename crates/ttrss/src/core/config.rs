@@ -187,7 +187,7 @@ impl Config {
             disable_login_form: sql_bool_to_bool(
                 &std::env::var("TTRSS_DISABLE_LOGIN_FORM").unwrap_or_default(),
             ),
-            plugins: std::env::var("TTRSS_PLUGINS").unwrap_or_else(|_| "auth_internal".into()),
+            plugins: std::env::var("TTRSS_PLUGINS").unwrap_or_else(|_| crate::pluginhost::default_plugins()),
             listen: env("TTRSS_RUST_LISTEN", "127.0.0.1:8281")?,
             docroot: std::env::var("TTRSS_RUST_DOCROOT")
                 .map(PathBuf::from)

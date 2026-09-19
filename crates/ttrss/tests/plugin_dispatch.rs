@@ -19,7 +19,7 @@ use ttrss::core::db::Db;
 use ttrss::core::phpser::Value as PValue;
 use ttrss::core::session::Session;
 use ttrss::pluginhost::host::{HostCtx, PluginHost};
-use ttrss::pluginhost::plugin::{About, BoxFuture, Plugin, PluginError};
+use ttrss::pluginhost::plugin::{About, BoxFuture, MethodOutput, Plugin, PluginError};
 use ttrss::session::Sess;
 use ttrss::AppState;
 
@@ -62,17 +62,20 @@ impl Plugin for DispatchPlugin {
         ctx: &'a mut HostCtx<'h>,
         method: &'a str,
         params: &'a Value,
-    ) -> BoxFuture<'a, Result<Value, PluginError>> {
+    ) -> BoxFuture<'a, Result<MethodOutput, PluginError>> {
         Box::pin(async move {
             if !self.methods.contains(&method) {
                 return Err(PluginError::UnknownMethod(method.to_string()));
             }
-            Ok(json!({
+            if method == "raw" {
+                return Ok(MethodOutput::Raw("<b>hi</b>".to_string()));
+            }
+            Ok(MethodOutput::Json(json!({
                 "plugin": self.name(),
                 "method": method,
                 "owner_uid": ctx.owner_uid,
                 "params": params,
-            }))
+            })))
         })
     }
 }
@@ -148,6 +151,15 @@ fn extra(pairs: &[(&str, Value)]) -> Map<String, Value> {
     Map::from_iter(pairs.iter().map(|(k, v)| (k.to_string(), v.clone())))
 }
 
+/// The JSON payload of a `MethodOutput` (panics on `Raw` — the tests that
+/// expect JSON fail loudly if a plugin starts printing HTML).
+fn json_out(v: &MethodOutput) -> &Value {
+    match v {
+        MethodOutput::Json(j) => j,
+        MethodOutput::Raw(s) => panic!("expected JSON, got raw: {s}"),
+    }
+}
+
 fn code(v: &Value) -> &str {
     v["error"]["code"].as_str().unwrap()
 }
@@ -180,6 +192,7 @@ async fn test_protected_dispatch(
     )
     .await
     .expect("no plugin error");
+    let v = json_out(&v);
 
     assert_eq!(v["plugin"], "dispatchtest");
     assert_eq!(v["method"], "getnote");
@@ -220,7 +233,8 @@ async fn test_protected_unknown_plugin(
     )
     .await
     .expect("no plugin error");
-    assert_eq!(code(&v), "E_UNKNOWN_PLUGIN");
+    let v = json_out(&v);
+    assert_eq!(code(v), "E_UNKNOWN_PLUGIN");
 }
 
 // Unknown method → `E_UNKNOWN_METHOD` — and it takes precedence over the
@@ -251,7 +265,8 @@ async fn test_protected_unknown_method_beats_csrf(
     )
     .await
     .expect("no plugin error");
-    assert_eq!(code(&v), "E_UNKNOWN_METHOD");
+    let v = json_out(&v);
+    assert_eq!(code(v), "E_UNKNOWN_METHOD");
 }
 
 // CSRF fail: bad token, method exists, no `csrf_ignore` → `E_UNAUTHORIZED`.
@@ -280,7 +295,8 @@ async fn test_protected_csrf_fail(
     )
     .await
     .expect("no plugin error");
-    assert_eq!(code(&v), "E_UNAUTHORIZED");
+    let v = json_out(&v);
+    assert_eq!(code(v), "E_UNAUTHORIZED");
 }
 
 // `csrf_ignore` bypass: bad token, but the plugin exempts the method →
@@ -310,6 +326,7 @@ async fn test_protected_csrf_ignore_bypass(
     )
     .await
     .expect("no plugin error");
+    let v = json_out(&v);
     assert_eq!(v["method"], "getnote");
 }
 
@@ -339,6 +356,7 @@ async fn test_protected_name_cleaned(
     )
     .await
     .expect("no plugin error");
+    let v = json_out(&v);
     assert_eq!(v["plugin"], "dispatchtest");
 }
 
@@ -370,7 +388,8 @@ async fn test_public_private_method_rejected(
     )
     .await
     .expect("no plugin error");
-    assert_eq!(code(&v), "E_UNAUTHORIZED");
+    let v = json_out(&v);
+    assert_eq!(code(v), "E_UNAUTHORIZED");
 }
 
 // Public dispatch: `is_public_method` true → invoked with owner 0 (PHP's
@@ -399,6 +418,7 @@ async fn test_public_dispatch(
     )
     .await
     .expect("no plugin error");
+    let v = json_out(&v);
     assert_eq!(v["plugin"], "dispatchtest");
     assert_eq!(v["method"], "showarticle");
     assert_eq!(v["owner_uid"], 0);
@@ -431,7 +451,8 @@ async fn test_public_unknown_plugin(
     )
     .await
     .expect("no plugin error");
-    assert_eq!(code(&v), "E_UNKNOWN_PLUGIN");
+    let v = json_out(&v);
+    assert_eq!(code(v), "E_UNKNOWN_PLUGIN");
     assert_eq!(v["error"]["params"][0]["plugin"], "no_such_plugin");
 }
 
@@ -460,7 +481,8 @@ async fn test_public_unknown_method(
     )
     .await
     .expect("no plugin error");
-    assert_eq!(code(&v), "E_UNKNOWN_METHOD");
+    let v = json_out(&v);
+    assert_eq!(code(v), "E_UNKNOWN_METHOD");
 }
 
 // `basename(clean(...))` on the plugin name: a path-like `plugin` param
@@ -489,5 +511,40 @@ async fn test_public_name_basename(
     )
     .await
     .expect("no plugin error");
+    let v = json_out(&v);
     assert_eq!(v["plugin"], "dispatchtest");
+}
+
+// A method that prints raw HTML (PHP's plain `print`) comes back as
+// `MethodOutput::Raw` — the response body is the printed text, not a JSON
+// envelope.
+#[sqlx::test(fixtures(
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql"
+))]
+async fn test_protected_raw_output(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
+    let plugin = DispatchPlugin {
+        public: true,
+        csrf_ignore: true,
+        methods: vec!["raw"],
+    };
+    let (state, sess) = setup(pool, options, plugin, "tok123").await;
+
+    let v = ttrss::pluginhost::dispatch::pluginhandler(
+        &state,
+        &sess,
+        "WRONG",
+        "raw",
+        &extra(&[("plugin", json!("dispatchtest"))]),
+    )
+    .await
+    .expect("no plugin error");
+    match v {
+        MethodOutput::Raw(s) => assert_eq!(s, "<b>hi</b>"),
+        MethodOutput::Json(j) => panic!("expected Raw, got JSON: {j}"),
+    }
 }

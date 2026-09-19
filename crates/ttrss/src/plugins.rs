@@ -7,6 +7,8 @@
 //! from `Config::PLUGINS`, `user_enabled` from the `_ENABLED_PLUGINS` pref,
 //! `has_data` from the (empty) plugin config store.
 
+pub mod note;
+
 use serde_json::{json, Value};
 
 use crate::core::user::ACCESS_LEVEL_ADMIN;

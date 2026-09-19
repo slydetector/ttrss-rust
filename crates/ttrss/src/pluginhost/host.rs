@@ -593,6 +593,19 @@ impl<'a> HostCtx<'a> {
         self.active.get(idx).copied().unwrap_or(false)
     }
 
+    /// `PluginHost::get_plugin($name)` restricted to this context's active
+    /// set: PHP's per-request host only *holds* loaded plugins, so a plugin
+    /// that is registered but not active for the owner (system list /
+    /// `_ENABLED_PLUGINS`) is an unknown plugin on the dispatch paths.
+    pub fn get_plugin(&self, name: &str) -> Option<&'a dyn Plugin> {
+        let &i = self.host.by_name.get(&name.to_lowercase())?;
+        if self.active.get(i).copied().unwrap_or(false) {
+            Some(self.host.plugins[i].as_ref())
+        } else {
+            None
+        }
+    }
+
     /// The active plugins, in registration order.
     pub fn active_plugins(&self) -> impl Iterator<Item = &dyn Plugin> + '_ {
         self.host
@@ -778,7 +791,7 @@ mod tests {
 
     use super::*;
     use crate::pluginhost::PluginError;
-    use crate::pluginhost::plugin::{About, Plugin};
+    use crate::pluginhost::plugin::{About, MethodOutput, Plugin};
     use crate::pluginhost::HOOK_ARTICLE_BUTTON;
 
     /// A test plugin: registers `HOOK_ARTICLE_BUTTON` at `prio` in `init`,
@@ -866,10 +879,10 @@ mod tests {
             _host: &'a mut HostCtx<'h>,
             method: &'a str,
             _params: &'a Value,
-        ) -> BoxFuture<'a, Result<Value, PluginError>> {
+        ) -> BoxFuture<'a, Result<MethodOutput, PluginError>> {
             Box::pin(async move {
                 if method == "my_cmd" {
-                    Ok(serde_json::json!({ "called": self.name }))
+                    Ok(MethodOutput::Json(serde_json::json!({ "called": self.name })))
                 } else {
                     Err(PluginError::UnknownMethod(method.to_string()))
                 }

@@ -49,6 +49,18 @@ use super::host::{HostCtx, PluginHost};
 /// `Send` bound is what lets the runners await across plugin invocations.
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
+/// The body a dynamic plugin method **prints** (PHP's `$plugin->$method()`
+/// takes no return value — the method `print`s, and whatever it prints is
+/// the response body).
+#[derive(Debug, Clone, PartialEq)]
+pub enum MethodOutput {
+    /// The method printed a JSON document (PHP's `print json_encode(…)`).
+    Json(Value),
+    /// The method printed raw text/HTML (plain `print`/echo — e.g. the
+    /// `note` plugin's dialog body, fed to a Dojo dialog via innerHTML).
+    Raw(String),
+}
+
 /// `Plugin::API_VERSION_COMPAT` (classes/Plugin.php:3) — the version a plugin
 /// that does not override `api_version()` advertises.
 pub const API_VERSION_COMPAT: i32 = 1;
@@ -217,7 +229,7 @@ pub trait Plugin: Send + Sync {
         _host: &'a mut HostCtx<'h>,
         method: &'a str,
         _params: &'a Value,
-    ) -> BoxFuture<'a, Result<Value, PluginError>> {
+    ) -> BoxFuture<'a, Result<MethodOutput, PluginError>> {
         Box::pin(async move {
         Err(PluginError::UnknownMethod(method.to_string()))
         })

@@ -25,15 +25,9 @@
 use serde_json::{json, Map, Value};
 
 use super::host::HostCtx;
-use super::plugin::PluginError;
+use super::plugin::{MethodOutput, PluginError};
 use crate::session::Sess;
 use crate::AppState;
-
-/// PHP's `clean()` (`include/functions.php`): `trim(strip_tags($v))` for
-/// strings.
-fn clean(v: &str) -> String {
-    crate::util::strip_tags(v).trim().to_string()
-}
 
 /// PHP's `basename($path)` (no suffix argument).
 fn basename(p: &str) -> String {
@@ -113,18 +107,21 @@ pub async fn pluginhandler(
     csrf: &str,
     method: &str,
     extra: &Map<String, Value>,
-) -> Result<Value, PluginError> {
-    let plugin_name = clean(extra.get("plugin").and_then(|v| v.as_str()).unwrap_or(""));
-    let Some(plugin) = state.plugins.get_plugin(&plugin_name) else {
-        return Ok(err("E_UNKNOWN_PLUGIN"));
+) -> Result<MethodOutput, PluginError> {
+    let plugin_name = crate::util::clean_str(extra.get("plugin").and_then(|v| v.as_str()).unwrap_or(""));
+    // PHP's per-request host is loaded (the system + owner's active set)
+    // before `catchall` runs — a plugin not active for this user is an
+    // unknown plugin.
+    let mut ctx = session_ctx(state, sess).await;
+    let Some(plugin) = ctx.get_plugin(&plugin_name) else {
+        return Ok(MethodOutput::Json(err("E_UNKNOWN_PLUGIN")));
     };
     if !plugin.has_public_method(method) {
-        return Ok(err("E_UNKNOWN_METHOD"));
+        return Ok(MethodOutput::Json(err("E_UNKNOWN_METHOD")));
     }
     if !crate::rpc::validate_csrf(sess, csrf) && !plugin.csrf_ignore(method) {
-        return Ok(err("E_UNAUTHORIZED"));
+        return Ok(MethodOutput::Json(err("E_UNAUTHORIZED")));
     }
-    let mut ctx = session_ctx(state, sess).await;
     plugin
         .invoke_method(&mut ctx, method, &request_map("PluginHandler", method, csrf, extra))
         .await
@@ -140,22 +137,24 @@ pub async fn public_dispatch(
     plugin_param: &str,
     method: &str,
     request: &Value,
-) -> Result<Value, PluginError> {
+) -> Result<MethodOutput, PluginError> {
     // PHP: `basename(clean($_REQUEST["plugin"]))` — unlike the protected
     // path, the name is basename'd (a `plugin` of `../x` cannot escape).
-    let name = basename(&clean(plugin_param));
-    let method = clean(method);
-    let Some(plugin) = state.plugins.get_plugin(&name) else {
+    let name = basename(&crate::util::clean_str(plugin_param));
+    let method = crate::util::clean_str(method);
+    // PHP: `new PluginHost; load($name, KIND_ALL, 0)` — a fresh host with
+    // only the named plugin (if registered at all).
+    let mut ctx = HostCtx::single(&state.plugins, state.db.pool(), &name);
+    let Some(plugin) = ctx.get_plugin(&name) else {
         let mut params = Map::new();
         params.insert("plugin".into(), Value::String(name));
-        return Ok(err_with("E_UNKNOWN_PLUGIN", params));
+        return Ok(MethodOutput::Json(err_with("E_UNKNOWN_PLUGIN", params)));
     };
     if !plugin.has_public_method(&method) {
-        return Ok(err("E_UNKNOWN_METHOD"));
+        return Ok(MethodOutput::Json(err("E_UNKNOWN_METHOD")));
     }
     if !plugin.is_public_method(&method) {
-        return Ok(err("E_UNAUTHORIZED"));
+        return Ok(MethodOutput::Json(err("E_UNAUTHORIZED")));
     }
-    let mut ctx = HostCtx::single(&state.plugins, state.db.pool(), &name);
     plugin.invoke_method(&mut ctx, &method, request).await
 }

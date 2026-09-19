@@ -10,11 +10,11 @@
 //!   active plugin set, owner/profile/access level, DB pool, special
 //!   feeds), plus the four run modes and the registration API.
 //!
-//! **M7.1 lands the machinery with an empty registry** ([`all_plugins`] is
-//! `[]`): no plugin is ported yet, no hook call site is wired, so server
-//! behavior is unchanged (the no-op baseline must stay corpus-green). The
-//! first plugins land in M7.4+ (each registers in `all_plugins` and wires
-//! its own call sites).
+//! M7.1 landed the machinery with an empty registry ([`all_plugins`] was
+//! `[]`): no plugin ported, no hook call site wired, server behavior
+//! unchanged (the no-op baseline). Plugins land in M7.4+ (each registers in
+//! [`all_plugins`]; M7.4 is `note`); hook call sites are wired per increment
+//! (M7.21 makes the remaining injection data-driven).
 //!
 //! See the plan's §3a Phase 7 for the increment breakdown and the locked
 //! decisions (static loading, contract 1:1 with PHP, the WASM route
@@ -99,5 +99,18 @@ pub const HOOK_ARTICLES_PUBLISH_TOGGLED: &str = "hook_articles_publish_toggled";
 /// M7.1: intentionally empty — the no-op baseline. Grows one entry per
 /// plugin as M7.4+ land.
 pub fn all_plugins() -> Vec<fn() -> Box<dyn Plugin>> {
-    Vec::new()
+    vec![|| Box::new(crate::plugins::note::Note)]
+}
+
+/// The `TTRSS_PLUGINS` default (unset env var): the built-in `auth_internal`
+/// auth module plus every dynamically registered bundled plugin. PHP's
+/// `load_all` globs `plugins/*` — every bundled directory is a system
+/// candidate and each user's `_ENABLED_PLUGINS` pref (default: all) decides
+/// activation, so a fresh install ships every bundled plugin enabled.
+pub fn default_plugins() -> String {
+    let mut names = vec!["auth_internal".to_string()];
+    for make in all_plugins() {
+        names.push(make().name().to_string());
+    }
+    names.join(",")
 }

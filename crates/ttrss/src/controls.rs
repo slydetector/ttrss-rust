@@ -216,3 +216,15 @@ pub fn cancel_dialog_tag(value: &str) -> String {
         &[("onclick", "App.dialogOf(this).hide()".to_string())],
     )
 }
+/// PHP `Controls::pluginhandler_tags($plugin, $method)`: the hidden
+/// `op`/`plugin`/`method` tags a printed plugin-method form carries
+/// (concatenated, no separator; the plugin class name lowercase).
+pub fn pluginhandler_tags(plugin_class: &str, method: &str) -> String {
+    [
+        hidden_tag("op", "PluginHandler"),
+        hidden_tag("plugin", &plugin_class.to_lowercase()),
+        hidden_tag("method", method),
+    ]
+    .concat()
+}
+

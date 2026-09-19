@@ -322,7 +322,10 @@ async fn dispatch(
         // handler-level CSRF gate is a no-op (see `csrf_ignored`); the
         // plugin-level gate runs inside the handler.
         "PluginHandler" => match crate::pluginhost::dispatch::pluginhandler(state, sess, csrf, method, extra).await {
-            Ok(v) => DispatchOutput::Json(v),
+            Ok(crate::pluginhost::plugin::MethodOutput::Json(v)) => DispatchOutput::Json(v),
+            // The method printed raw text/HTML (PHP: a plain `print` — e.g.
+            // the `note` plugin's dialog body).
+            Ok(crate::pluginhost::plugin::MethodOutput::Raw(s)) => DispatchOutput::Html(s),
             // A plugin method that fails after passing the gates (PHP: an
             // uncaught exception in `catchall` — 500). The port includes the
             // message in the body for debuggability.
@@ -1060,7 +1063,7 @@ fn check_for_updates() -> bool {
 /// init list (KIND_ALL) — the same list is loaded for every request, so the
 /// per-user enabled subset only re-registers (order is fixed by the init list).
 fn plugin_names(docroot: &std::path::Path) -> String {
-    let list = std::env::var("TTRSS_PLUGINS").unwrap_or_else(|_| "auth_internal".into());
+    let list = std::env::var("TTRSS_PLUGINS").unwrap_or_else(|_| crate::pluginhost::default_plugins());
     list.split(',')
         .map(|d| d.trim())
         .filter(|d| !d.is_empty())
