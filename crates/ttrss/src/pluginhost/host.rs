@@ -494,6 +494,12 @@ pub struct HostCtx<'a> {
     /// Special (plugin-provided) feeds — per-request in PHP (the singleton
     /// is per-request), so per-context here.
     special_feeds: Vec<SpecialFeed>,
+    /// The per-host plugin storage map (PHP's `$this->storage`): plugin
+    /// class name → the owner's data map. Lazy-loaded by the `get` side;
+    /// see `storage.rs` (M7.2).
+    pub(crate) storage: std::collections::HashMap<String, crate::core::phpser::Value>,
+    /// PHP's `$this->data_loaded` guard.
+    pub(crate) data_loaded: bool,
 }
 
 impl<'a> HostCtx<'a> {
@@ -572,6 +578,8 @@ impl<'a> HostCtx<'a> {
             access_level,
             pool,
             special_feeds: Vec::new(),
+            storage: std::collections::HashMap::new(),
+            data_loaded: false,
         }
     }
 

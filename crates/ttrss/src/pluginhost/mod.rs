@@ -22,6 +22,7 @@
 
 pub mod host;
 pub mod plugin;
+pub mod storage;
 
 pub use host::{
     method_url, public_method_url, feed_to_pfeed_id, pfeed_to_feed_id, scheduled_task_name,
