@@ -141,7 +141,7 @@ Restructured per `research-report.md` (strangler-fig / vertical-slice / golden-m
 | **M5** | External API completeness + admin | Full level-23 API; user admin (`Pref_Users`), system (log, test email), password recovery (OTP/QR shipped in M4) |
 | **M5a** | **External API client compatibility** (M5 scope completion; gaps found by the tt-rss-android gap analysis, 2026-09-15) | The official Android client (`org.fox.ttrss`) works end-to-end against the port: `POST /api/` routed; `getFeeds` / `getCategories` / `getHeadlines` return the exact entry shapes and param semantics the client parses; a scripted replay of the client's full call sequence diffs clean vs the PHP oracle |
 | **M6** | The engine: updates | Fetch/parse/hash/dedup/filters/enclosures/favicons, counter-cache maintenance, failed-feed disabling, cron housekeeping, digest emails; **`Feeds::add` (feed subscribe, moved from M4)**. **Hosted in the server's tokio runtime (single process, not a separate daemon); `ttrss update` CLI retained for one-shot/standalone** — see `docs/unified-architecture.md`. Verified via ported PHP piece tests + a batch smoke test (golden update-run diff dropped). |
-| **M7** | Plugin system + first-party plugins | Rust plugin API; port auth_internal/remote, nsfw, note, af_* (incl. psql_trgm), share, bookmarklets, cache_starred_images, hotkeys; plugin storage + per-user enablement portable; plugin installer deferred (listing only) |
+| **M7** | Plugin system + all first-party plugins | Rust plugin API (static loading; contract pinned 1:1 with PHP — loader swappable, WASM route preserved); all 18 first-party plugins; plugin storage portable (PHP-serialize interop, read+write); installer deferred (listing only, already landed in M4). Decomposed in §3a Phase 7: M7.1–M7.21 |
 | **M8** | CLI/daemon parity + migrations | All `update.php` subcommands, lockfile semantics, `--update-schema` reusing exact `.sql` files, exit codes |
 | **M9** | Hardening & performance | Fuzz (sanitizer/parser/URL), security matrix, perf vs PHP baseline (target: faster), Docker images, docs, cutover runbook |
 
@@ -160,7 +160,8 @@ Restructured per `research-report.md` (strangler-fig / vertical-slice / golden-m
 | **M4** | ✅ | `Pref_Prefs` (profiles, app passwords, save+reset, `index`/`index_auth` + OTP writes), feed CRUD + categories + icons + ordering + access keys + OPML, filter CRUD + execution, label CRUD. | `Feeds::add` (subscribe) → M6 (needs fetch/parse). |
 | **M5** | ✅ | Level-23 API **writes** + `logout`, `Pref_Users`, `Pref_System`, password recovery, batch-add-feeds, case-insensitive dispatch. | `updateFeed`/`subscribeToFeed` → M6 (done in M6c.5); plugin management → M7; client-compat gaps → **M5a**. |
 | **M5a** | ✅ | M5a.1–M5a.4: `POST /api/` routing, `getCategories` `enable_nested`, `getHeadlines` `has_sandbox`, faithful `getFeeds` | — |
-| **M6** | 🚧 M6a + M6b.1–M6b.2c + M6c.1–M6c.7 done | M6a.1 (`FeedParser`, 20) + M6a.2 (`FeedItem` field extraction, 35) + M6a.3 (enclosures/`xml:base`/`c14n` + `tests_functional/FeedItem{Atom,Common}Test`, 92) + M6a.4 (gzip `is_gzipped`/`gzip_decode`, 9) + **M6b.1 (RSSUtils pure helpers: GUID/srcset/function_enabled/labels + filter-action helpers, 48)** + **M6b.2a (`calculate_article_hash`, 3) + M6b.2b (pipeline core `update_rss_feed`: hash→dedup→upsert→metadata, 7) + M6b.2c (filter/label/tag application: `load_filters` + eval→score/unread/marked/publish/catchup, labels [other]+[filters], tags + `ignore-tag` + blacklist, 8)** + **M6c.1 (fetch layer: `UrlHelper::fetch` → `reqwest`, 11)** + **M6c.2 (single-feed workhorse `fetch_one_feed`: 304/429/error stamping + conditional-refetch decision, 6)** + **M6c.4 (housekeeping: `croner`-based cron scheduler + per-feed `purge_feed`, 10)** + **M6c.5 (on-demand / web-triggered updates + `Feeds::add` first update: `Feeds::_subscribe` engine + `Feeds::add` + API `subscribeToFeed`/`updateFeed` + `rss_utils::update_basic_info`, 4)** + **M6c.7 (batch smoke + config/pool wiring)** green. | — (M6 complete; M6c.6 `send_headlines_digests` awaits the SMTP/lettre milestone). |
+| **M6** | ✅ | M6a.1 (`FeedParser`, 20) + M6a.2 (`FeedItem` field extraction, 35) + M6a.3 (enclosures/`xml:base`/`c14n` + `tests_functional/FeedItem{Atom,Common}Test`, 92) + M6a.4 (gzip `is_gzipped`/`gzip_decode`, 9) + **M6b.1 (RSSUtils pure helpers: GUID/srcset/function_enabled/labels + filter-action helpers, 48)** + **M6b.2a (`calculate_article_hash`, 3) + M6b.2b (pipeline core `update_rss_feed`: hash→dedup→upsert→metadata, 7) + M6b.2c (filter/label/tag application: `load_filters` + eval→score/unread/marked/publish/catchup, labels [other]+[filters], tags + `ignore-tag` + blacklist, 8)** + **M6c.1 (fetch layer: `UrlHelper::fetch` → `reqwest`, 11)** + **M6c.2 (single-feed workhorse `fetch_one_feed`: 304/429/error stamping + conditional-refetch decision, 6)** + **M6c.3 (daemon/scheduler loop: due-feed selection/claim, `Semaphore(2)` `JoinSet`, graceful shutdown, 8)** + **M6c.4 (housekeeping: `croner`-based cron scheduler + per-feed `purge_feed`, 10)** + **M6c.5 (on-demand / web-triggered updates + `Feeds::add` first update: `Feeds::_subscribe` engine + `Feeds::add` + API `subscribeToFeed`/`updateFeed` + `rss_utils::update_basic_info`, 4)** + **M6c.7 (batch smoke + config/pool wiring)** green. | — (digest **email send** awaits the `lettre` Mailer — tracked in §3a Deferred; M6c.6 CLI subcommands dropped per D1=B). |
+| **M7** | 🚧 not started | — | Decomposed per §3a Phase 7 (M7.1–M7.21 across 8 phases; all 18 first-party plugins, static loading). Starts at M7.1 (contract + registry — no behavior change). |
 
 **Next = M6 (the engine)**, decomposed per `docs/unified-architecture.md` §4:
 
@@ -1210,10 +1211,104 @@ Port each handler class, method-by-method, against golden files (read methods la
 
 ### Phase 7 — Plugin system + first-party plugins (→ M7)
 
-- Rust plugin API: trait `TtrssPlugin` (about, init, storage load/save, ~40 hooks, CSS/JS/login JS injection, public methods, API methods, virtual feeds, CLI commands, scheduled tasks, prefs tabs), `PluginHost` registry port (per-user enablement via `_ENABLED_PLUGINS`, plugin storage table, plugin migrations).
-- Port first-party plugins in priority order: `auth_internal` (P1, already needed), `auth_remote`, `nsfw`, `note`, `af_comics`/`af_youtube_embed`/`af_zz_vidmute` (article filters — also validate the filter engine), `share`, `bookmarklets`, `cache_starred_images`, `hotkeys_*`, `af_psql_trgm` (SQL-only, trivial), `toggle_sidebar`.
-- Plugin installer/update checker (git-based) — **scope decision needed** (see Q7); may ship read-only listing first.
-- **Exit criteria**: stock plugin set reproduces PHP UI features (NSFW filter, notes, OTP auth, trigram search); plugin storage data portable (rows readable both ways).
+**Scope: all 18 first-party plugins** from the frozen reference (`tt-rss/plugins/`), phased bottom-up (M7.1–M7.21). Built on `docs/plugin-research.md` (2026-09-12); this section supersedes the old one-paragraph Phase 7.
+
+| # | Plugin | One-line function (user view) |
+|---|--------|-------------------------------|
+| — | `auth_internal` | username/password login against the tt-rss DB (already the built-in login path) |
+| 1 | `note` | per-article sticky notes (article-button + `PluginHandler`) |
+| 2 | `nsfw` | tag-based content hiding (collapsed "NSFW" disclosure + image placeholder) |
+| 3 | `no_iframes` | strip embedded iframes from content unless whitelisted |
+| 4 | `shorten_expanded` | collapse overly long articles in expanded/CDM view |
+| 5 | `af_zz_vidmute` | mute HTML5 videos in article content (JS) |
+| 6 | `af_comics` | repair comic-strip feed entries at fetch time |
+| 7 | `auto_assign_labels` | auto-assign labels from title/content/tags rules at fetch time |
+| 8 | `af_youtube_embed` | YouTube feed entries render as embedded players; iframe whitelist |
+| 9 | `cache_starred_images` | auto-cache media of starred articles to disk (scheduled task) |
+| 10 | `share` | share an article by unique no-account URL (keys revocable in prefs) |
+| 11 | `bookmarklets` | drag-to-bar bookmarklets: subscribe to feed / share this page |
+| 12 | `af_psql_trgm` | mark similar articles read (threshold pref) + "Related articles" dialog |
+| 13 | `toggle_sidebar` | main-toolbar button to toggle the sidebar |
+| 14 | `hotkeys_swap_jk` | swap j/k navigation keys (vim orientation) |
+| 15 | `hotkeys_noscroll` | n/p (↑/↓) move between articles without scrolling |
+| 16 | `hotkeys_force_top` | open expanded articles scrolled to the top |
+| 17 | `auth_remote` | login via proxy HTTP Basic auth or client SSL certificate |
+
+**Out of scope:** `nginx_xaccel` (appears in the demo's `TTRSS_PLUGINS` env but is not in the frozen reference — the reference is the spec); community/third-party plugins (locked: unsupported); the git-based installer (deferred — listing only, and the listing landed in M4).
+
+**Locked decisions:**
+
+1. **Static loading** — plugins compile into the server; explicit registration list; no dynamic-loading machinery (research §3/§6).
+2. **Contract pinned 1:1 with PHP** — `Plugin` + `PluginHost` traits, explicit `HostCtx` in place of PHP's globals (research §4.1–4.2).
+3. **Lifecycle** — `init()` runs once at startup (register-only); per-request gating: `TTRSS_PLUGINS` (system) + `_ENABLED_PLUGINS` (user, profile-scoped) (research §4.3).
+4. **State** — one long-lived instance per plugin: stateless across requests, `Send + Sync`, `RwLock` interior mutability in registries (research §4.4/4.5).
+5. **Storage interop read+write** — `ttrss_plugin_storage.content` stays PHP `serialize()` bytes; the codec **already exists** (`core/phpser.rs`, both directions, built for the session blob) — M7.2 applies it, does not build it (supersedes research §7.2).
+6. **i18n identity** — `__()` stays identity; plugin strings ship in English (research §4.9); API versioning mirrors PHP's `API_VERSION` (§7.6).
+7. **`auth_remote` in scope** — 2026-09-19 decision ("all first-party plugins are worth porting"); **overrides research §7.3's deferral**; the `IAuthModule` login refactor lands with it (M7.20).
+8. **The WASM route is preserved — explicitly not in jeopardy.** Static loading is the *current* loader (research §6: "start static"), not a rejection of dynamic loading. The contract/loader split is the point: the traits + `HostCtx` are loader-agnostic, and the only loader-specific code is the registration list (one `Vec<fn() -> Box<dyn Plugin>>`). A later switch to WASM (research §3 mechanism #1, the Zed/extism model) changes *that list* — instantiate a module, wrap it as `dyn Plugin` — and touches no plugin, no hook call site, no storage, no enablement. Two constraints keep the swap trivial: keep the trait's data surface PHP-shaped (scalars/strings/arrays — what a WASM ABI maps cleanly), and keep all loader knowledge in the registration module. The installer scope decision (research §7.1) reopens with the loader.
+
+**What already exists:**
+
+- `core/phpser.rs` — full PHP `serialize()` codec, both directions (session blob + feed `auth_pass` already use it).
+- `src/plugins.rs` — the M4 listing (`getPluginsList`/`getAvailablePlugins`) with a static `PLUGIN_META` table; `system_enabled` from `TTRSS_PLUGINS`, `user_enabled` from `_ENABLED_PLUGINS` — M7.1 reuses its resolution so the listing and the loader can't drift.
+- `Config::plugins` — the `TTRSS_PLUGINS` env (default `auth_internal`).
+- `templates/shell.html.tpl` — **statically embeds the frontend JS of `af_psql_trgm`, `note`, and `share`** (ported verbatim from the PHP page); M7.21 makes plugin-asset injection data-driven.
+- The ~40 `HOOK_*` call sites are all no-ops today — the correct "no plugins" baseline (research §4.11); call sites land **with the plugin that needs them**, never before.
+
+**No PHP plugin test suites exist** (`tt-rss/plugins/` carries no test files; only `ConfigTest` touches plugins indirectly), so each increment verifies by **Rust-only DB tests** (write-op rule) plus **read-side corpus steps** diffed vs the PHP oracle.
+
+**Increments** (bottom-up; each = one verifiable step, one commit):
+
+#### Phase 1 — Substrate (no user-visible change; no-op baseline preserved)
+
+- **M7.1 — Plugin contract + registry + lifecycle.** `crates/ttrss/src/pluginhost/`: `trait Plugin` (`name`/`about`/`init` + the ~50 hook methods with PHP-matching signatures, default no-op; `get_js/css/prefs_js/prefs_css`, `flags`, `is_public_method`, `csrf_ignore`, `api_version`); concrete `PluginHost` (registries: plugins, hooks by type+priority, handlers, commands, filter actions, API methods, virtual feeds, scheduled tasks; runners in PHP's four modes — `run_hooks`, `run_hooks_until`, `run_hooks_callback`/`chain_hooks_callback` with short-circuit on `false`/`null`); `HostCtx<'a>` (`&PgPool`, session uid/profile/access_level, request params, active profile); static registration list; `init()` once at startup; per-request host view filtered by `TTRSS_PLUGINS` + `_ENABLED_PLUGINS`. **No call sites wired** → behavior identical to today. *Verify:* registry mechanics (priority, all four run modes incl. short-circuit), gating (system/user/profile-blacklist); oracle corpus still green (no-op baseline held).
+- **M7.2 — Plugin storage service.** `ttrss_plugin_storage` (name, owner_uid, content) on `core::phpser`: `set/get/set_array/get_array/get_all/clear_data` + `profile_get/profile_set`, always `HostCtx`-scoped. *Verify:* DB round-trips, (uid, name) keying, profile scoping, `clear_data`; **interop: byte-exact decode of PHP-written fixture rows + encode output PHP `unserialize()` accepts** (the "storage portable" exit criterion is established here).
+- **M7.3 — `PluginHandler` backend dispatch.** `backend.php?op=PluginHandler&plugin=<n>&method=<m>[&…]`: resolve the active plugin, CSRF check (`validate_csrf` unless `csrf_ignore`), dispatch, the exact JSON error envelopes the SPA handles. *Verify:* dispatch / unknown plugin / unknown method / CSRF fail / `csrf_ignore` bypass / `is_public_method` gating.
+
+#### Phase 2 — Article display (closes the M3 `notes` residual)
+
+- **M7.4 — `note`.** Article notes in plugin storage: `hook_article_button` (the button row in article lists), `PluginHandler` set/get/clear, the `HOOK_HEADLINES_RENDERED` click wiring (frontend JS already in the shell). Closes **M3 residual: `notes` handler**. *Verify:* DB tests (save/load/clear, per-article scoping); read-side corpus step for the button row.
+- **M7.5 — `nsfw`.** Per-profile NSFW-tags prefs tab (`HOOK_PREFS_TAB`), `hook_render_article[_cdm|_api]` wrapping matching content in `<details class='nsfw'><summary>Not safe for work (click to toggle)</summary>`, `hook_article_image` placeholder, `get_css`. Closes the exit-criterion "NSFW filter". *Verify:* DB tests (tag matching, per-profile storage); read-side corpus steps.
+- **M7.6 — `no_iframes`.** `HOOK_SANITIZE` strips iframes unless whitelisted (interlocks with M7.11 — the whitelist hook runs first). *Verify:* sanitizer parity tests.
+- **M7.7 — `shorten_expanded`** · **M7.8 — `af_zz_vidmute`.** Both `get_js`-only (pure frontend). *Verify:* shell-page corpus step (JS present when enabled, absent when not).
+
+#### Phase 3 — Update pipeline (hooks into the `updates` engine — highest-risk cluster)
+
+- **M7.9 — `af_comics`.** `HOOK_FETCH_FEED`/`HOOK_FEED_BASIC_INFO`: rewrite comic-strip feed content at fetch time (the af_* trio doubles as **filter-engine validation**). *Verify:* replay recorded comic-feed XML through the pipeline.
+- **M7.10 — `auto_assign_labels`.** `HOOK_ARTICLE_FILTER`: apply the user's title/content/tags rules to incoming articles at fetch time (prefs page for the rules). In the demo's `TTRSS_PLUGINS` — live-demo parity matters. *Verify:* DB tests (rule match/no-match, label merging, rule storage); pipeline replay with rules enabled.
+
+#### Phase 4 — Rendering & sanitization (closes the 54/55 + 59/60 residuals)
+
+- **M7.11 — `af_youtube_embed`.** `HOOK_RENDER_ENCLOSURE` → embedded player markup; `HOOK_IFRAME_WHITELISTED` admits YouTube iframes with the **loose PHP sandbox value** (`allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox`). Closes the **M5a.3 residual** (the 1-mismatch in the 54/55 and 59/60 corpus matches). *Verify:* sanitizer parity tests; re-run the two corpus steps → expect 55/55 and 60/60.
+
+#### Phase 5 — Media & sharing
+
+- **M7.12 — `cache_starred_images`.** `HOOK_ARTICLES_MARK_TOGGLED` (+ publish-toggled): on star, queue the article's media into the `starred-images` `DiskCache` instance (no-auto-expiry marker, status files, `max_cache_attempts=5`); a scheduled task drives the queue — **the M6c.4 plugin-host scheduler variant** (system plugins always, user plugins only for active users). *Verify:* DB tests (queue on toggle, task run, attempt caps).
+- **M7.13 — `share`.** Per-article secret key in plugin storage (`newkey`/`unshare`/`clearArticleKeys`), the **no-account public route** serving one article by key, `PluginHandler` dialog/list/revoke (`is_public_method` + `api_version`), prefs tab section (frontend JS already in the shell). *Verify:* DB tests (key lifecycle, profile scoping); public-route tests (valid/expired/revoked).
+- **M7.14 — `bookmarklets`.** Prefs-tab UI exposing the two bookmarklets (subscribe-to-feed, share-this-page → `shareToPublished`). *Verify:* read-side corpus step.
+- **M7.15 — `af_psql_trgm`.** Trigram similarity on `tsvector_combined`: mark-similar-read with the threshold pref (PluginHandler `save`) + "Related articles" dialog (`showrelated` — JS already in the shell). **Requires the `pg_trgm` extension on the oracle/test DBs — confirm availability before starting.** *Verify:* DB tests (threshold storage, similarity query, mark-read effect); read-side corpus step.
+
+#### Phase 6 — UI chrome & keyboard (all small)
+
+- **M7.16 — `toggle_sidebar`.** `HOOK_MAIN_TOOLBAR_BUTTON`.
+- **M7.17 — `hotkeys_swap_jk`** · **M7.18 — `hotkeys_noscroll`** (`HOOK_HOTKEY_MAP`) · **M7.19 — `hotkeys_force_top`** (`get_js`). One increment each. *Verify:* hotkey-map unit tests; shell-page corpus step.
+
+#### Phase 7 — Authentication
+
+- **M7.20 — `auth_remote`.** The login path becomes pluggable: an `IAuthModule` trait behind the `HOOK_AUTH_USER` chain (`UserHelper` parity); `auth_remote` implements proxy HTTP Basic auth + client-SSL-certificate login; `auth_internal` re-implemented on the same trait (uniformity — behavior must stay byte-identical; the login corpus re-runs green). *Verify:* login-path tests (internal unchanged; remote: basic-auth mapping, cert subject → user, failures).
+
+#### Phase 8 — Wrap-up
+
+- **M7.21 — Data-driven plugin assets + residual closure.** The served page concatenates **active** plugins' `get_js`/`get_css`/`get_prefs_js`/`get_prefs_css` (replacing the three statically embedded shell blocks; with the oracle's `TTRSS_PLUGINS` set the pages stay corpus-consistent). Full corpus re-run; confirm closed residuals: M3 `notes`, M5a.3 sandbox value, parity-board `HOOK_*` rows 9–14, `HOOK_SEARCH` fallback; refresh the plan tables.
+
+**Exit criteria (unchanged from the ladder):** the stock plugin set reproduces the PHP UI features it drives (NSFW filter, notes, OTP auth, trigram search/related); plugin storage data portable (PHP↔Rust, established M7.2, spot-checked M7.21); full oracle corpus green with the oracle's plugin set active.
+
+**Decisions to revisit (M7):**
+
+1. **`auth_internal` as a plugin vs staying built-in** — M7.20 re-implements it on `IAuthModule` for uniformity; the cheaper alternative keeps a permanent special case in the login path.
+2. **`pg_trgm` availability** — enable globally on oracle + test DBs (simplest) or gate the M7.15 step; decide at M7.15 start.
+3. **Phase 6 granularity** — the four chrome/keyboard plugins could collapse to one "UI chrome" increment; kept separate for the one-commit rhythm.
+4. **Static shell JS (M7.21)** — the data-driven switch is the faithful behavior (PHP concatenates active plugins' assets) but touches the most-corpus-covered page; the alternative is leaving the three blocks static (a permanent deviation).
 
 ### Phase 8 — Hardening, parity verification, packaging (→ M9)
 
