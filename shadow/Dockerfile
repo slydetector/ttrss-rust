@@ -26,7 +26,6 @@ COPY tt-rss /opt/ttrss-web
 # Server defaults; compose/env can override these.
 ENV TTRSS_RUST_DOCROOT=/opt/ttrss-web \
     TTRSS_RUST_LISTEN=0.0.0.0:80 \
-    TTRSS_DAEMON=0 \
     TTRSS_RUST_FEED_ICONS_DIR=/opt/feed-icons
 EXPOSE 80
 ENTRYPOINT ["ttrss"]

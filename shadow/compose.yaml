@@ -44,7 +44,6 @@ services:
       TTRSS_RUST_DOCROOT: /opt/ttrss-web
       TTRSS_RUST_FEED_ICONS_DIR: /opt/feed-icons
       TTRSS_ENCRYPTION_KEY: ${SHADOW_ENC_KEY:-9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08}
-      TTRSS_DAEMON: "0"
     ports:
       - "${SHADOW_PORT:-8282}:80"
 
