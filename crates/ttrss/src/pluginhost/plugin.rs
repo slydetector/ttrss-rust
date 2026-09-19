@@ -163,6 +163,14 @@ pub trait Plugin: Send + Sync {
         false
     }
 
+    /// `method_exists($plugin, $method)` — the dispatch handlers
+    /// ([`super::dispatch`]) probe method existence *before* their CSRF
+    /// gates, so an unknown method yields `E_UNKNOWN_METHOD` even with a
+    /// bad/missing token. Plugins enumerate exactly the methods their
+    /// [`Plugin::invoke_method`] dispatches.
+    fn has_public_method(&self, _method: &str) -> bool {
+        false
+    }
     // -- page-asset injection ------------------------------------------------
 
     fn get_js(&self) -> String {

@@ -318,6 +318,16 @@ async fn dispatch(
             "hotkeyhelp" => DispatchOutput::Html(crate::hotkeys::hotkey_help()),
             _ => DispatchOutput::Json(rpc_handler(state, sess, method, extra).await),
         },
+        // `PluginHandler::catchall` (M7.3) — plugin method dispatch. The
+        // handler-level CSRF gate is a no-op (see `csrf_ignored`); the
+        // plugin-level gate runs inside the handler.
+        "PluginHandler" => match crate::pluginhost::dispatch::pluginhandler(state, sess, csrf, method, extra).await {
+            Ok(v) => DispatchOutput::Json(v),
+            // A plugin method that fails after passing the gates (PHP: an
+            // uncaught exception in `catchall` — 500). The port includes the
+            // message in the body for debuggability.
+            Err(e) => DispatchOutput::Raw(StatusCode::INTERNAL_SERVER_ERROR, None, e.to_string()),
+        },
         "Feeds" => match method {
             "view" => DispatchOutput::Json(crate::headlines::view(state, sess, extra).await),
             "search" => DispatchOutput::Json(crate::headlines::search(state, sess, extra).await),
@@ -645,7 +655,7 @@ async fn rpc_handler(
 }
 
 /// `validate_csrf`: the request token matches the session token (non-empty).
-fn validate_csrf(sess: &Sess, csrf: &str) -> bool {
+pub(crate) fn validate_csrf(sess: &Sess, csrf: &str) -> bool {
     let data = sess.data();
     let session_csrf = data.csrf_token().unwrap_or("");
     !csrf.is_empty() && util::ct_eq(session_csrf, csrf)
@@ -654,8 +664,12 @@ fn validate_csrf(sess: &Sess, csrf: &str) -> bool {
 /// `Handler::csrf_ignore` per handler. Only the read-only handlers the SPA
 /// drives via GET (no token) are exempt.
 fn csrf_ignored(op: &str, method: &str) -> bool {
-    // `Pref_Feeds::csrf_ignore` = ["index", "getfeedtree"].
-    matches!(op, "Pref_Feeds") && matches!(method, "index" | "getfeedtree")
+    // `PluginHandler::csrf_ignore` is unconditionally `true` (every method)
+    // — the per-plugin gate (`validate_csrf || $plugin->csrf_ignore($method)`)
+    // runs inside `pluginhost::dispatch::pluginhandler`.
+    op == "PluginHandler"
+        // `Pref_Feeds::csrf_ignore` = ["index", "getfeedtree"].
+        || (matches!(op, "Pref_Feeds") && matches!(method, "index" | "getfeedtree"))
         // `Feeds::csrf_ignore` = ["index"].
         || (op == "Feeds" && method == "index")
         // `OPML::csrf_ignore` = ["export"].
@@ -687,6 +701,7 @@ fn is_protected(op: &str) -> bool {
             | "Pref_System"
             | "Pref_Prefs"
             | "OPML"
+            | "PluginHandler"
     )
 }
 
@@ -1090,6 +1105,19 @@ fn url_scheme(url: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // M7.3 — `PluginHandler` is on the CSRF-exempt list; `is_protected`
+    // matches `$_SERVER["op"]` (case-insensitive).
+    #[test]
+    fn pluginhandler_gates() {
+        assert!(is_protected("PluginHandler"));
+        // `in_array` on `$protected_ops` is case-sensitive (the RPC op is
+        // sent exactly as `PluginHandler` by the JS).
+        assert!(!is_protected("pluginhandler"));
+        assert!(!is_protected("config"));
+        assert!(csrf_ignored("PluginHandler", "whatever"));
+        assert!(!csrf_ignored("config", "whatever"));
+    }
 
     #[test]
     fn theme_exists_matches_php() {

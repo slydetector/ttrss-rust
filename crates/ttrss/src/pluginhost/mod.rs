@@ -20,6 +20,7 @@
 //! decisions (static loading, contract 1:1 with PHP, the WASM route
 //! preserved).
 
+pub mod dispatch;
 pub mod host;
 pub mod plugin;
 pub mod storage;

@@ -208,11 +208,51 @@ async fn public_handler(
 ) -> Response {
     // `$_REQUEST['op']` merges GET + POST, so `op` may arrive in either.
     let op = query.op.as_deref().or_else(|| form.op.as_deref());
+    // `public.php` shortcut: `?op=<plugin>--<pmethod>` is rewritten to
+    // `op=pluginhandler` with `plugin`/`pmethod` injected into `$_REQUEST`
+    // (`PluginHost::PUBLIC_METHOD_DELIMITER`).
+    let (op, shortcut) = match op.and_then(|o| o.split_once("--")) {
+        Some((plugin, pmethod)) => (
+            "pluginhandler",
+            Some((plugin.to_string(), pmethod.to_string())),
+        ),
+        None => (op.unwrap_or(""), None),
+    };
     match op {
-        Some("login") => login_flow(&state, sess.0, &query, &form).await,
-        Some("logout") => logout_flow(&state, sess.0, &form).await,
+        "login" => login_flow(&state, sess.0, &query, &form).await,
+        "logout" => logout_flow(&state, sess.0, &form).await,
+        // `Handler_Public::pluginhandler` (M7.3) — the no-account public
+        // plugin-method endpoint; the only gate is the plugin's
+        // `is_public_method`.
+        "pluginhandler" => {
+            let (plugin, pmethod) = match shortcut {
+                Some((p, m)) => (p, m),
+                None => (
+                    query
+                        .plugin
+                        .as_deref()
+                        .or_else(|| form.plugin.as_deref())
+                        .unwrap_or("")
+                        .to_string(),
+                    query
+                        .pmethod
+                        .as_deref()
+                        .or_else(|| form.pmethod.as_deref())
+                        .unwrap_or("")
+                        .to_string(),
+                ),
+            };
+            let request = public_request_map(&query, &form);
+            match crate::pluginhost::dispatch::public_dispatch(&state, &plugin, &pmethod, &request)
+                .await
+            {
+                Ok(v) => (StatusCode::OK, v.to_string()).into_response(),
+                // PHP: an uncaught exception in the public handler — 500.
+                Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+            }
+        }
         // `Handler_Public::forgotpass` — the public password-recovery page.
-        Some("forgotpass") => {
+        "forgotpass" => {
             let p = forgotpass::Params {
                 hash: query.hash.as_deref().or_else(|| form.hash.as_deref()),
                 login: query
@@ -228,9 +268,9 @@ async fn public_handler(
             forgotpass::forgotpass(&state, &sess.0, &p).await
         }
         // `Handler_Public::cached` — serve `<CACHE_DIR>/<subdir>/<file>`.
-        Some("cached") => cached_file(&state, query.file.as_deref()),
+        "cached" => cached_file(&state, query.file.as_deref()),
         // `Handler_Public::feed_icon` — serve `<CACHE_DIR>/feed-icons/<id>`.
-        Some("feed_icon") => match query
+        "feed_icon" => match query
             .id
             .as_deref()
             .map(|id| state.config.feed_icon_dir.join(id.trim()))
@@ -239,7 +279,7 @@ async fn public_handler(
             _ => StatusCode::NOT_FOUND.into_response(),
         },
         // `Handler_Public::rss` — syndicated Atom/JSON feed (access-key gated).
-        Some("rss") => {
+        "rss" => {
             let req = syndication::RssRequest {
                 id: query.id.as_deref(),
                 key: query.key.as_deref(),
@@ -260,7 +300,7 @@ async fn public_handler(
         // The login form POSTs `op=getprofiles&login=…` in the form body on
         // login-field change / focus / blur; PHP reads `$_REQUEST["login"]`
         // (GET + POST merged), so the param is accepted from either.
-        Some("getprofiles") => {
+        "getprofiles" => {
             let login = query
                 .login
                 .as_deref()
@@ -271,7 +311,7 @@ async fn public_handler(
         }
         // `Handler_Public::healthcheck` — the monitoring probe (same body as
         // the `/healthz` route).
-        Some("healthcheck") => healthz().await.into_response(),
+        "healthcheck" => healthz().await.into_response(),
         _ => StatusCode::NOT_FOUND.into_response(),
     }
 }
@@ -329,6 +369,13 @@ struct PublicQuery {
     ts: Option<String>,
     orig_guid: Option<String>,
     noxml: Option<String>,
+    // `op=pluginhandler` (public plugin methods, M7.3) params.
+    plugin: Option<String>,
+    pmethod: Option<String>,
+    /// Any params the struct doesn't name (the plugin method's `$_REQUEST`
+    /// must see them all).
+    #[serde(flatten)]
+    extra: serde_json::Map<String, serde_json::Value>,
 }
 
 #[derive(Deserialize)]
@@ -349,6 +396,63 @@ struct PublicForm {
     email: Option<String>,
     test: Option<String>,
     method: Option<String>,
+    // `op=pluginhandler` (public plugin methods, M7.3) params — `$_REQUEST`
+    // merges the form body too.
+    plugin: Option<String>,
+    pmethod: Option<String>,
+    #[serde(flatten)]
+    extra: serde_json::Map<String, serde_json::Value>,
+}
+
+/// PHP's `$_REQUEST` as a public-endpoint plugin method sees it: GET + POST
+/// merged (form fields win, as `$_REQUEST` on a POST). Named struct fields
+/// are merged with the `extra` catch-all so the method sees every request
+/// parameter (the port's substitute for reading the superglobals).
+fn public_request_map(query: &PublicQuery, form: &PublicForm) -> serde_json::Value {
+    let mut m = serde_json::Map::new();
+    for (k, v) in query.extra.iter() {
+        m.insert(k.clone(), v.clone());
+    }
+    for (k, v) in form.extra.iter() {
+        m.insert(k.clone(), v.clone());
+    }
+    let named: &[(&str, Option<&str>, Option<&str>)] = &[
+        ("op", query.op.as_deref(), form.op.as_deref()),
+        ("file", query.file.as_deref(), None),
+        ("id", query.id.as_deref(), None),
+        ("return", query.return_url.as_deref(), None),
+        ("hash", query.hash.as_deref(), form.hash.as_deref()),
+        ("login", query.login.as_deref(), form.login.as_deref()),
+        ("key", query.key.as_deref(), None),
+        ("format", query.format.as_deref(), None),
+        ("is_cat", query.is_cat.as_deref(), None),
+        ("limit", query.limit.as_deref(), None),
+        ("offset", query.offset.as_deref(), None),
+        ("q", query.q.as_deref(), None),
+        ("view-mode", query.view_mode.as_deref(), None),
+        ("order", query.order.as_deref(), None),
+        ("ts", query.ts.as_deref(), None),
+        ("orig_guid", query.orig_guid.as_deref(), None),
+        ("noxml", query.noxml.as_deref(), None),
+        ("plugin", query.plugin.as_deref(), form.plugin.as_deref()),
+        ("pmethod", query.pmethod.as_deref(), form.pmethod.as_deref()),
+        ("password", None, form.password.as_deref()),
+        ("otp", None, form.otp.as_deref()),
+        ("remember_me", None, form.remember_me.as_deref()),
+        ("safe_mode", None, form.safe_mode.as_deref()),
+        ("bw_limit", None, form.bw_limit.as_deref()),
+        ("profile", None, form.profile.as_deref()),
+        ("csrf_token", None, form.csrf_token.as_deref()),
+        ("email", None, form.email.as_deref()),
+        ("test", None, form.test.as_deref()),
+        ("method", None, form.method.as_deref()),
+    ];
+    for (name, q, f) in named {
+        if let Some(v) = (*f).or(*q) {
+            m.insert((*name).to_string(), serde_json::Value::String(v.to_string()));
+        }
+    }
+    serde_json::Value::Object(m)
 }
 
 /// `Handler_Public::logout` + `UserHelper::logout`.
