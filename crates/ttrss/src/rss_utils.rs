@@ -70,6 +70,20 @@ pub fn make_guid_from_title(title: &str) -> String {
     lower.replace([' ', '"', '\'', ',', '.', ':', ';'], "-")
 }
 
+/// PHP `json_encode(["ver" => 2, "uid" => $owner_uid, "hash" => 'SHA1:' . sha1($entry_guid)])`
+/// — the `guid_hashed` string stored in `ttrss_entries.guid`.
+///
+/// PHP `json_encode` preserves insertion order (`ver`, `uid`, `hash`). We emit
+/// that exact byte order (rather than serde_json's sorted `Map` order, which
+/// would be `hash`, `uid`, `ver`) so the string `guid IN (…)` dedup matches rows
+/// created by the PHP daemon — otherwise every re-fetched PHP article is duplicated.
+pub fn make_guid_hashed(owner_uid: i32, entry_guid: &str) -> String {
+    format!(
+        "{{\"ver\":2,\"uid\":{owner_uid},\"hash\":\"SHA1:{}\"}}",
+        crate::util::sha1_hex(entry_guid)
+    )
+}
+
 /// PHP `RSSUtils::calculate_article_hash($article, $pluginhost)` — the dedup
 /// key for an article. Each hashed field contributes `sha1(key . ":" .
 /// sha1(value))` (in `$article` order) to an accumulator; the result is
@@ -377,6 +391,29 @@ mod tests {
         assert_eq!(make_guid_from_title("abc123 x y"), "abc123-x-y");
     }
 
+    // ------------------------------------------------------------------------
+    // make_guid_hashed() — the stored `guid_hashed` (ttrss_entries.guid)
+    // ------------------------------------------------------------------------
+
+    #[test]
+    fn test_make_guid_hashed_php_key_order() {
+        // PHP: json_encode(["ver" => 2, "uid" => 2, "hash" => 'SHA1:' . sha1("abc")])
+        //      = {"ver":2,"uid":2,"hash":"SHA1:<sha1("abc")>"}
+        assert_eq!(
+            make_guid_hashed(2, "abc"),
+            format!(
+                "{{\"ver\":2,\"uid\":2,\"hash\":\"SHA1:{}\"}}",
+                crate::util::sha1_hex("abc")
+            )
+        );
+        // Key order is (ver, uid, hash) — NOT serde_json's sorted (hash, uid, ver).
+        assert!(make_guid_hashed(2, "abc").starts_with("{\"ver\":2,\"uid\":2,\"hash\":\""));
+        // A different owner_uid flows through verbatim.
+        assert_eq!(
+            make_guid_hashed(10, "x"),
+            format!("{{\"ver\":2,\"uid\":10,\"hash\":\"SHA1:{}\"}}", crate::util::sha1_hex("x"))
+        );
+    }
     // ------------------------------------------------------------------------
     // calculate_article_hash() — article dedup hash
     // ------------------------------------------------------------------------

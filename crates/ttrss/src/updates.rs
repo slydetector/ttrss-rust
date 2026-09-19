@@ -36,7 +36,7 @@
 
 use anyhow::{bail, Context, Result};
 use chrono::{NaiveDateTime, Utc};
-use serde_json::{json, Value};
+use serde_json::Value;
 use sqlx::{PgPool, Row};
 use rand::Rng;
 use std::sync::Arc;
@@ -50,7 +50,7 @@ use crate::core::filters::{
 use crate::core::user::ACCESS_LEVEL_READONLY;
 use crate::counters::parent_cats;
 use crate::feeds::decrypt_feed_pass;
-use crate::rss_utils::{calculate_article_hash, make_guid_from_title};
+use crate::rss_utils::{calculate_article_hash, make_guid_from_title, make_guid_hashed};
 use crate::urlhelper::{fetch, FetchOptions, rewrite_relative};
 use crate::util::{clean_str, normalize_categories, php_int_cast, sha1_hex, strip_tags};
 
@@ -865,12 +865,8 @@ async fn upsert_article(
     }
 
     let guid_hashed_compat = format!("SHA1:{}", sha1_hex(format!("{owner},{entry_guid}")));
-    let guid_hashed = json!({
-        "ver": 2,
-        "uid": owner,
-        "hash": format!("SHA1:{}", sha1_hex(&entry_guid)),
-    })
-    .to_string();
+    // The PHP-order `guid_hashed` (see `rss_utils::make_guid_hashed`).
+    let guid_hashed = make_guid_hashed(owner, &entry_guid);
     let entry_guid = format!("{owner},{entry_guid}");
     let entry_guid = entry_guid.chars().take(245).collect::<String>();
     dlog(
