@@ -117,10 +117,7 @@ async fn entry_count(db: &Db, feed_id: i32) -> i64 {
 }
 
 fn make_state(db: Db) -> AppState {
-    AppState {
-        config: test_config(),
-        db,
-    }
+    AppState::new(test_config(), db)
 }
 
 fn make_sess(uid: i64) -> Sess {

@@ -24,6 +24,7 @@ pub mod labels;
 pub mod mime;
 pub mod opml;
 pub mod otp;
+pub mod pluginhost;
 pub mod plugins;
 pub mod pref_timezones;
 pub mod pref_ui;
@@ -46,15 +47,31 @@ pub mod updates;
 pub mod urlhelper;
 pub mod users;
 pub mod util;
+use std::sync::Arc;
 
 use crate::core::config::Config;
 use crate::core::db::Db;
-
-/// Shared server state (`AppState`): configuration + DB pool.
+use crate::pluginhost::PluginHost;
+/// Shared server state (`AppState`): configuration + DB pool + the startup
+/// plugin registry (M7.1).
 #[derive(Clone)]
 pub struct AppState {
     pub config: Config,
     pub db: Db,
+    /// The plugin registry, built once at startup ([`PluginHost::startup`]).
+    /// M7.1: the static list is empty (the no-op baseline); grows as M7.4+
+    /// land.
+    pub plugins: Arc<PluginHost>,
+}
+
+impl AppState {
+    pub fn new(config: Config, db: Db) -> Self {
+        Self {
+            plugins: Arc::new(PluginHost::startup(&crate::pluginhost::all_plugins())),
+            config,
+            db,
+        }
+    }
 }
 
 /// `with_trailing_slash` from `functions.php`: append a trailing slash unless

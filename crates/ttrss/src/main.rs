@@ -33,10 +33,7 @@ async fn main() -> anyhow::Result<()> {
         "starting ttrss"
     );
 
-    let state = AppState {
-        config: config.clone(),
-        db,
-    };
+    let state = AppState::new(config.clone(), db);
     // The M6c.3 daemon/scheduler loop, hosted in this process (D1 = B):
     // the background feed-update batches + the cron housekeeping tasks.
     // `TTRSS_DAEMON=0` skips it (env-only switch — the PHP daemon is a

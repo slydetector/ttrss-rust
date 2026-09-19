@@ -63,10 +63,7 @@ async fn setup(
     options: sqlx::postgres::PgConnectOptions,
 ) -> AppState {
     let db: Db = common::make_db(pool, options).await.expect("test db");
-    AppState {
-        config: test_config(),
-        db,
-    }
+    AppState::new(test_config(), db)
 }
 
 /// Read an axum `Response` body to a UTF-8 string.
@@ -299,7 +296,7 @@ async fn test_forgotpass_forbidden(
     let db: Db = common::make_db(pool, options).await.expect("test db");
     let mut config = test_config();
     config.disable_login_form = true;
-    let state = AppState { config, db };
+    let state = AppState::new(config, db);
     let sess = Sess::new(String::new());
 
     let res = forgotpass::forgotpass(

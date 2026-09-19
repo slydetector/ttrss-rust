@@ -69,10 +69,7 @@ async fn setup(
     options: sqlx::postgres::PgConnectOptions,
 ) -> (AppState, Sess) {
     let db: Db = common::make_db(pool, options).await.expect("test db");
-    let state = AppState {
-        config: test_config(),
-        db,
-    };
+    let state = AppState::new(test_config(), db);
     let mut data = Session::new();
     data.set("uid", PValue::Int(1));
     let sess = Sess::new("test-sid".to_string());
@@ -886,10 +883,7 @@ async fn test_remove_icon(
     std::fs::create_dir_all(&icon_dir).unwrap();
     let mut cfg = test_config();
     cfg.feed_icon_dir = icon_dir.clone();
-    let state = AppState {
-        config: cfg,
-        db: state.db.clone(),
-    };
+    let state = AppState::new(cfg, state.db.clone());
 
     // Mark feed 1 as a custom favicon and drop a cache file for it.
     sqlx::query(
@@ -940,10 +934,7 @@ async fn test_upload_icon(
     std::fs::create_dir_all(&icon_dir).unwrap();
     let mut cfg = test_config();
     cfg.feed_icon_dir = icon_dir.clone();
-    let state = AppState {
-        config: cfg,
-        db: state.db.clone(),
-    };
+    let state = AppState::new(cfg, state.db.clone());
 
     // Success: upload a small icon for feed 1.
     let res = ttrss::feeds::upload_icon(
@@ -981,10 +972,7 @@ async fn test_upload_icon(
     let mut cfg2 = test_config();
     cfg2.feed_icon_dir = icon_dir.clone();
     cfg2.max_favicon_file_size = 4;
-    let state2 = AppState {
-        config: cfg2,
-        db: state.db.clone(),
-    };
+    let state2 = AppState::new(cfg2, state.db.clone());
     let res2 = ttrss::feeds::upload_icon(
         &state2,
         &sess,
@@ -1235,10 +1223,7 @@ async fn test_dispatch_case_insensitive(
     options: sqlx::postgres::PgConnectOptions,
 ) {
     let db: Db = common::make_db(pool, options).await.expect("test db");
-    let state = AppState {
-        config: test_config(),
-        db,
-    };
+    let state = AppState::new(test_config(), db);
 
     // A session for `uid = 1` (admin) with the stored pwd hash + a valid csrf
     // token, so `validate_session` + the CSRF gate pass and routing is the test.

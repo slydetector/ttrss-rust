@@ -61,10 +61,7 @@ async fn make_state(
     options: sqlx::postgres::PgConnectOptions,
 ) -> AppState {
     let db: Db = common::make_db(pool, options).await.expect("test db");
-    AppState {
-        config: test_config(),
-        db,
-    }
+    AppState::new(test_config(), db)
 }
 
 /// Insert a user + profiles; returns the user id.

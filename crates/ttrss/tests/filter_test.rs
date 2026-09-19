@@ -65,10 +65,7 @@ async fn setup(
     options: sqlx::postgres::PgConnectOptions,
 ) -> (AppState, Sess) {
     let db: Db = common::make_db(pool, options).await.expect("test db");
-    let state = AppState {
-        config: test_config(),
-        db,
-    };
+    let state = AppState::new(test_config(), db);
     let mut data = Session::new();
     data.set("uid", PValue::Int(1));
     let sess = Sess::new("test-sid".to_string());
@@ -777,10 +774,7 @@ async fn test_editsave_rule_bracket_fields(
     use axum::response::IntoResponse;
 
     let db: Db = common::make_db(pool, options).await.expect("test db");
-    let state = AppState {
-        config: test_config(),
-        db: db.clone(),
-    };
+    let state = AppState::new(test_config(), db.clone());
 
     let mut data = Session::new();
     data.set("uid", PValue::Int(1));

@@ -1229,10 +1229,7 @@ async fn setup_state(
     options: sqlx::postgres::PgConnectOptions,
 ) -> (AppState, Sess) {
     let db = setup(pool, options).await;
-    let state = AppState {
-        config: test_config(),
-        db,
-    };
+    let state = AppState::new(test_config(), db);
     let mut data = Session::new();
     data.set("uid", PValue::Int(1));
     let sess = Sess::new("test-sid".to_string());

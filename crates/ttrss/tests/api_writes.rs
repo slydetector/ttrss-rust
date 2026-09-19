@@ -70,10 +70,7 @@ async fn setup(
     options: sqlx::postgres::PgConnectOptions,
 ) -> (AppState, Sess) {
     let db: Db = common::make_db(pool, options).await.expect("test db");
-    let state = AppState {
-        config: test_config(),
-        db,
-    };
+    let state = AppState::new(test_config(), db);
     let mut data = Session::new();
     data.set("uid", PValue::Int(1));
     let sess = Sess::new("test-sid".to_string());
@@ -746,7 +743,7 @@ async fn setup_icon(
     let db: Db = common::make_db(pool, options).await.expect("test db");
     let mut config = test_config();
     config.feed_icon_dir = dir;
-    let state = AppState { config, db };
+    let state = AppState::new(config, db);
     let mut data = Session::new();
     data.set("uid", PValue::Int(1));
     let sess = Sess::new("icon-sid".to_string());
