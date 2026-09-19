@@ -9,11 +9,21 @@
 //!   value  := 'N;'                       null
 //!          | 'b:' ('0'|'1') ';'          bool
 //!          | 'i:' int ';'                int
-//!          | 'd:' float ';'              float
+//!          | 'd:' float ';'              float (`zend_gcvt` form — see
+//!                                            [`php_float_str`]; non-finite
+//!                                            values use PHP's `NAN`/`INF`/
+//!                                            `-INF` tokens)
 //!          | 's:' len ':' <len bytes> ';' string (byte string)
 //!          | 'a:' count ':' '{' (key value)* '}'   array
-//!   key    := 's:' len ':' <len bytes> ';'  (assoc keys)
-//!          | int ';'                      (list-array keys)
+//!   key    := 'i:' int ';'                 (integer keys — PHP's `serialize()`
+//!                                            writes `i:` for *every* integer key,
+//!                                            list positions included; verified
+//!                                            against PHP 8.5.10)
+//!          | int ';'                      (legacy bare form: what this port
+//!                                            wrote before the fix — the parser
+//!                                            still accepts it; PHP never emits
+//!                                            it)
+//!          | 's:' len ':' <len bytes> ';'  (assoc keys)
 //!
 //! PHP `serialize()` performs **no escaping** of string bytes; the length
 //! prefix makes each value self-delimiting.
@@ -22,6 +32,24 @@
 //! ext/session/session.c `PS_SERIALIZER_(EN|DE)CODE_FUNC(php)`) is a
 //! concatenation of `key|<serialized value>` pairs with **no** separator; the
 //! keys may not contain `|`. See [`crate::core::session`] for that layer.
+
+//! **Coverage notes** (verified against the PHP 8.5.10 sources —
+//! `ext/standard/var.c`, `ext/standard/var_unserializer.re`,
+//! `Zend/zend_strtod.c` `zend_gcvt`):
+//!
+//! - out of subset: `r:`/`R:` (references), `C:`/`O:` (objects) and the
+//!   `N;` placeholders PHP writes for self-recursive arrays — tt-rss
+//!   session/storage data never contains objects, references, or cycles;
+//! - the parser does **not** accept the deprecated `S:` string form
+//!   (PHP keeps reading it with a deprecation warning; the 8.5 serializer
+//!   never emits it);
+//! - the parser is a deliberate *superset* on malformed input: it also
+//!   accepts legacy bare-integer keys and hex-float literals that PHP
+//!   rejects, and it is *stricter* than PHP on trailing data (PHP warns
+//!   and returns the value; this parser errors);
+//! - decode semantics diverge from PHP only on hand-crafted data: duplicate
+//!   keys (PHP nulls later duplicates; this keeps them) and numeric-string
+//!   keys (PHP coerces them to integer keys; this keeps them strings).
 
 use std::fmt;
 
@@ -129,7 +157,9 @@ pub fn serialize_into(out: &mut Vec<u8>, v: &Value) {
         Value::Null => out.extend_from_slice(b"N;"),
         Value::Bool(b) => out.extend_from_slice(if *b { b"b:1;" } else { b"b:0;" }),
         Value::Int(i) => out.extend_from_slice(format!("i:{i};").as_bytes()),
-        Value::Float(f) => out.extend_from_slice(format!("d:{f};").as_bytes()),
+        Value::Float(f) => {
+            out.extend_from_slice(format!("d:{};", php_float_str(*f)).as_bytes());
+        }
         Value::Bytes(b) => {
             out.extend_from_slice(format!("s:{}:", b.len()).as_bytes());
             out.push(b'"');
@@ -147,9 +177,103 @@ pub fn serialize_into(out: &mut Vec<u8>, v: &Value) {
     }
 }
 
+/// Format an `f64` exactly as PHP's `serialize()` does
+/// (`zend_gcvt(val, -1, '.', 'E', ...)`, `Zend/zend_strtod.c`): the shortest
+/// round-trip digit sequence (same digits Rust's `Display` produces), with
+/// E-notation only when the first digit's position `decpt` (value =
+/// 0.d₁d₂… × 10^decpt) satisfies `decpt > 17 || decpt < -3`, and E-forms
+/// always carry at least one digit after the decimal point (`1.0E+17`,
+/// `2.5E-7`, `5.0E-324`). Non-finite values use PHP's exact tokens
+/// (`d:NAN;`, `d:INF;`, `d:-INF;` — what `serialize(NAN)` emits).
+/// Format an `f64` exactly as PHP's `serialize()` does
+/// (`zend_gcvt(val, -1, '.', 'E', ...)`, `Zend/zend_strtod.c`): the shortest
+/// round-trip digit sequence, with E-notation only when the first digit's
+/// position `decpt` (value = 0.d₁d₂… × 10^decpt) satisfies
+/// `decpt > 17 || decpt < -3`, and E-forms always carrying at least one
+/// digit after the decimal point (`1.0E+17`, `2.5E-7`, `5.0E-324`).
+/// Non-finite values use PHP's exact tokens (`d:NAN;`, `d:INF;`,
+/// `d:-INF;` — what `serialize(NAN)` emits).
+///
+/// The digit source is Rust's `{:e}` (shortest round-trip, always
+/// scientific, one digit before the decimal point) — the same digits PHP's
+/// `dtoa` shortest mode produces.
+fn php_float_str(f: f64) -> String {
+    if f.is_nan() {
+        return "NAN".to_string();
+    }
+    if f.is_infinite() {
+        return if f > 0.0 { "INF".to_string() } else { "-INF".to_string() };
+    }
+    let s = format!("{f:e}");
+    let (neg, rest) = match s.strip_prefix('-') {
+        Some(r) => (true, r),
+        None => (false, s.as_str()),
+    };
+    let (mantissa, exp) = rest.split_once(['e', 'E']).unwrap();
+    let exp: i32 = exp.parse().unwrap_or(0);
+    let digits: String = mantissa.chars().filter(|c| *c != '.').collect();
+    // `{:e}` always has exactly one digit before the decimal point, so
+    // the first digit sits at position 1 + exp (decpt convention above).
+    let decpt: i32 = 1 + exp;
+
+    let mut out = String::new();
+    if neg {
+        out.push('-');
+    }
+    if !(-3..=17).contains(&decpt) {
+        // E form (`decpt > 17 || decpt < -3` in `zend_gcvt`): d.dddE±exp
+        // (exponent = decpt - 1, always signed).
+        let e_exp = decpt - 1;
+        out.push(digits.as_bytes()[0] as char);
+        out.push('.');
+        if digits.len() > 1 {
+            out.push_str(&digits[1..]);
+        } else {
+            out.push('0');
+        }
+        out.push('E');
+        if e_exp < 0 {
+            out.push('-');
+            out.push_str(&(-e_exp).to_string());
+        } else {
+            out.push('+');
+            out.push_str(&e_exp.to_string());
+        }
+    } else if decpt < 0 {
+        // `0.` + zeros + digits.
+        out.push_str("0.");
+        for _ in 0..(-decpt) {
+            out.push('0');
+        }
+        out.push_str(&digits);
+    } else {
+        // Standard: digits, decimal point where it falls, zero-padding right
+        // (here 0 <= decpt <= 17).
+        let decpt = decpt as usize;
+        for i in 0..decpt {
+            if i < digits.len() {
+                out.push(digits.as_bytes()[i] as char);
+            } else {
+                out.push('0');
+            }
+        }
+        if decpt < digits.len() {
+            if decpt == 0 {
+                out.push('0'); // zero before the decimal point
+            }
+            out.push('.');
+            out.push_str(&digits[decpt..]);
+        }
+    }
+    out
+}
+
 fn write_key(out: &mut Vec<u8>, k: &Key) {
     match k {
-        Key::Int(i) => out.extend_from_slice(format!("{i};").as_bytes()),
+        // PHP's `php_var_serialize` writes `i:<n>;` for every integer key
+        // (list positions included) and `unserialize()` rejects the bare
+        // form — so the bare form must never be emitted.
+        Key::Int(i) => out.extend_from_slice(format!("i:{i};").as_bytes()),
         Key::Bytes(b) => {
             out.extend_from_slice(format!("s:{}:", b.len()).as_bytes());
             out.push(b'"');
@@ -212,10 +336,21 @@ pub fn parse_value_at(s: &[u8], pos: usize) -> Result<(Value, usize), ParseError
         }
         b'd' => {
             expect_char(s, &mut p, b':')?;
-            let (v, np) = parse_float(s, p)?;
-            let mut p2 = np;
-            expect_char(s, &mut p2, b';')?;
-            p = p2;
+            // PHP's non-finite tokens (`d:NAN;`, `d:INF;`, `d:-INF;` —
+            // exactly what `serialize(NAN)`/`serialize(INF)` emit).
+            let (v, np) = if s.get(p..).map(|w| w == b"NAN;").unwrap_or(false) {
+                (f64::NAN, p + 4)
+            } else if s.get(p..).map(|w| w == b"-INF;").unwrap_or(false) {
+                (f64::NEG_INFINITY, p + 5)
+            } else if s.get(p..).map(|w| w == b"INF;").unwrap_or(false) {
+                (f64::INFINITY, p + 4)
+            } else {
+                let (v, np) = parse_float(s, p)?;
+                let mut p2 = np;
+                expect_char(s, &mut p2, b';')?;
+                (v, p2)
+            };
+            p = np;
             Value::Float(v)
         }
         b's' => {
@@ -294,7 +429,18 @@ fn parse_key(s: &[u8], pos: usize) -> Result<(Key, usize), ParseError> {
         expect_char(s, &mut p, b'"')?; // closing quote
         expect_char(s, &mut p, b';')?;
         Ok((Key::Bytes(bytes), p))
+    } else if s[pos] == b'i' {
+        // PHP's form: `i:<int>;`.
+        let mut p = pos + 1;
+        expect_char(s, &mut p, b':')?;
+        let (v, np) = parse_int(s, p)?;
+        let mut p2 = np;
+        expect_char(s, &mut p2, b';')?;
+        Ok((Key::Int(v), p2))
     } else {
+        // Legacy bare form (`<int>;`) — written by this port before the
+        // `i:` fix; PHP never emits it, but rows already in the wild must
+        // still decode.
         let (v, np) = parse_int(s, pos)?;
         let mut p2 = np;
         expect_char(s, &mut p2, b';')?;
@@ -339,7 +485,12 @@ fn parse_float(s: &[u8], mut pos: usize) -> Result<(f64, usize), ParseError> {
         pos += 1;
     }
     while pos < s.len()
-        && (s[pos].is_ascii_digit() || s[pos] == b'.' || s[pos] == b'e' || s[pos] == b'E')
+        && (s[pos].is_ascii_digit()
+            || s[pos] == b'.'
+            || s[pos] == b'e'
+            || s[pos] == b'E'
+            || s[pos] == b'+'
+            || s[pos] == b'-')
     {
         pos += 1;
     }
@@ -444,5 +595,107 @@ mod tests {
             back.get("payload").and_then(|v| v.as_bytes()),
             Some(payload.as_slice())
         );
+    }
+
+    #[test]
+    fn exact_php_int_key_output() {
+        // Ground truth: PHP 8.5.10 `serialize()` output (generated with the
+        // reference's PHP) — `i:` prefix on *every* integer key, list
+        // positions included.
+        let v = Value::Array(vec![
+            (Key::Bytes(b"id".to_vec()), Value::Int(7)),
+            (
+                Key::Bytes(b"tags".to_vec()),
+                Value::Array(vec![
+                    (Key::Int(0), s(b"rss")),
+                    (Key::Int(1), s(b"xml")),
+                ]),
+            ),
+            (Key::Bytes(b"enabled".to_vec()), Value::Bool(true)),
+        ]);
+        assert_eq!(
+            serialize(&v),
+            b"a:3:{s:2:\"id\";i:7;s:4:\"tags\";a:2:{i:0;s:3:\"rss\";i:1;s:3:\"xml\";}s:7:\"enabled\";b:1;}"
+        );
+
+        // Negative and non-dense keys stay `i:` too.
+        let v = Value::Array(vec![(Key::Int(-1), s(b"x"))]);
+        assert_eq!(serialize(&v), b"a:1:{i:-1;s:1:\"x\";}");
+        let v = Value::Array(vec![
+            (Key::Int(0), s(b"a")),
+            (Key::Int(2), s(b"b")),
+        ]);
+        assert_eq!(serialize(&v), b"a:2:{i:0;s:1:\"a\";i:2;s:1:\"b\";}");
+    }
+
+    #[test]
+    fn decode_php_written_int_keys() {
+        // Rows PHP wrote (`i:` keys) must decode — the interop bar for
+        // `ttrss_plugin_storage.content`.
+        let bytes = b"a:2:{i:0;s:3:\"rss\";i:1;s:3:\"xml\";}";
+        let v = deserialize(bytes).unwrap();
+        assert_eq!(
+            v,
+            Value::Array(vec![(Key::Int(0), s(b"rss")), (Key::Int(1), s(b"xml"))])
+        );
+    }
+
+    #[test]
+    fn decode_legacy_bare_int_keys() {
+        // Rows this port wrote before the `i:` fix still decode.
+        let bytes = b"a:2:{0;s:3:\"rss\";1;s:3:\"xml\";}";
+        let v = deserialize(bytes).unwrap();
+        assert_eq!(
+            v,
+            Value::Array(vec![(Key::Int(0), s(b"rss")), (Key::Int(1), s(b"xml"))])
+        );
+    }
+
+    #[test]
+    fn exact_php_float_output() {
+        // Ground truth: PHP 8.5.10 `serialize()` output for each value
+        // (`zend_gcvt`, `serialize_precision = -1`).
+        let cases: &[(f64, &[u8])] = &[
+            (1.0, b"d:1;"),
+            (150.0, b"d:150;"),
+            (-0.0, b"d:-0;"),
+            (0.1, b"d:0.1;"),
+            (0.30000000000000004, b"d:0.30000000000000004;"),
+            (1e15, b"d:1000000000000000;"),
+            (1e16, b"d:10000000000000000;"),
+            (1e17, b"d:1.0E+17;"),
+            (1e18, b"d:1.0E+18;"),
+            (1e-3, b"d:0.001;"),
+            (1e-4, b"d:0.0001;"),
+            (1e-5, b"d:1.0E-5;"),
+            (2.5e-7, b"d:2.5E-7;"),
+            (123456789.123456, b"d:123456789.123456;"),
+            (-2.5, b"d:-2.5;"),
+            (9999999999999998.0, b"d:9999999999999998;"),
+            (5e-324, b"d:5.0E-324;"),
+        ];
+        for (v, expected) in cases {
+            assert_eq!(serialize(&Value::Float(*v)), *expected, "failed for {v:?}");
+        }
+
+        // Non-finite values: PHP's exact tokens (`serialize(NAN)` etc.).
+        assert_eq!(serialize(&Value::Float(f64::NAN)), b"d:NAN;");
+        assert_eq!(serialize(&Value::Float(f64::INFINITY)), b"d:INF;");
+        assert_eq!(serialize(&Value::Float(f64::NEG_INFINITY)), b"d:-INF;");
+    }
+
+    #[test]
+    fn roundtrip_floats_and_tokens() {
+        for f in [1.0, 0.1, 1e17, 2.5e-7, -2.5, 5e-324] {
+            let back = deserialize(&serialize(&Value::Float(f))).unwrap();
+            assert_eq!(back, Value::Float(f), "failed for {f:?}");
+        }
+        // NAN has no f64 `PartialEq` equality — check the token form.
+        assert_eq!(serialize(&deserialize(b"d:NAN;").unwrap()), b"d:NAN;");
+        assert_eq!(
+            deserialize(b"d:-INF;").unwrap(),
+            Value::Float(f64::NEG_INFINITY)
+        );
+        assert_eq!(deserialize(b"d:INF;").unwrap(), Value::Float(f64::INFINITY));
     }
 }
