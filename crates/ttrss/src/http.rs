@@ -96,7 +96,8 @@ async fn index(
     let csrf = data.csrf_token().unwrap_or("");
     let ts = render::scripts_timestamp(state.config.docroot.as_path());
     let theme_link = theme_css_link(&state, &data).await;
-    let html = render::render_shell(csrf, ts, &theme_link);
+    let user_css = user_css_style(&state, &data).await;
+    let html = render::render_shell(csrf, ts, &theme_link, &user_css);
     let etag = format!("\"{}\"", md5_hex(&html));
     // `send_conditional_html`: 304 when the client's validator matches.
     if headers
@@ -140,7 +141,8 @@ async fn prefs_page(
     let ts = render::scripts_timestamp(state.config.docroot.as_path());
     let access_level = data.access_level().unwrap_or(0);
     let theme_link = theme_css_link(&state, &data).await;
-    let html = render::render_prefs_page(csrf, ts, access_level, &theme_link);
+    let user_css = user_css_style(&state, &data).await;
+    let html = render::render_prefs_page(csrf, ts, access_level, &theme_link, &user_css);
     let etag = format!("W/\"{}\"", md5_hex(&html));
     axum::http::Response::builder()
         .status(StatusCode::OK)
@@ -163,6 +165,27 @@ async fn theme_css_link(state: &AppState, data: &core_session::Session) -> Strin
     let pref = crate::prefs::resolve("USER_CSS_THEME", &rows, profile);
     let theme = pref.as_str();
     render::theme_css_link(state.config.docroot.as_path(), theme)
+}
+
+/// `UserHelper::print_user_stylesheet()` — the per-user custom CSS (the
+/// "Customize" box under Preferences → General → Theme). Emitted as an inline
+/// `<style id="user_css_style">` block in the shell + prefs head. Unlike
+/// `theme_css_link`, it has no safe-mode guard: PHP prints it whenever the
+/// `USER_STYLESHEET` pref is non-empty.
+async fn user_css_style(state: &AppState, data: &core_session::Session) -> String {
+    let uid = data.uid().unwrap_or(0);
+    let profile = data.profile().map(|p| p as i32);
+    let rows = crate::prefs::load_rows(&state.db, uid, profile).await;
+    let value = crate::prefs::resolve(crate::prefs::USER_STYLESHEET, &rows, profile)
+        .as_str()
+        .to_string();
+    if value.is_empty() {
+        return String::new();
+    }
+    format!(
+        "<style type='text/css' id='user_css_style'>{}</style>",
+        value.replace("<br/>", "\n")
+    )
 }
 
 /// `md5` of a byte slice, lowercase hex (for the shell ETag `"<md5>"`).

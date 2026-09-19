@@ -136,11 +136,12 @@ pub fn theme_css_link(docroot: &Path, theme: &str) -> String {
 /// divs, per-plugin `Plugins.*` blocks, theme/PWA metadata) is fixed for the
 /// golden dataset; the per-session dynamic values are the CSRF token, the
 /// scripts cache-bust timestamp and the per-user theme link.
-pub fn render_shell(csrf_token: &str, scripts_ts: i64, theme_css_link: &str) -> String {
+pub fn render_shell(csrf_token: &str, scripts_ts: i64, theme_css_link: &str, user_css_style: &str) -> String {
     SHELL_TEMPLATE
         .replace("__CSRF_TOKEN__", csrf_token)
         .replace("__SCRIPTS_TS__", &scripts_ts.to_string())
         .replace("__THEME_CSS_LINK__", theme_css_link)
+        .replace("__USER_CSS_STYLE__", user_css_style)
 }
 
 /// Render the preferences SPA page (`prefs.php`). The skeleton is fixed for the
@@ -152,11 +153,13 @@ pub fn render_prefs_page(
     scripts_ts: i64,
     access_level: i64,
     theme_css_link: &str,
+    user_css_style: &str,
 ) -> String {
     let mut html = PREFS_TEMPLATE
         .replace("@CSRF@", csrf_token)
         .replace("@CACHEBUST@", &scripts_ts.to_string())
-        .replace("__THEME_CSS_LINK__", theme_css_link);
+        .replace("__THEME_CSS_LINK__", theme_css_link)
+        .replace("__USER_CSS_STYLE__", user_css_style);
     if access_level < crate::core::user::ACCESS_LEVEL_ADMIN as i64 {
         html = html.replace(PREFS_ADMIN_TABS, PREFS_NONADMIN_CLOSE);
     }
@@ -279,6 +282,24 @@ mod tests {
             assert!(link.contains(" rel=\"stylesheet\" type=\"text/css\""));
             assert!(link.ends_with("id=\"theme_css\"/>"));
         }
+    }
+
+    #[test]
+    fn shell_and_prefs_emit_user_stylesheet() {
+        let css = ".content img { max-width: 100%; max-height: 80vh; }";
+        let block =
+            format!("<style type='text/css' id='user_css_style'>{}</style>", css);
+
+        // Non-empty custom CSS → the inline `<style>` block appears in both the
+        // shell and the prefs page (PHP `UserHelper::print_user_stylesheet`).
+        let shell = render_shell("tok", 123, "", &block);
+        assert!(shell.contains(&block), "shell missing the user stylesheet block");
+        let prefs = render_prefs_page("tok", 123, 3, "", &block);
+        assert!(prefs.contains(&block), "prefs missing the user stylesheet block");
+
+        // Empty → no `user_css_style` block is emitted.
+        assert!(!render_shell("tok", 123, "", "").contains("user_css_style"));
+        assert!(!render_prefs_page("tok", 123, 3, "", "").contains("user_css_style"));
     }
 
     #[test]

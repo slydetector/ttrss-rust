@@ -14,6 +14,7 @@
 	</script>
 
 	
+	__USER_CSS_STYLE__
 	<style type="text/css">
 	.article-note[data-note-for] {
    cursor : pointer;
