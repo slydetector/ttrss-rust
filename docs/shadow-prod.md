@@ -96,8 +96,10 @@ One entry point — **`make shadow`** — that runs, in order:
 
 - **`shadow/.env`** (gitignored) holds the prod connection + options:
   `PROD_DB_HOST`, `PROD_DB_PORT`, `PROD_DB_USER`, `PROD_DB_NAME`, `PROD_DB_PASS`,
-  plus optional `SHADOW_PORT` (default `8282`), `SHADOW_DB_PORT` (default
-  `5433`), `SHADOW_SELF_URL`, and `SHADOW_ENC_KEY`.
+  plus the host ports `SHADOW_PORT` (default `8282`) and `SHADOW_DB_PORT`
+  (default `5433`), and options that reuse the app's own names:
+  `TTRSS_DB_USER` / `TTRSS_DB_PASS` / `TTRSS_DB_NAME`, `TTRSS_SELF_URL_PATH`,
+  `TTRSS_ENCRYPTION_KEY`, and `RUST_LOG`.
 - **`shadow/.env.example`** (committed) is the template with placeholders.
 - Dump artifacts live under `shadow/` (gitignored). Prod credentials are never
   committed.
@@ -145,7 +147,7 @@ One entry point — **`make shadow`** — that runs, in order:
    (`SELECT pg_size_pretty(pg_database_size('<db>'))`); the custom dump is
    compressed. (Currently ~160 GB free locally.)
 3. **Encryption key.** Not a concern for this prod (no username/password
-   feeds). The server uses a default key; `SHADOW_ENC_KEY` is available if that
+   feeds). The server uses a default key; `TTRSS_ENCRYPTION_KEY` is available if that
    ever changes.
 4. **Feed icons.** Prod's feed-icon files live on the prod webroot, not in the
    DB dump, so feed thumbnails may 404/default in the shadow. Cosmetic only —
@@ -176,7 +178,7 @@ gains `shadow/.env` + `shadow/*.dump`.
 
 1. **Shadow HTTP port** — `8282` (dedicated; coexists with the demo on `8281`).
 2. **Encryption key** — not needed (no authenticated feeds in prod); default
-   key, `SHADOW_ENC_KEY` available as an override.
+   key, `TTRSS_ENCRYPTION_KEY` available as an override.
 3. **Drift preflight** — **hard-fail** on a `ttrss_version.schema_version`
    mismatch (expected: 151).
 4. **Stack** — 2-container compose (`db` + `rust`); the Rust port replaces

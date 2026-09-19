@@ -2,17 +2,18 @@
 # it. See docs/shadow-prod.md. No nginx / no PHP / no updater — the Rust server
 # is self-contained (static assets + dynamic routes in-process).
 #
-# Reads shadow/.env (gitignored) for PROD creds + options; the SHADOW_* /
-# ENC key have defaults so the stack runs with a minimal .env.
+# Reads shadow/.env (gitignored) for PROD creds + options. Options reuse the
+# app's own TTRSS_* / RUST_LOG names (plus SHADOW_PORT / SHADOW_DB_PORT for
+# the host ports) and have defaults so the stack runs with a minimal .env.
 name: ttrss-shadow
 
 services:
   db:
     image: postgres:17-alpine
     environment:
-      POSTGRES_USER: ${SHADOW_DB_USER:-shadow}
-      POSTGRES_PASSWORD: ${SHADOW_DB_PASS:-shadow}
-      POSTGRES_DB: ${SHADOW_DB_NAME:-shadow}
+      POSTGRES_USER: ${TTRSS_DB_USER:-shadow}
+      POSTGRES_PASSWORD: ${TTRSS_DB_PASS:-shadow}
+      POSTGRES_DB: ${TTRSS_DB_NAME:-shadow}
     volumes:
       - shadow-data:/var/lib/postgresql/data
     ports:
@@ -36,15 +37,15 @@ services:
     environment:
       TTRSS_DB_HOST: db
       TTRSS_DB_PORT: "5432"
-      TTRSS_DB_USER: ${SHADOW_DB_USER:-shadow}
-      TTRSS_DB_NAME: ${SHADOW_DB_NAME:-shadow}
-      TTRSS_DB_PASS: ${SHADOW_DB_PASS:-shadow}
-      TTRSS_SELF_URL_PATH: ${SHADOW_SELF_URL:-http://127.0.0.1:8282/tt-rss/}
+      TTRSS_DB_USER: ${TTRSS_DB_USER:-shadow}
+      TTRSS_DB_NAME: ${TTRSS_DB_NAME:-shadow}
+      TTRSS_DB_PASS: ${TTRSS_DB_PASS:-shadow}
+      TTRSS_SELF_URL_PATH: ${TTRSS_SELF_URL_PATH:-http://127.0.0.1:8282/tt-rss/}
       TTRSS_RUST_LISTEN: 0.0.0.0:80
       TTRSS_RUST_DOCROOT: /opt/ttrss-web
       TTRSS_RUST_FEED_ICONS_DIR: /opt/feed-icons
-      TTRSS_ENCRYPTION_KEY: ${SHADOW_ENC_KEY:-9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08}
-      RUST_LOG: ${SHADOW_RUST_LOG:-info}
+      TTRSS_ENCRYPTION_KEY: ${TTRSS_ENCRYPTION_KEY:-9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08}
+      RUST_LOG: ${RUST_LOG:-info}
     ports:
       - "${SHADOW_PORT:-8282}:80"
 

@@ -18,11 +18,11 @@ DB_CONTAINER="ttrss-shadow-db-1"
 # --- defaults (overridable via shadow/.env; kept in sync with compose.yaml) ---
 SHADOW_PORT="${SHADOW_PORT:-8282}"
 SHADOW_DB_PORT="${SHADOW_DB_PORT:-5433}"
-SHADOW_DB_USER="${SHADOW_DB_USER:-shadow}"
-SHADOW_DB_PASS="${SHADOW_DB_PASS:-shadow}"
-SHADOW_DB_NAME="${SHADOW_DB_NAME:-shadow}"
-SHADOW_SELF_URL="${SHADOW_SELF_URL:-http://127.0.0.1:${SHADOW_PORT}/tt-rss/}"
-SHADOW_ENC_KEY="${SHADOW_ENC_KEY:-9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08}"
+TTRSS_DB_USER="${TTRSS_DB_USER:-shadow}"
+TTRSS_DB_PASS="${TTRSS_DB_PASS:-shadow}"
+TTRSS_DB_NAME="${TTRSS_DB_NAME:-shadow}"
+TTRSS_SELF_URL_PATH="${TTRSS_SELF_URL_PATH:-http://127.0.0.1:${SHADOW_PORT}/tt-rss/}"
+TTRSS_ENCRYPTION_KEY="${TTRSS_ENCRYPTION_KEY:-9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08}"
 EXPECTED_SCHEMA_VERSION="${EXPECTED_SCHEMA_VERSION:-151}"
 
 info() { echo "==> $*"; }
@@ -37,7 +37,7 @@ load_env() {
 
 # psql against the local shadow db (host port SHADOW_DB_PORT); $1=db, $2=sql
 shadow_psql() {
-  PGPASSWORD="$SHADOW_DB_PASS" psql -h 127.0.0.1 -p "$SHADOW_DB_PORT" -U "$SHADOW_DB_USER" -d "$1" -tAc "$2"
+  PGPASSWORD="$TTRSS_DB_PASS" psql -h 127.0.0.1 -p "$SHADOW_DB_PORT" -U "$TTRSS_DB_USER" -d "$1" -tAc "$2"
 }
 
 # --- preflight ---------------------------------------------------------------
@@ -92,9 +92,9 @@ stop_rust() {
 }
 
 reset_db() {
-  info "resetting the shadow database ($SHADOW_DB_NAME)"
-  shadow_psql postgres "DROP DATABASE IF EXISTS $SHADOW_DB_NAME;" || true
-  shadow_psql postgres "CREATE DATABASE $SHADOW_DB_NAME;"
+  info "resetting the shadow database ($TTRSS_DB_NAME)"
+  shadow_psql postgres "DROP DATABASE IF EXISTS $TTRSS_DB_NAME;" || true
+  shadow_psql postgres "CREATE DATABASE $TTRSS_DB_NAME;"
 }
 
 copy_prod() {
@@ -103,9 +103,9 @@ copy_prod() {
   info "pg_dump prod ($PROD_DB_HOST) -> $dump"
   PGPASSWORD="$PROD_DB_PASS" pg_dump -h "$PROD_DB_HOST" -p "${PROD_DB_PORT:-5432}" \
     -U "$PROD_DB_USER" -d "$PROD_DB_NAME" --format=custom --no-owner --no-acl -f "$dump"
-  info "pg_restore -> shadow.$SHADOW_DB_NAME"
-  PGPASSWORD="$SHADOW_DB_PASS" pg_restore -h 127.0.0.1 -p "$SHADOW_DB_PORT" \
-    -U "$SHADOW_DB_USER" -d "$SHADOW_DB_NAME" --no-owner "$dump"
+  info "pg_restore -> shadow.$TTRSS_DB_NAME"
+  PGPASSWORD="$TTRSS_DB_PASS" pg_restore -h 127.0.0.1 -p "$SHADOW_DB_PORT" \
+    -U "$TTRSS_DB_USER" -d "$TTRSS_DB_NAME" --no-owner "$dump"
   info "copied ($(du -h "$dump" | cut -f1))"
 }
 
@@ -121,7 +121,7 @@ health_summary() {
   done
   [ "$ok" = 1 ] || die "shadow server did not answer healthz on :$SHADOW_PORT"
   echo
-  echo "shadow is serving: $SHADOW_SELF_URL"
+  echo "shadow is serving: $TTRSS_SELF_URL_PATH"
   echo "  re-sync from prod: make shadow-copy | stop: make shadow-stop"
 }
 
@@ -155,7 +155,7 @@ cmd_db() {
   load_env
   db_up
   reset_db
-  echo "shadow db ready ($SHADOW_DB_NAME, port $SHADOW_DB_PORT)"
+  echo "shadow db ready ($TTRSS_DB_NAME, port $SHADOW_DB_PORT)"
 }
 
 case "${1:-}" in
