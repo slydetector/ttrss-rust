@@ -129,7 +129,7 @@ Binary: one **`ttrss`** binary with subcommands `serve` (web server), `update` (
 
 ## 3. Delivery Plan — milestone ladder (M0–M9)
 
-Restructured per `research-report.md` (strangler-fig / vertical-slice / golden-master methodology). **Rule: every milestone ends with a live, demoable end-to-end system and a green oracle-diff harness for everything it claims.** Port order = usage-census order (hot ops first), respecting the read → write → background ladder. §3 (this section) is the **delivery order** (which milestone to demo next); §3a is the **detailed work-item reference** (per-subsystem, consulted as each milestone is started).
+Restructured per `research-report.md` (strangler-fig / vertical-slice / golden-master methodology). **Rule: every milestone ends with a live, demoable end-to-end system and a green Rust test suite (unit/DB tests, PHP test-parity) for everything it claims. *(The oracle-diff harness is retired 2026-09-19 — read-only scope plus wall-clock fixture decay made its maintenance cost outweigh the signal; see the note in `oracle/README.md`. Historical “harness match” references below are records of when they held.)*** Port order = usage-census order (hot ops first), respecting the read → write → background ladder. §3 (this section) is the **delivery order** (which milestone to demo next); §3a is the **detailed work-item reference** (per-subsystem, consulted as each milestone is started).
 
 | M | Milestone | Demo / exit criteria |
 | --- | --- | --- |
@@ -204,7 +204,7 @@ Restructured per `research-report.md` (strangler-fig / vertical-slice / golden-m
 5. **Feed-content cache** — ✅ **DECIDED: (c) Drop it.** No 30s feed-content de-dup cache. The question's “disk cache” is the feed-content cache (`DiskCache::instance('feeds')`, one `sha1(feed_url).xml` per feed, pruned after `CACHE_MAX_DAYS`=7d), **not** the read-side image/media cache (`instance('images')`, `MAX_CACHE_FILE_SIZE` — already ported in `diskcache.rs`, unaffected). Rationale: it fires only when a non-auth feed is re-fetched within 30s (rare), has no user-visible impact, and the 304 conditional (ported in M6c.1/2) makes such re-fetches cheap (server → 304 → no re-processing). The PHP's disk version held the full `#feeds × size` footprint for files only ever read within 30s (wasteful); the in-memory alternative held only the 30s window but is unnecessary given (c). A deliberate, unobservable deviation from the PHP.
 6. **Stampfile / daemon-status indicator** — ✅ **DECIDED: (c) Drop the file-based mechanism + stub the API responses.** The updater-health indicator is driven by `RPC::getruntimeinfo` (`rpc.rs::make_runtime_info`), which the SPA consumes (`App.js` → `Notify.error("Update daemon is not running.")` when `daemon_is_running !== 1`, `"Update daemon is not updating feeds."` when `daemon_stamp_ok !== 1`). Changes: (1) **RPC** — drop the `.lock`/`.stamp` file reads + the `file_is_locked` helper (if now unused); stub `daemon_is_running` = **`1`** (JSON *integer*, so the UI's strict `v !== 1` check passes), `daemon_stamp_ok` = **`1`** (integer), `daemon_stamp` = **current time** in `Y.m.d, G:i` format; keep `recent_log_events` (a separate DB query, unaffected). (2) **Level-23 API** (`api.rs:296`) — change `daemon_is_running: false` → **`true`** (the updater now runs in-process, always on; this surface carries only `daemon_is_running`, not the stamp fields). Rationale: in the single-process design (D1 = B) the updater is always running, so `daemon_is_running = 1` is the accurate steady-state value; the 30-min “not updating feeds” stale-check is dropped as a feature (if the updater loop ever stalls, the UI will no longer warn — accepted). Removes the file I/O + the cross-process `flock` artifact from the port.
 
-**Open / deferred (not done, each tracked elsewhere):** the disabled M2 corpus steps above; `notes` handler (M7); plugin management + the `HOOK_*` no-ops (M7); `updateFeed`/`subscribeToFeed` (M6 — done in M6c.5); `checkforupdates` is an intentional no-op (no PHP-upstream channel).
+**Open / deferred (not done, each tracked elsewhere):** the disabled M2 corpus steps above (moot — the harness is retired 2026-09-19); `notes` handler (M7); plugin management + the `HOOK_*` no-ops (M7); `updateFeed`/`subscribeToFeed` (M6 — done in M6c.5); `checkforupdates` is an intentional no-op (no PHP-upstream channel).
 
 ### M5a — External API client compatibility (planned, 2026-09-15; M5 scope completion)
 
@@ -1255,22 +1255,22 @@ Port each handler class, method-by-method, against golden files (read methods la
 - `templates/shell.html.tpl` — **statically embeds the frontend JS of `af_psql_trgm`, `note`, and `share`** (ported verbatim from the PHP page); M7.21 makes plugin-asset injection data-driven.
 - The ~40 `HOOK_*` call sites are all no-ops today — the correct "no plugins" baseline (research §4.11); call sites land **with the plugin that needs them**, never before.
 
-**No PHP plugin test suites exist** (`tt-rss/plugins/` carries no test files; only `ConfigTest` touches plugins indirectly), so each increment verifies by **Rust-only DB tests** (write-op rule) plus **read-side corpus steps** diffed vs the PHP oracle.
+**No PHP plugin test suites exist** (`tt-rss/plugins/` carries no test files; only `ConfigTest` touches plugins indirectly), so each increment verifies by **Rust-only DB tests** (write-op rule) plus **handler-level rendering/behavior tests** where a read-side surface is touched. (The oracle corpus is retired 2026-09-19 and not part of the bar; the M7.1 no-op baseline was corpus-verified before retirement.)
 
 **Increments** (bottom-up; each = one verifiable step, one commit):
 
 #### Phase 1 — Substrate (no user-visible change; no-op baseline preserved)
 
-- **M7.1 — Plugin contract + registry + lifecycle.** `crates/ttrss/src/pluginhost/`: `trait Plugin` (`name`/`about`/`init` + the ~50 hook methods with PHP-matching signatures, default no-op; `get_js/css/prefs_js/prefs_css`, `flags`, `is_public_method`, `csrf_ignore`, `api_version`); concrete `PluginHost` (registries: plugins, hooks by type+priority, handlers, commands, filter actions, API methods, virtual feeds, scheduled tasks; runners in PHP's four modes — `run_hooks`, `run_hooks_until`, `run_hooks_callback`/`chain_hooks_callback` with short-circuit on `false`/`null`); `HostCtx<'a>` (`&PgPool`, session uid/profile/access_level, request params, active profile); static registration list; `init()` once at startup; per-request host view filtered by `TTRSS_PLUGINS` + `_ENABLED_PLUGINS`. **No call sites wired** → behavior identical to today. *Verify:* registry mechanics (priority, all four run modes incl. short-circuit), gating (system/user/profile-blacklist); oracle corpus still green (no-op baseline held).
+- **M7.1 — Plugin contract + registry + lifecycle.** `crates/ttrss/src/pluginhost/`: `trait Plugin` (`name`/`about`/`init` + the ~50 hook methods with PHP-matching signatures, default no-op; `get_js/css/prefs_js/prefs_css`, `flags`, `is_public_method`, `csrf_ignore`, `api_version`); concrete `PluginHost` (registries: plugins, hooks by type+priority, handlers, commands, filter actions, API methods, virtual feeds, scheduled tasks; runners in PHP's four modes — `run_hooks`, `run_hooks_until`, `run_hooks_callback`/`chain_hooks_callback` with short-circuit on `false`/`null`); `HostCtx<'a>` (`&PgPool`, session uid/profile/access_level, request params, active profile); static registration list; `init()` once at startup; per-request host view filtered by `TTRSS_PLUGINS` + `_ENABLED_PLUGINS`. **No call sites wired** → behavior identical to today. *Verify:* registry mechanics (priority, all four run modes incl. short-circuit), gating (system/user/profile-blacklist); no-op baseline held (full Rust suite green; corpus-invariance verified at landing, before the corpus was retired).
 - **M7.2 — Plugin storage service.** `ttrss_plugin_storage` (name, owner_uid, content) on `core::phpser`: `set/get/set_array/get_array/get_all/clear_data` + `profile_get/profile_set`, always `HostCtx`-scoped. *Verify:* DB round-trips, (uid, name) keying, profile scoping, `clear_data`; **interop: byte-exact decode of PHP-written fixture rows + encode output PHP `unserialize()` accepts** (the "storage portable" exit criterion is established here).
 - **M7.3 — `PluginHandler` backend dispatch.** `backend.php?op=PluginHandler&plugin=<n>&method=<m>[&…]`: resolve the active plugin, CSRF check (`validate_csrf` unless `csrf_ignore`), dispatch, the exact JSON error envelopes the SPA handles. *Verify:* dispatch / unknown plugin / unknown method / CSRF fail / `csrf_ignore` bypass / `is_public_method` gating.
 
 #### Phase 2 — Article display (closes the M3 `notes` residual)
 
-- **M7.4 — `note`.** Article notes in plugin storage: `hook_article_button` (the button row in article lists), `PluginHandler` set/get/clear, the `HOOK_HEADLINES_RENDERED` click wiring (frontend JS already in the shell). Closes **M3 residual: `notes` handler**. *Verify:* DB tests (save/load/clear, per-article scoping); read-side corpus step for the button row.
-- **M7.5 — `nsfw`.** Per-profile NSFW-tags prefs tab (`HOOK_PREFS_TAB`), `hook_render_article[_cdm|_api]` wrapping matching content in `<details class='nsfw'><summary>Not safe for work (click to toggle)</summary>`, `hook_article_image` placeholder, `get_css`. Closes the exit-criterion "NSFW filter". *Verify:* DB tests (tag matching, per-profile storage); read-side corpus steps.
+- **M7.4 — `note`.** Article notes in plugin storage: `hook_article_button` (the button row in article lists), `PluginHandler` set/get/clear, the `HOOK_HEADLINES_RENDERED` click wiring (frontend JS already in the shell). Closes **M3 residual: `notes` handler**. *Verify:* DB tests (save/load/clear, per-article scoping); handler-level test for the button row.
+- **M7.5 — `nsfw`.** Per-profile NSFW-tags prefs tab (`HOOK_PREFS_TAB`), `hook_render_article[_cdm|_api]` wrapping matching content in `<details class='nsfw'><summary>Not safe for work (click to toggle)</summary>`, `hook_article_image` placeholder, `get_css`. Closes the exit-criterion "NSFW filter". *Verify:* DB tests (tag matching, per-profile storage); handler-level rendering tests (wrapped article, placeholder image, prefs tab).
 - **M7.6 — `no_iframes`.** `HOOK_SANITIZE` strips iframes unless whitelisted (interlocks with M7.11 — the whitelist hook runs first). *Verify:* sanitizer parity tests.
-- **M7.7 — `shorten_expanded`** · **M7.8 — `af_zz_vidmute`.** Both `get_js`-only (pure frontend). *Verify:* shell-page corpus step (JS present when enabled, absent when not).
+- **M7.7 — `shorten_expanded`** · **M7.8 — `af_zz_vidmute`.** Both `get_js`-only (pure frontend). *Verify:* shell-render test (JS present when enabled, absent when not).
 
 #### Phase 3 — Update pipeline (hooks into the `updates` engine — highest-risk cluster)
 
@@ -1279,41 +1279,41 @@ Port each handler class, method-by-method, against golden files (read methods la
 
 #### Phase 4 — Rendering & sanitization (closes the 54/55 + 59/60 residuals)
 
-- **M7.11 — `af_youtube_embed`.** `HOOK_RENDER_ENCLOSURE` → embedded player markup; `HOOK_IFRAME_WHITELISTED` admits YouTube iframes with the **loose PHP sandbox value** (`allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox`). Closes the **M5a.3 residual** (the 1-mismatch in the 54/55 and 59/60 corpus matches). *Verify:* sanitizer parity tests; re-run the two corpus steps → expect 55/55 and 60/60.
+- **M7.11 — `af_youtube_embed`.** `HOOK_RENDER_ENCLOSURE` → embedded player markup; `HOOK_IFRAME_WHITELISTED` admits YouTube iframes with the **loose PHP sandbox value** (`allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox`). Closes the **M5a.3 residual** (the sandbox value the retired corpus flagged in 2 steps). *Verify:* sanitizer parity tests (YouTube iframe → the loose PHP sandbox value + `allowfullscreen`); handler-level article-render tests.
 
 #### Phase 5 — Media & sharing
 
 - **M7.12 — `cache_starred_images`.** `HOOK_ARTICLES_MARK_TOGGLED` (+ publish-toggled): on star, queue the article's media into the `starred-images` `DiskCache` instance (no-auto-expiry marker, status files, `max_cache_attempts=5`); a scheduled task drives the queue — **the M6c.4 plugin-host scheduler variant** (system plugins always, user plugins only for active users). *Verify:* DB tests (queue on toggle, task run, attempt caps).
 - **M7.13 — `share`.** Per-article secret key in plugin storage (`newkey`/`unshare`/`clearArticleKeys`), the **no-account public route** serving one article by key, `PluginHandler` dialog/list/revoke (`is_public_method` + `api_version`), prefs tab section (frontend JS already in the shell). *Verify:* DB tests (key lifecycle, profile scoping); public-route tests (valid/expired/revoked).
-- **M7.14 — `bookmarklets`.** Prefs-tab UI exposing the two bookmarklets (subscribe-to-feed, share-this-page → `shareToPublished`). *Verify:* read-side corpus step.
-- **M7.15 — `af_psql_trgm`.** Trigram similarity on `tsvector_combined`: mark-similar-read with the threshold pref (PluginHandler `save`) + "Related articles" dialog (`showrelated` — JS already in the shell). **Requires the `pg_trgm` extension on the oracle/test DBs — confirm availability before starting.** *Verify:* DB tests (threshold storage, similarity query, mark-read effect); read-side corpus step.
+- **M7.14 — `bookmarklets`.** Prefs-tab UI exposing the two bookmarklets (subscribe-to-feed, share-this-page → `shareToPublished`). *Verify:* prefs-tab rendering test.
+- **M7.15 — `af_psql_trgm`.** Trigram similarity on `tsvector_combined`: mark-similar-read with the threshold pref (PluginHandler `save`) + "Related articles" dialog (`showrelated` — JS already in the shell). **Requires the `pg_trgm` extension on the oracle/test DBs — confirm availability before starting.** *Verify:* DB tests (threshold storage, similarity query, mark-read effect).
 
 #### Phase 6 — UI chrome & keyboard (all small)
 
 - **M7.16 — `toggle_sidebar`.** `HOOK_MAIN_TOOLBAR_BUTTON`.
-- **M7.17 — `hotkeys_swap_jk`** · **M7.18 — `hotkeys_noscroll`** (`HOOK_HOTKEY_MAP`) · **M7.19 — `hotkeys_force_top`** (`get_js`). One increment each. *Verify:* hotkey-map unit tests; shell-page corpus step.
+- **M7.17 — `hotkeys_swap_jk`** · **M7.18 — `hotkeys_noscroll`** (`HOOK_HOTKEY_MAP`) · **M7.19 — `hotkeys_force_top`** (`get_js`). One increment each. *Verify:* hotkey-map unit tests; shell-render test.
 
 #### Phase 7 — Authentication
 
-- **M7.20 — `auth_remote`.** The login path becomes pluggable: an `IAuthModule` trait behind the `HOOK_AUTH_USER` chain (`UserHelper` parity); `auth_remote` implements proxy HTTP Basic auth + client-SSL-certificate login; `auth_internal` re-implemented on the same trait (uniformity — behavior must stay byte-identical; the login corpus re-runs green). *Verify:* login-path tests (internal unchanged; remote: basic-auth mapping, cert subject → user, failures).
+- **M7.20 — `auth_remote`.** The login path becomes pluggable: an `IAuthModule` trait behind the `HOOK_AUTH_USER` chain (`UserHelper` parity); `auth_remote` implements proxy HTTP Basic auth + client-SSL-certificate login; `auth_internal` re-implemented on the same trait (uniformity — behavior must stay byte-identical; the login suites stay green). *Verify:* login-path tests (internal unchanged; remote: basic-auth mapping, cert subject → user, failures).
 
 #### Phase 8 — Wrap-up
 
-- **M7.21 — Data-driven plugin assets + residual closure.** The served page concatenates **active** plugins' `get_js`/`get_css`/`get_prefs_js`/`get_prefs_css` (replacing the three statically embedded shell blocks; with the oracle's `TTRSS_PLUGINS` set the pages stay corpus-consistent). Full corpus re-run; confirm closed residuals: M3 `notes`, M5a.3 sandbox value, parity-board `HOOK_*` rows 9–14, `HOOK_SEARCH` fallback; refresh the plan tables.
+- **M7.21 — Data-driven plugin assets + residual closure.** The served page concatenates **active** plugins' `get_js`/`get_css`/`get_prefs_js`/`get_prefs_css` (replacing the three statically embedded shell blocks; with the oracle's `TTRSS_PLUGINS` set the shell-render tests pass). Full Rust suite re-run; confirm closed residuals: M3 `notes`, M5a.3 sandbox value, parity-board `HOOK_*` rows 9–14, `HOOK_SEARCH` fallback; refresh the plan tables.
 
-**Exit criteria (unchanged from the ladder):** the stock plugin set reproduces the PHP UI features it drives (NSFW filter, notes, OTP auth, trigram search/related); plugin storage data portable (PHP↔Rust, established M7.2, spot-checked M7.21); full oracle corpus green with the oracle's plugin set active.
+**Exit criteria (unchanged from the ladder):** the stock plugin set reproduces the PHP UI features it drives (NSFW filter, notes, OTP auth, trigram search/related); plugin storage data portable (PHP↔Rust, established M7.2, spot-checked M7.21); full Rust suite green with the stock plugin set registered (handler/DB tests cover the read-side surface the retired corpus used to).
 
 **Decisions to revisit (M7):**
 
 1. **`auth_internal` as a plugin vs staying built-in** — M7.20 re-implements it on `IAuthModule` for uniformity; the cheaper alternative keeps a permanent special case in the login path.
 2. **`pg_trgm` availability** — enable globally on oracle + test DBs (simplest) or gate the M7.15 step; decide at M7.15 start.
 3. **Phase 6 granularity** — the four chrome/keyboard plugins could collapse to one "UI chrome" increment; kept separate for the one-commit rhythm.
-4. **Static shell JS (M7.21)** — the data-driven switch is the faithful behavior (PHP concatenates active plugins' assets) but touches the most-corpus-covered page; the alternative is leaving the three blocks static (a permanent deviation).
+4. **Static shell JS (M7.21)** — the data-driven switch is the faithful behavior (PHP concatenates active plugins' assets) but touches the most-tested page; the alternative is leaving the three blocks static (a permanent deviation).
 
 ### Phase 8 — Hardening, parity verification, packaging (→ M9)
 
 - Security pass: CSRF matrix, SSRF fuzzing, sanitizer fuzzing (cargo-fuzz), session crypto interop, timing-safe comparisons, cookie flags, IDN edge cases, `Sec-Fetch-Mode` checks.
-- Differential harness at scale: run PHP + Rust against the same DB + same feed corpus + same request replay (recorded), diff all JSON/Atom output; chase to zero meaningful diffs.
+- ~~Differential harness at scale~~ (**retired 2026-09-19**): the record/replay corpus is no longer part of the plan — its read-only scope and wall-clock fixture decay made the maintenance cost outweigh the signal; the Rust test suite (PHP test-parity) is the verification bar.
 - Performance: counter-cache effectiveness, headline query parity (EXPLAIN), large-DB (10M articles) test; tune sqlx pool.
 - Docker image(s) mirroring `supahgreg/tt-rss` + web-nginx pair; systemd units; docs (config reference, migration guide, plugin API guide).
 - **Exit criteria**: drop-in replacement for an existing deployment (point both at same DB, switch nginx upstream).

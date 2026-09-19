@@ -95,14 +95,18 @@ response **body** (not the HTTP status) is the source of truth. See
 surface against the backend dispatch to spot unhandled (op, method) without
 clicking every path.
 
-## Test harness / oracle
+## Test harness / oracle (retired 2026-09-19)
 
-- The oracle + record/replay/diff harness is in **`oracle/README.md`** — read
-  it before driving, recording, or diffing the corpus.
-- The canonical interface is the top-level **`Makefile`** — `make` lists
-  targets; `make harness` resets the oracle DB, builds, runs the corpus vs the
-  Rust server, and diffs. It verifies read-only ops for now; prefer
-  `make <target>` over long inline commands.
+- The record/replay corpus (`oracle/` + `crates/harness` + the `harness*`
+  Makefile targets) is **retired**: it is no longer part of the "green"
+  definition for any milestone or increment. The bar is the Rust test suite
+  (unit/DB tests, PHP test-parity per the next section) + the demo-able
+  server. Do not re-add corpus steps to increment verify bars.
+- Why: it covered read-only paths only, and its fixtures decay with
+  wall-clock age (the 24 h FEED_FRESH window, relative timestamps, live-feed
+  re-fetches) — the maintenance cost outgrew the signal.
+- The machinery is kept in-tree, unwired from the gate, in case the
+  differential approach is revived; `oracle/README.md` carries the note.
 
 ## Test parity (port the tests, not just the code)
 

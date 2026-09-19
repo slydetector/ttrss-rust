@@ -1,5 +1,11 @@
 # Oracle: dockerized PHP tt-rss + golden dataset + corpus
 
+> **Retired (2026-09-19).** The corpus is no longer part of the workspace's
+> green definition — verification is the Rust test suite (unit/DB tests +
+> PHP test-parity; see `AGENTS.md`). The machinery (stack, seed, recorders,
+> diff tool) is kept for reference in case the differential approach is
+> revived.
+
 The oracle is a live, stock Tiny Tiny RSS (PHP) deployment that serves two
 purposes:
 
