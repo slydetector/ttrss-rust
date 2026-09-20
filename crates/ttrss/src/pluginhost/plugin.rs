@@ -341,7 +341,9 @@ pub trait Plugin: Send + Sync {
         _allowed_elements: &'a [String],
         _disallowed_attributes: &'a [String],
         _article_id: i32,
-    ) {}
+    ) -> BoxFuture<'a, ()> {
+        Box::pin(async move {})
+    }
 
     /// `hook_render_article_api($params)` — article rendered for API clients
     /// (`params` = `{article, headline}`). `HOOK_RENDER_ARTICLE_API`.
@@ -621,7 +623,9 @@ pub trait Plugin: Send + Sync {
         _matched_filters: &'a Value,
         _matched_rules: &'a Value,
         _article_filter_actions: &'a Value,
-    ) {}
+    ) -> BoxFuture<'a, ()> {
+        Box::pin(async move {})
+    }
 
     /// `hook_get_full_text($url)` — plugins may provide full article text.
     /// `HOOK_GET_FULL_TEXT`.

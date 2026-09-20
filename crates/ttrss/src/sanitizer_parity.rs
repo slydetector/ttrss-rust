@@ -27,41 +27,41 @@ mod mocked;
 #[cfg(test)]
 mod unit;
 
-use crate::sanitizer::sanitize;
+use crate::sanitizer::sanitize_core;
 
 /// `Sanitizer::sanitize($html)` with empty session state: force=false,
 /// strip_images=false, has_sandbox=false, bw_limit=false, no site URL, no
 /// highlight words. (The Rust `site_url: None` maps to PHP's default base
 /// `http://domain.invalid/`.)
 pub(crate) fn san(html: &str) -> String {
-    sanitize(html, false, false, false, false, None, None)
+    sanitize_core(html, false, false, false, false, None, None)
 }
 
 /// `Sanitizer::sanitize($html, false, null, $site_url)`.
 pub(crate) fn san_site(html: &str, site: &str) -> String {
-    sanitize(html, false, false, false, false, Some(site), None)
+    sanitize_core(html, false, false, false, false, Some(site), None)
 }
 
 /// `Sanitizer::sanitize($html, false, 1, null, $words)` (tests_integration
 /// section K; STRIP_IMAGES pref is off for uid 1 in the DB).
 pub(crate) fn san_hw(html: &str, words: &[&str]) -> String {
     let ws: Vec<String> = words.iter().map(|s| s.to_string()).collect();
-    sanitize(html, false, false, false, false, None, Some(&ws))
+    sanitize_core(html, false, false, false, false, None, Some(&ws))
 }
 
 /// `$_SESSION['hasSandbox'] = true` variant.
 pub(crate) fn san_sandbox(html: &str) -> String {
-    sanitize(html, false, false, true, false, None, None)
+    sanitize_core(html, false, false, true, false, None, None)
 }
 
 /// `Prefs::set(STRIP_IMAGES, true, 1, null)` + session uid 1.
 pub(crate) fn san_strip(html: &str) -> String {
-    sanitize(html, false, true, false, false, None, None)
+    sanitize_core(html, false, true, false, false, None, None)
 }
 
 /// `Sanitizer::sanitize($html, true)` — force_remove_images.
 pub(crate) fn san_force(html: &str) -> String {
-    sanitize(html, true, false, false, false, None, None)
+    sanitize_core(html, true, false, false, false, None, None)
 }
 
 #[cfg(test)]

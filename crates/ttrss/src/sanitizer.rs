@@ -18,6 +18,8 @@ use kuchikiki::{parse_html, ElementData, NodeData, NodeRef};
 use regex::Regex;
 use std::collections::BTreeSet;
 
+use crate::pluginhost::host::HostCtx;
+use crate::pluginhost::HOOK_SANITIZE;
 use crate::with_trailing_slash;
 
 const HTML_NS: &str = "http://www.w3.org/1999/xhtml";
@@ -305,8 +307,13 @@ pub fn apply_libxml_implicit_p(body: &NodeRef) {
     }
 }
 
-/// The sanitized fragment HTML.
-pub fn sanitize(
+/// The sanitized fragment HTML — the plugin-free **core** (M7.6): parse,
+/// rewrite links/images, sandbox + wrap iframes, strip disallowed
+/// elements/attributes, highlight words. Production read paths call
+/// [`sanitize`] (which runs `HOOK_SANITIZE` after this core) so the plugin
+/// stage cannot be skipped; this is the sync core the parity/unit tests
+/// drive directly (no runtime).
+pub(crate) fn sanitize_core(
     input: &str,
     force_remove_images: bool,
     strip_images: bool,
@@ -603,12 +610,82 @@ fn process_iframes(root: &NodeRef) {
 /// always false.
 // TODO(port): HOOK_IFRAME_WHITELISTED (M7 plugin system).
 pub fn iframe_whitelisted(src: &str) -> bool {
-    let host = parse_url(src)
-        .and_then(|p| p.host)
-        .map(|h| h.trim_matches(|c| c == '[' || c == ']').to_string())
-        .unwrap_or_default();
+    let host = url_host(src);
     let _ = host;
     false
+}
+
+/// `parse_url($src, PHP_URL_HOST)` — the iframe src's host (IPv6 brackets
+/// stripped, `""` when absent). Split out so the plugin system (M7.6/M7.11)
+/// can feed it to `HOOK_IFRAME_WHITELISTED`.
+pub(crate) fn url_host(src: &str) -> String {
+    parse_url(src)
+        .and_then(|p| p.host)
+        .map(|h| h.trim_matches(|c| c == '[' || c == ']').to_string())
+        .unwrap_or_default()
+}
+
+/// The `HOOK_SANITIZE` stage (M7.6): every active plugin that registered
+/// the hook gets the sanitized fragment (`std::mem::take` — no clone),
+/// mutates it, and the result is written back in hook order. PHP mutates
+/// the shared `DOMDocument` in place; the composition is the same (each
+/// hook sees the previous hooks' output). `site_url`/`allowed_elements`/
+/// `disallowed_attributes`/`article_id` are the fixed hook contract
+/// (M7.1); a `None` site URL is passed as `""` (PHP's `null` → `''` in the
+/// hook arguments is not reachable here — the call sites pass the feed
+/// site URL or `None` → PHP's sanitize defaults to the base URL; the hook
+/// receives what PHP's `HOOK_SANITIZE` receives, i.e. the `$site_url`
+/// argument as-is).
+/// The full read-side sanitize pipeline (M7.6): [`sanitize_core`] followed
+/// by the `HOOK_SANITIZE` stage — every active plugin that registered the
+/// hook gets the fragment (`std::mem::take` hand-off, no clone) and mutates
+/// it in hook order (PHP mutates the shared `DOMDocument`; the composition
+/// is the same — each hook sees the previous hooks' output). Production read
+/// paths call this, not [`sanitize_core`], so the hook stage cannot be
+/// skipped. `site_url: None` → `""` in the hook contract (the core uses its
+/// own base-URL default for `rewrite_base`).
+#[allow(clippy::too_many_arguments)] // mirrors the core's 7 + article_id + plugin ctx
+pub async fn sanitize(
+    input: &str,
+    force_remove_images: bool,
+    strip_images: bool,
+    has_sandbox: bool,
+    bw_limit: bool,
+    site_url: Option<&str>,
+    highlight_words_opt: Option<&[String]>,
+    article_id: i32,
+    plugins: Option<&mut HostCtx<'_>>,
+) -> String {
+    let mut out = sanitize_core(
+        input,
+        force_remove_images,
+        strip_images,
+        has_sandbox,
+        bw_limit,
+        site_url,
+        highlight_words_opt,
+    );
+    if let Some(plugins) = plugins {
+        let order = plugins.hook_order(HOOK_SANITIZE);
+        if !order.is_empty() {
+            let site = site_url.unwrap_or("").to_string();
+            let allowed: Vec<String> = ALLOWED_ELEMENTS.iter().map(|s| s.to_string()).collect();
+            let disallowed: Vec<String> = DISALLOWED_ATTRIBUTES.iter().map(|s| s.to_string()).collect();
+            for idx in order {
+                let mut d = std::mem::take(&mut out);
+                plugins.host().plugin(idx).hook_sanitize(
+                    plugins,
+                    &mut d,
+                    &site,
+                    &allowed,
+                    &disallowed,
+                    article_id,
+                ).await;
+                out = d;
+            }
+        }
+    }
+    out
 }
 
 /// Wrap surviving iframes in `<div class="embed-responsive">` (Sanitizer.php:
@@ -1718,7 +1795,7 @@ mod tests {
     use super::*;
 
     fn san(html: &str) -> String {
-        sanitize(html, false, false, true, false, None, None)
+        sanitize_core(html, false, false, true, false, None, None)
     }
 
     #[test]

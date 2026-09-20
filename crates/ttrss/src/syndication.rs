@@ -173,6 +173,10 @@ async fn generate_feed(state: &AppState, owner_uid: i64, req: &RssRequest<'_>) -
     // imported from `headlines` (same query shape).
     const I_ID: usize = 0;
 
+    // M7.6: the HOOK_SANITIZE context for the feed owner (PHP runs the
+    // feed output through the owner's plugin host).
+    let mut pctx = crate::pluginhost::dispatch::owner_ctx(state, owner_uid as i32).await;
+
     let mut articles_atom: Vec<Value> = Vec::new();
     let mut articles_json: Vec<Value> = Vec::new();
 
@@ -215,7 +219,10 @@ async fn generate_feed(state: &AppState, owner_uid: i64, req: &RssRequest<'_>) -
             false,
             None,
             None,
-        );
+            id,
+            Some(&mut pctx),
+        )
+        .await;
 
         // `Sanitizer::sanitize($content, false, $owner_uid, $feed_site_url, null, $id)`
         let content_sanitized = sanitizer::sanitize(
@@ -226,7 +233,10 @@ async fn generate_feed(state: &AppState, owner_uid: i64, req: &RssRequest<'_>) -
             false,
             Some(&feed_site_url),
             None,
-        );
+            id,
+            Some(&mut pctx),
+        )
+        .await;
 
         let source_link = site_url
             .filter(|s| !s.is_empty())

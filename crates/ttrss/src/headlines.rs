@@ -484,6 +484,9 @@ async fn format_headlines_list(
     let bw_limit = data.get_bool("bw_limit").unwrap_or(false);
     let has_sandbox = data.get_bool("hasSandbox").unwrap_or(false);
 
+    // M7.6: the HOOK_SANITIZE context (built once per request).
+    let mut pctx = crate::pluginhost::dispatch::session_ctx(state, sess).await;
+
     for r in &article_rows {
         headlines_count += 1;
 
@@ -598,7 +601,10 @@ async fn format_headlines_list(
             bw_limit,
             site_url.as_deref().filter(|s| !s.is_empty()),
             None,
-        );
+            id,
+            Some(&mut pctx),
+        )
+        .await;
 
         let tags = if tag_cache.is_empty() {
             Vec::new()

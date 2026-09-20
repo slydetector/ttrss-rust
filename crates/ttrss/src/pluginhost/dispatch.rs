@@ -61,7 +61,7 @@ fn request_map(op: &str, method: &str, csrf: &str, extra: &Map<String, Value>) -
 /// The per-session dispatch context: owner/profile/access from the session,
 /// active set = `TTRSS_PLUGINS` (config) + the owner's `_ENABLED_PLUGINS`
 /// pref (profile-scoped) — the same lists the asset/hooks paths will use.
-async fn session_ctx<'a>(state: &'a AppState, sess: &'a Sess) -> HostCtx<'a> {
+pub(crate) async fn session_ctx<'a>(state: &'a AppState, sess: &'a Sess) -> HostCtx<'a> {
     let data = sess.data();
     let uid_i64 = data.uid().unwrap_or(0);
     let uid = Some(uid_i64 as i32);
@@ -94,6 +94,31 @@ async fn session_ctx<'a>(state: &'a AppState, sess: &'a Sess) -> HostCtx<'a> {
         &usr,
     )
     .with_self_url(state.config.self_url.clone())
+}
+
+/// The owner-scoped context without a web session (feed output, M7.6):
+/// default profile, access 0, user list = the owner's `_ENABLED_PLUGINS`
+/// (default profile).
+pub(crate) async fn owner_ctx<'a>(state: &'a AppState, owner_uid: i32) -> HostCtx<'a> {
+    let system: Vec<String> = state
+        .config
+        .plugins
+        .split(',')
+        .map(|s| s.trim().to_lowercase())
+        .filter(|s| !s.is_empty())
+        .collect();
+    let pref_rows = crate::prefs::load_rows(&state.db, owner_uid as i64, None).await;
+    let enabled =
+        crate::prefs::resolve(crate::prefs::_ENABLED_PLUGINS, &pref_rows, None).as_str().to_string();
+    let user: Vec<String> = enabled
+        .split(',')
+        .map(|s| s.trim().to_lowercase())
+        .filter(|s| !s.is_empty())
+        .collect();
+    let sys: Vec<&str> = system.iter().map(|s| s.as_str()).collect();
+    let usr: Vec<&str> = user.iter().map(|s| s.as_str()).collect();
+    HostCtx::for_user(&state.plugins, state.db.pool(), Some(owner_uid), None, 0, &sys, &usr)
+        .with_self_url(state.config.self_url.clone())
 }
 
 /// `PluginHandler::catchall` — `backend.php?op=PluginHandler&plugin=<n>&method=<m>[&…]`.

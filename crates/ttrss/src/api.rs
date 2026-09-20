@@ -829,6 +829,10 @@ async fn get_headlines(state: &AppState, sess: &Sess, body: &Map<String, Value>)
     };
     let q = headlines::get_headlines_query(&state.db, &params).await;
 
+    // M7.6: the HOOK_SANITIZE context (no_iframes et al.) — built once for
+    // the whole request (PHP's singleton; the active set is per owner).
+    let mut pctx = crate::pluginhost::dispatch::session_ctx(state, sess).await;
+
     let mut out: Vec<Value> = Vec::new();
     for r in &q.article_rows {
         let row = api_headline_row(
@@ -844,6 +848,7 @@ async fn get_headlines(state: &AppState, sess: &Sess, body: &Map<String, Value>)
             include_attachments,
             excerpt_length,
             state,
+            &mut pctx,
         )
         .await;
         out.push(row);
@@ -899,6 +904,7 @@ async fn api_headline_row(
     include_attachments: bool,
     excerpt_length: i64,
     state: &AppState,
+    pctx: &mut crate::pluginhost::host::HostCtx<'_>,
 ) -> Value {
     let pool = state.db.pool();
     let id: i32 = r.get(H_ID);
@@ -973,6 +979,7 @@ async fn api_headline_row(
         m.insert("excerpt".into(), Value::from(excerpt));
     }
     if show_content {
+        let site_opt = site_url.as_str();
         let content_out = if sanitize_content {
             sanitizer::sanitize(
                 &content,
@@ -980,9 +987,12 @@ async fn api_headline_row(
                 false,
                 has_sandbox,
                 false,
-                Some(site_url.as_str()).filter(|s| !s.is_empty()),
+                Some(site_opt).filter(|s| !s.is_empty()),
                 None,
+                id,
+                Some(pctx),
             )
+            .await
         } else {
             content.clone()
         };
@@ -1121,6 +1131,9 @@ async fn get_article(
     // client's `getHeadlines` calls) — no request param of its own.
     let has_sandbox = sess.data().get_bool("hasSandbox").unwrap_or(false);
 
+    // M7.6: the HOOK_SANITIZE context (built once per request).
+    let mut pctx = crate::pluginhost::dispatch::session_ctx(state, sess).await;
+
     let mut out: Vec<Value> = Vec::new();
     for r in &rows {
         let id: i32 = r.get(0);
@@ -1189,7 +1202,10 @@ async fn get_article(
                 false,
                 site_url.as_deref().filter(|s| !s.is_empty()),
                 None,
+                id,
+                Some(&mut pctx),
             )
+            .await
         } else {
             content
         };
