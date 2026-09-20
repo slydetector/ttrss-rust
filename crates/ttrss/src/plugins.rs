@@ -10,6 +10,7 @@
 pub mod no_iframes;
 pub mod note;
 pub mod nsfw;
+pub mod shorten_expanded;
 
 use serde_json::{json, Value};
 

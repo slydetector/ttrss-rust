@@ -103,6 +103,7 @@ pub fn all_plugins() -> Vec<fn() -> Box<dyn Plugin>> {
         || Box::new(crate::plugins::no_iframes::NoIframes),
         || Box::new(crate::plugins::note::Note),
         || Box::new(crate::plugins::nsfw::NsFw),
+        || Box::new(crate::plugins::shorten_expanded::ShortenExpanded),
     ]
 }
 
