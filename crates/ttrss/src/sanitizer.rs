@@ -307,13 +307,15 @@ pub fn apply_libxml_implicit_p(body: &NodeRef) {
     }
 }
 
-/// The sanitized fragment HTML — the plugin-free **core** (M7.6): parse,
-/// rewrite links/images, sandbox + wrap iframes, strip disallowed
-/// elements/attributes, highlight words. Production read paths call
-/// [`sanitize`] (which runs `HOOK_SANITIZE` after this core) so the plugin
-/// stage cannot be skipped; this is the sync core the parity/unit tests
-/// drive directly (no runtime).
-#[allow(dead_code)] // plugin-free parity/unit entry; production goes through `sanitize` → `sanitize_core_inner`
+/// The sanitized fragment HTML — the sync **core** (M7.6): parse, rewrite
+/// links/images, sandbox + wrap iframes, strip disallowed elements/attributes,
+/// highlight words. `admitted` is the M7.11 `HOOK_IFRAME_WHITELISTED` host set —
+/// an iframe whose src host is in it keeps the loose PHP sandbox value, the rest
+/// get the restrictive one. Production read paths call [`sanitize`] (which
+/// computes the set by firing the hook, runs this core, then the `HOOK_SANITIZE`
+/// stage); the parity/unit tests drive this core directly (no runtime) with
+/// `admitted: None`.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn sanitize_core(
     input: &str,
     force_remove_images: bool,
@@ -322,35 +324,7 @@ pub(crate) fn sanitize_core(
     bw_limit: bool,
     site_url: Option<&str>,
     highlight_words_opt: Option<&[String]>,
-) -> String {
-    // No plugin context (parity/unit tests): no iframe is never whitelisted, so
-    // the core applies the restrictive sandbox to every iframe.
-    sanitize_core_inner(
-        input,
-        force_remove_images,
-        strip_images,
-        has_sandbox,
-        bw_limit,
-        site_url,
-        highlight_words_opt,
-        &BTreeSet::new(),
-    )
-}
-
-/// The [`sanitize_core`] steps with the M7.11 `HOOK_IFRAME_WHITELISTED`
-/// `admitted` host set: an iframe whose src host is in the set keeps the loose
-/// PHP sandbox value, the rest get the restrictive one. Production read paths
-/// reach this via [`sanitize`], which computes the set by firing the hook.
-#[allow(clippy::too_many_arguments)]
-fn sanitize_core_inner(
-    input: &str,
-    force_remove_images: bool,
-    strip_images: bool,
-    has_sandbox: bool,
-    bw_limit: bool,
-    site_url: Option<&str>,
-    highlight_words_opt: Option<&[String]>,
-    admitted: &BTreeSet<String>,
+    admitted: Option<&BTreeSet<String>>,
 ) -> String {
     let res = input.trim();
     if res.is_empty() {
@@ -616,7 +590,7 @@ fn rewrite_single_element(
 }
 
 /// Pass 2: sandbox iframes.
-fn process_iframes(root: &NodeRef, admitted: &BTreeSet<String>) {
+fn process_iframes(root: &NodeRef, admitted: Option<&BTreeSet<String>>) {
     let mut stack = vec![root.clone()];
     while let Some(node) = stack.pop() {
         if let Some(el) = node.as_element() {
@@ -631,7 +605,7 @@ fn process_iframes(root: &NodeRef, admitted: &BTreeSet<String>) {
                     .get("src")
                     .map(|v| v.to_string())
                     .unwrap_or_default();
-                let sandbox = if admitted.contains(&url_host(&src)) {
+                let sandbox = if admitted.is_some_and(|s| s.contains(&url_host(&src))) {
                     "allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"
                 } else {
                     "allow-scripts"
@@ -748,7 +722,7 @@ pub async fn sanitize(
             }
         }
     }
-    let mut out = sanitize_core_inner(
+    let mut out = sanitize_core(
         input,
         force_remove_images,
         strip_images,
@@ -756,7 +730,7 @@ pub async fn sanitize(
         bw_limit,
         site_url,
         highlight_words_opt,
-        &admitted,
+        Some(&admitted),
     );
     if let Some(plugins) = plugins {
         let order = plugins.hook_order(HOOK_SANITIZE);
@@ -1888,7 +1862,7 @@ mod tests {
     use super::*;
 
     fn san(html: &str) -> String {
-        sanitize_core(html, false, false, true, false, None, None)
+        sanitize_core(html, false, false, true, false, None, None, None)
     }
 
     #[test]
