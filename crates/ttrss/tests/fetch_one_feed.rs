@@ -15,7 +15,14 @@ use sqlx::pool::PoolOptions;
 use sqlx::postgres::PgConnectOptions;
 use ttrss::core::config::Config;
 use ttrss::core::db::Db;
+use ttrss::pluginhost::PluginHost;
 use ttrss::updates::{fetch_one_feed, FeedUpdateFlags};
+/// An empty plugin host — the `HOOK_ARTICLE_FILTER` chain is a no-op with
+/// no plugins (M7.9), so these tests exercise the plugin-free path.
+fn no_plugins() -> PluginHost {
+    PluginHost::startup(&[])
+}
+
 use common::{Canned, MockServer};
 
 /// The recorded mock feed (a single Atom entry, "x-21may2020").
@@ -182,7 +189,7 @@ async fn test_fetch_one_feed_success(pool: PoolOptions<sqlx::Postgres>, options:
     let uid = create_user(&db, 200, 0).await;
     let feed_id = create_feed(&db, 200, uid, &mock.url("/feed")).await;
 
-    let outcome = fetch_one_feed(db.pool(), &cfg, feed_id, &FeedUpdateFlags::default(), None).await.expect("fetch");
+    let outcome = fetch_one_feed(db.pool(), &cfg, &no_plugins(), feed_id, &FeedUpdateFlags::default(), None).await.expect("fetch");
     assert!(outcome.success, "expected success: {:?}", outcome.error);
     assert_eq!(outcome.new_articles, 1);
     assert!(last_successful_update_is_set(&db, feed_id).await);
@@ -221,7 +228,7 @@ async fn test_fetch_one_feed_304(pool: PoolOptions<sqlx::Postgres>, options: PgC
     .await
     .expect("seed conditional state");
 
-    let outcome = fetch_one_feed(db.pool(), &cfg, feed_id, &FeedUpdateFlags::default(), None).await.expect("fetch");
+    let outcome = fetch_one_feed(db.pool(), &cfg, &no_plugins(), feed_id, &FeedUpdateFlags::default(), None).await.expect("fetch");
     assert!(outcome.success, "expected a 304 to succeed");
     assert_eq!(outcome.new_articles, 0);
     assert_eq!(last_error(&db, feed_id).await, "");
@@ -256,7 +263,7 @@ async fn test_fetch_one_feed_429(pool: PoolOptions<sqlx::Postgres>, options: PgC
     let uid = create_user(&db, 202, 0).await;
     let feed_id = create_feed(&db, 202, uid, &mock.url("/feed")).await;
 
-    let outcome = fetch_one_feed(db.pool(), &cfg, feed_id, &FeedUpdateFlags::default(), None).await.expect("fetch");
+    let outcome = fetch_one_feed(db.pool(), &cfg, &no_plugins(), feed_id, &FeedUpdateFlags::default(), None).await.expect("fetch");
     assert!(!outcome.success, "expected a 429 to fail");
     let err = outcome.error.expect("an error message");
     assert!(err.contains("throttled for"), "expected a throttle message: {err}");
@@ -296,7 +303,7 @@ async fn test_fetch_one_feed_network_error(
     let uid = create_user(&db, 203, 0).await;
     let feed_id = create_feed(&db, 203, uid, &dead_url).await;
 
-    let outcome = fetch_one_feed(db.pool(), &cfg, feed_id, &FeedUpdateFlags::default(), None).await.expect("fetch");
+    let outcome = fetch_one_feed(db.pool(), &cfg, &no_plugins(), feed_id, &FeedUpdateFlags::default(), None).await.expect("fetch");
     assert!(!outcome.success, "expected a network error to fail");
     assert!(outcome.error.is_some(), "expected an error message");
     // The `last_error` is stamped (non-empty).
@@ -333,7 +340,7 @@ async fn test_fetch_one_feed_parse_failure(
     let uid = create_user(&db, 204, 0).await;
     let feed_id = create_feed(&db, 204, uid, &mock.url("/feed")).await;
 
-    let outcome = fetch_one_feed(db.pool(), &cfg, feed_id, &FeedUpdateFlags::default(), None).await.expect("fetch");
+    let outcome = fetch_one_feed(db.pool(), &cfg, &no_plugins(), feed_id, &FeedUpdateFlags::default(), None).await.expect("fetch");
     assert!(!outcome.success, "expected a parse failure to fail");
     assert!(outcome.error.is_some(), "expected an error message");
     // The `last_error` is stamped (non-empty).
@@ -363,7 +370,7 @@ async fn test_fetch_one_feed_readonly_owner(
     let uid = create_user(&db, 205, -1 /* READONLY */).await;
     let feed_id = create_feed(&db, 205, uid, &mock.url("/feed")).await;
 
-    let outcome = fetch_one_feed(db.pool(), &cfg, feed_id, &FeedUpdateFlags::default(), None).await.expect("fetch");
+    let outcome = fetch_one_feed(db.pool(), &cfg, &no_plugins(), feed_id, &FeedUpdateFlags::default(), None).await.expect("fetch");
     assert!(!outcome.success, "expected a read-only owner to fail");
     assert!(outcome.error.is_some(), "expected an error message");
 }

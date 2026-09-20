@@ -36,7 +36,7 @@
 
 use anyhow::{bail, Context, Result};
 use chrono::{NaiveDateTime, Utc};
-use serde_json::Value;
+use serde_json::{json, Value};
 use sqlx::{PgPool, Row};
 use rand::Rng;
 use std::sync::Arc;
@@ -53,6 +53,8 @@ use crate::feeds::decrypt_feed_pass;
 use crate::rss_utils::{calculate_article_hash, make_guid_from_title, make_guid_hashed};
 use crate::urlhelper::{fetch, FetchOptions, rewrite_relative};
 use crate::util::{clean_str, normalize_categories, php_int_cast, sha1_hex, strip_tags};
+use crate::pluginhost::host::HostCtx;
+use crate::pluginhost::{HOOK_ARTICLE_FILTER, PluginHost};
 
 /// The subset of `ttrss_feeds` the pipeline reads.
 #[derive(Debug, Clone)]
@@ -142,6 +144,7 @@ pub struct FeedUpdateResult {
 pub async fn process_feed(
     pool: &PgPool,
     cfg: &Config,
+    plugins: &PluginHost,
     feed: &FeedRow,
     feed_data: &str,
     flags: &FeedUpdateFlags,
@@ -232,6 +235,20 @@ pub async fn process_feed(
         format!("{} filters loaded.", filters.len()),
     );
     dlog(log.as_deref_mut(), DEBUG_LEVEL_VERBOSE, "processing articles...".into());
+    // M7.9 — the owner's plugin context for the `HOOK_ARTICLE_FILTER` chain, built once
+    // per feed (the owner's enabled set is fixed for the batch). PHP loads the system
+    // plugins (KIND_ALL) + the owner's user plugins (KIND_USER) per feed (RSSUtils:
+    // 303-304); `owner_ctx_from` mirrors that against a bare pool.
+    let system: Vec<String> = cfg
+        .plugins
+        .split(',')
+        .map(|s| s.trim().to_lowercase())
+        .filter(|s| !s.is_empty())
+        .collect();
+    let mut ctx = crate::pluginhost::dispatch::owner_ctx_from(
+        plugins, pool, &system, &cfg.self_url, feed.owner_uid,
+    )
+    .await;
     let mut new_articles = 0;
     for item in &items {
         dlog(log.as_deref_mut(), DEBUG_LEVEL_VERBOSE, DEBUG_SEPARATOR.into());
@@ -245,6 +262,7 @@ pub async fn process_feed(
             &filters,
             &blacklisted,
             flags,
+            &mut ctx,
             log.as_deref_mut(),
         )
         .await?;
@@ -270,6 +288,7 @@ pub async fn process_feed(
 pub async fn update_rss_feed(
     pool: &PgPool,
     cfg: &Config,
+    plugins: &PluginHost,
     feed_id: i32,
     feed_data: &str,
     flags: &FeedUpdateFlags,
@@ -281,7 +300,7 @@ pub async fn update_rss_feed(
     let Some(feed) = load_feed(pool, feed_id).await? else {
         return Ok(false);
     };
-    let result = process_feed(pool, cfg, &feed, feed_data, flags, log.as_deref_mut()).await?;
+    let result = process_feed(pool, cfg, plugins, &feed, feed_data, flags, log.as_deref_mut()).await?;
     Ok(result.parse_error.is_none())
 }
 
@@ -384,6 +403,7 @@ pub struct FeedFetchOutcome {
 pub async fn fetch_one_feed(
     pool: &PgPool,
     cfg: &Config,
+    plugins: &PluginHost,
     feed_id: i32,
     flags: &FeedUpdateFlags,
     mut log: Option<&mut FeedDebugLog>,
@@ -605,7 +625,7 @@ pub async fn fetch_one_feed(
         }
         dlog(log.as_deref_mut(), DEBUG_LEVEL_VERBOSE, DEBUG_SEPARATOR.into());
     }
-    let result = process_feed(pool, cfg, &feed, feed_data, flags, log.as_deref_mut()).await?;
+    let result = process_feed(pool, cfg, plugins, &feed, feed_data, flags, log.as_deref_mut()).await?;
     Ok(FeedFetchOutcome {
         success: result.parse_error.is_none(),
         new_articles: result.new_articles,
@@ -848,6 +868,7 @@ async fn upsert_article(
     filters: &[EvalFilter],
     blacklisted: &std::collections::BTreeSet<String>,
     flags: &FeedUpdateFlags,
+    ctx: &mut HostCtx<'_>,
     mut log: Option<&mut FeedDebugLog>,
 ) -> Result<i32> {
     let owner = feed.owner_uid;
@@ -1033,6 +1054,87 @@ async fn upsert_article(
         );
     }
 
+    // --- HOOK_ARTICLE_FILTER (M7.9): fire the owner's article-filter chain on the raw
+    //     article. PHP `chain_hooks_callback(HOOK_ARTICLE_FILTER, …)` (RSSUtils:876),
+    //     *after* the pre-hook hash is computed and *before* the base record is created.
+    //     A plugin may rewrite title/content/tags/author/link; the pre-hook hash is still
+    //     what's stored, and the post-hook fields (re-read below) feed the insert + the
+    //     user-filter eval. `entry_plugin_data` accumulates the lowercased class names
+    //     (stored on the base entry). A no-op when no plugin registered the hook.
+    let enclosures_value: Vec<Value> = enclosures
+        .iter()
+        .map(|e| {
+            json!({
+                "link": e.link,
+                "type": e.enc_type,
+                "length": e.length,
+                "title": e.title,
+                "width": e.width,
+                "height": e.height,
+            })
+        })
+        .collect();
+    let mut article = json!({
+        "owner_uid": owner,
+        "guid": entry_guid,
+        "guid_hashed": guid_hashed,
+        "title": entry_title,
+        "content": entry_content,
+        "link": entry_link,
+        "labels": Value::Array(vec![]),
+        "tags": existing_tags,
+        "author": entry_author,
+        "force_catchup": false,
+        "score_modifier": 0,
+        "language": entry_language,
+        "timestamp": entry_timestamp,
+        "num_comments": num_comments,
+        "enclosures": enclosures_value,
+        "feed": {
+            "id": feed.id,
+            "fetch_url": feed.feed_url,
+            "site_url": site_url,
+            "cache_images": feed.cache_images,
+        },
+    });
+    let mut entry_plugin_data = String::new();
+    for idx in ctx.hook_order(HOOK_ARTICLE_FILTER) {
+        let cls = ctx.host().plugin(idx).class_name().to_lowercase();
+        article = ctx
+            .host()
+            .plugin(idx)
+            .hook_article_filter(ctx, &mut article)
+            .await;
+        entry_plugin_data.push_str(&format!("{cls},"));
+    }
+    // Re-read the (possibly-rewritten) fields; these shadow the raw locals for the rest
+    // of the function (base-record insert/update, the user-filter eval, tag storage).
+    let entry_title = article
+        .get("title")
+        .and_then(Value::as_str)
+        .unwrap_or(&entry_title)
+        .to_string();
+    let entry_content = article
+        .get("content")
+        .and_then(Value::as_str)
+        .unwrap_or(&entry_content)
+        .to_string();
+    let entry_author = article
+        .get("author")
+        .and_then(Value::as_str)
+        .unwrap_or(&entry_author)
+        .to_string();
+    let entry_link = article
+        .get("link")
+        .and_then(Value::as_str)
+        .unwrap_or(&entry_link)
+        .to_string();
+    let existing_tags: Vec<String> = article
+        .get("tags")
+        .and_then(Value::as_array)
+        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        .unwrap_or(existing_tags.clone());
+
     // --- resolve the base entry (create it if missing) — the PHP does this
     //     *before* running the filters, so the RID lines appear between
     //     "hash differs..." and the matched-filter dumps ---
@@ -1055,7 +1157,7 @@ async fn upsert_article(
                 strip_tags(&entry_content)
             );
             let id: i32 = sqlx::query_scalar(
-                "INSERT INTO ttrss_entries (title, tsvector_combined, guid, link, updated, content, content_hash, no_orig_date, date_updated, date_entered, comments, num_comments, plugin_data, lang, author) VALUES ($1, to_tsvector($12::regconfig, $13), $2, $3, $4, $5, $6, false, NOW(), $7::timestamp, $8, $9, '', $10, $11) RETURNING id",
+                "INSERT INTO ttrss_entries (title, tsvector_combined, guid, link, updated, content, content_hash, no_orig_date, date_updated, date_entered, comments, num_comments, plugin_data, lang, author) VALUES ($1, to_tsvector($12::regconfig, $13), $2, $3, $4, $5, $6, false, NOW(), $7::timestamp, $8, $9, $14, $10, $11) RETURNING id",
             )
             .bind(&entry_title)
             .bind(&guid_hashed)
@@ -1070,6 +1172,7 @@ async fn upsert_article(
             .bind(&entry_author)
             .bind(feed_language)
             .bind(&ts_content)
+            .bind(&entry_plugin_data)
             .fetch_one(pool)
             .await
             .context("insert base entry")?;
@@ -1240,7 +1343,7 @@ async fn upsert_article(
             strip_tags(&entry_content)
         );
         let _ = sqlx::query(
-            "UPDATE ttrss_entries SET title = $1, tsvector_combined = to_tsvector($9::regconfig, $10), content = $2, content_hash = $3, updated = $4, date_updated = NOW(), num_comments = $5, author = $6, lang = $7 WHERE id = $8",
+            "UPDATE ttrss_entries SET title = $1, tsvector_combined = to_tsvector($9::regconfig, $10), content = $2, content_hash = $3, updated = $4, date_updated = NOW(), num_comments = $5, plugin_data = $11, author = $6, lang = $7 WHERE id = $8",
         )
         .bind(&entry_title)
         .bind(&entry_content)
@@ -1252,6 +1355,7 @@ async fn upsert_article(
         .bind(ref_id)
         .bind(feed_language)
         .bind(&ts_content)
+        .bind(&entry_plugin_data)
         .execute(pool)
         .await;
     }
@@ -1536,7 +1640,7 @@ pub async fn claim_feeds(pool: &PgPool, feeds: &[DueFeed]) {
 /// feed sets cycle over minutes, as in the PHP). No cross-process lock (D1 = B,
 /// strictly single-process). The loop exits when `cancel` is cancelled (the
 /// graceful-shutdown path).
-pub async fn daemon_loop(pool: &PgPool, cfg: &Config, cancel: tokio_util::sync::CancellationToken) {
+pub async fn daemon_loop(pool: &PgPool, cfg: &Config, plugins: Arc<PluginHost>, cancel: tokio_util::sync::CancellationToken) {
     use tokio::sync::Semaphore;
     use tokio::task::JoinSet;
 
@@ -1563,6 +1667,7 @@ pub async fn daemon_loop(pool: &PgPool, cfg: &Config, cancel: tokio_util::sync::
                 let permit = semaphore.clone().acquire_owned().await;
                 let pool = pool.clone();
                 let cfg = cfg.clone();
+                let plugins = plugins.clone();
                 let id = feed.id;
                 let title = feed.feed_title.clone();
                 join_set.spawn(async move {
@@ -1570,6 +1675,7 @@ pub async fn daemon_loop(pool: &PgPool, cfg: &Config, cancel: tokio_util::sync::
                     let outcome = fetch_one_feed(
                         &pool,
                         &cfg,
+                        plugins.as_ref(),
                         id,
                         &FeedUpdateFlags::default(),
                         None,

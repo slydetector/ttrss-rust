@@ -11,9 +11,11 @@ mod common;
 
 use sqlx::pool::PoolOptions;
 use sqlx::postgres::PgConnectOptions;
+use std::sync::Arc;
 use ttrss::core::config::Config;
 use ttrss::core::db::Db;
 use ttrss::updates::{claim_feeds, select_due_feeds, DueFeed};
+use ttrss::pluginhost::PluginHost;
 
 /// A test `Config` with the daemon defaults + a short sleep interval.
 fn test_config() -> Config {
@@ -296,7 +298,7 @@ async fn test_daemon_loop_graceful_shutdown(
         let cfg = cfg.clone();
         let cancel = cancel.clone();
         async move {
-            ttrss::updates::daemon_loop(&pool, &cfg, cancel).await;
+            ttrss::updates::daemon_loop(&pool, &cfg, Arc::new(PluginHost::startup(&[])), cancel).await;
         }
     });
 

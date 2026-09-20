@@ -20,7 +20,14 @@ use sqlx::pool::PoolOptions;
 use sqlx::postgres::PgConnectOptions;
 use ttrss::core::config::Config;
 use ttrss::core::db::Db;
+use ttrss::pluginhost::PluginHost;
 use ttrss::updates::{fetch_one_feed, FeedUpdateFlags};
+/// An empty plugin host — the `HOOK_ARTICLE_FILTER` chain is a no-op with
+/// no plugins (M7.9), so these tests exercise the plugin-free path.
+fn no_plugins() -> PluginHost {
+    PluginHost::startup(&[])
+}
+
 use common::{Canned, MockServer};
 
 /// Feed A: three entries — the shared article + two unique.
@@ -246,7 +253,7 @@ async fn test_batch_smoke(
     // Replay the batch through the M6c.2 workhorse (fetch → pipeline).
     let mut total_new = 0;
     for feed_id in [feed_a, feed_b, feed_c] {
-        let outcome = fetch_one_feed(db.pool(), &cfg, feed_id, &FeedUpdateFlags::default(), None).await.expect("fetch");
+        let outcome = fetch_one_feed(db.pool(), &cfg, &no_plugins(), feed_id, &FeedUpdateFlags::default(), None).await.expect("fetch");
         assert!(outcome.success, "feed {feed_id} failed: {:?}", outcome.error);
         total_new += outcome.new_articles;
     }

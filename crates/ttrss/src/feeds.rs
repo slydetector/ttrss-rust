@@ -1291,6 +1291,7 @@ pub async fn updatedebugger(
         let _ = crate::updates::fetch_one_feed(
             pool,
             &state.config,
+            state.plugins.as_ref(),
             feed_id as i32,
             &flags,
             Some(&mut log),

@@ -1309,6 +1309,7 @@ pub async fn update_feed(
     let _ = crate::updates::fetch_one_feed(
         pool,
         &state.config,
+        state.plugins.as_ref(),
         feed_id,
         &crate::updates::FeedUpdateFlags::default(),
         None,

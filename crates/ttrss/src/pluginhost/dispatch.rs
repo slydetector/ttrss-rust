@@ -24,7 +24,8 @@
 
 use serde_json::{json, Map, Value};
 
-use super::host::HostCtx;
+use super::host::{HostCtx, PluginHost};
+use sqlx::PgPool;
 use super::plugin::{MethodOutput, PluginError};
 use crate::session::Sess;
 use crate::AppState;
@@ -119,6 +120,32 @@ pub(crate) async fn owner_ctx<'a>(state: &'a AppState, owner_uid: i32) -> HostCt
     let usr: Vec<&str> = user.iter().map(|s| s.as_str()).collect();
     HostCtx::for_user(&state.plugins, state.db.pool(), Some(owner_uid), None, 0, &sys, &usr)
         .with_self_url(state.config.self_url.clone())
+}
+
+/// Build an owner-scoped [`HostCtx`] from the pipeline pieces — no `AppState` /
+/// `&Db` needed, the owner's enabled plugins are read straight off the pool.
+/// The update pipeline (M7.9) has `pool` + `Config` + the registry but not an
+/// `AppState` (which the HTTP layer owns). Mirrors [`owner_ctx`]: system plugins
+/// (config) + the owner's `_ENABLED_PLUGINS` (default profile, access 0).
+pub(crate) async fn owner_ctx_from<'a>(
+    host: &'a PluginHost,
+    pool: &'a PgPool,
+    system: &[String],
+    self_url: &str,
+    owner_uid: i32,
+) -> HostCtx<'a> {
+    let pref_rows = crate::prefs::load_rows_pool(pool, owner_uid as i64, None).await;
+    let enabled =
+        crate::prefs::resolve(crate::prefs::_ENABLED_PLUGINS, &pref_rows, None).as_str().to_string();
+    let user: Vec<String> = enabled
+        .split(',')
+        .map(|s| s.trim().to_lowercase())
+        .filter(|s| !s.is_empty())
+        .collect();
+    let sys: Vec<&str> = system.iter().map(|s| s.as_str()).collect();
+    let usr: Vec<&str> = user.iter().map(|s| s.as_str()).collect();
+    HostCtx::for_user(host, pool, Some(owner_uid), None, 0, &sys, &usr)
+        .with_self_url(self_url.to_string())
 }
 
 /// `PluginHandler::catchall` — `backend.php?op=PluginHandler&plugin=<n>&method=<m>[&…]`.

@@ -49,9 +49,10 @@ async fn main() -> anyhow::Result<()> {
         {
             let pool = state.db.pool().clone();
             let cfg = state.config.clone();
+            let plugins = state.plugins.clone();
             let loop_cancel = cancel.clone();
             tokio::spawn(async move {
-                ttrss::updates::daemon_loop(&pool, &cfg, loop_cancel).await;
+                ttrss::updates::daemon_loop(&pool, &cfg, plugins, loop_cancel).await;
             });
         }
         tracing::info!(

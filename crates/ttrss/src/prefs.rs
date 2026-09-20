@@ -11,7 +11,7 @@
 use crate::core::config::sql_bool_to_bool;
 use crate::core::db::Db;
 use serde_json::{json, Value};
-use sqlx::Row;
+use sqlx::{PgPool, Row};
 
 /// Pref-name constants (mirror `Prefs::*` in classes/Prefs.php).
 pub const ENABLE_FEED_CATS: &str = "ENABLE_FEED_CATS";
@@ -414,13 +414,23 @@ pub async fn load_rows(
     uid: i64,
     profile: Option<i32>,
 ) -> Vec<(String, Option<i32>, String)> {
+    load_rows_pool(db.pool(), uid, profile).await
+}
+
+/// `load_rows` for a bare pool (no `Db` wrapper) — the update pipeline (M7.9)
+/// has only a `PgPool` to read the owner's enabled plugins from.
+pub async fn load_rows_pool(
+    pool: &PgPool,
+    uid: i64,
+    profile: Option<i32>,
+) -> Vec<(String, Option<i32>, String)> {
     let rows = sqlx::query(
         "SELECT pref_name, profile, value FROM ttrss_user_prefs2
          WHERE owner_uid = $1 AND (profile = $2 OR profile IS NULL)",
     )
     .bind(uid)
     .bind(profile)
-    .fetch_all(db.pool())
+    .fetch_all(pool)
     .await
     .unwrap_or_default();
     rows.iter()
