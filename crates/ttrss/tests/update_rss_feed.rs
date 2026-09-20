@@ -755,3 +755,77 @@ async fn test_article_filter_hook_rewrites_content(
     );
     assert_eq!(plugin_data, "hook_rewriter,");
 }
+
+
+// M7.10 — `auto_assign_labels`: at fetch time, each owner label whose caption
+// appears (whole-word, case-insensitive) in the article's tags/content/title is
+// assigned to the article; non-matching captions are not. (The PHP's
+// `Auto_Assign_Labels::hook_article_filter` + the pipeline's label storage.)
+#[sqlx::test(fixtures(
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
+))]
+async fn test_auto_assign_labels_match_and_no_match(
+    pool: PoolOptions<sqlx::Postgres>,
+    options: PgConnectOptions,
+) {
+    let db = common::make_db(pool, options).await.expect("test db");
+    let uid = create_user(&db, 221, 0 /* USER */).await;
+    let feed_id = create_feed(&db, 221, uid, "http://example.com/aal.xml").await;
+
+    // The mock article's title is "x-21may2020" (word-runs "x" and "21may2020"):
+    // "21may2020" matches whole-word, "Zebra" does not.
+    let match_label: i32 = sqlx::query_scalar(
+        "INSERT INTO ttrss_labels2 (owner_uid, caption) VALUES ($1, '21may2020') RETURNING id",
+    )
+    .bind(uid)
+    .fetch_one(db.pool())
+    .await
+    .expect("match label");
+    let nomatch_label: i32 = sqlx::query_scalar(
+        "INSERT INTO ttrss_labels2 (owner_uid, caption) VALUES ($1, 'Zebra') RETURNING id",
+    )
+    .bind(uid)
+    .fetch_one(db.pool())
+    .await
+    .expect("no-match label");
+
+    let host =
+        PluginHost::startup(&[|| Box::new(ttrss::plugins::auto_assign_labels::AutoAssignLabels)]);
+    let mut cfg = test_config();
+    cfg.plugins = "auto_assign_labels".to_string();
+    assert!(
+        update_rss_feed(
+            db.pool(),
+            &cfg,
+            &host,
+            feed_id,
+            MOCK_FEED,
+            &FeedUpdateFlags::default(),
+            None
+        )
+        .await
+        .expect("update")
+    );
+
+    let count_for = |label_id: i32| {
+        let pool = db.pool();
+        Box::pin(async move {
+            sqlx::query_scalar(
+                "SELECT COUNT(*) FROM ttrss_user_labels2 ul \
+                 JOIN ttrss_entries e ON e.id = ul.article_id \
+                 JOIN ttrss_user_entries ue ON ue.ref_id = e.id \
+                 WHERE ue.feed_id = $1 AND ul.label_id = $2",
+            )
+            .bind(feed_id)
+            .bind(label_id)
+            .fetch_one(pool)
+            .await
+        })
+    };
+    let matched: i64 = count_for(match_label).await.expect("matched count");
+    assert_eq!(matched, 1, "the matching caption should be assigned to the article");
+    let nomatched: i64 = count_for(nomatch_label).await.expect("no-match count");
+    assert_eq!(nomatched, 0, "the non-matching caption should not be assigned");
+}

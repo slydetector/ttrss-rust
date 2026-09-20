@@ -9,6 +9,7 @@
 
 pub mod af_comics;
 pub mod af_zz_vidmute;
+pub mod auto_assign_labels;
 pub mod no_iframes;
 pub mod note;
 pub mod nsfw;

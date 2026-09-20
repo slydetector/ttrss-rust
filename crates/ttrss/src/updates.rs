@@ -1074,6 +1074,14 @@ async fn upsert_article(
             })
         })
         .collect();
+    // M7.10 — seed `article["labels"]` with the article's existing labels (the
+    // PHP's `$article["labels"] = $article_labels`, RSSUtils:836) so the
+    // `HOOK_ARTICLE_FILTER` chain can add to them (and dedup against them); a
+    // just-created entry has none.
+    let existing_article_labels: Vec<Value> = match base_entry_id {
+        Some(id) => crate::article::get_labels(pool, owner as i64, id, Some(owner as i64)).await,
+        None => Vec::new(),
+    };
     let mut article = json!({
         "owner_uid": owner,
         "guid": entry_guid,
@@ -1081,7 +1089,7 @@ async fn upsert_article(
         "title": entry_title,
         "content": entry_content,
         "link": entry_link,
-        "labels": Value::Array(vec![]),
+        "labels": Value::Array(existing_article_labels),
         "tags": existing_tags,
         "author": entry_author,
         "force_catchup": false,
@@ -1185,11 +1193,15 @@ async fn upsert_article(
         DEBUG_LEVEL_VERBOSE,
         format!("base record with RID: {ref_id} found, checking for user record"),
     );
-    // The PHP's `Article::_get_labels` (fetched once after the base record is
-    // resolved — a just-created record has none): feeds the `LOG_EXTENDED`
-    // "article labels:" dump and the "labels [other]" re-apply below.
-    let article_labels =
-        crate::article::get_labels(pool, owner as i64, ref_id, Some(owner as i64)).await;
+    // The article's label list (existing labels seeded above + the
+    // `HOOK_ARTICLE_FILTER` additions): feeds the `LOG_EXTENDED` "article
+    // labels:" dump and the "labels [other]" re-apply below. (The PHP re-reads
+    // `$article["labels"]` here — RSSUtils:975.)
+    let article_labels = article
+        .get("labels")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
 
     // M6b.2c — run the article through the loaded filters.
     let outcome = eval_article_filters(
