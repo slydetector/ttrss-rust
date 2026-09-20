@@ -884,7 +884,7 @@ fn contains_img(content: &str) -> bool {
 }
 
 /// `UrlHelper::url_to_youtube_vid`.
-fn url_to_youtube_vid(url: &str) -> Option<String> {
+pub(crate) fn url_to_youtube_vid(url: &str) -> Option<String> {
     let url = url.replace("youtube.com", "youtube-nocookie.com");
     let patterns = [
         r"//www\.youtube-nocookie\.com/v/([\w-]+)",

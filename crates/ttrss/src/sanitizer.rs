@@ -19,7 +19,7 @@ use regex::Regex;
 use std::collections::BTreeSet;
 
 use crate::pluginhost::host::HostCtx;
-use crate::pluginhost::HOOK_SANITIZE;
+use crate::pluginhost::{HOOK_IFRAME_WHITELISTED, HOOK_SANITIZE};
 use crate::with_trailing_slash;
 
 const HTML_NS: &str = "http://www.w3.org/1999/xhtml";
@@ -313,6 +313,7 @@ pub fn apply_libxml_implicit_p(body: &NodeRef) {
 /// [`sanitize`] (which runs `HOOK_SANITIZE` after this core) so the plugin
 /// stage cannot be skipped; this is the sync core the parity/unit tests
 /// drive directly (no runtime).
+#[allow(dead_code)] // plugin-free parity/unit entry; production goes through `sanitize` → `sanitize_core_inner`
 pub(crate) fn sanitize_core(
     input: &str,
     force_remove_images: bool,
@@ -321,6 +322,35 @@ pub(crate) fn sanitize_core(
     bw_limit: bool,
     site_url: Option<&str>,
     highlight_words_opt: Option<&[String]>,
+) -> String {
+    // No plugin context (parity/unit tests): no iframe is never whitelisted, so
+    // the core applies the restrictive sandbox to every iframe.
+    sanitize_core_inner(
+        input,
+        force_remove_images,
+        strip_images,
+        has_sandbox,
+        bw_limit,
+        site_url,
+        highlight_words_opt,
+        &BTreeSet::new(),
+    )
+}
+
+/// The [`sanitize_core`] steps with the M7.11 `HOOK_IFRAME_WHITELISTED`
+/// `admitted` host set: an iframe whose src host is in the set keeps the loose
+/// PHP sandbox value, the rest get the restrictive one. Production read paths
+/// reach this via [`sanitize`], which computes the set by firing the hook.
+#[allow(clippy::too_many_arguments)]
+fn sanitize_core_inner(
+    input: &str,
+    force_remove_images: bool,
+    strip_images: bool,
+    has_sandbox: bool,
+    bw_limit: bool,
+    site_url: Option<&str>,
+    highlight_words_opt: Option<&[String]>,
+    admitted: &BTreeSet<String>,
 ) -> String {
     let res = input.trim();
     if res.is_empty() {
@@ -375,7 +405,7 @@ pub(crate) fn sanitize_core(
     );
 
     // 2. iframes: sandbox.
-    process_iframes(&body);
+    process_iframes(&body, admitted);
 
     // 3. Strip disallowed elements (whole subtree) + disallowed attributes.
     strip_harmful_tags(&body, &allowed_elements(has_sandbox));
@@ -586,16 +616,27 @@ fn rewrite_single_element(
 }
 
 /// Pass 2: sandbox iframes.
-fn process_iframes(root: &NodeRef) {
+fn process_iframes(root: &NodeRef, admitted: &BTreeSet<String>) {
     let mut stack = vec![root.clone()];
     while let Some(node) = stack.pop() {
         if let Some(el) = node.as_element() {
             if el_name(el) == "iframe" {
-                // No HOOK_IFRAME_WHITELISTED plugins are relevant here, so use
-                // the restrictive sandbox (Sanitizer.php).
-                el.attributes
-                    .borrow_mut()
-                    .insert("sandbox", "allow-scripts".to_string());
+                // M7.11 — an iframe whose src host a plugin admitted via
+                // `HOOK_IFRAME_WHITELISTED` (in `admitted`) keeps the loose
+                // PHP sandbox value (the M5a.3 residual); the rest get the
+                // restrictive one (Sanitizer.php). The `allow` attribute the
+                // reference also sets is stripped later (a disallowed attr).
+                let src = el.attributes
+                    .borrow()
+                    .get("src")
+                    .map(|v| v.to_string())
+                    .unwrap_or_default();
+                let sandbox = if admitted.contains(&url_host(&src)) {
+                    "allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+                } else {
+                    "allow-scripts"
+                };
+                el.attributes.borrow_mut().insert("sandbox", sandbox.to_string());
             }
         }
         for c in node.children() {
@@ -605,14 +646,52 @@ fn process_iframes(root: &NodeRef) {
 }
 
 /// `Sanitizer::iframe_whitelisted` — true when a plugin hooks
-/// `HOOK_IFRAME_WHITELISTED` for the iframe's src host (the only known use is
-/// `af_youtube_embed`). No plugins are registered yet (M7), so this is
-/// always false.
-// TODO(port): HOOK_IFRAME_WHITELISTED (M7 plugin system).
-pub fn iframe_whitelisted(src: &str) -> bool {
+/// `HOOK_IFRAME_WHITELISTED` for the iframe's `src` host (the PHP passes
+/// `parse_url($src, PHP_URL_HOST)` — the host, which `af_youtube_embed` matches
+/// against its `YOUTUBE_HOSTS` list). A `src` with no host can't be a
+/// whitelisted iframe, so it short-circuits to false.
+pub async fn iframe_whitelisted(plugins: &mut HostCtx<'_>, src: &str) -> bool {
     let host = url_host(src);
-    let _ = host;
+    if host.is_empty() {
+        return false;
+    }
+    for idx in plugins.hook_order(HOOK_IFRAME_WHITELISTED) {
+        if plugins
+            .host()
+            .plugin(idx)
+            .hook_iframe_whitelisted(plugins, &host)
+            .await
+        {
+            return true;
+        }
+    }
     false
+}
+
+/// The iframe `src` attributes of a fragment (sync — the parse `Document` is
+/// dropped before return, so no [`NodeRef`] escapes into the async context).
+/// M7.11 uses this to compute the `HOOK_IFRAME_WHITELISTED` decisions without
+/// holding a (non-`Send`) parse tree across an `await`.
+fn collect_iframe_srcs(input: &str) -> Vec<String> {
+    let doc = parse_html().one(input.trim());
+    let Some(body) = find_body(&doc) else {
+        return Vec::new();
+    };
+    let mut stack = vec![body.clone()];
+    let mut out = Vec::new();
+    while let Some(node) = stack.pop() {
+        if let Some(el) = node.as_element() {
+            if el_name(el) == "iframe" {
+                if let Some(src) = el.attributes.borrow().get("src") {
+                    out.push(src.to_string());
+                }
+            }
+        }
+        for c in node.children() {
+            stack.push(c);
+        }
+    }
+    out
 }
 
 /// `parse_url($src, PHP_URL_HOST)` — the iframe src's host (IPv6 brackets
@@ -654,9 +733,22 @@ pub async fn sanitize(
     site_url: Option<&str>,
     highlight_words_opt: Option<&[String]>,
     article_id: i32,
-    plugins: Option<&mut HostCtx<'_>>,
+    mut plugins: Option<&mut HostCtx<'_>>,
 ) -> String {
-    let mut out = sanitize_core(
+    // M7.11 — compute the `HOOK_IFRAME_WHITELISTED` decisions (the admitted
+    // host set) before the core runs. The srcs are plain `String`s, so no
+    // (non-`Send`) parse tree is held across the await that fires the hook.
+    let mut admitted: BTreeSet<String> = BTreeSet::new();
+    if has_sandbox {
+        if let Some(plugins) = plugins.as_mut() {
+            for src in collect_iframe_srcs(input) {
+                if iframe_whitelisted(plugins, &src).await {
+                    admitted.insert(url_host(&src));
+                }
+            }
+        }
+    }
+    let mut out = sanitize_core_inner(
         input,
         force_remove_images,
         strip_images,
@@ -664,6 +756,7 @@ pub async fn sanitize(
         bw_limit,
         site_url,
         highlight_words_opt,
+        &admitted,
     );
     if let Some(plugins) = plugins {
         let order = plugins.hook_order(HOOK_SANITIZE);

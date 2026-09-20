@@ -101,6 +101,7 @@ pub const HOOK_ARTICLES_PUBLISH_TOGGLED: &str = "hook_articles_publish_toggled";
 pub fn all_plugins() -> Vec<fn() -> Box<dyn Plugin>> {
     vec![
         || Box::new(crate::plugins::af_comics::AfComics),
+        || Box::new(crate::plugins::af_youtube_embed::AfYoutubeEmbed),
         || Box::new(crate::plugins::af_zz_vidmute::AfZzVidMute),
         || Box::new(crate::plugins::auto_assign_labels::AutoAssignLabels),
         || Box::new(crate::plugins::no_iframes::NoIframes),

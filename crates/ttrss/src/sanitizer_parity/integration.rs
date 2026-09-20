@@ -584,17 +584,29 @@ fn test_pass_whitelisted_iframe() {
     assert_eq!(result, "");
 }
 
-#[test]
-fn test_iframe_whitelisted_returns_false_with_no_src() {
-    let result = iframe_whitelisted("");
-    assert!(!result);
+#[tokio::test]
+async fn test_iframe_whitelisted_returns_false_with_no_src() {
+    let host = crate::pluginhost::PluginHost::startup(&[]);
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .connect_lazy("postgres://ttrss:ttrss@localhost/ttrss_test")
+        .unwrap();
+    let mut ctx = crate::pluginhost::host::HostCtx::empty(&host, &pool);
+    assert!(!iframe_whitelisted(&mut ctx, "").await);
 }
 
-#[test]
-fn test_iframe_whitelisted_runs_hooks() {
-    // Without a plugin hooking HOOK_IFRAME_WHITELISTED, returns false.
-    let result = iframe_whitelisted("http://example.com");
-    assert!(!result);
+#[tokio::test]
+async fn test_iframe_whitelisted_runs_hooks() {
+    // Without a plugin hooking HOOK_IFRAME_WHITELISTED, returns false. (The
+    // raw PHP test registered a mock plugin whitelisting `example.com`; the
+    // port has no such plugin, so this asserts the no-hook path returns false.
+    // The hook-firing path — a plugin's `true` is honored — is covered
+    // end-to-end by `af_youtube_embed::youtube_iframe_keeps_loose_sandbox`.)
+    let host = crate::pluginhost::PluginHost::startup(&[]);
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .connect_lazy("postgres://ttrss:ttrss@localhost/ttrss_test")
+        .unwrap();
+    let mut ctx = crate::pluginhost::host::HostCtx::empty(&host, &pool);
+    assert!(!iframe_whitelisted(&mut ctx, "http://example.com").await);
 }
 
 // ──────────────────────────────────────────────────────────────────────
