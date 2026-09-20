@@ -93,6 +93,7 @@ async fn session_ctx<'a>(state: &'a AppState, sess: &'a Sess) -> HostCtx<'a> {
         &sys,
         &usr,
     )
+    .with_self_url(state.config.self_url.clone())
 }
 
 /// `PluginHandler::catchall` — `backend.php?op=PluginHandler&plugin=<n>&method=<m>[&…]`.
@@ -144,7 +145,8 @@ pub async fn public_dispatch(
     let method = crate::util::clean_str(method);
     // PHP: `new PluginHost; load($name, KIND_ALL, 0)` — a fresh host with
     // only the named plugin (if registered at all).
-    let mut ctx = HostCtx::single(&state.plugins, state.db.pool(), &name);
+    let mut ctx = HostCtx::single(&state.plugins, state.db.pool(), &name)
+        .with_self_url(state.config.self_url.clone());
     let Some(plugin) = ctx.get_plugin(&name) else {
         let mut params = Map::new();
         params.insert("plugin".into(), Value::String(name));

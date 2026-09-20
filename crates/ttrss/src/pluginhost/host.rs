@@ -500,6 +500,13 @@ pub struct HostCtx<'a> {
     pub(crate) storage: std::collections::HashMap<String, crate::core::phpser::Value>,
     /// PHP's `$this->data_loaded` guard.
     pub(crate) data_loaded: bool,
+    /// `Config::get_self_url()` — the context's base URL (plugins build
+    /// absolute asset URLs off it, e.g. `nsfw`'s placeholder image).
+    pub self_url: String,
+    /// Hook output buffer (PHP's `ob_start()` around the hook chain): hooks
+    /// that *print* (e.g. `hook_prefs_tab`) append here; the caller of the
+    /// chain collects/clears it. M7.10 (the prefs page) is the first runner.
+    pub output: String,
 }
 
 impl<'a> HostCtx<'a> {
@@ -580,7 +587,18 @@ impl<'a> HostCtx<'a> {
             special_feeds: Vec::new(),
             storage: std::collections::HashMap::new(),
             data_loaded: false,
+            self_url: String::new(),
+            output: String::new(),
         }
+    }
+
+    /// `Config::set_self_url`-equivalent for the request path (the PHP
+    /// singleton reads the config globally; the port hands it in once per
+    /// context).
+    #[must_use]
+    pub fn with_self_url(mut self, self_url: impl Into<String>) -> Self {
+        self.self_url = self_url.into();
+        self
     }
 
     /// The shared registry.

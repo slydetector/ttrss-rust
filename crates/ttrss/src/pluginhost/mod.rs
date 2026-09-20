@@ -99,7 +99,10 @@ pub const HOOK_ARTICLES_PUBLISH_TOGGLED: &str = "hook_articles_publish_toggled";
 /// M7.1: intentionally empty — the no-op baseline. Grows one entry per
 /// plugin as M7.4+ land.
 pub fn all_plugins() -> Vec<fn() -> Box<dyn Plugin>> {
-    vec![|| Box::new(crate::plugins::note::Note)]
+    vec![
+        || Box::new(crate::plugins::note::Note),
+        || Box::new(crate::plugins::nsfw::NsFw),
+    ]
 }
 
 /// The `TTRSS_PLUGINS` default (unset env var): the built-in `auth_internal`

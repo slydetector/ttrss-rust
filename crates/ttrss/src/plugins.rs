@@ -8,6 +8,7 @@
 //! `has_data` from the (empty) plugin config store.
 
 pub mod note;
+pub mod nsfw;
 
 use serde_json::{json, Value};
 

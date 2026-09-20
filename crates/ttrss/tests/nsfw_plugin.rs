@@ -1,0 +1,360 @@
+//! Test parity: M7.5 — the `nsfw` plugin (article content hidden behind a
+//! `<details>` toggle based on a per-owner tag list in plugin storage).
+//!
+//! The PHP `nsfw` plugin has no dedicated test suite in the frozen reference
+//! (the M7 "no per-plugin PHP suites" note); the cases here pin the M7.5
+//! verify bar: the `save` round-trip (normalization + storage), the
+//! `rewrite_contents` wrapping (render hooks), the `headline`/`article`
+//! fallback of the API hook, the placeholder image, the prefs-tab pane, and
+//! the plugin-level CSRF gate.
+
+mod common;
+
+use serde_json::{json, Map, Value};
+use ttrss::core::config::Config;
+use ttrss::core::db::Db;
+use ttrss::core::phpser::Value as PValue;
+use ttrss::core::session::Session;
+use ttrss::pluginhost::dispatch::pluginhandler;
+use ttrss::pluginhost::host::HostCtx;
+use ttrss::pluginhost::plugin::MethodOutput;
+use ttrss::session::Sess;
+use ttrss::AppState;
+
+fn test_config() -> Config {
+    Config {
+        db_host: "127.0.0.1".into(),
+        db_port: 5432,
+        db_user: "postgres".into(),
+        db_pass: "postgres".into(),
+        db_name: "postgres".into(),
+        db_sslmode: "disable".into(),
+        db_max_connections: 10,
+        self_url: "http://127.0.0.1:8280/tt-rss/".into(),
+        encryption_key: None,
+        single_user_mode: false,
+        forbid_password_changes: false,
+        disable_login_form: false,
+        plugins: "nsfw".into(),
+        listen: "127.0.0.1:8281".parse().unwrap(),
+        docroot: std::path::PathBuf::from("tt-rss"),
+        feed_icon_dir: std::path::PathBuf::from("no-such-test-icon-dir"),
+        max_favicon_file_size: 1024 * 1024,
+        force_article_purge: 0,
+        feed_fetch_timeout: 45,
+        feed_fetch_no_cache_timeout: 15,
+        max_conditional_interval: 43200,
+        http_429_throttle_interval: 3600,
+        daemon_max_jobs: 2,
+        daemon_unsuccessful_days_limit: 30,
+        schedule_cleanup_feed_icons: String::from("@daily"),
+        schedule_expire_lock_files: String::from("@hourly"),
+        fetch_extended_url_filtering: true,
+        daemon_sleep_interval: 60,
+        daemon_feed_limit: 50,
+        daemon_update_login_limit: 30,
+        cache_max_days: 7,
+        schedule_purge_orphans: String::from("@daily"),
+        schedule_disk_cache_expire_all: String::from("@daily"),
+        schedule_disable_failed_feeds: String::from("@daily"),
+        schedule_log_daemon_update_login_limit_users: String::from("@hourly"),
+        schedule_expire_error_log: String::from("@hourly"),
+        schedule_send_headlines_digests: String::from("@hourly"),
+    }
+}
+
+async fn setup(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options: sqlx::postgres::PgConnectOptions) -> AppState {
+    let db: Db = common::make_db(pool, options).await.expect("test db");
+    AppState::new(test_config(), db)
+}
+
+fn session() -> Sess {
+    let mut data = Session::new();
+    data.set("uid", PValue::Int(1));
+    data.set("access_level", PValue::Int(100));
+    data.set("csrf_token", PValue::Bytes(b"tok".to_vec()));
+    let sess = Sess::new("nsfw-test".into());
+    sess.replace("nsfw-test".into(), data);
+    sess
+}
+
+fn params(pairs: &[(&str, &str)]) -> Map<String, Value> {
+    let mut m = Map::new();
+    for (k, v) in pairs {
+        m.insert((*k).into(), json!(v));
+    }
+    m
+}
+
+fn raw(v: &MethodOutput) -> &str {
+    match v {
+        MethodOutput::Raw(s) => s,
+        MethodOutput::Json(j) => panic!("expected raw output, got JSON: {j}"),
+    }
+}
+
+fn code(v: &MethodOutput) -> &str {
+    match v {
+        MethodOutput::Json(j) => j["error"]["code"].as_str().unwrap(),
+        MethodOutput::Raw(s) => panic!("expected JSON error, got raw output: {s}"),
+    }
+}
+
+/// A dispatch-equivalent context (nsfw active for owner 1).
+fn ctx(state: &AppState) -> HostCtx<'_> {
+    HostCtx::for_user(&state.plugins, state.db.pool(), Some(1), None, 0, &[], &["nsfw"])
+}
+
+/// The stored `tags` value (raw plugin-storage read).
+async fn stored_tags(ctx: &mut HostCtx<'_>) -> String {
+    let plugin = ctx.get_plugin("nsfw").expect("nsfw active");
+    ctx.storage_get(plugin, "tags", PValue::Null)
+        .await
+        .unwrap()
+        .as_str()
+        .unwrap_or("")
+        .to_string()
+}
+
+#[sqlx::test(fixtures(
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql"
+))]
+async fn test_save_roundtrip(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
+    let state = setup(pool, options).await;
+    let sess = session();
+
+    let v = pluginhandler(
+        &state,
+        &sess,
+        "tok",
+        "save",
+        &params(&[("plugin", "nsfw"), ("tags", "  a, B ,a ")]),
+    )
+    .await
+    .unwrap();
+    assert_eq!(raw(&v), "Configuration saved.");
+
+    // `save` normalizes (trim, lowercase, de-dup, sort) and stores.
+    let mut c = ctx(&state);
+    assert_eq!(stored_tags(&mut c).await, "a, b");
+}
+
+#[sqlx::test(fixtures(
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql"
+))]
+async fn test_render_wrap(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
+    let state = setup(pool, options).await;
+
+    // Seed the stored tag list directly (as `save` would).
+    {
+        let mut c = ctx(&state);
+        let plugin = c.get_plugin("nsfw").expect("nsfw active");
+        c.storage_set(plugin, "tags", PValue::Bytes(b"nsfw, adult".to_vec()))
+            .await
+            .unwrap();
+    }
+
+    let plugin = state.plugins.get_plugin("nsfw").expect("nsfw registered");
+    let mut c = ctx(&state);
+
+    // Matching article: the content is wrapped.
+    let mut article = json!({ "content": "<p>body</p>", "tags": ["nsfw", "other"] });
+    let out = plugin.hook_render_article(&mut c, &mut article).await;
+    assert_eq!(
+        out["content"],
+        "<details class='nsfw'><summary>Not safe for work (click to toggle)</summary><p>body</p></details>"
+    );
+
+    // Non-matching article: unchanged.
+    let mut article2 = json!({ "content": "<p>body</p>", "tags": ["other"] });
+    let out = plugin.hook_render_article_cdm(&mut c, &mut article2).await;
+    assert_eq!(out["content"], "<p>body</p>");
+
+    // No `tags` key at all: unchanged.
+    let mut article3 = json!({ "content": "<p>x</p>" });
+    let out = plugin.hook_render_article(&mut c, &mut article3).await;
+    assert_eq!(out["content"], "<p>x</p>");
+}
+
+#[sqlx::test(fixtures(
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql"
+))]
+async fn test_render_api_fallback(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
+    let state = setup(pool, options).await;
+    {
+        let mut c = ctx(&state);
+        let plugin = c.get_plugin("nsfw").expect("nsfw active");
+        c.storage_set(plugin, "tags", PValue::Bytes(b"nsfw".to_vec()))
+            .await
+            .unwrap();
+    }
+
+    let plugin = state.plugins.get_plugin("nsfw").expect("nsfw registered");
+    let mut c = ctx(&state);
+
+    // `$row['headline'] ?? $row['article']` — the headline wins when present…
+    let row = json!({
+        "headline": { "content": "<h>hl</h>", "tags": ["nsfw"] },
+        "article": { "content": "<a>art</a>", "tags": ["nsfw"] },
+    });
+    let out = plugin.hook_render_article_api(&mut c, &row).await;
+    assert_eq!(
+        out["content"],
+        "<details class='nsfw'><summary>Not safe for work (click to toggle)</summary><h>hl</h></details>"
+    );
+
+    // …and the article when the headline key is absent (the *article* is
+    // what comes back, as in PHP).
+    let row2 = json!({ "article": { "content": "<a>art</a>", "tags": ["nsfw"] } });
+    let out = plugin.hook_render_article_api(&mut c, &row2).await;
+    assert_eq!(
+        out["content"],
+        "<details class='nsfw'><summary>Not safe for work (click to toggle)</summary><a>art</a></details>"
+    );
+}
+
+#[sqlx::test(fixtures(
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql"
+))]
+async fn test_image_hook(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
+    let state = setup(pool, options).await;
+    {
+        let mut c = ctx(&state);
+        let plugin = c.get_plugin("nsfw").expect("nsfw active");
+        c.storage_set(plugin, "tags", PValue::Bytes(b"nsfw".to_vec()))
+            .await
+            .unwrap();
+    }
+
+    let plugin = state.plugins.get_plugin("nsfw").expect("nsfw registered");
+    // PHP: `Config::get_self_url() . "/plugins/nsfw/nsfw.png"` — the base carries
+    // no trailing slash.
+    let mut c = ctx(&state).with_self_url("http://127.0.0.1:8280/tt-rss");
+
+    let matching = json!({ "tags": ["nsfw"] });
+    let v = plugin
+        .hook_article_image(&mut c, &json!([]), "<img src='real.png'>", "http://site/", &matching)
+        .await;
+    assert_eq!(
+        v,
+        json!(["http://127.0.0.1:8280/tt-rss/plugins/nsfw/nsfw.png", "", "nsfw"])
+    );
+
+    let non_matching = json!({ "tags": ["other"] });
+    let v = plugin
+        .hook_article_image(&mut c, &json!([]), "<img src='real.png'>", "http://site/", &non_matching)
+        .await;
+    assert_eq!(v, json!(["", "", "<img src='real.png'>"]));
+}
+
+#[sqlx::test(fixtures(
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql"
+))]
+async fn test_prefs_tab(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
+    let state = setup(pool, options).await;
+    {
+        let mut c = ctx(&state);
+        let plugin = c.get_plugin("nsfw").expect("nsfw active");
+        c.storage_set(plugin, "tags", PValue::Bytes(b"a, b".to_vec()))
+            .await
+            .unwrap();
+    }
+
+    let plugin = state.plugins.get_plugin("nsfw").expect("nsfw registered");
+    let mut c = ctx(&state);
+
+    // A different tab name prints nothing.
+    plugin.hook_prefs_tab(&mut c, "otherTab").await;
+    assert_eq!(c.output, "");
+
+    plugin.hook_prefs_tab(&mut c, "prefPrefs").await;
+    let html = &c.output;
+    // The pane.
+    assert!(html.contains("dojoType=\"dijit.layout.AccordionPane\""), "{html}");
+    assert!(html.contains(">extension</i> NSFW Plugin"), "{html}");
+    // The form the pane posts to (the `save` method, plugin `nsfw`).
+    assert!(html.contains("name=\"plugin\""), "{html}");
+    assert!(html.contains("value=\"nsfw\""), "{html}");
+    assert!(html.contains("name=\"method\""), "{html}");
+    assert!(html.contains("value=\"save\""), "{html}");
+    // The caption + the stored tags in the textarea.
+    assert!(html.contains("Tags to consider NSFW (comma-separated):"), "{html}");
+    assert!(html.contains("name='tags'>a, b</textarea>"), "{html}");
+    // The Save button.
+    assert!(html.contains(">Save</button>"), "{html}");
+}
+
+#[sqlx::test(fixtures(
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql"
+))]
+async fn test_csrf_gate(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
+    let state = setup(pool, options).await;
+    let sess = session();
+
+    // `save` is not `csrf_ignore`d.
+    let v = pluginhandler(
+        &state,
+        &sess,
+        "WRONG",
+        "save",
+        &params(&[("plugin", "nsfw"), ("tags", "x")]),
+    )
+    .await
+    .unwrap();
+    assert_eq!(code(&v), "E_UNAUTHORIZED");
+}
+
+#[sqlx::test(fixtures(
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql"
+))]
+async fn test_disabled_plugin_unknown(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
+    // A registered but system-disabled plugin is an unknown plugin on the
+    // protected path (M7.3's active-aware `get_plugin`).
+    let state = setup(pool, options).await;
+    let sess = session();
+    let v = pluginhandler(
+        &state,
+        &sess,
+        "tok",
+        "save",
+        &params(&[("plugin", "note"), ("tags", "x")]),
+    )
+    .await
+    .unwrap();
+    assert_eq!(code(&v), "E_UNKNOWN_PLUGIN");
+}
