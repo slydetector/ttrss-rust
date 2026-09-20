@@ -56,6 +56,7 @@ The frozen PHP reference in `tt-rss/` (commit `2f7d831`) is the spec.
 
 - Prefer a maintained crate over hand-rolling; if you're writing boilerplate a
   library already provides, stop and find the crate.
+- **Choosing among candidates: best fit, not "already in the workspace."** When you reach for a crate, compare the real options against the task (API shape, how faithful it keeps you to the reference, what it's built on, and new-dependency cost) and pick the best fit. Already being a workspace dependency is *one* input among several — never the deciding factor on its own. If the best fit is a new crate, add it and surface it as a decision.
 - To learn a library, clone its repo and read in this order: docs → examples →
   tests (they lay out expected behavior) → source. Web-scraping is brittle;
   use it only to locate, then read the cloned source.
