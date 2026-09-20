@@ -7,6 +7,7 @@
 //! from `Config::PLUGINS`, `user_enabled` from the `_ENABLED_PLUGINS` pref,
 //! `has_data` from the (empty) plugin config store.
 
+pub mod af_zz_vidmute;
 pub mod no_iframes;
 pub mod note;
 pub mod nsfw;
