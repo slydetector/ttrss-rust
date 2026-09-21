@@ -136,12 +136,21 @@ pub fn theme_css_link(docroot: &Path, theme: &str) -> String {
 /// divs, per-plugin `Plugins.*` blocks, theme/PWA metadata) is fixed for the
 /// golden dataset; the per-session dynamic values are the CSRF token, the
 /// scripts cache-bust timestamp and the per-user theme link.
-pub fn render_shell(csrf_token: &str, scripts_ts: i64, theme_css_link: &str, user_css_style: &str) -> String {
+pub fn render_shell(
+    csrf_token: &str,
+    scripts_ts: i64,
+    theme_css_link: &str,
+    user_css_style: &str,
+    plugin_css: &str,
+    plugin_js: &str,
+) -> String {
     SHELL_TEMPLATE
         .replace("__CSRF_TOKEN__", csrf_token)
         .replace("__SCRIPTS_TS__", &scripts_ts.to_string())
         .replace("__THEME_CSS_LINK__", theme_css_link)
         .replace("__USER_CSS_STYLE__", user_css_style)
+        .replace("__PLUGIN_CSS__", plugin_css)
+        .replace("__PLUGIN_JS__", plugin_js)
 }
 
 /// Render the preferences SPA page (`prefs.php`). The skeleton is fixed for the
@@ -293,14 +302,28 @@ mod tests {
 
         // Non-empty custom CSS → the inline `<style>` block appears in both the
         // shell and the prefs page (PHP `UserHelper::print_user_stylesheet`).
-        let shell = render_shell("tok", 123, "", &block);
+        let shell = render_shell("tok", 123, "", &block, "", "");
         assert!(shell.contains(&block), "shell missing the user stylesheet block");
         let prefs = render_prefs_page("tok", 123, 3, "", &block);
         assert!(prefs.contains(&block), "prefs missing the user stylesheet block");
 
         // Empty → no `user_css_style` block is emitted.
-        assert!(!render_shell("tok", 123, "", "").contains("user_css_style"));
+        assert!(!render_shell("tok", 123, "", "", "", "").contains("user_css_style"));
         assert!(!render_prefs_page("tok", 123, 3, "", "").contains("user_css_style"));
+    }
+
+    /// Plugin CSS/JS appear in the shell when provided, and are absent when
+    /// empty (inactive plugins contribute nothing).
+    #[test]
+    fn shell_renders_plugin_assets_when_present() {
+        let css = ".my-plugin { color: red; }";
+        let js = "Plugins.MyPlugin = {};";
+        let shell = render_shell("tok", 123, "", "", css, js);
+        assert!(shell.contains(css), "shell missing plugin CSS");
+        assert!(shell.contains(js), "shell missing plugin JS");
+        // Empty assets → no plugin CSS/JS in the shell.
+        let shell_empty = render_shell("tok", 123, "", "", "", "");
+        assert!(!shell_empty.contains("Plugins."), "empty shell should have no plugin JS");
     }
 
     #[test]

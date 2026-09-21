@@ -98,7 +98,8 @@ async fn index(
     let ts = render::scripts_timestamp(state.config.docroot.as_path());
     let theme_link = theme_css_link(&state, &data).await;
     let user_css = user_css_style(&state, &data).await;
-    let html = render::render_shell(csrf, ts, &theme_link, &user_css);
+    let (plugin_css, plugin_js) = plugin_assets(&state, &data).await;
+    let html = render::render_shell(csrf, ts, &theme_link, &user_css, &plugin_css, &plugin_js);
     let etag = format!("\"{}\"", md5_hex(&html));
     // `send_conditional_html`: 304 when the client's validator matches.
     if headers
@@ -156,6 +157,53 @@ async fn prefs_page(
 /// The shell/prefs-page per-user theme `<link>` (PHP `index.php`/`prefs.php`
 /// head): the `USER_CSS_THEME` pref resolved per (uid, profile), skipped in
 /// safe mode, and only rendered when the theme file exists.
+/// M7.21: generate the active plugins' CSS and JS for the shell (the PHP's
+/// `index.php` `foreach get_plugins(): get_css()/get_js()` loops).
+async fn plugin_assets(state: &AppState, data: &core_session::Session) -> (String, String) {
+    let uid = data.uid().unwrap_or(0);
+    let profile = data.profile().map(|p| p as i32);
+    let system: Vec<String> = state
+        .config
+        .plugins
+        .split(',')
+        .map(|s| s.trim().to_lowercase())
+        .filter(|s| !s.is_empty())
+        .collect();
+    let pref_rows = crate::prefs::load_rows(&state.db, uid, profile).await;
+    let enabled =
+        crate::prefs::resolve(crate::prefs::_ENABLED_PLUGINS, &pref_rows, profile).as_str().to_string();
+    let user: Vec<String> = enabled
+        .split(',')
+        .map(|s| s.trim().to_lowercase())
+        .filter(|s| !s.is_empty())
+        .collect();
+    // Union of system + user plugins (the PHP loads both).
+    let mut active: Vec<&str> = system.iter().map(|s| s.as_str()).collect();
+    for p in &user {
+        if !active.contains(&p.as_str()) {
+            active.push(p);
+        }
+    }
+    // Generate CSS (concatenated) and JS (try/catch per plugin) in the PHP's format.
+    let mut css_parts: Vec<String> = Vec::new();
+    let mut js_parts: Vec<String> = Vec::new();
+    for name in &active {
+        if let Some(plugin) = state.plugins.get_plugin(name) {
+            let css = plugin.get_css();
+            if !css.is_empty() {
+                css_parts.push(css);
+            }
+            let js = plugin.get_js();
+            if !js.is_empty() {
+                js_parts.push(format!(
+                    "try {{\n\t\t\t\t{js}\n\t\t\t}} catch (e) {{\n\t\t\t\t\tconsole.warn('failed to initialize plugin JS: {name}', e);\n\t\t\t}}"
+                ));
+            }
+        }
+    }
+    (css_parts.join(""), js_parts.join(""))
+}
+
 async fn theme_css_link(state: &AppState, data: &core_session::Session) -> String {
     if data.safe_mode() {
         return String::new();
