@@ -48,6 +48,8 @@ services:
       RUST_LOG: ${RUST_LOG:-info}
     ports:
       - "${SHADOW_PORT:-8282}:80"
+    volumes:
+      - ./feed-icons:/opt/feed-icons
 
 volumes:
   shadow-data:

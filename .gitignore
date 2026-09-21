@@ -26,3 +26,4 @@ browser/out/
 
 # Shadow-prod dump artifact (the prod DB copy; shadow/.env is covered by .env above)
 shadow/*.dump
+shadow/feed-icons/

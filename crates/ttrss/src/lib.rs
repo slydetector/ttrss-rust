@@ -14,6 +14,7 @@ pub mod core;
 pub mod counters;
 pub mod digest;
 pub mod diskcache;
+pub mod favicons;
 pub mod feeds;
 pub mod filters;
 pub mod forgotpass;

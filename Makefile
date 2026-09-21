@@ -177,6 +177,9 @@ shadow: ## preflight + build + bring up the shadow (db + rust) against a prod co
 shadow-copy: ## re-sync the shadow from prod (re-dump + restore + restart; no rebuild)
 	bash $(SHADOW_SCRIPT) copy
 
+.PHONY: shadow-follow
+shadow-follow: ## follow all shadow service logs (Ctrl-C to stop)
+	(cd shadow && docker compose logs -f)
 .PHONY: shadow-stop
 shadow-stop: ## stop the shadow stack (db + rust); keeps the data volume
 	bash $(SHADOW_SCRIPT) stop

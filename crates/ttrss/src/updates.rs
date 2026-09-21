@@ -73,6 +73,10 @@ pub struct FeedRow {
     pub last_modified: String,
     pub auth_login: String,
     pub auth_pass: String,
+    // Favicon metadata (RSSUtils.php:372-373: `favicon_needs_check` computed expr).
+    pub favicon_is_custom: bool,
+    pub favicon_avg_color: Option<String>,
+    pub favicon_needs_check: bool,
 }
 
 /// Load the feed row, or `None` if the id does not exist.
@@ -80,7 +84,10 @@ pub async fn load_feed(pool: &PgPool, feed_id: i32) -> Result<Option<FeedRow>> {
     let row = sqlx::query(
         "SELECT id, owner_uid, title, feed_url, site_url, feed_language, \
          mark_unread_on_update, cache_images, purge_interval, \
-         last_unconditional, last_modified, auth_login, auth_pass \
+         last_unconditional, last_modified, auth_login, auth_pass, \
+         COALESCE(favicon_is_custom, false), favicon_avg_color, \
+         (favicon_is_custom IS NOT TRUE AND \
+           (favicon_last_checked IS NULL OR favicon_last_checked < NOW() - INTERVAL '12 hour')) \
          FROM ttrss_feeds WHERE id = $1",
     )
     .bind(feed_id)
@@ -101,6 +108,9 @@ pub async fn load_feed(pool: &PgPool, feed_id: i32) -> Result<Option<FeedRow>> {
         last_modified: r.get(10),
         auth_login: r.get(11),
         auth_pass: r.get(12),
+        favicon_is_custom: r.get(13),
+        favicon_avg_color: r.get(14),
+        favicon_needs_check: r.get(15),
     }))
 }
 
@@ -202,6 +212,64 @@ pub async fn process_feed(
         DEBUG_LEVEL_VERBOSE,
         format!("feed_title: {}", parser.get_title()),
     );
+
+    // Favicon check (PHP: RSSUtils.php:648-697). After site_url is determined,
+    // before the article loop.
+    let favicon_due = feed.favicon_needs_check
+        || flags.force_refetch
+        || (feed.favicon_is_custom
+            && feed
+                .favicon_avg_color
+                .as_deref()
+                .is_none_or(|c| c.is_empty()));
+    if favicon_due {
+        // Restrict update attempts to once per 12h.
+        let _ = sqlx::query("UPDATE ttrss_feeds SET favicon_last_checked = NOW() WHERE id = $1")
+            .bind(feed.id)
+            .execute(pool)
+            .await;
+
+        if !feed.favicon_is_custom {
+            dlog(
+                log.as_deref_mut(),
+                DEBUG_LEVEL_VERBOSE,
+                "favicon: trying to update favicon...".into(),
+            );
+            crate::favicons::update_favicon(cfg, &site_url, feed.id).await;
+        }
+
+        // Compute avg color if the icon exists and we don't have one yet.
+        let icon_path = cfg.feed_icon_dir.join(feed.id.to_string());
+        let needs_color = feed
+            .favicon_avg_color
+            .as_deref()
+            .is_none_or(|c| c.is_empty());
+        if icon_path.exists() && needs_color {
+            dlog(
+                log.as_deref_mut(),
+                DEBUG_LEVEL_VERBOSE,
+                "favicon: trying to calculate average color...".into(),
+            );
+            // Mark 'fail' first (the PHP's crash-recovery hack: colors.php:282).
+            let _ = sqlx::query("UPDATE ttrss_feeds SET favicon_avg_color = 'fail' WHERE id = $1")
+                .bind(feed.id)
+                .execute(pool)
+                .await;
+            if let Some(color) = crate::favicons::calculate_avg_color(&icon_path) {
+                let _ =
+                    sqlx::query("UPDATE ttrss_feeds SET favicon_avg_color = $1 WHERE id = $2")
+                        .bind(&color)
+                        .bind(feed.id)
+                        .execute(pool)
+                        .await;
+                dlog(
+                    log.as_deref_mut(),
+                    DEBUG_LEVEL_VERBOSE,
+                    format!("favicon: calculated avg color: {color}"),
+                );
+            }
+        }
+    }
 
     let items: Vec<FeedItem> = parser.get_items().to_vec();
     if items.is_empty() {
