@@ -30,6 +30,9 @@ use crate::prefs;
 use crate::session::Sess;
 use crate::time::TzCtx;
 use crate::AppState;
+use crate::pluginhost::host::HostCtx;
+use crate::pluginhost::plugin::Plugin;
+use crate::pluginhost::{HOOK_PREFS_EDIT_FEED, HOOK_PREFS_SAVE_FEED};
 
 // `Feeds::*` virtual-feed pseudo-ids (functions.php).
 pub(crate) const FEED_ARCHIVED: i64 = 0;
@@ -1685,6 +1688,7 @@ async fn editsaveops(
         }
     }
 
+    let mut touched: i64 = 0;
     if !batch {
         let exists = sqlx::query_scalar::<_, i32>(
             "SELECT id FROM ttrss_feeds WHERE id = $1 AND owner_uid = $2",
@@ -1726,9 +1730,28 @@ async fn editsaveops(
         .bind(feed_id)
         .bind(uid)
         .execute(pool)
-        .await
-        .map(|r| r.rows_affected())
-        .unwrap_or(0) as i64
+        .await;
+        touched = 1;
+        // M7.15 — the HOOK_PREFS_SAVE_FEED chain (the per-feed plugin save,
+        // e.g. the af_psql_trgm enable/disable). PHP: run_hooks(HOOK_PREFS_SAVE_FEED,
+        // $feed_id) after the feed is saved.
+        {
+            let mut host_ctx = HostCtx::for_user(
+                &state.plugins,
+                pool,
+                &state.config,
+                Some(uid as i32),
+                profile,
+                0,
+                &[],
+                &[],
+            );
+            host_ctx.run_hooks(HOOK_PREFS_SAVE_FEED, |plugin, host| {
+                Box::pin(async move { plugin.hook_prefs_save_feed(host, feed_id).await; })
+            })
+            .await;
+        }
+        touched
     } else {
         if feed_ids.is_empty() {
             return 0;
@@ -2782,13 +2805,32 @@ pub async fn editfeed(state: &AppState, sess: &Sess, extra: &Map<String, Value>)
         .to_string();
     let all_lang = get_ts_languages(pool).await;
 
+    // M7.15 — the HOOK_PREFS_EDIT_FEED chain (the per-feed plugin UI, e.g.
+    // the af_psql_trgm checkbox). PHP: ob_start(); run_hooks(...); $plugin_data =
+    // trim(ob_get_contents()); ob_end_clean();
+    let mut host_ctx = HostCtx::for_user(
+        &state.plugins,
+        pool,
+        &state.config,
+        Some(uid as i32),
+        profile,
+        sess.data().access_level().unwrap_or(0) as i32,
+        &[],
+        &[],
+    );
+    host_ctx.run_hooks(HOOK_PREFS_EDIT_FEED, |plugin, host| {
+        Box::pin(async move { plugin.hook_prefs_edit_feed(host, feed_id as i32).await; })
+    })
+    .await;
+    let plugin_data = host_ctx.output.trim().to_string();
+
     json!({
         "feed": feed,
         "cats": {
             "enabled": cats_enabled,
             "select": cats_select,
         },
-        "plugin_data": "",
+        "plugin_data": plugin_data,
         "force_purge": state.config.force_article_purge,
         "intervals": {
             "update": update,

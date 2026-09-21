@@ -416,16 +416,59 @@ Plugins.Psql_Trgm = {
 
     fn hook_prefs_edit_feed<'a, 'h: 'a>(
         &'a self,
-        _host: &'a mut HostCtx<'h>,
-        _feed_id: i32,
+        host: &'a mut HostCtx<'h>,
+        feed_id: i32,
     ) -> BoxFuture<'a, ()> {
         Box::pin(async move {
-            // The per-feed checkbox is pushed to the output by the feed editor.
-            // For the M7.15 increment, this is a no-op (the feed editor
-            // integration is deferred to a future increment).
+            // Read the enabled_feeds from storage (PHP: host->get_array).
+            use crate::core::phpser::Value as PValue;
+            let enabled_feeds: Vec<i32> = host
+                .storage_get(&AfPsqlTrgm, "enabled_feeds", PValue::Array(vec![]))
+                .await
+                .ok()
+                .and_then(|v| match v {
+                    PValue::Array(arr) => Some(
+                        arr.into_iter()
+                            .filter_map(|(_, val)| match val {
+                                PValue::Int(i) => Some(i as i32),
+                                _ => None,
+                            })
+                            .collect(),
+                    ),
+                    _ => None,
+                })
+                .unwrap_or_default();
+
+            let checked = if enabled_feeds.contains(&feed_id) { "checked=\"checked\"" } else { "" };
+            host.output.push_str(&format!(
+                "<header>Similarity (af_psql_trgm)</header>\n\
+                 <section><fieldset>\n\
+                  <label class=\"checkbox\">\n\
+                   <input type=\"checkbox\" name=\"trgm_similarity_enabled\" {checked}>\n\
+                   Mark similar articles as read\n\
+                  </label>\n\
+                 </fieldset></section>"
+            ));
         })
     }
 
+    /// `hook_prefs_save_feed($feed_id)` — PHP reads `$_POST["trgm_similarity_enabled"]`
+    /// directly (a superglobal) and updates the `enabled_feeds` array in storage.
+    ///
+    /// **TODO(port):** The `Plugin` trait's `hook_prefs_save_feed` signature only
+    /// passes `feed_id`, not the form data. The PHP reads `$_POST` directly, but
+    /// the Rust hook has no access to it. Fix: change the trait signature to include
+    /// the form params (e.g. `&Value`), or store the relevant field in `HostCtx`
+    /// before the hook chain runs. The logic itself is straightforward: read the
+    /// `trgm_similarity_enabled` checkbox, add/remove `feed_id` from `enabled_feeds`
+    /// in storage.
+    fn hook_prefs_save_feed<'a, 'h: 'a>(
+        &'a self,
+        _host: &'a mut HostCtx<'h>,
+        _feed_id: i32,
+    ) -> BoxFuture<'a, ()> {
+        Box::pin(async move { /* TODO(port): see above */ })
+    }
     fn invoke_method<'a, 'h: 'a>(
         &'a self,
         host: &'a mut HostCtx<'h>,
