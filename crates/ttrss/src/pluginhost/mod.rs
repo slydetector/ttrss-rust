@@ -126,9 +126,8 @@ pub fn all_plugins() -> Vec<fn() -> Box<dyn Plugin>> {
 /// candidate and each user's `_ENABLED_PLUGINS` pref (default: all) decides
 /// activation, so a fresh install ships every bundled plugin enabled.
 pub fn default_plugins() -> String {
-    let mut names = vec!["auth_internal".to_string()];
-    for make in all_plugins() {
-        names.push(make().name().to_string());
-    }
-    names.join(",")
+    // The PHP's `Config::PLUGINS` default is `"auth_internal"` — only the
+    // auth module is a system plugin by default; other plugins are enabled
+    // per-user via the `_ENABLED_PLUGINS` preference.
+    "auth_internal".to_string()
 }

@@ -507,6 +507,9 @@ Plugins.Psql_Trgm = {
                 .await;
         })
     }
+    fn has_public_method(&self, method: &str) -> bool {
+        matches!(method, "save" | "showrelated")
+    }
     fn invoke_method<'a, 'h: 'a>(
         &'a self,
         host: &'a mut HostCtx<'h>,
