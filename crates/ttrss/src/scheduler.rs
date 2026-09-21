@@ -11,8 +11,8 @@
 //! the `@daily` / `@hourly` / `@weekly` macros and full cron expressions.
 //!
 //! The per-user variant (`RSSUtils::housekeeping_user` — per-owner plugin
-//! tasks + the `HOOK_HOUSE_KEEPING` hook) is M8 (the plugin system) territory
-//! and is a no-op here.
+//! tasks + the `HOOK_HOUSE_KEEPING` hook) is [`run_plugin_tasks`] (the
+//! `HOOK_HOUSE_KEEPING` hook itself remains M8).
 
 use anyhow::{Context, Result};
 use chrono::{Local, NaiveDateTime, TimeZone as _};
