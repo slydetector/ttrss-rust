@@ -74,6 +74,9 @@ pub struct Config {
     /// custom favicon, in bytes (default 1 MiB). Overridable via
     /// `TTRSS_RUST_MAX_FAVICON_FILE_SIZE`.
     pub max_favicon_file_size: usize,
+    /// `Config::MAX_CACHE_FILE_SIZE` (T_INT, default 64 MiB): the maximum bytes
+    /// a single media file may occupy when downloaded to the cache.
+    pub max_cache_file_size: usize,
     /// `Config::FORCE_ARTICLE_PURGE` (T_INT, default 0): when non-zero, article
     /// purging is forced to this many days (overriding per-feed / per-user settings).
     /// `Config::FORCE_ARTICLE_PURGE` (T_INT, default 0): when non-zero, article
@@ -150,6 +153,13 @@ pub struct Config {
 }
 
 impl Config {
+    /// The base media-cache dir (PHP `Config::get_cache_dir()`): the parent of
+    /// [`feed_icon_dir`](Self::feed_icon_dir) — the established port pattern
+    /// (upstream's `feed-icons` DiskCache lives under it). Falls back to the
+    /// empty path when `feed_icon_dir` has no parent.
+    pub fn base_cache_dir(&self) -> PathBuf {
+        self.feed_icon_dir.parent().map(|p| p.to_path_buf()).unwrap_or_default()
+    }
     /// Build a [`Config`] from the environment (with upstream defaults).
     pub fn from_env() -> Result<Self> {
         fn env<T>(key: &str, default: &str) -> Result<T>
@@ -196,6 +206,7 @@ impl Config {
                 .map(PathBuf::from)
                 .unwrap_or_else(|_| PathBuf::from("tt-rss/cache/feed-icons")),
             max_favicon_file_size: env("TTRSS_RUST_MAX_FAVICON_FILE_SIZE", "1048576")?,
+            max_cache_file_size: env("TTRSS_RUST_MAX_CACHE_FILE_SIZE", "67108864")?,
             force_article_purge: env("TTRSS_RUST_FORCE_ARTICLE_PURGE", "0")?,
             feed_fetch_timeout: env("TTRSS_FEED_FETCH_TIMEOUT", "45")?,
             feed_fetch_no_cache_timeout: env("TTRSS_FEED_FETCH_NO_CACHE_TIMEOUT", "15")?,
@@ -328,6 +339,7 @@ mod tests {
             docroot: PathBuf::from("tt-rss"),
             feed_icon_dir: PathBuf::from("tt-rss/cache/feed-icons"),
             max_favicon_file_size: 1024 * 1024,
+            max_cache_file_size: 64 * 1024 * 1024,
             force_article_purge: 0,
             feed_fetch_timeout: 45,
             feed_fetch_no_cache_timeout: 15,

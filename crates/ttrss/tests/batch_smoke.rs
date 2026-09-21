@@ -117,6 +117,7 @@ fn test_config() -> Config {
         docroot: std::path::PathBuf::new(),
         feed_icon_dir: std::path::PathBuf::new(),
         max_favicon_file_size: 0,
+        max_cache_file_size: 64 * 1024 * 1024,
         force_article_purge: 0,
         feed_fetch_timeout: 5,
         feed_fetch_no_cache_timeout: 3,

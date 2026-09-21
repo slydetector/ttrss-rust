@@ -130,6 +130,7 @@ mod tests {
             docroot: PathBuf::from("tt-rss"),
             feed_icon_dir: PathBuf::from("tt-rss/cache/feed-icons"),
             max_favicon_file_size: 1024 * 1024,
+            max_cache_file_size: 64 * 1024 * 1024,
             force_article_purge: 0,
             feed_fetch_timeout: 45,
             feed_fetch_no_cache_timeout: 15,

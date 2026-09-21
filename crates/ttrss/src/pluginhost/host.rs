@@ -56,11 +56,13 @@
 //!   (no first-party plugin implements it; no such trait in the port yet).
 
 use std::collections::{BTreeMap, HashMap};
+use std::path::PathBuf;
 
 use serde_json::Value;
 use sqlx::PgPool;
 
 use crate::render::urlencode;
+use crate::core::config::Config;
 
 use super::plugin::{BoxFuture, Plugin};
 
@@ -125,7 +127,7 @@ pub struct ScheduledTask {
     pub cron: String,
     /// Index into [`PluginHost::plugins`].
     pub plugin: usize,
-    pub callback: Box<dyn Fn(&mut HostCtx<'_>) + Send + Sync>,
+    pub callback: Box<dyn Fn(PgPool, Option<i32>, Config) -> BoxFuture<'static, ()> + Send + Sync>,
 }
 
 /// A scheduled task's full name (PHP `add_scheduled_task` naming):
@@ -424,7 +426,7 @@ impl PluginHost {
         &mut self,
         task_name: &str,
         cron: &str,
-        callback: Box<dyn Fn(&mut HostCtx<'_>) + Send + Sync>,
+        callback: Box<dyn Fn(PgPool, Option<i32>, Config) -> BoxFuture<'static, ()> + Send + Sync>,
     ) {
         let Some(idx) = self.current else {
             return;
@@ -503,6 +505,10 @@ pub struct HostCtx<'a> {
     /// `Config::get_self_url()` — the context's base URL (plugins build
     /// absolute asset URLs off it, e.g. `nsfw`'s placeholder image).
     pub self_url: String,
+    /// The base media-cache directory (PHP `Config::CACHE_DIR`), for the
+    /// `DiskCache`-using plugins (e.g. `cache_starred_images`). Set via
+    /// [`HostCtx::with_cache_dir`]; empty on the pre-plugin baseline.
+    pub cache_dir: PathBuf,
     /// Hook output buffer (PHP's `ob_start()` around the hook chain): hooks
     /// that *print* (e.g. `hook_prefs_tab`) append here; the caller of the
     /// chain collects/clears it. M7.10 (the prefs page) is the first runner.
@@ -588,6 +594,7 @@ impl<'a> HostCtx<'a> {
             storage: std::collections::HashMap::new(),
             data_loaded: false,
             self_url: String::new(),
+            cache_dir: PathBuf::new(),
             output: String::new(),
         }
     }
@@ -598,6 +605,15 @@ impl<'a> HostCtx<'a> {
     #[must_use]
     pub fn with_self_url(mut self, self_url: impl Into<String>) -> Self {
         self.self_url = self_url.into();
+        self
+    }
+
+    /// `Config::CACHE_DIR`-equivalent: the base media-cache directory the
+    /// `DiskCache`-using plugins (e.g. `cache_starred_images`) resolve
+    /// instances against.
+    #[must_use]
+    pub fn with_cache_dir(mut self, cache_dir: impl Into<PathBuf>) -> Self {
+        self.cache_dir = cache_dir.into();
         self
     }
 

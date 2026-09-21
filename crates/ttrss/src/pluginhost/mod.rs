@@ -104,6 +104,7 @@ pub fn all_plugins() -> Vec<fn() -> Box<dyn Plugin>> {
         || Box::new(crate::plugins::af_youtube_embed::AfYoutubeEmbed),
         || Box::new(crate::plugins::af_zz_vidmute::AfZzVidMute),
         || Box::new(crate::plugins::auto_assign_labels::AutoAssignLabels),
+        || Box::new(crate::plugins::cache_starred_images::CacheStarredImages),
         || Box::new(crate::plugins::no_iframes::NoIframes),
         || Box::new(crate::plugins::note::Note),
         || Box::new(crate::plugins::nsfw::NsFw),

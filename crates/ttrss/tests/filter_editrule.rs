@@ -97,6 +97,7 @@ fn test_config() -> Config {
         docroot: std::path::PathBuf::from("tt-rss"),
         feed_icon_dir: std::path::PathBuf::from("no-such-test-icon-dir"),
         max_favicon_file_size: 1024 * 1024,
+        max_cache_file_size: 64 * 1024 * 1024,
         force_article_purge: 0,
         feed_fetch_timeout: 45,
         feed_fetch_no_cache_timeout: 15,

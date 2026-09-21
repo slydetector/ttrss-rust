@@ -95,6 +95,7 @@ pub(crate) async fn session_ctx<'a>(state: &'a AppState, sess: &'a Sess) -> Host
         &usr,
     )
     .with_self_url(state.config.self_url.clone())
+    .with_cache_dir(state.config.base_cache_dir())
 }
 
 /// The owner-scoped context without a web session (feed output, M7.6):
@@ -120,6 +121,7 @@ pub(crate) async fn owner_ctx<'a>(state: &'a AppState, owner_uid: i32) -> HostCt
     let usr: Vec<&str> = user.iter().map(|s| s.as_str()).collect();
     HostCtx::for_user(&state.plugins, state.db.pool(), Some(owner_uid), None, 0, &sys, &usr)
         .with_self_url(state.config.self_url.clone())
+        .with_cache_dir(state.config.base_cache_dir())
 }
 
 /// Build an owner-scoped [`HostCtx`] from the pipeline pieces — no `AppState` /
@@ -198,7 +200,8 @@ pub async fn public_dispatch(
     // PHP: `new PluginHost; load($name, KIND_ALL, 0)` — a fresh host with
     // only the named plugin (if registered at all).
     let mut ctx = HostCtx::single(&state.plugins, state.db.pool(), &name)
-        .with_self_url(state.config.self_url.clone());
+        .with_self_url(state.config.self_url.clone())
+        .with_cache_dir(state.config.base_cache_dir());
     let Some(plugin) = ctx.get_plugin(&name) else {
         let mut params = Map::new();
         params.insert("plugin".into(), Value::String(name));

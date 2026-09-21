@@ -268,6 +268,137 @@ fn encode_srcset(items: &[SrcsetItem]) -> String {
         .join(",")
 }
 
+/// `DiskCache` + its local (filesystem) adapter (classes/DiskCache.php,
+/// classes/Cache_Local.php) — the *storage* side: `exists`/`get`/`put`/
+/// `remove`/`is_writable`/`get_dir`/`get_mtime`/`get_size`/`download` +
+/// `get_url`. The serve side is [`send_file`]. M7.12 (`cache_starred_images`)
+/// is the first consumer.
+///
+/// A `DiskCache` names one `<cache_dir>/<name>` subdirectory (upstream's
+/// `DiskCache::instance($name)`). The port builds one per use — it holds only
+/// paths, so no singleton is needed (the PHP's per-request singleton is a
+/// no-op across the port's stateless plugins).
+#[derive(Clone, Debug)]
+pub struct DiskCache {
+    /// `<cache_dir>/<name>` — the instance directory.
+    dir: PathBuf,
+    /// `Config::get_self_url()` (rtrimmed) — the base for [`DiskCache::get_url`].
+    self_url: String,
+    /// The bare instance name (e.g. `"starred-images"`) — the `file=<name>/…`
+    /// path segment in [`DiskCache::get_url`].
+    name: String,
+}
+
+impl DiskCache {
+    /// `DiskCache::instance($name)` over a base `<cache_dir>`: `<cache_dir>/<name>`.
+    /// Creates the directory if missing (upstream `Cache_Local::set_dir` →
+    /// `make_dir`).
+    pub fn new(base_dir: &Path, name: &str, self_url: &str) -> Self {
+        let dir = base_dir.join(name);
+        let _ = std::fs::create_dir_all(&dir);
+        Self {
+            dir,
+            self_url: self_url.trim_end_matches('/').to_string(),
+            name: name.to_string(),
+        }
+    }
+
+    /// `Cache_Local::get_full_path($filename)` — the directory + the filename.
+    /// (Upstream applies `basename(clean(…))`; the filenames here are already
+    /// clean basenames, so a plain join.)
+    pub fn get_full_path(&self, filename: &str) -> PathBuf {
+        self.dir.join(filename)
+    }
+
+    /// `Cache_Local::exists($filename)`.
+    pub fn exists(&self, filename: &str) -> bool {
+        self.get_full_path(filename).is_file()
+    }
+
+    /// `Cache_Local::get($filename)` — the file contents, or `None` if absent.
+    /// (Text-oriented; the port's only consumer reads JSON status files.)
+    pub fn get(&self, filename: &str) -> Option<String> {
+        std::fs::read_to_string(self.get_full_path(filename)).ok()
+    }
+
+    /// `Cache_Local::put($filename, $data)` — writes the bytes; `true` on success.
+    pub fn put(&self, filename: &str, data: &[u8]) -> bool {
+        std::fs::write(self.get_full_path(filename), data).is_ok()
+    }
+
+    /// `Cache_Local::remove($filename)`.
+    pub fn remove(&self, filename: &str) -> bool {
+        std::fs::remove_file(self.get_full_path(filename)).is_ok()
+    }
+
+    /// `Cache_Local::is_writable($filename)`.
+    ///
+    /// Upstream asks the OS for write permission; the port approximates it with
+    /// existence (the directory is created by [`DiskCache::new`]), which is all
+    /// the consumers use it as (a gate before writing).
+    pub fn is_writable(&self, filename: Option<&str>) -> bool {
+        match filename {
+            Some(f) if self.get_full_path(f).exists() => self.get_full_path(f).is_file(),
+            _ => self.dir.is_dir(),
+        }
+    }
+
+    /// `Cache_Local::get_dir()`.
+    pub fn get_dir(&self) -> &Path {
+        &self.dir
+    }
+
+    /// `Cache_Local::get_mtime($filename)` — Unix seconds, or `-1` if absent.
+    pub fn get_mtime(&self, filename: &str) -> i64 {
+        std::fs::metadata(self.get_full_path(filename))
+            .ok()
+            .and_then(|m| m.modified().ok())
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(-1)
+    }
+
+    /// `Cache_Local::get_size($filename)` — byte count, or `-1` if absent.
+    pub fn get_size(&self, filename: &str) -> i64 {
+        if self.exists(filename) {
+            self.get_full_path(filename)
+                .metadata()
+                .map(|m| m.len() as i64)
+                .unwrap_or(-1)
+        } else {
+            -1
+        }
+    }
+
+    /// `DiskCache::get_url($filename)` — the public URL that serves a cached
+    /// file (`<self>/public.php?op=cached&file=<name>/<filename>`).
+    pub fn get_url(&self, filename: &str) -> String {
+        format!(
+            "{}/public.php?op=cached&file={}/{}",
+            self.self_url, self.name, filename
+        )
+    }
+
+    /// `DiskCache::download($url, $local_filename, $force)` — fetch `$url` and
+    /// store it if absent (or `$force`d). `max_size` caps the download
+    /// (`Config::MAX_CACHE_FILE_SIZE`).
+    pub async fn download(&self, url: &str, local_filename: &str, max_size: u64, force: bool) -> bool {
+        if self.exists(local_filename) && !force {
+            return true;
+        }
+        let result = crate::urlhelper::fetch(&crate::urlhelper::FetchOptions {
+            url: url.to_string(),
+            max_size: Some(max_size),
+            ..Default::default()
+        })
+        .await;
+        match result.body {
+            Some(bytes) if !bytes.is_empty() => self.put(local_filename, &bytes),
+            _ => false,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -425,5 +556,82 @@ mod tests {
         let res = rewrite_urls(&html, &dir, "http://self");
         assert!(!res.contains("srcset"), "srcset dropped: {res}");
         assert!(res.contains(&crate::util::sha1_hex(url)), "src rewritten: {res}");
+    }
+    // -- DiskCache storage (M7.12) ------------------------------------------
+
+    /// A fresh empty temp dir (the base for a `DiskCache` instance).
+    fn temp_base_dir() -> PathBuf {
+        let n = TMP_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let dir =
+            std::env::temp_dir().join(format!("ttrss-diskcache-{}-{}", std::process::id(), n));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn diskcache_put_get_exists_roundtrip() {
+        let base = temp_base_dir();
+        let cache = DiskCache::new(&base, "starred-images", "http://self/");
+        assert!(!cache.exists("abc"));
+        assert!(cache.put("abc", b"hello world"));
+        assert!(cache.exists("abc"));
+        assert_eq!(cache.get("abc").as_deref(), Some("hello world"));
+        assert_eq!(cache.get("missing"), None);
+    }
+
+    #[test]
+    fn diskcache_get_url_format() {
+        let base = temp_base_dir();
+        let cache = DiskCache::new(&base, "starred-images", "http://self/");
+        assert_eq!(
+            cache.get_url("123-abc.status"),
+            "http://self/public.php?op=cached&file=starred-images/123-abc.status"
+        );
+    }
+
+    #[test]
+    fn diskcache_remove() {
+        let base = temp_base_dir();
+        let cache = DiskCache::new(&base, "starred-images", "http://self");
+        cache.put("abc", b"x");
+        assert!(cache.exists("abc"));
+        assert!(cache.remove("abc"));
+        assert!(!cache.exists("abc"));
+        // Removing a missing file fails.
+        assert!(!cache.remove("nope"));
+    }
+
+    #[test]
+    fn diskcache_get_size_and_mtime() {
+        let base = temp_base_dir();
+        let cache = DiskCache::new(&base, "starred-images", "http://self");
+        cache.put("abc", b"12345");
+        assert_eq!(cache.get_size("abc"), 5);
+        assert_eq!(cache.get_size("missing"), -1);
+        assert!(cache.get_mtime("abc") > 0, "mtime: {}", cache.get_mtime("abc"));
+        assert_eq!(cache.get_mtime("missing"), -1);
+    }
+
+    #[test]
+    fn diskcache_is_writable_and_dir() {
+        let base = temp_base_dir();
+        let cache = DiskCache::new(&base, "starred-images", "http://self");
+        assert!(cache.is_writable(None), "the created dir is writable");
+        assert!(cache.get_dir().ends_with("starred-images"));
+        // A present file is writable (the existence approximation).
+        cache.put("abc", b"x");
+        assert!(cache.is_writable(Some("abc")));
+    }
+
+    #[tokio::test]
+    async fn diskcache_download_early_return_when_cached() {
+        let base = temp_base_dir();
+        let cache = DiskCache::new(&base, "starred-images", "http://self");
+        cache.put("abc", b"cached");
+        // An existing file short-circuits (no fetch) with `force = false`, even
+        // for an unreachable URL (proving no network is attempted).
+        assert!(cache
+            .download("http://unreachable.invalid/x", "abc", 1024, false)
+            .await);
     }
 }
