@@ -452,22 +452,60 @@ Plugins.Psql_Trgm = {
         })
     }
 
-    /// `hook_prefs_save_feed($feed_id)` — PHP reads `$_POST["trgm_similarity_enabled"]`
-    /// directly (a superglobal) and updates the `enabled_feeds` array in storage.
-    ///
-    /// **TODO(port):** The `Plugin` trait's `hook_prefs_save_feed` signature only
-    /// passes `feed_id`, not the form data. The PHP reads `$_POST` directly, but
-    /// the Rust hook has no access to it. Fix: change the trait signature to include
-    /// the form params (e.g. `&Value`), or store the relevant field in `HostCtx`
-    /// before the hook chain runs. The logic itself is straightforward: read the
-    /// `trgm_similarity_enabled` checkbox, add/remove `feed_id` from `enabled_feeds`
-    /// in storage.
+    /// `hook_prefs_save_feed($feed_id)` — reads the `trgm_similarity_enabled`
+    /// checkbox from the form data and updates the `enabled_feeds` array in
+    /// storage. PHP: `hook_prefs_save_feed` (L240).
     fn hook_prefs_save_feed<'a, 'h: 'a>(
         &'a self,
-        _host: &'a mut HostCtx<'h>,
-        _feed_id: i32,
+        host: &'a mut HostCtx<'h>,
+        feed_id: i32,
+        params: &'a Value,
     ) -> BoxFuture<'a, ()> {
-        Box::pin(async move { /* TODO(port): see above */ })
+        Box::pin(async move {
+            let enable = params
+                .get("trgm_similarity_enabled")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+
+            // Read the current enabled_feeds from storage.
+            use crate::core::phpser::Value as PValue;
+            let enabled_feeds: Vec<i32> = host
+                .storage_get(&AfPsqlTrgm, "enabled_feeds", PValue::Array(vec![]))
+                .await
+                .ok()
+                .and_then(|v| match v {
+                    PValue::Array(arr) => Some(
+                        arr.into_iter()
+                            .filter_map(|(_, val)| match val {
+                                PValue::Int(i) => Some(i as i32),
+                                _ => None,
+                            })
+                            .collect(),
+                    ),
+                    _ => None,
+                })
+                .unwrap_or_default();
+
+            // Add or remove the feed_id.
+            let mut updated = enabled_feeds;
+            if enable {
+                if !updated.contains(&feed_id) {
+                    updated.push(feed_id);
+                }
+            } else {
+                updated.retain(|&id| id != feed_id);
+            }
+
+            // Write back to storage.
+            let arr: Vec<(crate::core::phpser::Key, PValue)> = updated
+                .into_iter()
+                .enumerate()
+                .map(|(i, id)| (crate::core::phpser::Key::Int(i as i64), PValue::Int(id as i64)))
+                .collect();
+            let _ = host
+                .storage_set(&AfPsqlTrgm, "enabled_feeds", PValue::Array(arr))
+                .await;
+        })
     }
     fn invoke_method<'a, 'h: 'a>(
         &'a self,

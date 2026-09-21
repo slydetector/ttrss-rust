@@ -1747,7 +1747,7 @@ async fn editsaveops(
                 &[],
             );
             host_ctx.run_hooks(HOOK_PREFS_SAVE_FEED, |plugin, host| {
-                Box::pin(async move { plugin.hook_prefs_save_feed(host, feed_id).await; })
+                Box::pin(async move { plugin.hook_prefs_save_feed(host, feed_id, &Value::Object(extra.clone())).await; })
             })
             .await;
         }

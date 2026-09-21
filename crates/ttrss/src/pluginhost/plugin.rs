@@ -412,8 +412,9 @@ pub trait Plugin: Send + Sync {
     fn hook_prefs_edit_feed<'a, 'h: 'a>(&'a self, _host: &'a mut HostCtx<'h>, _feed_id: i32) -> BoxFuture<'a, ()> { Box::pin(async move {}) }
 
     /// `hook_prefs_save_feed($feed_id)` — feed editor data saved.
-    /// `HOOK_PREFS_SAVE_FEED`.
-    fn hook_prefs_save_feed<'a, 'h: 'a>(&'a self, _host: &'a mut HostCtx<'h>, _feed_id: i32) -> BoxFuture<'a, ()> { Box::pin(async move {}) }
+    /// `HOOK_PREFS_SAVE_FEED`. The `params` is the form data (equivalent of
+    /// PHP's `$_POST`), so plugins can read the posted checkbox/select values.
+    fn hook_prefs_save_feed<'a, 'h: 'a>(&'a self, _host: &'a mut HostCtx<'h>, _feed_id: i32, _params: &'a Value) -> BoxFuture<'a, ()> { Box::pin(async move {}) }
 
     /// `hook_fetch_feed(...)` — override the built-in feed fetch, substituting
     /// the received data. `HOOK_FETCH_FEED`.
