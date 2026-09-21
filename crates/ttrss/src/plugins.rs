@@ -18,6 +18,7 @@ pub mod no_iframes;
 pub mod note;
 pub mod nsfw;
 pub mod share;
+pub mod hotkeys_force_top;
 pub mod hotkeys_noscroll;
 pub mod hotkeys_swap_jk;
 pub mod toggle_sidebar;
