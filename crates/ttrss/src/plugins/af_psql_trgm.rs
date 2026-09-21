@@ -301,13 +301,42 @@ Plugins.Psql_Trgm = {
                 .and_then(Value::as_i64)
                 .unwrap_or(0) as i32;
 
-            // Read the prefs from the plugin storage (simplified: use defaults
-            // for the M7.15 increment; the storage mechanism is the same as
-            // the other plugins).
-            let enable_globally: bool = false; // TODO: read from storage
-            let enabled_feeds: Vec<i32> = Vec::new(); // TODO: read from storage
-            let similarity: f64 = DEFAULT_SIMILARITY; // TODO: read from storage
-            let min_title_length: i32 = DEFAULT_MIN_LENGTH; // TODO: read from storage
+            // Read the prefs from the plugin storage (PHP: host->get).
+            use crate::core::phpser::Value as PValue;
+            let enable_globally: bool = host
+                .storage_get(&AfPsqlTrgm, "enable_globally", PValue::Bool(false))
+                .await
+                .ok()
+                .and_then(|v| match v { PValue::Bool(b) => Some(b), _ => None })
+                .unwrap_or(false);
+            let enabled_feeds: Vec<i32> = host
+                .storage_get(&AfPsqlTrgm, "enabled_feeds", PValue::Array(vec![]))
+                .await
+                .ok()
+                .and_then(|v| match v {
+                    PValue::Array(arr) => Some(
+                        arr.into_iter()
+                            .filter_map(|(_, val)| match val {
+                                PValue::Int(i) => Some(i as i32),
+                                _ => None,
+                            })
+                            .collect(),
+                    ),
+                    _ => None,
+                })
+                .unwrap_or_default();
+            let similarity: f64 = host
+                .storage_get(&AfPsqlTrgm, "similarity", PValue::Float(DEFAULT_SIMILARITY))
+                .await
+                .ok()
+                .and_then(|v| match v { PValue::Float(f) => Some(f), _ => None })
+                .unwrap_or(DEFAULT_SIMILARITY);
+            let min_title_length: i32 = host
+                .storage_get(&AfPsqlTrgm, "min_title_length", PValue::Int(DEFAULT_MIN_LENGTH as i64))
+                .await
+                .ok()
+                .and_then(|v| match v { PValue::Int(i) => Some(i as i32), _ => None })
+                .unwrap_or(DEFAULT_MIN_LENGTH);
 
             let should_catchup = AfPsqlTrgm::filter(
                 host.pool,
@@ -418,6 +447,23 @@ Plugins.Psql_Trgm = {
                         .get("enable_globally")
                         .and_then(Value::as_bool)
                         .unwrap_or(false);
+                    // Write the prefs to the plugin storage (PHP: host->set).
+                    use crate::core::phpser::Value as PValue;
+                    host.storage_set(
+                        &AfPsqlTrgm,
+                        "similarity",
+                        PValue::Float(similarity),
+                    ).await.map_err(|e| PluginError::Other(e.to_string()))?;
+                    host.storage_set(
+                        &AfPsqlTrgm,
+                        "min_title_length",
+                        PValue::Int(min_title_length as i64),
+                    ).await.map_err(|e| PluginError::Other(e.to_string()))?;
+                    host.storage_set(
+                        &AfPsqlTrgm,
+                        "enable_globally",
+                        PValue::Bool(enable_globally),
+                    ).await.map_err(|e| PluginError::Other(e.to_string()))?;
                     let msg =
                         AfPsqlTrgm::save(similarity, min_title_length, enable_globally);
                     Ok(MethodOutput::Raw(msg))
