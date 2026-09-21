@@ -441,3 +441,66 @@ pub async fn log_daemon_update_login_limit_users(pool: &PgPool, cfg: &Config) ->
     }
     Ok(())
 }
+
+/// `housekeeping_user` — run the plugin-registered scheduled tasks that are
+/// due (PHP: `RSSUtils::housekeeping_user` + `PluginHost::run_scheduled_tasks`).
+///
+/// Unlike [`run_due_tasks`] (system tasks, matched by name to a known handler),
+/// plugin tasks carry their own `callback` closure. The full task name follows
+/// the PHP's `add_scheduled_task` naming: `Class:task` (system plugin) or
+/// `Class:task:uid` (user plugin).
+pub async fn run_plugin_tasks(
+    pool: &PgPool,
+    cfg: &Config,
+    plugins: &crate::pluginhost::host::PluginHost,
+) {
+    let now = Local::now();
+    let tasks = plugins.scheduled_tasks();
+    for task in tasks {
+        let plugin = &plugins.plugin(task.plugin);
+        let full_name = crate::pluginhost::host::scheduled_task_name(
+            *plugin,
+            &task.task_name,
+            None,
+        );
+
+        let Ok(cron) = Cron::from_str(&task.cron) else {
+            tracing::warn!(
+                task = %full_name,
+                expression = %task.cron,
+                "invalid cron expression; skipping plugin task"
+            );
+            continue;
+        };
+
+        let last_run: NaiveDateTime =
+            match sqlx::query_scalar(
+                "SELECT last_run FROM ttrss_scheduled_tasks WHERE task_name = $1",
+            )
+            .bind(&full_name)
+            .fetch_optional(pool)
+            .await
+            .context("load scheduled task record")
+            {
+                Ok(r) => r.unwrap_or(EPOCH),
+                Err(e) => {
+                    tracing::error!(task = %full_name, error = %e, "failed to load task record");
+                    continue;
+                }
+            };
+
+        if !is_due(&cron, last_run, now) {
+            continue;
+        }
+
+        let started = std::time::Instant::now();
+        let pool_clone = pool.clone();
+        let cfg_clone = cfg.clone();
+        (task.callback)(pool_clone, None, cfg_clone).await;
+        let duration = started.elapsed().as_secs() as i32;
+        tracing::debug!(task = %full_name, "plugin task finished in {duration}s");
+
+        let cron_expr = cron.pattern.to_string();
+        let _ = record_run(pool, &full_name, duration, 0, &cron_expr).await;
+    }
+}

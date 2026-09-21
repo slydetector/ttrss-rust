@@ -1720,10 +1720,11 @@ pub async fn daemon_loop(pool: &PgPool, cfg: &Config, plugins: Arc<PluginHost>, 
             );
         }
 
-        // Housekeeping ("task 0"): run the due scheduled tasks (the PHP's
-        // `housekeeping_common`, invoked after each `update_daemon_common`
-        // cycle). The per-owner variant (`housekeeping_user`) is M8 (plugins).
+        // Housekeeping: run the due system tasks (the PHP's
+        // `housekeeping_common`) + the plugin-registered tasks
+        // (`housekeeping_user` — M7.12 `cache_starred_images` et al.).
         crate::scheduler::run_due_tasks(pool, cfg, &crate::scheduler::system_tasks(cfg)).await;
+        crate::scheduler::run_plugin_tasks(pool, cfg, &plugins).await;
 
         // Sleep the interval (or exit on graceful shutdown).
         tokio::select! {
