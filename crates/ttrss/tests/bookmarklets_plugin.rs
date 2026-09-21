@@ -262,3 +262,52 @@ async fn test_sharepopup_not_logged_in(
     assert!(body.contains("name=\"login\""), "{body}");
     assert!(body.contains("name=\"password\""), "{body}");
 }
+
+// `subscribe` (no feed_url, logged in) → the form.
+#[sqlx::test(fixtures(
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql"
+))]
+async fn test_subscribe_form(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
+    let state = setup(pool, options, "bookmarklets").await;
+
+    let plugin = state.plugins.get_plugin("bookmarklets").expect("bookmarklets registered");
+    let mut c = ctx(&state);
+
+    let v = plugin
+        .invoke_method(&mut c, "subscribe", &json!({"csrf_token": "tok"}))
+        .await
+        .unwrap();
+    let MethodOutput::Response { status, body, .. } = v else {
+        panic!("expected a Response, got {v:?}");
+    };
+    assert_eq!(status, 200, "body: {body}");
+    assert!(body.contains("Subscribe to feed..."), "{body}");
+    assert!(body.contains("name=\"feed_url\""), "{body}");
+    assert!(body.contains("name=\"csrf_token\" value=\"tok\""), "{body}");
+}
+
+// `subscribe` (unauthenticated) → the login form.
+#[sqlx::test(fixtures(
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql"
+))]
+async fn test_subscribe_not_logged_in(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
+    let state = setup(pool, options, "bookmarklets").await;
+
+    let v = public_dispatch(&state, "bookmarklets", "subscribe", &json!({})).await.unwrap();
+    let MethodOutput::Response { status, body, .. } = v else {
+        panic!("expected a Response, got {v:?}");
+    };
+    assert_eq!(status, 200, "body: {body}");
+    assert!(body.contains("Not logged in"), "{body}");
+    assert!(body.contains("name=\"login\""), "{body}");
+}

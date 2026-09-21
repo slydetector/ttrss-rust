@@ -87,12 +87,7 @@ impl Plugin for Bookmarklets {
         Box::pin(async move {
             match method.to_ascii_lowercase().as_str() {
                 "sharepopup" => this.sharepopup(host, params).await,
-                "subscribe" => {
-                    // Deferred: needs the full Config for Feeds::_subscribe.
-                    Err(PluginError::Other(
-                        "bookmarklets::subscribe not yet implemented".to_string(),
-                    ))
-                }
+                "subscribe" => this.subscribe(host, params).await,
                 _ => Err(PluginError::UnknownMethod(method.to_string())),
             }
         })
@@ -283,6 +278,185 @@ impl Bookmarklets {
             status: 200,
             content_type: "text/html; charset=utf-8",
             body: form,
+        })
+    }
+
+    /// `Bookmarklets::subscribe` — the subscribe-to-feed page.
+    ///
+    /// No `feed_url` or no `csrf_token` → the form. With both → calls
+    /// `Feeds::_subscribe` and renders the result (warning/notice/error +
+    /// the "Edit subscription options" link).
+    async fn subscribe(
+        &self,
+        host: &mut HostCtx<'_>,
+        params: &Value,
+    ) -> Result<MethodOutput, PluginError> {
+        let uid = host.owner_uid.unwrap_or(0);
+        let cfg = host.cfg;
+        let pool = host.pool;
+
+        let feed_url = util::clean_str(params.get("feed_url").and_then(|v| v.as_str()).unwrap_or(""));
+        let csrf = util::clean_str(params.get("csrf_token").and_then(|v| v.as_str()).unwrap_or(""));
+
+        let body = if uid == 0 {
+            // Not logged in — the login form (simplified).
+            let return_to = crate::pluginhost::host::public_method_url(
+                &host.self_url,
+                self,
+                "subscribe",
+                &[],
+            )
+            .unwrap_or_default();
+            format!(
+                "<!DOCTYPE html><html><head><title>Subscribe to feed...</title></head>\n\
+                 <body class='flat ttrss_utility share_popup css_loading'>\n\
+                 <div class='content'>\n\
+                 {}\n\
+                 <form action=\"public.php?return={}\" method=\"post\">\n\
+                 <input type=\"hidden\" name=\"op\" value=\"login\">\n\
+                 <fieldset><label>Login:</label><input name=\"login\" required=\"1\"></fieldset>\n\
+                 <fieldset><label>Password:</label><input type=\"password\" name=\"password\" required=\"1\"></fieldset>\n\
+                 <fieldset><label> </label><button type=\"submit\" class=\"alt-primary\">Log in</button></fieldset>\n\
+                 </form>\n\
+                 </div>\n\
+                 </body></html>",
+                controls::format_error("Not logged in"),
+                crate::render::urlencode(&return_to),
+            )
+        } else if feed_url.is_empty() || csrf.is_empty() {
+            // No feed URL or CSRF token — the form.
+            format!(
+                "<!DOCTYPE html><html><head><title>Subscribe to feed...</title></head>\n\
+                 <body class='flat ttrss_utility share_popup css_loading'>\n\
+                 <div class='content'>\n\
+                 <h1>Subscribe to feed...</h1>\n\
+                 <form method=\"post\" action='public.php'>\n\
+                 <input type=\"hidden\" name=\"op\" value=\"bookmarklets--subscribe\">\n\
+                 <input type=\"hidden\" name=\"csrf_token\" value=\"{csrf}\">\n\
+                 <fieldset><label>Feed or site URL:</label><input style=\"width: 300px\" name=\"feed_url\" value=\"{feed_url_esc}\"></fieldset>\n\
+                 <button class=\"alt-primary\" type=\"submit\">Subscribe</button>\n\
+                 <a href=\"index.php\">Return to Tiny Tiny RSS</a>\n\
+                 </form>\n\
+                 </div>\n\
+                 </body></html>",
+                csrf = csrf,
+                feed_url_esc = util::htmlspecialchars(&feed_url),
+            )
+        } else {
+            // Subscribe to the feed.
+            let rc = crate::feeds::subscribe(
+                cfg,
+                pool,
+                uid as i64,
+                host.access_level,
+                &feed_url,
+                0,
+                "",
+                "",
+                0,
+            )
+            .await;
+
+            let code = rc.get("code").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+
+            let mut out = String::new();
+            match code {
+                0 => out.push_str(&controls::format_warning(&format!(
+                    "Already subscribed to <b>{}</b>.",
+                    util::htmlspecialchars(&feed_url)
+                ))),
+                1 => out.push_str(&controls::format_notice(&format!(
+                    "Subscribed to <b>{}</b>.",
+                    util::htmlspecialchars(&feed_url)
+                ))),
+                2 => out.push_str(&controls::format_error(&format!(
+                    "Could not subscribe to <b>{}</b>.",
+                    util::htmlspecialchars(&feed_url)
+                ))),
+                3 => out.push_str(&controls::format_error(&format!(
+                    "No feeds found in <b>{}</b>.",
+                    util::htmlspecialchars(&feed_url)
+                ))),
+                4 => {
+                    // Multiple feed URLs found — the select form.
+                    let feeds = rc.get("feeds").and_then(|v| v.as_object());
+                    if let Some(feeds) = feeds {
+                        let mut options = String::new();
+                        for (url, name) in feeds {
+                            options.push_str(&format!(
+                                "<option value=\"{}\">{}</option>",
+                                util::htmlspecialchars(url),
+                                util::htmlspecialchars(name.as_str().unwrap_or(url)),
+                            ));
+                        }
+                        out.push_str(&format!(
+                            "<form method='post' action='public.php'>\n\
+                             <input type='hidden' name='op' value='bookmarklets--subscribe'>\n\
+                             <input type='hidden' name='csrf_token' value='{csrf}'>\n\
+                             <fieldset><label style='display : inline'>Multiple feed URLs found:</label>\
+                             <select name='feed_url'>{options}</select></fieldset>\n\
+                             <button class='alt-primary' type='submit'>Subscribe to selected feed</button>\n\
+                             <a href='index.php'>Return to Tiny Tiny RSS</a>\n\
+                             </form>",
+                            csrf = csrf,
+                            options = options,
+                        ));
+                    }
+                }
+                5 => out.push_str(&controls::format_error(&format!(
+                    "Could not subscribe to <b>{}</b>.<br>Can't download the Feed URL.",
+                    util::htmlspecialchars(&feed_url)
+                ))),
+                _ => {}
+            }
+
+            // The "Edit subscription options" link (code 0 or 1).
+            if code <= 2 {
+                let feed_id: i32 = sqlx::query_scalar(
+                    "SELECT id FROM ttrss_feeds WHERE feed_url = $1 AND owner_uid = $2",
+                )
+                .bind(&feed_url)
+                .bind(uid)
+                .fetch_optional(pool)
+                .await
+                .ok()
+                .flatten()
+                .unwrap_or(0);
+
+                if feed_id > 0 {
+                    let self_url = &host.self_url;
+                    out.push_str(&format!(
+                        "<form method='GET' action=\"{self_url}prefs.php\">\n\
+                         <input type='hidden' name='tab' value='feeds'>\n\
+                         <input type='hidden' name='method' value='editfeed'>\n\
+                         <input type='hidden' name='methodparam' value='{feed_id}'>\n\
+                         <button class='alt-info' type='submit'>Edit subscription options</button>\n\
+                         <a href='index.php'>Return to Tiny Tiny RSS</a>\n\
+                         </form>",
+                    ));
+                }
+            }
+
+            if code == 4 {
+                // Already handled in the switch above.
+            } else if out.is_empty() {
+                out.push_str("<a href='index.php'>Return to Tiny Tiny RSS</a>");
+            }
+
+            format!(
+                "<!DOCTYPE html><html><head><title>Subscribe to feed...</title></head>\n\
+                 <body class='flat ttrss_utility share_popup css_loading'>\n\
+                 <div class='content'>\n\
+                 {out}\n\
+                 </div>\n\
+                 </body></html>",
+            )
+        };
+
+        Ok(MethodOutput::Response {
+            status: 200,
+            content_type: "text/html; charset=utf-8",
+            body,
         })
     }
 }
