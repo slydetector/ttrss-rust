@@ -12,6 +12,8 @@ WORKDIR /src
 # Workspace manifests first (layer cache), then the crate sources.
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
+# Plugin asset files (JS/CSS) referenced by include_str! from the crate sources.
+COPY tt-rss/plugins ./tt-rss/plugins
 RUN cargo build --release -p ttrss --bin ttrss
 
 # --- runtime stage ---
