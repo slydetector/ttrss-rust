@@ -180,7 +180,9 @@ mod tests {
         let pool = sqlx::postgres::PgPoolOptions::new()
             .connect_lazy("postgres://ttrss:ttrss@localhost/ttrss_test")
             .unwrap();
-        let mut ctx = HostCtx::for_user(&host, &pool, Some(1), None, 0, &[], &["no_iframes"]);
+        let test_cfg = crate::core::config::Config::for_test();
+        let mut ctx =
+        HostCtx::for_user(&host, &pool, &test_cfg, Some(1), None, 0, &[], &["no_iframes"]);
         let plugin = ctx.get_plugin("no_iframes").expect("active");
 
         let mut doc = "<p>a</p><iframe src=\"https://y/x\" width=\"1\"></iframe><p>b</p><iframe src=\"https://y/2\"></iframe>".to_string();
@@ -229,7 +231,9 @@ mod tests {
         let pool = sqlx::postgres::PgPoolOptions::new()
             .connect_lazy("postgres://ttrss:ttrss@localhost/ttrss_test")
             .unwrap();
-        let mut ctx = HostCtx::for_user(&host, &pool, Some(1), None, 0, &[], &["no_iframes", "yt_wl"]);
+        let test_cfg = crate::core::config::Config::for_test();
+        let mut ctx =
+        HostCtx::for_user(&host, &pool, &test_cfg, Some(1), None, 0, &[], &["no_iframes", "yt_wl"]);
         let plugin = ctx.get_plugin("no_iframes").expect("active");
 
         let mut doc =

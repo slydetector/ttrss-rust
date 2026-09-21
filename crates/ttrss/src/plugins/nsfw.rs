@@ -326,7 +326,9 @@ mod tests {
         let pool = sqlx::postgres::PgPoolOptions::new()
             .connect_lazy("postgres://ttrss:ttrss@localhost/ttrss_test")
             .unwrap();
-        let ctx = HostCtx::for_user(&host, &pool, Some(1), None, 0, &[], &["nsfw"]);
+        let test_cfg = crate::core::config::Config::for_test();
+        let ctx =
+        HostCtx::for_user(&host, &pool, &test_cfg, Some(1), None, 0, &[], &["nsfw"]);
         for h in [
             HOOK_RENDER_ARTICLE,
             HOOK_RENDER_ARTICLE_CDM,

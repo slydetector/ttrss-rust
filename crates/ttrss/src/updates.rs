@@ -246,7 +246,7 @@ pub async fn process_feed(
         .filter(|s| !s.is_empty())
         .collect();
     let mut ctx = crate::pluginhost::dispatch::owner_ctx_from(
-        plugins, pool, &system, &cfg.self_url, feed.owner_uid,
+        plugins, pool, cfg, &system, &cfg.self_url, feed.owner_uid,
     )
     .await;
     let mut new_articles = 0;

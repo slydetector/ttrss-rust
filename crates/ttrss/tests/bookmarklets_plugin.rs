@@ -69,6 +69,7 @@ fn ctx(state: &AppState) -> HostCtx<'_> {
     HostCtx::for_user(
         &state.plugins,
         state.db.pool(),
+        &state.config,
         Some(1),
         None,
         0,

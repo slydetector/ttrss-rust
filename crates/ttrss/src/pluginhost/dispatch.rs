@@ -88,6 +88,7 @@ pub(crate) async fn session_ctx<'a>(state: &'a AppState, sess: &'a Sess) -> Host
     HostCtx::for_user(
         &state.plugins,
         state.db.pool(),
+        &state.config,
         uid,
         profile,
         access,
@@ -119,7 +120,7 @@ pub(crate) async fn owner_ctx<'a>(state: &'a AppState, owner_uid: i32) -> HostCt
         .collect();
     let sys: Vec<&str> = system.iter().map(|s| s.as_str()).collect();
     let usr: Vec<&str> = user.iter().map(|s| s.as_str()).collect();
-    HostCtx::for_user(&state.plugins, state.db.pool(), Some(owner_uid), None, 0, &sys, &usr)
+    HostCtx::for_user(&state.plugins, state.db.pool(), &state.config, Some(owner_uid), None, 0, &sys, &usr)
         .with_self_url(state.config.self_url.clone())
         .with_cache_dir(state.config.base_cache_dir())
 }
@@ -132,6 +133,7 @@ pub(crate) async fn owner_ctx<'a>(state: &'a AppState, owner_uid: i32) -> HostCt
 pub(crate) async fn owner_ctx_from<'a>(
     host: &'a PluginHost,
     pool: &'a PgPool,
+    cfg: &'a crate::core::config::Config,
     system: &[String],
     self_url: &str,
     owner_uid: i32,
@@ -146,7 +148,7 @@ pub(crate) async fn owner_ctx_from<'a>(
         .collect();
     let sys: Vec<&str> = system.iter().map(|s| s.as_str()).collect();
     let usr: Vec<&str> = user.iter().map(|s| s.as_str()).collect();
-    HostCtx::for_user(host, pool, Some(owner_uid), None, 0, &sys, &usr)
+    HostCtx::for_user(host, pool, cfg, Some(owner_uid), None, 0, &sys, &usr)
         .with_self_url(self_url.to_string())
 }
 
@@ -199,10 +201,9 @@ pub async fn public_dispatch(
     let method = crate::util::clean_str(method);
     // PHP: `new PluginHost; load($name, KIND_ALL, 0)` — a fresh host with
     // only the named plugin (if registered at all).
-    let mut ctx = HostCtx::single(&state.plugins, state.db.pool(), &name)
+    let mut ctx = HostCtx::single(&state.plugins, state.db.pool(), &state.config, &name)
         .with_self_url(state.config.self_url.clone())
-        .with_cache_dir(state.config.base_cache_dir())
-        .with_fetch_filtering(state.config.fetch_extended_url_filtering);
+        .with_cache_dir(state.config.base_cache_dir());
     let Some(plugin) = ctx.get_plugin(&name) else {
         let mut params = Map::new();
         params.insert("plugin".into(), Value::String(name));

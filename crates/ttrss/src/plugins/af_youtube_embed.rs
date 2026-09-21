@@ -104,24 +104,24 @@ mod tests {
 
     /// A host with only `af_youtube_embed` + a lazy pool (these hooks never touch
     /// the DB).
-    fn setup() -> (PluginHost, sqlx::postgres::PgPool) {
+    fn setup() -> (PluginHost, sqlx::postgres::PgPool, crate::core::config::Config) {
         let host = PluginHost::startup(&[|| Box::new(AfYoutubeEmbed)]);
         let pool = PgPoolOptions::new()
             .connect_lazy("postgres://ttrss:ttrss@localhost/ttrss_test")
             .unwrap();
-        (host, pool)
+        (host, pool, crate::core::config::Config::for_test())
     }
 
     /// The YouTube host whitelist (the PHP's `in_array`).
     #[tokio::test]
     async fn iframe_whitelisted_is_youtube_hosts_only() {
-        let (host, pool) = setup();
+        let (host, pool, test_cfg) = setup();
         let p = AfYoutubeEmbed;
         for h in YOUTUBE_HOSTS {
-            let mut ctx = HostCtx::empty(&host, &pool);
+            let mut ctx = HostCtx::empty(&host, &pool, &test_cfg);
             assert!(p.hook_iframe_whitelisted(&mut ctx, h).await, "should whitelist {h}");
         }
-        let mut ctx = HostCtx::empty(&host, &pool);
+        let mut ctx = HostCtx::empty(&host, &pool, &test_cfg);
         assert!(!p.hook_iframe_whitelisted(&mut ctx, "vimeo.com").await);
         assert!(!p.hook_iframe_whitelisted(&mut ctx, "example.com").await);
     }
@@ -130,9 +130,9 @@ mod tests {
     /// player (src/sandbox/allow) and `""` otherwise.
     #[tokio::test]
     async fn render_enclosure_youtube_vs_other() {
-        let (host, pool) = setup();
+        let (host, pool, test_cfg) = setup();
         let p = AfYoutubeEmbed;
-        let mut ctx = HostCtx::empty(&host, &pool);
+        let mut ctx = HostCtx::empty(&host, &pool, &test_cfg);
         let yt = json!({ "content_url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ" });
         let out = p.hook_render_enclosure(&mut ctx, &yt, 1, &json!({})).await;
         assert!(out.contains("https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ"));
@@ -171,8 +171,9 @@ mod tests {
         let pool = sqlx::postgres::PgPoolOptions::new()
             .connect_lazy("postgres://ttrss:ttrss@localhost/ttrss_test")
             .unwrap();
+        let test_cfg = crate::core::config::Config::for_test();
         let mut ctx =
-            HostCtx::for_user(&host, &pool, Some(1), None, 0, &[], &["af_youtube_embed"]);
+            HostCtx::for_user(&host, &pool, &test_cfg, Some(1), None, 0, &[], &["af_youtube_embed"]);
         let html =
             "<div><iframe src=\"http://www.youtube.com/embed/abc123\" width=\"400\"></iframe></div>";
         let out = crate::sanitizer::sanitize(
@@ -202,8 +203,9 @@ mod tests {
         let pool = sqlx::postgres::PgPoolOptions::new()
             .connect_lazy("postgres://ttrss:ttrss@localhost/ttrss_test")
             .unwrap();
+        let test_cfg = crate::core::config::Config::for_test();
         let mut ctx =
-            HostCtx::for_user(&host, &pool, Some(1), None, 0, &[], &["af_youtube_embed"]);
+            HostCtx::for_user(&host, &pool, &test_cfg, Some(1), None, 0, &[], &["af_youtube_embed"]);
         let html = "<div><iframe src=\"http://example.com/embed\" width=\"400\"></iframe></div>";
         let out = crate::sanitizer::sanitize(
             html,
@@ -227,8 +229,8 @@ mod tests {
     /// fires and its result is honored.)
     #[tokio::test]
     async fn iframe_whitelisted_empty_src_is_false() {
-        let (host, pool) = setup();
-        let mut ctx = HostCtx::empty(&host, &pool);
+        let (host, pool, test_cfg) = setup();
+        let mut ctx = HostCtx::empty(&host, &pool, &test_cfg);
         assert!(!crate::sanitizer::iframe_whitelisted(&mut ctx, "").await);
     }
 }

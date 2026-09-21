@@ -105,7 +105,7 @@ fn code(v: &MethodOutput) -> &str {
 
 /// A dispatch-equivalent context (nsfw active for owner 1).
 fn ctx(state: &AppState) -> HostCtx<'_> {
-    HostCtx::for_user(&state.plugins, state.db.pool(), Some(1), None, 0, &[], &["nsfw"])
+    HostCtx::for_user(&state.plugins, state.db.pool(), &state.config, Some(1), None, 0, &[], &["nsfw"])
 }
 
 /// The stored `tags` value (raw plugin-storage read).

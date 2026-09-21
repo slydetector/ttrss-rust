@@ -348,7 +348,7 @@ async fn test_button_row(
 ) {
     let state = setup(pool, options, "note").await;
     let plugin = state.plugins.get_plugin("note").expect("note registered");
-    let mut ctx = HostCtx::empty(&state.plugins, state.db.pool());
+    let mut ctx = HostCtx::empty(&state.plugins, state.db.pool(), &state.config);
 
     let row = plugin
         .hook_article_button(&mut ctx, &json!({ "id": 42 }))

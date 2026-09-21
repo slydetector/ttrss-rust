@@ -590,7 +590,8 @@ async fn test_iframe_whitelisted_returns_false_with_no_src() {
     let pool = sqlx::postgres::PgPoolOptions::new()
         .connect_lazy("postgres://ttrss:ttrss@localhost/ttrss_test")
         .unwrap();
-    let mut ctx = crate::pluginhost::host::HostCtx::empty(&host, &pool);
+    let test_cfg = crate::core::config::Config::for_test();
+    let mut ctx = crate::pluginhost::host::HostCtx::empty(&host, &pool, &test_cfg);
     assert!(!iframe_whitelisted(&mut ctx, "").await);
 }
 
@@ -605,7 +606,8 @@ async fn test_iframe_whitelisted_runs_hooks() {
     let pool = sqlx::postgres::PgPoolOptions::new()
         .connect_lazy("postgres://ttrss:ttrss@localhost/ttrss_test")
         .unwrap();
-    let mut ctx = crate::pluginhost::host::HostCtx::empty(&host, &pool);
+    let test_cfg = crate::core::config::Config::for_test();
+    let mut ctx = crate::pluginhost::host::HostCtx::empty(&host, &pool, &test_cfg);
     assert!(!iframe_whitelisted(&mut ctx, "http://example.com").await);
 }
 

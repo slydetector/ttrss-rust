@@ -741,20 +741,20 @@ mod tests {
 
     /// A host with only `af_comics` + a lazy pool (the hook-dispatch / prefs-tab
     /// tests never touch the DB).
-    fn setup() -> (PluginHost, sqlx::postgres::PgPool) {
+    fn setup() -> (PluginHost, sqlx::postgres::PgPool, crate::core::config::Config) {
         let host = PluginHost::startup(&[|| Box::new(AfComics)]);
         let pool = sqlx::postgres::PgPoolOptions::new()
             .connect_lazy("postgres://ttrss:ttrss@localhost/ttrss_test")
             .unwrap();
-        (host, pool)
+        (host, pool, crate::core::config::Config::for_test())
     }
 
     /// The five `init` registrations (checked through the runner's `hook_order`;
     /// `af_comics` alone answers each of the five).
     #[tokio::test]
     async fn init_registers_the_five_hooks() {
-        let (host, pool) = setup();
-        let ctx = HostCtx::for_user(&host, &pool, Some(1), None, 0, &[], &["af_comics"]);
+        let (host, pool, test_cfg) = setup();
+        let ctx = HostCtx::for_user(&host, &pool, &test_cfg, Some(1), None, 0, &[], &["af_comics"]);
         for h in [
             HOOK_FETCH_FEED,
             HOOK_FEED_BASIC_INFO,
@@ -790,10 +790,10 @@ mod tests {
     /// rejects it, so no fetch is attempted).
     #[tokio::test]
     async fn no_match_leaves_article_unchanged() {
-        let (host, pool) = setup();
+        let (host, pool, test_cfg) = setup();
         let mut article =
             json!({"link": "https://example.com/a", "guid": "https://example.com/a", "content": "orig"});
-        let mut ctx = HostCtx::for_user(&host, &pool, Some(1), None, 0, &[], &["af_comics"]);
+        let mut ctx = HostCtx::for_user(&host, &pool, &test_cfg, Some(1), None, 0, &[], &["af_comics"]);
         let out = AfComics.hook_article_filter(&mut ctx, &mut article).await;
         assert_eq!(out, article);
     }
@@ -809,15 +809,15 @@ mod tests {
     /// The prefs tab lists the supported comics; a non-`prefFeeds` tab is empty.
     #[tokio::test]
     async fn prefs_tab_lists_supported_comics() {
-        let (host, pool) = setup();
-        let mut ctx = HostCtx::for_user(&host, &pool, Some(1), None, 0, &[], &["af_comics"]);
+        let (host, pool, test_cfg) = setup();
+        let mut ctx = HostCtx::for_user(&host, &pool, &test_cfg, Some(1), None, 0, &[], &["af_comics"]);
         AfComics.hook_prefs_tab(&mut ctx, "prefFeeds").await;
         let out = std::mem::take(&mut ctx.output);
         assert!(out.contains("dijit.layout.AccordionPane"));
         assert!(out.contains("Ctrl+Alt+Del"));
         assert!(out.contains("The Oatmeal"));
 
-        let mut ctx2 = HostCtx::for_user(&host, &pool, Some(1), None, 0, &[], &["af_comics"]);
+        let mut ctx2 = HostCtx::for_user(&host, &pool, &test_cfg, Some(1), None, 0, &[], &["af_comics"]);
         AfComics.hook_prefs_tab(&mut ctx2, "other").await;
         assert!(ctx2.output.is_empty());
     }
@@ -826,8 +826,8 @@ mod tests {
     /// `on_fetch`/`on_subscribe`/`on_basic_info`).
     #[tokio::test]
     async fn feed_hooks_pass_through() {
-        let (host, pool) = setup();
-        let mut ctx = HostCtx::for_user(&host, &pool, Some(1), None, 0, &[], &["af_comics"]);
+        let (host, pool, test_cfg) = setup();
+        let mut ctx = HostCtx::for_user(&host, &pool, &test_cfg, Some(1), None, 0, &[], &["af_comics"]);
         let out = AfComics.hook_fetch_feed(&mut ctx, "FEED", "https://x", 1, 0, 0, "", "").await;
         assert_eq!(out, "FEED");
         let out = AfComics.hook_subscribe_feed(&mut ctx, "C", "https://x", "", "").await;

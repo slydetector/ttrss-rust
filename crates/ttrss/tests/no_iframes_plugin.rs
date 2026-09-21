@@ -93,7 +93,7 @@ async fn pipeline(
     input: &str,
 ) -> String {
     let mut c =
-        HostCtx::for_user(&state.plugins, state.db.pool(), Some(1), None, 0, system, user);
+        HostCtx::for_user(&state.plugins, state.db.pool(), &state.config, Some(1), None, 0, system, user);
     sanitizer::sanitize(
         input,
         false,
