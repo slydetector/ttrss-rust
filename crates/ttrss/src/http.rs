@@ -11,6 +11,7 @@
 use crate::core::phpser::Value;
 use crate::core::session as core_session;
 use crate::util::{ct_eq, now_unix};
+use sqlx::Row;
 use crate::{
     api, auth, diskcache, forgotpass, mime, nocache_headers, render, rpc, session, syndication,
     with_trailing_slash, AppState,
@@ -550,54 +551,90 @@ async fn login_flow(
     let return_url = query.return_url.as_deref().unwrap_or("");
     let self_url = state.config.self_url_rtrim();
 
-    match auth::authenticate(&state.db, &login, &password, otp).await {
-        auth::AuthOutcome::Success {
-            id,
-            login,
-            access_level,
-            pwd_hash,
-        } => {
-            let (new_id, data) = auth::build_login_session(
-                id,
-                &login,
-                access_level,
-                &pwd_hash,
-                truthy(form.bw_limit.as_deref()),
-                checkbox(form.safe_mode.as_deref()),
-            );
-            sess.replace(new_id.clone(), data);
-            login_redirect(&location(return_url, &self_url), &new_id)
-        }
-        auth::AuthOutcome::OtpChallenge => {
-            let enc = render::urlencode(&with_trailing_slash(return_url));
-            let otp_form = render::OtpForm {
-                login: login.clone(),
-                password: password.clone(),
-                bw_limit: form.bw_limit.clone().unwrap_or_default(),
-                safe_mode: form.safe_mode.clone().unwrap_or_default(),
-                remember_me: form.remember_me.clone().unwrap_or_default(),
-                profile: form.profile.clone().unwrap_or_default(),
-            };
-            let html = render::render_otp_challenge(&state.config, &enc, &otp_form);
-            axum::http::Response::builder()
-                .status(StatusCode::OK)
-                .header(header::CONTENT_TYPE, "text/html; charset=UTF-8")
-                .body(Body::from(html))
-                .expect("valid response")
-        }
-        auth::AuthOutcome::Failure { message } => {
-            let cur = sess.id();
-            let id = if cur.is_empty() {
-                core_session::new_session_id()
-            } else {
-                cur
-            };
-            let mut data = sess.data();
-            data.set("login_error_msg", Value::Bytes(message.into_bytes()));
-            sess.replace(id.clone(), data);
-            login_redirect(&location(return_url, &self_url), &id)
+    // M7.20: go through the plugin system (HOOK_AUTH_USER) instead of
+    // calling auth::authenticate directly. The first plugin that returns
+    // Some(uid) wins; the OTP challenge / failure message are carried on
+    // the HostCtx side-channels.
+    let mut ctx = crate::pluginhost::dispatch::session_ctx(state, &sess).await;
+    let mut uid: Option<i32> = None;
+    for idx in ctx.hook_order(crate::pluginhost::HOOK_AUTH_USER) {
+        let plugin = ctx.host().plugin(idx);
+        match plugin.authenticate(&mut ctx, &login, &password, "").await {
+            Some(id) => {
+                uid = Some(id);
+                break;
+            }
+            None => {
+                if ctx.otp_challenge {
+                    break;
+                }
+            }
         }
     }
+
+    match uid {
+        Some(id) => {
+            // Re-read the user row for the session setup (the plugin only
+            // returns the uid; the session needs login/access_level/pwd_hash).
+            let row = sqlx::query(
+                "SELECT login, access_level, pwd_hash FROM ttrss_users WHERE id = $1",
+            )
+            .bind(id)
+            .fetch_optional(ctx.pool)
+            .await
+            .ok()
+            .flatten();
+            if let Some(r) = row {
+                let u_login: String = r.try_get("login").unwrap_or_default();
+                let access_level: i32 = r.try_get("access_level").unwrap_or(0);
+                let pwd_hash: String = r.try_get("pwd_hash").unwrap_or_default();
+                let (new_id, data) = auth::build_login_session(
+                    id,
+                    &u_login,
+                    access_level,
+                    &pwd_hash,
+                    truthy(form.bw_limit.as_deref()),
+                    checkbox(form.safe_mode.as_deref()),
+                );
+                sess.replace(new_id.clone(), data);
+                return login_redirect(&location(return_url, &self_url), &new_id);
+            }
+        }
+        None => {
+            if ctx.otp_challenge {
+                let enc = render::urlencode(&with_trailing_slash(return_url));
+                let otp_form = render::OtpForm {
+                    login: login.clone(),
+                    password: password.clone(),
+                    bw_limit: form.bw_limit.clone().unwrap_or_default(),
+                    safe_mode: form.safe_mode.clone().unwrap_or_default(),
+                    remember_me: form.remember_me.clone().unwrap_or_default(),
+                    profile: form.profile.clone().unwrap_or_default(),
+                };
+                let html = render::render_otp_challenge(&state.config, &enc, &otp_form);
+                return axum::http::Response::builder()
+                    .status(StatusCode::OK)
+                    .header(header::CONTENT_TYPE, "text/html; charset=UTF-8")
+                    .body(Body::from(html))
+                    .expect("valid response");
+            }
+        }
+    }
+
+    // Failure (or no plugin handled it): set the error and redirect.
+    let message = ctx.login_error.unwrap_or_else(|| {
+        "Incorrect username or password".to_string()
+    });
+    let cur = sess.id();
+    let sid = if cur.is_empty() {
+        core_session::new_session_id()
+    } else {
+        cur
+    };
+    let mut data = sess.data();
+    data.set("login_error_msg", Value::Bytes(message.into_bytes()));
+    sess.replace(sid.clone(), data);
+    login_redirect(&location(return_url, &self_url), &sid)
 }
 
 /// The `Location` for a login redirect: the validated `return` URL, else the

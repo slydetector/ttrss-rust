@@ -101,16 +101,22 @@ pub const HOOK_ARTICLES_PUBLISH_TOGGLED: &str = "hook_articles_publish_toggled";
 pub fn all_plugins() -> Vec<fn() -> Box<dyn Plugin>> {
     vec![
         || Box::new(crate::plugins::af_comics::AfComics),
+        || Box::new(crate::plugins::af_psql_trgm::AfPsqlTrgm),
         || Box::new(crate::plugins::af_youtube_embed::AfYoutubeEmbed),
         || Box::new(crate::plugins::af_zz_vidmute::AfZzVidMute),
+        || Box::new(crate::plugins::auth_internal::AuthInternal),
         || Box::new(crate::plugins::auto_assign_labels::AutoAssignLabels),
         || Box::new(crate::plugins::bookmarklets::Bookmarklets),
         || Box::new(crate::plugins::cache_starred_images::CacheStarredImages),
+        || Box::new(crate::plugins::hotkeys_force_top::HotkeysForceTop),
+        || Box::new(crate::plugins::hotkeys_noscroll::HotkeysNoscroll),
+        || Box::new(crate::plugins::hotkeys_swap_jk::HotkeysSwapJk),
         || Box::new(crate::plugins::no_iframes::NoIframes),
         || Box::new(crate::plugins::note::Note),
         || Box::new(crate::plugins::nsfw::NsFw),
         || Box::new(crate::plugins::share::Share),
         || Box::new(crate::plugins::shorten_expanded::ShortenExpanded),
+        || Box::new(crate::plugins::toggle_sidebar::ToggleSidebar),
     ]
 }
 

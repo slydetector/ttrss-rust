@@ -518,6 +518,11 @@ pub struct HostCtx<'a> {
     /// that *print* (e.g. `hook_prefs_tab`) append here; the caller of the
     /// chain collects/clears it. M7.10 (the prefs page) is the first runner.
     pub output: String,
+    /// Auth outcome side-channel (M7.20): the plugin's `authenticate` sets
+    /// these when the login fails or OTP is required. The caller reads them
+    /// after `run_hooks(HOOK_AUTH_USER)`.
+    pub login_error: Option<String>,
+    pub otp_challenge: bool,
 }
 
 impl<'a> HostCtx<'a> {
@@ -605,6 +610,8 @@ impl<'a> HostCtx<'a> {
             self_url: String::new(),
             cache_dir: PathBuf::new(),
             output: String::new(),
+            login_error: None,
+            otp_challenge: false,
         }
     }
 

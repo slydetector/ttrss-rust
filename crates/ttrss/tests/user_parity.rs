@@ -81,7 +81,7 @@ async fn test_correct_credentials_returns_true_and_sets_session(
     let (db, uid) = setup(pool, options).await;
 
     let (id, login, access_level) =
-        expect_success(auth::authenticate(&db, "testuser", "testpass123", None).await);
+        expect_success(auth::authenticate(db.pool(), "testuser", "testpass123", None).await);
 
     // PHP asserts $_SESSION['uid'], $_SESSION['name'], and
     // $_SESSION['access_level'] == UserHelper::ACCESS_LEVEL_USER (0).
@@ -107,7 +107,7 @@ async fn test_admin_credentials_work(
     let (db, _) = setup(pool, options).await;
 
     let (id, _login, access_level) =
-        expect_success(auth::authenticate(&db, "admin", "password", None).await);
+        expect_success(auth::authenticate(db.pool(), "admin", "password", None).await);
 
     // PHP asserts uid == 1 and access_level == UserHelper::ACCESS_LEVEL_ADMIN.
     assert_eq!(id, 1);
@@ -137,7 +137,7 @@ async fn test_authenticate_updates_last_login(
 
     // PHP: usleep(100_000) before authenticating.
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-    expect_success(auth::authenticate(&db, "testuser", "testpass123", None).await);
+    expect_success(auth::authenticate(db.pool(), "testuser", "testpass123", None).await);
 
     let last_login: Option<chrono::NaiveDateTime> =
         sqlx::query_scalar("SELECT last_login FROM ttrss_users WHERE login = 'testuser'")
@@ -162,7 +162,7 @@ async fn test_wrong_password_returns_false(
 ) {
     let (db, _) = setup(pool, options).await;
 
-    let _msg = expect_failure(auth::authenticate(&db, "testuser", "wrong", None).await);
+    let _msg = expect_failure(auth::authenticate(db.pool(), "testuser", "wrong", None).await);
 }
 
 // PHP: test_nonexistent_user_returns_false
@@ -177,7 +177,7 @@ async fn test_nonexistent_user_returns_false(
 ) {
     let (db, _) = setup(pool, options).await;
 
-    let _msg = expect_failure(auth::authenticate(&db, "ghost", "anything", None).await);
+    let _msg = expect_failure(auth::authenticate(db.pool(), "ghost", "anything", None).await);
 }
 
 // PHP: test_login_is_case_insensitive
@@ -193,7 +193,7 @@ async fn test_login_is_case_insensitive(
     let (db, uid) = setup(pool, options).await;
 
     let (id, _login, _access_level) =
-        expect_success(auth::authenticate(&db, "TESTUSER", "testpass123", None).await);
+        expect_success(auth::authenticate(db.pool(), "TESTUSER", "testpass123", None).await);
 
     assert_eq!(id, uid);
 }
@@ -224,5 +224,5 @@ async fn test_disabled_user_cannot_authenticate(
     .await
     .expect("insert disabled user");
 
-    let _msg = expect_failure(auth::authenticate(&db, "disabled", "nope", None).await);
+    let _msg = expect_failure(auth::authenticate(db.pool(), "disabled", "nope", None).await);
 }

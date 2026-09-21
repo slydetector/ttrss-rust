@@ -891,7 +891,7 @@ async fn test_authenticate_regenerates_session_id(
         login,
         access_level,
         pwd_hash,
-    } = auth::authenticate(&db, "testuser", "testpass123", None).await
+    } = auth::authenticate(db.pool(), "testuser", "testpass123", None).await
     else {
         panic!("expected success");
     };

@@ -8,6 +8,7 @@
 //! `has_data` from the (empty) plugin config store.
 
 pub mod af_comics;
+pub mod auth_internal;
 pub mod af_psql_trgm;
 pub mod af_youtube_embed;
 pub mod af_zz_vidmute;

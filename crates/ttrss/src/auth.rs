@@ -57,8 +57,7 @@ pub enum AuthOutcome {
     Failure { message: String },
 }
 
-pub async fn authenticate(db: &Db, login: &str, password: &str, otp: Option<i64>) -> AuthOutcome {
-    let pool = db.pool();
+pub async fn authenticate(pool: &sqlx::PgPool, login: &str, password: &str, otp: Option<i64>) -> AuthOutcome {
     // `UserHelper::find_user_by_login`: LOWER(login) = LOWER(?).
     let row = sqlx::query(
         "SELECT id, login, access_level, pwd_hash, salt, otp_enabled, otp_secret, last_auth_attempt
