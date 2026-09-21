@@ -105,6 +105,7 @@ fn code(v: &Value) -> &str {
 fn raw(v: &MethodOutput) -> &str {
     match v {
         MethodOutput::Raw(s) => s,
+        MethodOutput::Response { body, .. } => body,
         MethodOutput::Json(j) => panic!("expected raw HTML, got JSON: {j}"),
     }
 }
@@ -113,6 +114,7 @@ fn json_of(v: &MethodOutput) -> &Value {
     match v {
         MethodOutput::Json(j) => j,
         MethodOutput::Raw(s) => panic!("expected JSON, got raw HTML: {s}"),
+        MethodOutput::Response { .. } => panic!("expected JSON, got a response"),
     }
 }
 

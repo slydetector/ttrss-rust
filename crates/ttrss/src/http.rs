@@ -250,6 +250,17 @@ async fn public_handler(
                     (StatusCode::OK, v.to_string()).into_response(),
                 Ok(crate::pluginhost::plugin::MethodOutput::Raw(s)) =>
                     (StatusCode::OK, s).into_response(),
+                // A full response (custom status + Content-Type) — `share::get`.
+                Ok(crate::pluginhost::plugin::MethodOutput::Response {
+                    status,
+                    content_type,
+                    body,
+                }) => (
+                    StatusCode::from_u16(status).unwrap(),
+                    [(header::CONTENT_TYPE, content_type)],
+                    body,
+                )
+                    .into_response(),
                 // PHP: an uncaught exception in the public handler — 500.
                 Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
             }

@@ -158,6 +158,7 @@ fn json_out(v: &MethodOutput) -> &Value {
     match v {
         MethodOutput::Json(j) => j,
         MethodOutput::Raw(s) => panic!("expected JSON, got raw: {s}"),
+        MethodOutput::Response { .. } => panic!("expected JSON, got a response"),
     }
 }
 
@@ -547,5 +548,6 @@ async fn test_protected_raw_output(
     match v {
         MethodOutput::Raw(s) => assert_eq!(s, "<b>hi</b>"),
         MethodOutput::Json(j) => panic!("expected Raw, got JSON: {j}"),
+        MethodOutput::Response { .. } => panic!("expected Raw, got a response"),
     }
 }

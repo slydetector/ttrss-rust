@@ -326,6 +326,11 @@ async fn dispatch(
             // The method printed raw text/HTML (PHP: a plain `print` — e.g.
             // the `note` plugin's dialog body).
             Ok(crate::pluginhost::plugin::MethodOutput::Raw(s)) => DispatchOutput::Html(s),
+            // A full response (custom status + Content-Type): the backend
+            // route folds it into its raw status + body (application/json).
+            Ok(crate::pluginhost::plugin::MethodOutput::Response { status, body, .. }) => {
+                DispatchOutput::Raw(StatusCode::from_u16(status).unwrap(), None, body)
+            }
             // A plugin method that fails after passing the gates (PHP: an
             // uncaught exception in `catchall` — 500). The port includes the
             // message in the body for debuggability.

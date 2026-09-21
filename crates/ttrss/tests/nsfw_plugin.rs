@@ -90,6 +90,7 @@ fn params(pairs: &[(&str, &str)]) -> Map<String, Value> {
 fn raw(v: &MethodOutput) -> &str {
     match v {
         MethodOutput::Raw(s) => s,
+        MethodOutput::Response { body, .. } => body,
         MethodOutput::Json(j) => panic!("expected raw output, got JSON: {j}"),
     }
 }
@@ -98,6 +99,7 @@ fn code(v: &MethodOutput) -> &str {
     match v {
         MethodOutput::Json(j) => j["error"]["code"].as_str().unwrap(),
         MethodOutput::Raw(s) => panic!("expected JSON error, got raw output: {s}"),
+        MethodOutput::Response { .. } => panic!("expected JSON error, got a response"),
     }
 }
 

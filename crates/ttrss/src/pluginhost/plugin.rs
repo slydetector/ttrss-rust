@@ -59,6 +59,15 @@ pub enum MethodOutput {
     /// The method printed raw text/HTML (plain `print`/echo — e.g. the
     /// `note` plugin's dialog body, fed to a Dojo dialog via innerHTML).
     Raw(String),
+    /// A full response (custom status + Content-Type) — PHP's public methods
+    /// that `header(…)` / set the Content-Type (`share::get`: the article HTML
+    /// on a hit, a 404 for a missing key). The backend route folds this into
+    /// its raw status + body; the public route honors both.
+    Response {
+        status: u16,
+        content_type: &'static str,
+        body: String,
+    },
 }
 
 /// `Plugin::API_VERSION_COMPAT` (classes/Plugin.php:3) — the version a plugin
