@@ -11,6 +11,7 @@ pub mod af_comics;
 pub mod af_youtube_embed;
 pub mod af_zz_vidmute;
 pub mod auto_assign_labels;
+pub mod bookmarklets;
 pub mod cache_starred_images;
 pub mod no_iframes;
 pub mod note;

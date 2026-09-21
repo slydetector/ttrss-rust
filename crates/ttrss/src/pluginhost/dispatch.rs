@@ -201,7 +201,8 @@ pub async fn public_dispatch(
     // only the named plugin (if registered at all).
     let mut ctx = HostCtx::single(&state.plugins, state.db.pool(), &name)
         .with_self_url(state.config.self_url.clone())
-        .with_cache_dir(state.config.base_cache_dir());
+        .with_cache_dir(state.config.base_cache_dir())
+        .with_fetch_filtering(state.config.fetch_extended_url_filtering);
     let Some(plugin) = ctx.get_plugin(&name) else {
         let mut params = Map::new();
         params.insert("plugin".into(), Value::String(name));

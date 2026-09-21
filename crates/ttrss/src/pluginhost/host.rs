@@ -513,6 +513,10 @@ pub struct HostCtx<'a> {
     /// that *print* (e.g. `hook_prefs_tab`) append here; the caller of the
     /// chain collects/clears it. M7.10 (the prefs page) is the first runner.
     pub output: String,
+    /// `Config::fetch_extended_url_filtering` — threaded into the
+    /// `bookmarklets` plugin's `subscribe` public method (the
+    /// `Feeds::_subscribe` call).
+    pub fetch_filtering: bool,
 }
 
 impl<'a> HostCtx<'a> {
@@ -596,6 +600,7 @@ impl<'a> HostCtx<'a> {
             self_url: String::new(),
             cache_dir: PathBuf::new(),
             output: String::new(),
+            fetch_filtering: false,
         }
     }
 
@@ -617,6 +622,14 @@ impl<'a> HostCtx<'a> {
         self
     }
 
+    /// `Config::fetch_extended_url_filtering`-equivalent for the request
+    /// path (the PHP singleton reads the config globally; the port hands it
+    /// in once per context).
+    #[must_use]
+    pub fn with_fetch_filtering(mut self, fetch_filtering: bool) -> Self {
+        self.fetch_filtering = fetch_filtering;
+        self
+    }
     /// The shared registry.
     pub fn host(&self) -> &'a PluginHost {
         self.host
