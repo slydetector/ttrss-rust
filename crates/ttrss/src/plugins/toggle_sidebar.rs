@@ -8,13 +8,8 @@
 //! which calls `Feeds.toggle()` (toggles the feed tree panel) and flips
 //! the button icon between `chevron_left` and `chevron_right`.
 
-use std::future::Future;
-use std::pin::Pin;
-
-use serde_json::Value;
-
 use crate::pluginhost::host::{HostCtx, PluginHost};
-use crate::pluginhost::plugin::{About, BoxFuture, MethodOutput, Plugin, PluginError};
+use crate::pluginhost::plugin::{About, BoxFuture, Plugin};
 use crate::pluginhost::HOOK_MAIN_TOOLBAR_BUTTON;
 
 /// The `toggle_sidebar` plugin.

@@ -46,6 +46,13 @@ impl Plugin for Note {
         host.add_hook_default(HOOK_ARTICLE_BUTTON);
     }
 
+    fn get_js(&self) -> String {
+        include_str!("../../../../tt-rss/plugins/note/note.js").to_string()
+    }
+    fn get_css(&self) -> String {
+        include_str!("../../../../tt-rss/plugins/note/note.css").to_string()
+    }
+
     /// `Note::hook_article_button` — the `note` icon in the article-row
     /// button row. (PHP's double-quoted literal keeps a source newline +
     /// indent between `onclick` and `style`; the DOM round-trip normalizes

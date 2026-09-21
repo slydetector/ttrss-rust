@@ -1042,7 +1042,24 @@ async fn api_headline_row(
     m.insert("lang".into(), Value::from(lang));
     m.insert("site_url".into(), Value::from(site_url));
 
-    Value::Object(m)
+    // M7.16: HOOK_RENDER_ARTICLE_API — the per-article API render hook
+    // (nsfw rewrites <img> tags to blurred placeholders in API responses).
+    let mut article_val = Value::Object(m);
+    pctx.chain_hooks_callback(
+        crate::pluginhost::HOOK_RENDER_ARTICLE_API,
+        &mut article_val,
+        |plugin, host, state| {
+            Box::pin(async move {
+                let params = serde_json::json!({ "article": state.clone() });
+                let result = plugin.hook_render_article_api(host, &params).await;
+                *state = result.clone();
+                result
+            })
+        },
+        |_r, _p| false,
+    )
+    .await;
+    article_val
 }
 
 /// `API` label resolution: decode `label_cache` (array of `[id, caption, fg, bg]`),

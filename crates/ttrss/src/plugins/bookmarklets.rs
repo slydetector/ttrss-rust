@@ -10,9 +10,10 @@
 //! rendered when unauthenticated) creates a published article via
 //! `article::create_published_article` and closes the window.
 //!
-//! The `subscribe` public method is **deferred** (it needs the full `Config`
-//! for `Feeds::_subscribe` + `rss_utils::update_basic_info`, which the
-//! `HostCtx` does not carry); see the M7.14 plan note.
+//! The `subscribe` public method (the full `Feeds::subscribe` engine: all
+//! result codes 0–5, the "Edit subscription options" link, the
+//! multiple-feed-URLs select form) was un-deferred at M7.14 when `HostCtx`
+//! started carrying `&Config`.
 
 use serde_json::Value;
 use crate::pluginhost::host::{HostCtx, PluginHost};

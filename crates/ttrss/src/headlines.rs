@@ -727,7 +727,19 @@ async fn format_headlines_list(
             json!(format!("rgba({rr},{gg},{bb},0.3)")),
         );
 
-        content_list.push(Value::Object(line));
+        // M7.16: HOOK_RENDER_ARTICLE_CDM — the per-article render hook
+        // (nsfw rewrites <img> tags to blurred placeholders).
+        let mut line_val = Value::Object(line);
+        pctx.chain_hooks_callback(
+            crate::pluginhost::HOOK_RENDER_ARTICLE_CDM,
+            &mut line_val,
+            |plugin, host, art| {
+                Box::pin(async move { plugin.hook_render_article_cdm(host, art).await })
+            },
+            |_r, _p| false,
+        )
+        .await;
+        content_list.push(line_val);
     }
 
     if headlines_count == 0 {
