@@ -18,6 +18,7 @@ pub mod no_iframes;
 pub mod note;
 pub mod nsfw;
 pub mod share;
+pub mod hotkeys_swap_jk;
 pub mod toggle_sidebar;
 pub mod shorten_expanded;
 
