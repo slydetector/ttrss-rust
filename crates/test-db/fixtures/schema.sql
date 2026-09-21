@@ -1,3 +1,8 @@
+-- M7.15 — the pg_trgm extension (the trigram similarity functions used by
+-- the af_psql_trgm plugin). The extension is available in the Docker image
+-- (built from postgres-contrib) but must be explicitly enabled.
+create extension if not exists pg_trgm;
+
 drop table if exists ttrss_scheduled_tasks;
 drop table if exists ttrss_error_log;
 drop table if exists ttrss_plugin_storage;
