@@ -429,3 +429,35 @@ async fn test_api_login_otp_enabled_requires_app_password(
         "envelope={v:?}"
     );
 }
+
+#[sqlx::test(fixtures(
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
+))]
+async fn test_base_path_redirects_to_trailing_slash(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
+    let state = make_state(pool, options).await;
+    let app = app(state);
+
+    // GET /tt-rss (no trailing slash) must 301 → /tt-rss/
+    let req = Request::builder()
+        .method(Method::GET)
+        .uri("/tt-rss")
+        .body(Body::empty())
+        .expect("request");
+    let resp = app.oneshot(req).await.expect("response");
+    assert_eq!(
+        resp.status(),
+        StatusCode::MOVED_PERMANENTLY,
+        "base path without slash must 301"
+    );
+    let location = resp
+        .headers()
+        .get("location")
+        .and_then(|v| v.to_str().ok())
+        .expect("Location header");
+    assert_eq!(location, "/tt-rss/", "redirect target");
+}

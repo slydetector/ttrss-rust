@@ -27,6 +27,29 @@ use axum::{
 use serde::Deserialize;
 use tokio::fs;
 
+
+/// Redirect `<base>` → `<base>/` (Apache DirectorySlash parity).
+/// Applied as a layer so it runs before route matching (the `nest` would
+/// otherwise absorb the bare base path).
+async fn base_slash_redirect(
+    State(base): State<String>,
+    req: Request,
+    next: axum::middleware::Next,
+) -> Response {
+    let path = req.uri().path().to_owned();
+    if path == base {
+        let target = format!("{base}/");
+        let mut resp = Response::new(axum::body::Body::empty());
+        *resp.status_mut() = axum::http::StatusCode::MOVED_PERMANENTLY;
+        resp.headers_mut().insert(
+            axum::http::header::LOCATION,
+            axum::http::HeaderValue::from_str(&target).expect("valid url"),
+        );
+        return resp;
+    }
+    next.run(req).await
+}
+
 /// Build the axum router for the given app state (session middleware included).
 pub fn build_router(state: &AppState) -> Router<AppState> {
     let base = state.config.base_path();
@@ -55,22 +78,14 @@ pub fn build_router(state: &AppState) -> Router<AppState> {
         // asset paths resolve correctly. The nest maps <base>/… to the inner
         // router; the explicit route serves <base>/ (the index).
         let base_slash = format!("{base}/");
-        let base_for_fallback = base.clone();
+        let base_for_redirect = base.clone();
         Router::new()
             .nest(&base, inner)
             .route(&base_slash, get(index))
-            .fallback(move |req: axum::http::Request<axum::body::Body>| {
-                let base = base_for_fallback.clone();
-                async move {
-                    let path = req.uri().path().to_owned();
-                    if path == base {
-                        let target = format!("{base}/");
-                        axum::response::Redirect::to(target.as_str()).into_response()
-                    } else {
-                        (axum::http::StatusCode::NOT_FOUND, "not found").into_response()
-                    }
-                }
-            })
+            .layer(axum::middleware::from_fn_with_state(
+                base_for_redirect,
+                base_slash_redirect,
+            ))
     };
 
     // Session middleware at the outer level so every route (inner + the
