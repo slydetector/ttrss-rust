@@ -12,6 +12,7 @@ mod common;
 use serde_json::{json, Map, Value};
 use ttrss::core::db::Db;
 use ttrss::labels;
+use test_db::template::with_test_db;
 
 // ── LabelsTest (pure functions) ─────────────────────────────────────────────
 
@@ -148,10 +149,9 @@ fn test_zero_label_and_feed_produce_same_value() {
 // ── LabelsIntegrationTest ───────────────────────────────────────────────────
 
 async fn setup(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
+    url: &str,
 ) -> Db {
-    common::make_db(pool, options).await.expect("test db")
+    common::make_db_from_url(url).await.expect("test db")
 }
 
 /// PHP helper `countUserLabels`.
@@ -180,47 +180,33 @@ async fn get_label_cache(db: &Db, ref_id: i32) -> String {
 }
 
 /// PHP: test_find_id_existing_label
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_find_id_existing_label(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_find_id_existing_label() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     // seed.sql inserts label id=1 with caption 'test-label-1'
     let id = labels::find_id(db.pool(), "test-label-1", 1).await;
     assert_eq!(1, id, "Should find the label by exact caption");
+        Ok(())
+    })).await.unwrap();
 }
 
 /// PHP: test_find_id_non_existing_label
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_find_id_non_existing_label(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_find_id_non_existing_label() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     let id = labels::find_id(db.pool(), "nonexistent-label", 1).await;
     assert_eq!(0, id, "Should return 0 for a label that does not exist");
+        Ok(())
+    })).await.unwrap();
 }
 
 /// PHP: test_find_id_case_insensitive
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_find_id_case_insensitive(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_find_id_case_insensitive() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     let id_upper = labels::find_id(db.pool(), "TEST-LABEL-1", 1).await;
     let id_mixed = labels::find_id(db.pool(), "Test-Label-1", 1).await;
     let id_lower = labels::find_id(db.pool(), "test-label-1", 1).await;
@@ -228,95 +214,71 @@ async fn test_find_id_case_insensitive(
     assert_eq!(1, id_upper, "Uppercase should find the label");
     assert_eq!(1, id_mixed, "Mixed case should find the label");
     assert_eq!(1, id_lower, "Lowercase should find the label");
+        Ok(())
+    })).await.unwrap();
 }
 
 /// PHP: test_find_id_different_owner
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_find_id_different_owner(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_find_id_different_owner() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     // seed data is for uid=1; uid=999 has no labels
     let id = labels::find_id(db.pool(), "test-label-1", 999).await;
     assert_eq!(0, id, "Should not find label for a different owner");
+        Ok(())
+    })).await.unwrap();
 }
 
 /// PHP: test_find_caption_existing
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_find_caption_existing(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_find_caption_existing() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     let caption = labels::find_caption(db.pool(), 1, 1).await;
     assert_eq!("test-label-1", caption);
+        Ok(())
+    })).await.unwrap();
 }
 
 /// PHP: test_find_caption_non_existing
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_find_caption_non_existing(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_find_caption_non_existing() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     let caption = labels::find_caption(db.pool(), 9999, 1).await;
     assert_eq!("", caption);
+        Ok(())
+    })).await.unwrap();
 }
 
 /// PHP: test_find_caption_different_owner
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_find_caption_different_owner(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_find_caption_different_owner() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     let caption = labels::find_caption(db.pool(), 1, 999).await;
     assert_eq!("", caption);
+        Ok(())
+    })).await.unwrap();
 }
 
 /// PHP: test_get_all_returns_seed_labels
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_all_returns_seed_labels(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_all_returns_seed_labels() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     let all = labels::get_all(db.pool(), 1).await;
     assert_eq!(2, all.len());
+        Ok(())
+    })).await.unwrap();
 }
 
 /// PHP: test_get_all_ordered_by_caption
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_all_ordered_by_caption(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_all_ordered_by_caption() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     let all = labels::get_all(db.pool(), 1).await;
     // Seed: 'test-label-1' (id=1), 'test-label-2' (id=2)
     assert_eq!(
@@ -327,84 +289,64 @@ async fn test_get_all_ordered_by_caption(
         "test-label-2",
         all[1].get("caption").and_then(Value::as_str).unwrap()
     );
+        Ok(())
+    })).await.unwrap();
 }
 
 /// PHP: test_get_all_empty_for_nonexistent_owner
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_all_empty_for_nonexistent_owner(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_all_empty_for_nonexistent_owner() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     let all = labels::get_all(db.pool(), 9999).await;
     assert!(all.is_empty());
+        Ok(())
+    })).await.unwrap();
 }
 
 /// PHP: test_get_all_includes_color_fields
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_all_includes_color_fields(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_all_includes_color_fields() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     let all = labels::get_all(db.pool(), 1).await;
     let first = &all[0];
     assert!(first.contains_key("id"));
     assert!(first.contains_key("caption"));
     assert!(first.contains_key("fg_color"));
     assert!(first.contains_key("bg_color"));
+        Ok(())
+    })).await.unwrap();
 }
 
 /// PHP: test_get_as_hash_returns_associative_array
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_as_hash_returns_associative_array(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_as_hash_returns_associative_array() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     let hash = labels::get_as_hash(db.pool(), 1).await;
     assert_eq!(2, hash.len());
+        Ok(())
+    })).await.unwrap();
 }
 
 /// PHP: test_get_as_hash_keys_are_ids
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_as_hash_keys_are_ids(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_as_hash_keys_are_ids() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     let hash = labels::get_as_hash(db.pool(), 1).await;
     assert!(hash.contains_key(&1));
     assert!(hash.contains_key(&2));
+        Ok(())
+    })).await.unwrap();
 }
 
 /// PHP: test_get_as_hash_values_match_get_all
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_as_hash_values_match_get_all(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_as_hash_values_match_get_all() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     let hash = labels::get_as_hash(db.pool(), 1).await;
     let all = labels::get_all(db.pool(), 1).await;
 
@@ -413,19 +355,15 @@ async fn test_get_as_hash_values_match_get_all(
         let from_hash: &Map<String, Value> = hash.get(&id).unwrap();
         assert_eq!(*from_hash, *label);
     }
+        Ok(())
+    })).await.unwrap();
 }
 
 /// PHP: test_create_new_label
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_create_new_label(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_create_new_label() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     let result = labels::create(
         &db,
         "integration-test-label",
@@ -446,19 +384,15 @@ async fn test_create_new_label(
     labels::remove(&db, id, 1, None)
         .await
         .expect("remove label");
+        Ok(())
+    })).await.unwrap();
 }
 
 /// PHP: test_create_label_with_default_colors
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_create_label_with_default_colors(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_create_label_with_default_colors() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     let result = labels::create(&db, "minimal-label", None, None, 1, None)
         .await
         .expect("create label");
@@ -472,19 +406,15 @@ async fn test_create_label_with_default_colors(
     labels::remove(&db, id, 1, None)
         .await
         .expect("remove label");
+        Ok(())
+    })).await.unwrap();
 }
 
 /// PHP: test_create_duplicate_label_returns_false
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_create_duplicate_label_returns_false(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_create_duplicate_label_returns_false() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     // seed has 'test-label-1'
     let result = labels::create(&db, "test-label-1", None, None, 1, None)
         .await
@@ -493,37 +423,29 @@ async fn test_create_duplicate_label_returns_false(
         None, result,
         "Creating a duplicate label should return false"
     );
+        Ok(())
+    })).await.unwrap();
 }
 
 /// PHP: test_create_duplicate_label_case_insensitive
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_create_duplicate_label_case_insensitive(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_create_duplicate_label_case_insensitive() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     // seed has 'test-label-1'
     let result = labels::create(&db, "TEST-LABEL-1", None, None, 1, None)
         .await
         .expect("create label");
     assert_eq!(None, result, "Duplicate check should be case-insensitive");
+        Ok(())
+    })).await.unwrap();
 }
 
 /// PHP: test_create_different_owner
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_create_different_owner(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_create_different_owner() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     // The test database only has uid=1 (admin). Creating for other UIDs
     // would require additional seed data, so we verify that uid=1 works and
     // that the owner_uid parameter is correctly passed through.
@@ -550,19 +472,15 @@ async fn test_create_different_owner(
     labels::remove(&db, id, 1, None)
         .await
         .expect("remove label");
+        Ok(())
+    })).await.unwrap();
 }
 
 /// PHP: test_remove_existing_label
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_remove_existing_label(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_remove_existing_label() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     // Create a label to remove
     let result = labels::create(
         &db,
@@ -586,19 +504,15 @@ async fn test_remove_existing_label(
     // Verify it's gone
     let caption = labels::find_caption(db.pool(), id, 1).await;
     assert_eq!("", caption, "Label should be removed from DB");
+        Ok(())
+    })).await.unwrap();
 }
 
 /// PHP: test_remove_cleans_label_cache
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_remove_cleans_label_cache(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_remove_cleans_label_cache() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     // Create a label
     let result = labels::create(
         &db,
@@ -634,36 +548,28 @@ async fn test_remove_cleans_label_cache(
     // Verify cache was cleared
     let cache_after = get_label_cache(&db, 1).await;
     assert_eq!("", cache_after, "Removing a label should clear label_cache");
+        Ok(())
+    })).await.unwrap();
 }
 
 /// PHP: test_remove_nonexistent_label
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_remove_nonexistent_label(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_remove_nonexistent_label() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     // Should not throw — removing a non-existent label is a no-op
     labels::remove(&db, 99999, 1, None)
         .await
         .expect("remove label");
+        Ok(())
+    })).await.unwrap();
 }
 
 /// PHP: test_add_article_to_existing_label
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_add_article_to_existing_label(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_add_article_to_existing_label() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     // seed has label id=1, caption='test-label-1'; article ref_id=1
     labels::add_article(db.pool(), 1, "test-label-1", 1).await;
 
@@ -673,19 +579,15 @@ async fn test_add_article_to_existing_label(
     // Verify label_cache was cleared
     let cache = get_label_cache(&db, 1).await;
     assert_eq!("", cache, "add_article should clear label_cache");
+        Ok(())
+    })).await.unwrap();
 }
 
 /// PHP: test_add_article_to_nonexistent_label
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_add_article_to_nonexistent_label(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_add_article_to_nonexistent_label() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     // Label 'nonexistent' does not exist, so find_id returns 0 and
     // add_article returns early without modifying anything
     let initial_count = count_user_labels(&db, 0, 1).await;
@@ -697,19 +599,15 @@ async fn test_add_article_to_nonexistent_label(
         initial_count, count,
         "Should not add anything for nonexistent label"
     );
+        Ok(())
+    })).await.unwrap();
 }
 
 /// PHP: test_add_article_is_idempotent
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_add_article_is_idempotent(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_add_article_is_idempotent() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     labels::add_article(db.pool(), 1, "test-label-1", 1).await;
     let count1 = count_user_labels(&db, 1, 1).await;
 
@@ -720,19 +618,15 @@ async fn test_add_article_is_idempotent(
         count1, count2,
         "Adding same label twice should not create duplicates"
     );
+        Ok(())
+    })).await.unwrap();
 }
 
 /// PHP: test_add_article_different_article
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_add_article_different_article(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_add_article_different_article() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     labels::add_article(db.pool(), 1, "test-label-1", 1).await;
     let count1 = count_user_labels(&db, 1, 1).await;
 
@@ -741,19 +635,15 @@ async fn test_add_article_different_article(
 
     assert_eq!(1, count1, "Article 1 should have the label");
     assert_eq!(1, count2, "Article 2 should have the label");
+        Ok(())
+    })).await.unwrap();
 }
 
 /// PHP: test_remove_article_from_existing_label
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_remove_article_from_existing_label(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_remove_article_from_existing_label() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     // First add the label relation
     labels::add_article(db.pool(), 1, "test-label-1", 1).await;
     let count_before = count_user_labels(&db, 1, 1).await;
@@ -764,37 +654,29 @@ async fn test_remove_article_from_existing_label(
 
     let count_after = count_user_labels(&db, 1, 1).await;
     assert_eq!(0, count_after, "Article should be removed from label");
+        Ok(())
+    })).await.unwrap();
 }
 
 /// PHP: test_remove_article_nonexistent_relation
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_remove_article_nonexistent_relation(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_remove_article_nonexistent_relation() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     // Removing a label relation that doesn't exist should be a no-op
     let initial_count = count_user_labels(&db, 1, 9999).await;
     labels::remove_article(db.pool(), 9999, "test-label-1", 1).await;
     let final_count = count_user_labels(&db, 1, 9999).await;
     assert_eq!(initial_count, final_count);
+        Ok(())
+    })).await.unwrap();
 }
 
 /// PHP: test_remove_article_clears_cache
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_remove_article_clears_cache(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_remove_article_clears_cache() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     // Add a label to article 1
     labels::add_article(db.pool(), 1, "test-label-1", 1).await;
 
@@ -812,19 +694,15 @@ async fn test_remove_article_clears_cache(
     // Cache should be cleared
     let cache = get_label_cache(&db, 1).await;
     assert_eq!("", cache, "remove_article should clear label_cache");
+        Ok(())
+    })).await.unwrap();
 }
 
 /// PHP: test_clear_cache_clears_label_cache
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_clear_cache_clears_label_cache(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_clear_cache_clears_label_cache() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     // Set a label_cache
     sqlx::query(
         "UPDATE ttrss_user_entries SET label_cache = '{\"test\":true}' WHERE ref_id = 1 AND owner_uid = 1",
@@ -841,34 +719,26 @@ async fn test_clear_cache_clears_label_cache(
 
     let cache_after = get_label_cache(&db, 1).await;
     assert_eq!("", cache_after);
+        Ok(())
+    })).await.unwrap();
 }
 
 /// PHP: test_clear_cache_nonexistent_article
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_clear_cache_nonexistent_article(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_clear_cache_nonexistent_article() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     // Should not throw even if article doesn't exist
     labels::clear_cache(db.pool(), 99999).await;
+        Ok(())
+    })).await.unwrap();
 }
 
 /// PHP: test_update_cache_force_mode
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_update_cache_force_mode(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_update_cache_force_mode() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     // Force mode first clears the cache, then repopulates from the
     // article's actual labels (via Article::_get_labels). Since article
     // 1 has no labels in ttrss_user_labels2, the result is an empty array.
@@ -892,19 +762,15 @@ async fn test_update_cache_force_mode(
         "[]", cache_after,
         "Force mode should clear stale cache and repopulate from DB"
     );
+        Ok(())
+    })).await.unwrap();
 }
 
 /// PHP: test_update_cache_with_labels
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_update_cache_with_labels(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_update_cache_with_labels() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     // Labels format: [[label_id, caption, fg_color, bg_color], ...]
     let labels_arg = vec![json!([1, "test-label-1", "#ff0000", "#ffffff"])];
     labels::update_cache(&db, 1, 1, 1, &labels_arg, false).await;
@@ -925,19 +791,15 @@ async fn test_update_cache_with_labels(
         arr[0][1].as_str().unwrap(),
         "Second element should be caption"
     );
+        Ok(())
+    })).await.unwrap();
 }
 
 /// PHP: test_update_cache_empty_labels
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_update_cache_empty_labels(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_update_cache_empty_labels() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     // Set a label_cache first
     sqlx::query(
         "UPDATE ttrss_user_entries SET label_cache = '{\"existing\":true}' WHERE ref_id = 1 AND owner_uid = 1",
@@ -954,19 +816,15 @@ async fn test_update_cache_empty_labels(
         !cache.is_empty(),
         "Empty labels without force should not modify cache"
     );
+        Ok(())
+    })).await.unwrap();
 }
 
 /// PHP: test_full_label_lifecycle
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_full_label_lifecycle(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_full_label_lifecycle() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     // 1. Create a new label
     let result = labels::create(
         &db,
@@ -1009,4 +867,6 @@ async fn test_full_label_lifecycle(
         .await
         .expect("remove label");
     assert_eq!("", labels::find_caption(db.pool(), id, 1).await);
+        Ok(())
+    })).await.unwrap();
 }

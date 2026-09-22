@@ -13,6 +13,7 @@ mod common;
 
 use ttrss::core::db::Db;
 use ttrss::prefs::{self, Pref, Type};
+use test_db::template::with_test_db;
 
 /// PHP: `PrefsTest::createTestUser` — a synthetic user with the
 /// SHA1('password') hash and access level 0.
@@ -50,25 +51,18 @@ async fn get_raw_pref(
 }
 
 async fn setup(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
+    url: &str,
 ) -> Db {
-    common::make_db(pool, options).await.expect("test db")
+    common::make_db_from_url(url).await.expect("test db")
 }
 
 // ── set() — basic ───────────────────────────────────────────────────────────
 
 /// PHP: test_set_inserts_new_row_into_db
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_set_inserts_new_row_into_db(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_set_inserts_new_row_into_db() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     let uid = create_test_user(&db, "test_insert").await;
     let value = 120;
 
@@ -85,19 +79,15 @@ async fn test_set_inserts_new_row_into_db(
         Some("120"),
         "Value should be stored in the database"
     );
+        Ok(())
+    })).await.unwrap();
 }
 
 /// PHP: test_set_updates_existing_row
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_set_updates_existing_row(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_set_updates_existing_row() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     let uid = create_test_user(&db, "test_update").await;
     let value1 = 99;
     let value2 = 200;
@@ -114,19 +104,15 @@ async fn test_set_updates_existing_row(
         Some("200"),
         "set() should UPDATE when row already exists"
     );
+        Ok(())
+    })).await.unwrap();
 }
 
 /// PHP: test_set_stores_bool_as_string_in_db
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_set_stores_bool_as_string_in_db(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_set_stores_bool_as_string_in_db() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     let uid = create_test_user(&db, "test_bool_db").await;
 
     // PHP passes the booleans `false`/`true`; the Rust port takes the string
@@ -150,19 +136,15 @@ async fn test_set_stores_bool_as_string_in_db(
         Some("1"),
         "true should be stored as \"1\" in DB"
     );
+        Ok(())
+    })).await.unwrap();
 }
 
 /// PHP: test_set_stores_string_in_db
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_set_stores_string_in_db(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_set_stores_string_in_db() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     let uid = create_test_user(&db, "test_string_db").await;
     let value = "Y-m-d H:i";
 
@@ -173,19 +155,15 @@ async fn test_set_stores_string_in_db(
             .as_deref(),
         Some(value)
     );
+        Ok(())
+    })).await.unwrap();
 }
 
 /// PHP: test_set_strips_tags_from_string_values
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_set_strips_tags_from_string_values(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_set_strips_tags_from_string_values() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     let uid = create_test_user(&db, "test_strip_tags").await;
     let malicious = "<script>alert('xss')</script>M d, G:i";
 
@@ -197,19 +175,15 @@ async fn test_set_strips_tags_from_string_values(
         prefs::resolve("SHORT_DATE_FORMAT", &rows, None),
         Pref::Str("alert('xss')M d, G:i".to_string())
     );
+        Ok(())
+    })).await.unwrap();
 }
 
 /// PHP: test_set_returns_true_without_db_change_when_value_unchanged
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_set_returns_true_without_db_change_when_value_unchanged(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_set_returns_true_without_db_change_when_value_unchanged() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     let uid = create_test_user(&db, "test_noop").await;
     let value = 60; // This is the default
 
@@ -228,21 +202,17 @@ async fn test_set_returns_true_without_db_change_when_value_unchanged(
         db_value.is_none(),
         "No DB row should be created when setting the default value"
     );
+        Ok(())
+    })).await.unwrap();
 }
 
 // ── get_all() ───────────────────────────────────────────────────────────────
 
 /// PHP: test_get_all_returns_all_pref_definitions
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_all_returns_all_pref_definitions(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_all_returns_all_pref_definitions() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     let uid = create_test_user(&db, "test_get_all").await;
 
     let rows = prefs::load_rows(&db, uid, None).await;
@@ -263,19 +233,15 @@ async fn test_get_all_returns_all_pref_definitions(
             def.name
         );
     }
+        Ok(())
+    })).await.unwrap();
 }
 
 /// PHP: test_get_all_returns_default_values_for_new_user
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_all_returns_default_values_for_new_user(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_all_returns_default_values_for_new_user() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     let uid = create_test_user(&db, "test_get_all_defaults").await;
 
     let rows = prefs::load_rows(&db, uid, None).await;
@@ -289,21 +255,17 @@ async fn test_get_all_returns_default_values_for_new_user(
 
     assert_eq!(purge_old.1, Pref::Int(60));
     assert_eq!(purge_old.2, Type::Int); // Config::T_INT
+        Ok(())
+    })).await.unwrap();
 }
 
 // ── profile blacklisting ────────────────────────────────────────────────────
 
 /// PHP: test_set_profile_blacklisted_pref_returns_false
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_set_profile_blacklisted_pref_returns_false(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_set_profile_blacklisted_pref_returns_false() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     let uid = create_test_user(&db, "test_profile_bl").await;
     let profile_id = 100;
 
@@ -320,19 +282,15 @@ async fn test_set_profile_blacklisted_pref_returns_false(
             .is_none(),
         "Blacklisted pref should not be stored in the database"
     );
+        Ok(())
+    })).await.unwrap();
 }
 
 /// PHP: test_set_non_blacklisted_pref_works_with_profile
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_set_non_blacklisted_pref_works_with_profile(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_set_non_blacklisted_pref_works_with_profile() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     let uid = create_test_user(&db, "test_profile_nonbl").await;
     let profile_id = prefs::create_profile(&db, uid, "test_profile_nonbl").await;
     assert!(profile_id > 0, "create_profile should succeed");
@@ -358,21 +316,17 @@ async fn test_set_non_blacklisted_pref_works_with_profile(
             .as_deref(),
         Some("1")
     );
+        Ok(())
+    })).await.unwrap();
 }
 
 // ── reset() ─────────────────────────────────────────────────────────────────
 
 /// PHP: test_reset_clears_all_user_prefs
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_reset_clears_all_user_prefs(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_reset_clears_all_user_prefs() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     let uid = create_test_user(&db, "test_reset").await;
 
     // Set some prefs.
@@ -405,19 +359,15 @@ async fn test_reset_clears_all_user_prefs(
         count_after, 0,
         "All prefs should be deleted by reset() except _PREFS_MIGRATED"
     );
+        Ok(())
+    })).await.unwrap();
 }
 
 /// PHP: test_reset_does_not_delete_migrated_flag
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_reset_does_not_delete_migrated_flag(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_reset_does_not_delete_migrated_flag() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     let uid = create_test_user(&db, "test_reset_mig").await;
 
     // First, simulate migration by setting _PREFS_MIGRATED.
@@ -431,21 +381,17 @@ async fn test_reset_does_not_delete_migrated_flag(
         Some("1"),
         "_PREFS_MIGRATED should not be deleted by reset()"
     );
+        Ok(())
+    })).await.unwrap();
 }
 
 // ── Edge cases ──────────────────────────────────────────────────────────────
 
 /// PHP: test_set_returns_false_for_invalid_pref_name
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_set_returns_false_for_invalid_pref_name(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_set_returns_false_for_invalid_pref_name() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     let uid = create_test_user(&db, "test_invalid").await;
 
     // PHP set() triggers user_error() for invalid pref names (suppressed in
@@ -456,19 +402,15 @@ async fn test_set_returns_false_for_invalid_pref_name(
         !result,
         "set() should return false for an invalid pref name"
     );
+        Ok(())
+    })).await.unwrap();
 }
 
 /// PHP: test_multiple_users_have_isolated_prefs
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_multiple_users_have_isolated_prefs(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_multiple_users_have_isolated_prefs() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     let uid1 = create_test_user(&db, "test_iso_1").await;
     let uid2 = create_test_user(&db, "test_iso_2").await;
 
@@ -485,4 +427,6 @@ async fn test_multiple_users_have_isolated_prefs(
         prefs::resolve("PURGE_OLD_DAYS", &rows2, None),
         Pref::Int(200)
     );
+        Ok(())
+    })).await.unwrap();
 }

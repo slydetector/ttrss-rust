@@ -21,16 +21,16 @@ use ttrss::article::{
 use ttrss::core::db::Db;
 use ttrss::core::phpser::Value as PValue;
 use ttrss::core::session::Session;
+use test_db::template::with_test_db;
 
 /// `DbTestCase::setUp`: `$_SESSION["uid"] = 1`.
 const SESSION_UID: i64 = 1;
 
 /// `DbTestCase::setUp` on top of the harness-injected pool.
 async fn setup(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
+    url: &str,
 ) -> Db {
-    common::make_db(pool, options).await.expect("test db")
+    common::make_db_from_url(url).await.expect("test db")
 }
 
 /// Session with only `uid` set (the PHP integration test session).
@@ -47,66 +47,48 @@ fn enclosure(content_type: &str, url: &str) -> Value {
 // ── _get_tags() ─────────────────────────────────────────────────────────────
 
 // PHP: test_get_tags_returns_tags_from_cache
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_tags_returns_tags_from_cache(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_tags_returns_tags_from_cache() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     // seed.sql: article 1 has tag_cache = 'rust|open-source'
     let tags = article::get_tags(db.pool(), SESSION_UID, 1, None, None).await;
     assert_eq!(tags, vec!["rust|open-source".to_string()]);
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_get_tags_returns_empty_for_no_tags
 // NOTE: the PHP test name says "empty" but the seed gives article 2
 // tag_cache 'database|postgresql', so the ported expectation is that tag.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_tags_returns_empty_for_no_tags(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_tags_returns_empty_for_no_tags() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     // seed.sql: article 2 has tag_cache = 'database|postgresql'
     let tags = article::get_tags(db.pool(), SESSION_UID, 2, None, None).await;
     assert_eq!(tags, vec!["database|postgresql".to_string()]);
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_get_tags_with_custom_owner_uid
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_tags_with_custom_owner_uid(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_tags_with_custom_owner_uid() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     // uid=1 has tags; uid=999 has no user_entries
     let tags = article::get_tags(db.pool(), SESSION_UID, 1, Some(999), None).await;
     assert_eq!(tags, Vec::<String>::new());
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_get_tags_with_explicit_tag_cache
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_tags_with_explicit_tag_cache(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_tags_with_explicit_tag_cache() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     // When tag_cache is provided, it is split by comma
     let tags = article::get_tags(
         db.pool(),
@@ -124,38 +106,30 @@ async fn test_get_tags_with_explicit_tag_cache(
             "cache".to_string()
         ]
     );
+        Ok(())
+    })).await.unwrap();
 }
 
 // ── _get_labels() ───────────────────────────────────────────────────────────
 
 // PHP: test_get_labels_returns_cached_labels
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_labels_returns_cached_labels(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_labels_returns_cached_labels() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     // seed.sql: article 1 has label_cache = '' (empty)
     // This means it should query the database
     let labels = article::get_labels(db.pool(), SESSION_UID, 1, None).await;
     assert_eq!(labels, Vec::<Value>::new());
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_get_labels_returns_no_labels_marker
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_labels_returns_no_labels_marker(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_labels_returns_no_labels_marker() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     let labels = article::get_labels(db.pool(), SESSION_UID, 1, None).await;
     assert_eq!(labels, Vec::<Value>::new());
 
@@ -172,19 +146,15 @@ async fn test_get_labels_returns_no_labels_marker(
         "cache should carry the no-labels marker"
     );
     assert_eq!(decoded["no-labels"], json!(1));
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_get_labels_with_cached_labels
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_labels_with_cached_labels(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_labels_with_cached_labels() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     // Manually set a label cache
     let labels: Vec<Value> = vec![json!(["1", "test-label-1", "#000000", "#ffffff"])];
     let labels_json = Value::Array(labels.clone()).to_string();
@@ -198,36 +168,28 @@ async fn test_get_labels_with_cached_labels(
 
     let retrieved = article::get_labels(db.pool(), SESSION_UID, 1, None).await;
     assert_eq!(retrieved, labels);
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_get_labels_different_owner
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_labels_different_owner(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_labels_different_owner() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     let labels = article::get_labels(db.pool(), SESSION_UID, 1, Some(999)).await;
     assert_eq!(labels, Vec::<Value>::new());
+        Ok(())
+    })).await.unwrap();
 }
 
 // ── _catchup_by_id() ────────────────────────────────────────────────────────
 
 // PHP: test_catchup_mark_as_read
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_catchup_mark_as_read(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_catchup_mark_as_read() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     // Article 1 is unread (from seed.sql)
     let (before_unread, before_last_read): (bool, Option<NaiveDateTime>) = sqlx::query_as(
         "SELECT unread, last_read FROM ttrss_user_entries WHERE ref_id = 1 AND owner_uid = 1",
@@ -255,19 +217,15 @@ async fn test_catchup_mark_as_read(
     .expect("row exists");
     assert!(!after_unread);
     assert!(after_last_read.is_some());
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_catchup_mark_as_unread
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_catchup_mark_as_unread(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_catchup_mark_as_unread() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     // Article 3 is read (from seed.sql)
     let before: bool = sqlx::query_scalar(
         "SELECT unread FROM ttrss_user_entries WHERE ref_id = 3 AND owner_uid = 1",
@@ -293,19 +251,15 @@ async fn test_catchup_mark_as_unread(
     .await
     .expect("row exists");
     assert!(after);
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_catchup_toggle
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_catchup_toggle(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_catchup_toggle() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     // Article 1 is unread → toggle should make it read
     article::catchup_by_id(db.pool(), &[1], CATCHUP_MODE_TOGGLE, SESSION_UID, None).await;
 
@@ -327,19 +281,15 @@ async fn test_catchup_toggle(
     .await
     .expect("row exists");
     assert!(after_unread2);
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_catchup_multiple_articles
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_catchup_multiple_articles(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_catchup_multiple_articles() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     // Mark articles 1, 2, 3 as read at once
     article::catchup_by_id(
         db.pool(),
@@ -360,19 +310,15 @@ async fn test_catchup_multiple_articles(
     for (ref_id, unread) in &rows {
         assert!(!unread, "Article {ref_id} should be marked as read");
     }
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_catchup_custom_owner_uid
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_catchup_custom_owner_uid(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_catchup_custom_owner_uid() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     // Should not affect uid=999's entries
     article::catchup_by_id(
         db.pool(),
@@ -393,21 +339,17 @@ async fn test_catchup_custom_owner_uid(
         after,
         "uid=1's article should not be affected by uid=999 catchup"
     );
+        Ok(())
+    })).await.unwrap();
 }
 
 // ── _purge_orphans() ────────────────────────────────────────────────────────
 
 // PHP: test_purge_orphans_removes_orphaned_entries
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_purge_orphans_removes_orphaned_entries(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_purge_orphans_removes_orphaned_entries() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     // Insert an article without a corresponding user_entry
     let orphan_id: i32 = sqlx::query_scalar(
         "INSERT INTO ttrss_entries (title, guid, link, updated, content, content_hash, date_entered, date_updated)
@@ -438,19 +380,15 @@ async fn test_purge_orphans_removes_orphaned_entries(
         .await
         .expect("count");
     assert_eq!(count, 0);
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_purge_orphans_keeps_valid_entries
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_purge_orphans_keeps_valid_entries(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_purge_orphans_keeps_valid_entries() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     // Article 1 has both ttrss_entries and ttrss_user_entries
     article::purge_orphans(db.pool()).await;
 
@@ -459,21 +397,17 @@ async fn test_purge_orphans_keeps_valid_entries(
         .await
         .expect("count");
     assert_eq!(count, 1, "Valid entries should not be purged");
+        Ok(())
+    })).await.unwrap();
 }
 
 // ── _get_enclosures() ───────────────────────────────────────────────────────
 
 // PHP: test_get_enclosures_returns_enclosures_for_article
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_enclosures_returns_enclosures_for_article(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_enclosures_returns_enclosures_for_article() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     // seed.sql adds 2 enclosures for article id=1
     let enclosures = article::get_enclosures(db.pool(), 1).await;
     assert_eq!(enclosures.len(), 2);
@@ -485,103 +419,81 @@ async fn test_get_enclosures_returns_enclosures_for_article(
         .collect();
     assert!(content_types.contains(&"video/mp4"));
     assert!(content_types.contains(&"image/jpeg"));
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_get_enclosures_returns_empty_for_no_enclosures
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_enclosures_returns_empty_for_no_enclosures(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_enclosures_returns_empty_for_no_enclosures() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     // Article 2 has no enclosures in seed.sql
     let enclosures = article::get_enclosures(db.pool(), 2).await;
     assert!(enclosures.is_empty());
+        Ok(())
+    })).await.unwrap();
 }
 
 // ── _labels_of() and _feeds_of() ────────────────────────────────────────────
 
 // PHP: test_labels_of_returns_empty_for_empty_array
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_labels_of_returns_empty_for_empty_array(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_labels_of_returns_empty_for_empty_array() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     let labels = article::labels_of(db.pool(), &[], SESSION_UID).await;
     assert_eq!(labels, Vec::<i64>::new());
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_labels_of_returns_unique_labels
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_labels_of_returns_unique_labels(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_labels_of_returns_unique_labels() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     // Articles 1 and 2 are in the same feed but have different tags
     // Labels are not assigned to these articles in seed, so should be empty
     let labels = article::labels_of(db.pool(), &[1, 2], SESSION_UID).await;
     assert_eq!(labels, Vec::<i64>::new());
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_feeds_of_returns_empty_for_empty_array
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_feeds_of_returns_empty_for_empty_array(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_feeds_of_returns_empty_for_empty_array() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     let feeds = article::feeds_of(db.pool(), &[], SESSION_UID).await;
     assert_eq!(feeds, Vec::<i64>::new());
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_feeds_of_returns_unique_feeds
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_feeds_of_returns_unique_feeds(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_feeds_of_returns_unique_feeds() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     // Articles 1, 2, 3 are all in feed_id=1 (Hacker News)
     let feeds = article::feeds_of(db.pool(), &[1, 2, 3], SESSION_UID).await;
     assert_eq!(feeds, vec![1]);
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_feeds_of_returns_multiple_feeds
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_feeds_of_returns_multiple_feeds(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_feeds_of_returns_multiple_feeds() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     // Articles 1 (feed 1) and 4 (feed 2)
     let feeds = article::feeds_of(db.pool(), &[1, 4], SESSION_UID).await;
     assert_eq!(feeds, vec![1, 2]);
+        Ok(())
+    })).await.unwrap();
 }
 
 // ── _get_image() ────────────────────────────────────────────────────────────
@@ -591,16 +503,10 @@ async fn test_feeds_of_returns_multiple_feeds(
 // originals and the assertions apply directly.
 
 // PHP: test_get_image_extract_youtube_embed
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_image_extract_youtube_embed(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_image_extract_youtube_embed() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     let _ = db;
     let content = "<p>Check out this video: <iframe src=\"https://www.youtube.com/embed/dQw4w9WgXcQ\"></iframe></p>";
     let (image, stream, kind) = article::get_image(&[], content, "https://example.com");
@@ -614,19 +520,15 @@ async fn test_get_image_extract_youtube_embed(
         "stream was: {stream}"
     );
     assert_eq!(kind, article::ARTICLE_KIND_YOUTUBE);
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_get_image_extract_video_poster
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_image_extract_video_poster(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_image_extract_video_poster() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     let _ = db;
     let content = "<video poster=\"https://example.com/poster.jpg\"><source src=\"https://example.com/video.mp4\"></video>";
     let (image, stream, kind) = article::get_image(&[], content, "https://example.com");
@@ -640,19 +542,15 @@ async fn test_get_image_extract_video_poster(
         "stream was: {stream}"
     );
     assert_eq!(kind, article::ARTICLE_KIND_VIDEO);
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_get_image_extract_first_image
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_image_extract_first_image(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_image_extract_first_image() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     let _ = db;
     let content = "<p>Some text <img src=\"https://example.com/photo.jpg\"></p>";
     let (image, stream, kind) = article::get_image(&[], content, "https://example.com");
@@ -663,19 +561,15 @@ async fn test_get_image_extract_first_image(
     );
     assert!(stream.is_empty());
     assert_eq!(kind, 0);
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_get_image_skips_data_uris
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_image_skips_data_uris(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_image_skips_data_uris() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     let _ = db;
     let content = "<img src=\"data:image/png;base64,abc123\">";
     let (image, stream, kind) = article::get_image(&[], content, "https://example.com");
@@ -683,19 +577,15 @@ async fn test_get_image_skips_data_uris(
     assert!(image.is_empty());
     assert!(stream.is_empty());
     assert_eq!(kind, 0);
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_get_image_falls_back_to_enclosure_image
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_image_falls_back_to_enclosure_image(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_image_falls_back_to_enclosure_image() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     let _ = db;
     let content = "<p>No images in content</p>";
     let enclosures = [enclosure("image/jpeg", "https://example.com/enclosure.jpg")];
@@ -711,19 +601,15 @@ async fn test_get_image_falls_back_to_enclosure_image(
     );
     assert!(stream.is_empty());
     assert_eq!(kind, 0);
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_get_image_does_not_select_non_image_enclosure
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_image_does_not_select_non_image_enclosure(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_image_does_not_select_non_image_enclosure() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     let _ = db;
     let content = "<p>No images in content</p>";
     let enclosures = [enclosure("video/mp4", "https://example.com/video.mp4")];
@@ -736,19 +622,15 @@ async fn test_get_image_does_not_select_non_image_enclosure(
     assert!(image.is_empty());
     assert!(stream.is_empty());
     assert_eq!(kind, 0);
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_get_image_mark_album_with_multiple_enclosures
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_image_mark_album_with_multiple_enclosures(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_image_mark_album_with_multiple_enclosures() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     let _ = db;
     let content = "<p>Single image</p>";
     let enclosures = [
@@ -763,19 +645,15 @@ async fn test_get_image_mark_album_with_multiple_enclosures(
 
     assert!(image.contains("example.com/img1.jpg"), "image was: {image}");
     assert_eq!(kind, article::ARTICLE_KIND_ALBUM);
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_get_image_rewrites_relative_urls
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_image_rewrites_relative_urls(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_image_rewrites_relative_urls() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     let _ = db;
     // Per RFC 3986, both /path and path resolve to root when base ends with /
     // dirname('/base/') = '/' so relative URLs append to root
@@ -786,39 +664,31 @@ async fn test_get_image_rewrites_relative_urls(
         image.contains("example.com/relative/path.jpg"),
         "image was: {image}"
     );
+        Ok(())
+    })).await.unwrap();
 }
 
 // ── _format_enclosures() ────────────────────────────────────────────────────
 
 // PHP: test_format_enclosures_returns_empty_when_no_enclosures
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_format_enclosures_returns_empty_when_no_enclosures(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_format_enclosures_returns_empty_when_no_enclosures() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     let result =
         article::format_enclosures(&db, &session_with_uid(), 2, false, "<p>Content</p>", false)
             .await;
     assert_eq!(result.formatted, "");
     assert!(result.entries.is_empty());
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_format_enclosures_can_inline_flag
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_format_enclosures_can_inline_flag(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_format_enclosures_can_inline_flag() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     // (PHP builds an unused $enclosures variable here; id 1's enclosures are
     // fetched inside _format_enclosures.)
 
@@ -836,4 +706,6 @@ async fn test_format_enclosures_can_inline_flag(
     for entry in &result.entries {
         assert!(entry.get("filename").is_some(), "entries gain a filename");
     }
+        Ok(())
+    })).await.unwrap();
 }
