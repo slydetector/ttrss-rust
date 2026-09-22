@@ -45,6 +45,11 @@ The frozen PHP reference in `tt-rss/` (commit `2f7d831`) is the spec.
 - **Run expensive commands once, grep the saved output many times** — capture
   stdout (`tee /tmp/test_out.txt`) and grep it for follow-ups instead of
   re-running `cargo test`.
+- **`cargo test --lib` for unit tests — never bare `cargo test`.** A bare
+  `cargo test -p ttrss` compiles + links ~50 integration test binaries
+  (testcontainers, sqlx, etc.) before the runtime filter applies: ~5 min wall
+  time. `cargo test -p ttrss --lib <filter>` compiles only the lib test binary:
+  ~1 second. Use `--test <name>` for a single integration test.
 - **Keep the workspace green**: `cargo test` passes and the tree is clean
   before committing.
 - **Address processes by PID, not by name.** Never `pkill`/`killall` unless
