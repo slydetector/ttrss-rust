@@ -27,6 +27,14 @@ use ttrss::core::db::{Db, SESSION_SETUP};
 #[ctor::ctor(unsafe)]
 fn init_test_pg() {
     test_db::init_database_url();
+    // Build the shared template DB (no-op if already current).
+    let url = test_db::master_url();
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("ctor: build tokio runtime");
+    rt.block_on(test_db::template::ensure_template(&url))
+        .unwrap_or_else(|e| panic!("ctor: template setup failed: {e}"));
 }
 
 /// Wrap the pool options injected by `#[sqlx::test]` in a core [`Db`],
@@ -56,6 +64,47 @@ pub async fn make_db(pool: PoolOptions<Postgres>, options: PgConnectOptions) -> 
             })
         })
         .connect_with(options)
+        .await?;
+    Ok(Db::from_pool(pool))
+}
+/// Create a [`Db`] from a database URL (for use with [`test_db::with_test_db`]).
+///
+/// Applies the same session setup as [`make_db`] (statement cache disabled,
+/// `SESSION_SETUP` on every connection).
+pub async fn make_db_from_url(url: &str) -> anyhow::Result<Db> {
+    use url::Url;
+    let u: Url = url.parse()?;
+    let mut opts = PgConnectOptions::new().statement_cache_capacity(0);
+    if let Some(host) = u.host_str() {
+        opts = opts.host(host);
+    }
+    if let Some(port) = u.port() {
+        opts = opts.port(port);
+    }
+    let user = u.username();
+    if !user.is_empty() {
+        opts = opts.username(user);
+    }
+    if let Some(pwd) = u.password() {
+        opts = opts.password(pwd);
+    }
+    let db = u.path().trim_start_matches('/');
+    if !db.is_empty() {
+        opts = opts.database(db);
+    }
+
+    let pool = PoolOptions::<Postgres>::new()
+        .max_connections(5)
+        .acquire_timeout(Duration::from_secs(120))
+        .before_acquire(|conn: &mut PgConnection, _meta| {
+            Box::pin(async move {
+                for stmt in SESSION_SETUP {
+                    sqlx::query(AssertSqlSafe(*stmt)).execute(&mut *conn).await?;
+                }
+                Ok(true)
+            })
+        })
+        .connect_with(opts)
         .await?;
     Ok(Db::from_pool(pool))
 }

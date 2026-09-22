@@ -19,6 +19,7 @@ use ttrss::core::phpser::Value as PValue;
 use ttrss::core::session::Session;
 use ttrss::session::Sess;
 use ttrss::AppState;
+use test_db::template::with_test_db;
 
 /// A test-only config (the handlers only need `db` + `feed_icon_dir`).
 fn test_config() -> Config {
@@ -70,6 +71,16 @@ async fn setup(
     options: sqlx::postgres::PgConnectOptions,
 ) -> (AppState, Sess) {
     let db: Db = common::make_db(pool, options).await.expect("test db");
+    let state = AppState::new(test_config(), db);
+    let mut data = Session::new();
+    data.set("uid", PValue::Int(1));
+    let sess = Sess::new("test-sid".to_string());
+    sess.replace("test-sid".to_string(), data);
+    (state, sess)
+}
+
+async fn setup_from_url(url: &str) -> (AppState, Sess) {
+    let db: Db = common::make_db_from_url(url).await.expect("test db");
     let state = AppState::new(test_config(), db);
     let mut data = Session::new();
     data.set("uid", PValue::Int(1));
@@ -162,16 +173,10 @@ async fn ref_ids(db: &Db) -> Vec<i32> {
 }
 
 /// `editSave` updates a single feed's columns (owner-scoped).
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_edit_save_single(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_edit_save_single() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup_from_url(&url).await;
     let db = &state.db;
 
     let result = ttrss::feeds::edit_save(
@@ -211,19 +216,15 @@ async fn test_edit_save_single(
     assert!(!f.hide_images);
     assert!(!f.mark_unread_on_update);
     assert_eq!(f.feed_url, "https://hnrss.org/frontpage");
+        Ok(())
+    })).await.unwrap();
 }
 
 /// `editSave` with `cat_id = 0` clears the category (`NULL`).
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_edit_save_cat_id_null(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_edit_save_cat_id_null() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup_from_url(&url).await;
     let db = &state.db;
 
     // Feed 1 is in category 1; clearing it sets `cat_id` to NULL.
@@ -236,19 +237,15 @@ async fn test_edit_save_cat_id_null(
 
     let f = feed_row(db, 1).await.expect("feed 1");
     assert_eq!(f.cat_id, None);
+        Ok(())
+    })).await.unwrap();
 }
 
 /// `editSave` on a feed the owner does not own is a no-op.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_edit_save_nonexistent(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_edit_save_nonexistent() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup_from_url(&url).await;
     let db = &state.db;
 
     // id 999 does not exist; no error, no row created.
@@ -261,20 +258,16 @@ async fn test_edit_save_nonexistent(
     assert!(feed_row(db, 999).await.is_none());
     // Feed 1 unchanged.
     assert_eq!(feed_row(db, 1).await.expect("feed 1").title, "Hacker News");
+        Ok(())
+    })).await.unwrap();
 }
 
 /// `batchEditSave` updates the given columns for each feed in `ids`, leaving
 /// the rest of the owner's feeds untouched.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_batch_edit_save(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_batch_edit_save() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup_from_url(&url).await;
     let db = &state.db;
 
     let _ = ttrss::feeds::batch_edit_save(
@@ -302,19 +295,15 @@ async fn test_batch_edit_save(
     assert_eq!(f4.update_interval, 120);
     assert!(!f4.private);
     assert!(!f4.hide_images);
+        Ok(())
+    })).await.unwrap();
 }
 
 /// `batchEditSave` with an empty `ids` is a no-op.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_batch_edit_save_empty_ids(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_batch_edit_save_empty_ids() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup_from_url(&url).await;
     let db = &state.db;
 
     let _ = ttrss::feeds::batch_edit_save(
@@ -331,20 +320,16 @@ async fn test_batch_edit_save_empty_ids(
             before_update
         );
     }
+        Ok(())
+    })).await.unwrap();
 }
 
 /// `batchEditSave` updates `cat_id` only when `ENABLE_FEED_CATS` is on (the
 /// default); with it off the category is left untouched.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_batch_edit_save_cat_respects_pref(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_batch_edit_save_cat_respects_pref() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup_from_url(&url).await;
     let db = &state.db;
 
     // Default `ENABLE_FEED_CATS` is on: the category moves to 2.
@@ -375,20 +360,16 @@ async fn test_batch_edit_save_cat_respects_pref(
         Some(2),
         "cat_id should be untouched when the pref is off"
     );
+        Ok(())
+    })).await.unwrap();
 }
 
 /// `batchEditSave` stores the auth credentials; with no encryption key the
 /// password is written verbatim and `auth_pass_encrypted` is cleared.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_batch_edit_save_auth_pass(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_batch_edit_save_auth_pass() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup_from_url(&url).await;
     let db = &state.db;
 
     let _ = ttrss::feeds::batch_edit_save(
@@ -414,21 +395,17 @@ async fn test_batch_edit_save_auth_pass(
     );
     assert!(f.include_in_digest);
     assert!(f.always_display_enclosures);
+        Ok(())
+    })).await.unwrap();
 }
 
 /// `remove` (positive id): the feed row is deleted; the starred entries are
 /// preserved with `feed_id = NULL` (archived); the non-starred entries cascade
 /// away; the feed's access keys are removed.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_remove_feed(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_remove_feed() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup_from_url(&url).await;
     let db = &state.db;
 
     // Seed an access key for feed 3 (removed alongside the feed).
@@ -463,19 +440,15 @@ async fn test_remove_feed(
     assert_eq!(feed_id_8, None, "ref 8 feed_id should be NULL");
     // The other feeds' entries are untouched.
     assert!(ids.contains(&1) && ids.contains(&11));
+        Ok(())
+    })).await.unwrap();
 }
 
 /// `remove` (negative id) removes the label (and its assignments + cache).
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_remove_label(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_remove_label() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup_from_url(&url).await;
     let db = &state.db;
 
     // Assign label 1 to refs 4 and 7.
@@ -498,19 +471,15 @@ async fn test_remove_label(
             .await
             .expect("assignments");
     assert_eq!(assigned, 0, "label 1 assignments should be gone");
+        Ok(())
+    })).await.unwrap();
 }
 
 /// `addCat` creates a category; a second call with the same title is a no-op.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_add_cat(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_add_cat() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup_from_url(&url).await;
     let db = &state.db;
 
     let _ = ttrss::feeds::add_cat(&state, &sess, &request(&[("cat", json!("News"))])).await;
@@ -522,20 +491,16 @@ async fn test_add_cat(
 
     // The existing categories are unaffected.
     assert_eq!(cat_count(db, "Technology").await, 1);
+        Ok(())
+    })).await.unwrap();
 }
 
 /// `renameCat` renames an existing category; a missing id or empty title is a
 /// no-op.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_rename_cat(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_rename_cat() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup_from_url(&url).await;
     let db = &state.db;
 
     // Rename category 1 (Technology).
@@ -569,20 +534,16 @@ async fn test_rename_cat(
     )
     .await;
     assert_eq!(cat_count(db, "Nope").await, 0);
+        Ok(())
+    })).await.unwrap();
 }
 
 /// `removeCat` deletes the category; the feeds keep their rows but their
 /// `cat_id` is nulled (`ON DELETE SET NULL`).
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_remove_cat(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_remove_cat() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup_from_url(&url).await;
     let db = &state.db;
 
     // Category 1 contains feeds 1, 2, 3.
@@ -596,6 +557,8 @@ async fn test_remove_cat(
     }
     // Category 2 (feed 4) is untouched.
     assert_eq!(feed_row(db, 4).await.expect("feed 4").cat_id, Some(2));
+        Ok(())
+    })).await.unwrap();
 }
 
 // ============================================================================
@@ -644,16 +607,10 @@ async fn access_key_for(db: &Db, feed_id: &str, is_cat: bool) -> Option<String> 
 }
 
 /// `catsortreset` zeroes every category `order_id` for the owner.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_catsortreset(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_catsortreset() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup_from_url(&url).await;
     let db = &state.db;
     sqlx::query("UPDATE ttrss_feed_categories SET order_id = 5 WHERE id = 1")
         .execute(db.pool())
@@ -668,19 +625,15 @@ async fn test_catsortreset(
 
     assert_eq!(cat_order_parent(db, 1).await.0, 0);
     assert_eq!(cat_order_parent(db, 2).await.0, 0);
+        Ok(())
+    })).await.unwrap();
 }
 
 /// `feedsortreset` zeroes every feed `order_id` for the owner.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_feedsortreset(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_feedsortreset() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup_from_url(&url).await;
     let db = &state.db;
     sqlx::query("UPDATE ttrss_feeds SET order_id = 9 WHERE id = 1")
         .execute(db.pool())
@@ -692,20 +645,16 @@ async fn test_feedsortreset(
     for id in [1i32, 2, 3, 4] {
         assert_eq!(feed_order_cat(db, id).await.0, 0);
     }
+        Ok(())
+    })).await.unwrap();
 }
 
 /// `savefeedorder` reorders feeds within a category and categories at the top
 /// level (the dojo `payload` tree).
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_savefeedorder_reorder(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_savefeedorder_reorder() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup_from_url(&url).await;
     let db = &state.db;
 
     let payload = json!({
@@ -733,19 +682,15 @@ async fn test_savefeedorder_reorder(
     assert_eq!(feed_order_cat(db, 3).await, (3, Some(1)));
     // Feed 4 stays the sole (order 1) member of CAT:2.
     assert_eq!(feed_order_cat(db, 4).await, (1, Some(2)));
+        Ok(())
+    })).await.unwrap();
 }
 
 /// `savefeedorder` can move a feed to a different category (its `cat_id`).
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_savefeedorder_move(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_savefeedorder_move() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup_from_url(&url).await;
     let db = &state.db;
 
     let payload = json!({
@@ -770,19 +715,15 @@ async fn test_savefeedorder_move(
     assert_eq!(feed_order_cat(db, 3).await, (3, Some(1)));
     // CAT:2 is now empty (still order 2, parent NULL).
     assert_eq!(cat_order_parent(db, 2).await, (2, None));
+        Ok(())
+    })).await.unwrap();
 }
 
 /// `clearKeys` deletes every access key for the owner.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_clear_keys(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_clear_keys() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup_from_url(&url).await;
     let db = &state.db;
     sqlx::query(
         "INSERT INTO ttrss_access_keys (access_key, feed_id, is_cat, owner_uid) \
@@ -796,20 +737,16 @@ async fn test_clear_keys(
     ttrss::feeds::clear_keys(&state, &sess, &request(&[])).await;
 
     assert_eq!(access_key_count(db).await, 0);
+        Ok(())
+    })).await.unwrap();
 }
 
 /// `regenFeedKey` creates a key if absent, and re-rolls it on each call (while
 /// keeping a single row per (feed, is_cat)).
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_regen_feed_key(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_regen_feed_key() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup_from_url(&url).await;
     let db = &state.db;
 
     let r1 = ttrss::feeds::regen_feed_key(
@@ -833,19 +770,15 @@ async fn test_regen_feed_key(
     assert_ne!(key1, key2, "regenerated key should differ");
     // Still exactly one key row for (feed 1, is_cat false).
     assert_eq!(access_key_count(db).await, 1);
+        Ok(())
+    })).await.unwrap();
 }
 
 /// `getSharedURL` builds the public RSS share URL for a feed (title + link).
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_shared_url(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_shared_url() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup_from_url(&url).await;
     let db = &state.db;
 
     let r = ttrss::feeds::get_shared_url(
@@ -864,20 +797,16 @@ async fn test_get_shared_url(
     let key = link.split("key=").nth(1).expect("key in link");
     assert!(!key.is_empty());
     assert_eq!(access_key_for(db, "1", false).await, Some(key.to_string()));
+        Ok(())
+    })).await.unwrap();
 }
 
 /// `removeIcon` deletes the favicon cache file and resets the feed's
 /// `favicon_*` columns (only when the cached file exists and is removable).
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_remove_icon(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_remove_icon() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup_from_url(&url).await;
     let db = &state.db;
     // A real, writable icon dir for this test.
     let icon_dir = std::env::temp_dir().join(format!("ttrss-feedicon-{}", std::process::id()));
@@ -917,19 +846,15 @@ async fn test_remove_icon(
         "is_custom reset to false"
     );
     let _ = std::fs::remove_dir_all(&icon_dir);
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_upload_icon(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
+#[tokio::test]
+async fn test_upload_icon() {
+    let _ = with_test_db(|url| Box::pin(async move {
     use sqlx::Row as _;
-    let (state, sess) = setup(pool, options).await;
+    let (state, sess) = setup_from_url(&url).await;
     let db = &state.db;
     let icon_dir = std::env::temp_dir().join(format!("ttrss-feedicon-up-{}", std::process::id()));
     std::fs::create_dir_all(&icon_dir).unwrap();
@@ -1013,6 +938,8 @@ async fn test_upload_icon(
     );
 
     let _ = std::fs::remove_dir_all(&icon_dir);
+        Ok(())
+    })).await.unwrap();
 }
 
 // ---------------------------------------------------------------------------
@@ -1022,17 +949,11 @@ async fn test_upload_icon(
 /// `batchAddFeeds`: each line of the posted feed list becomes a `[Unknown]`
 /// feed for the user (posted cat/login/pass, `update_method = 0`, pass stored
 /// unencrypted).
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_batch_add_feeds(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
+#[tokio::test]
+async fn test_batch_add_feeds() {
+    let _ = with_test_db(|url| Box::pin(async move {
     use sqlx::Row as _;
-    let (state, sess) = setup(pool, options).await;
+    let (state, sess) = setup_from_url(&url).await;
     let db = &state.db;
     ttrss::feeds::batch_add_feeds(
         &state,
@@ -1072,20 +993,16 @@ async fn test_batch_add_feeds(
     assert_eq!(row.get::<Option<String>, _>(3), Some("secret".to_string()));
     assert_eq!(row.get::<i32, _>(4), 0);
     assert!(!row.get::<bool, _>(5), "auth_pass is stored unencrypted");
+        Ok(())
+    })).await.unwrap();
 }
 
 /// `batchAddFeeds`: a feed URL the user already has is not re-inserted (only
 /// the new one is added).
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_batch_add_feeds_skip_existing(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_batch_add_feeds_skip_existing() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup_from_url(&url).await;
     let db = &state.db;
     let before: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM ttrss_feeds WHERE owner_uid = 1")
         .fetch_one(db.pool())
@@ -1117,19 +1034,15 @@ async fn test_batch_add_feeds_skip_existing(
     .await
     .unwrap();
     assert_eq!(dup, 1, "no duplicate of the existing feed");
+        Ok(())
+    })).await.unwrap();
 }
 
 /// `batchAddFeeds`: invalid / non-http lines are skipped by `UrlHelper::validate`.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_batch_add_feeds_invalid_skipped(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_batch_add_feeds_invalid_skipped() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup_from_url(&url).await;
     let db = &state.db;
     ttrss::feeds::batch_add_feeds(
         &state,
@@ -1147,19 +1060,15 @@ async fn test_batch_add_feeds_invalid_skipped(
     .await
     .unwrap();
     assert_eq!(count, 1, "only the valid http feed is inserted");
+        Ok(())
+    })).await.unwrap();
 }
 
 /// `batchAddFeeds`: a read-only user is a no-op (no feeds added).
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_batch_add_feeds_readonly_noop(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_batch_add_feeds_readonly_noop() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup_from_url(&url).await;
     sess.with_mut(|s| s.set("access_level", PValue::Int(-1)));
     let db = &state.db;
     let before: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM ttrss_feeds WHERE owner_uid = 1")
@@ -1177,20 +1086,16 @@ async fn test_batch_add_feeds_readonly_noop(
         .await
         .unwrap();
     assert_eq!(after, before, "read-only user adds nothing");
+        Ok(())
+    })).await.unwrap();
 }
 
 /// `batchSubscribe`: returns `enable_cats` as an **int** (`1`/`0`, per the PHP
 /// `(int)` cast) + the category `<select>`.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_batch_subscribe(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_batch_subscribe() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup_from_url(&url).await;
     let v = ttrss::feeds::batch_subscribe(&state, &sess).await;
     // The PHP `(int)` cast — an int, not a JSON boolean.
     let enable = v.get("enable_cats").and_then(|x| x.as_i64());
@@ -1207,6 +1112,8 @@ async fn test_batch_subscribe(
         cat_select.contains("Uncategorized"),
         "uncategorized option: {cat_select}"
     );
+        Ok(())
+    })).await.unwrap();
 }
 
 /// The dispatcher matches methods **case-insensitively** (PHP `backend.php`
@@ -1215,15 +1122,10 @@ async fn test_batch_subscribe(
 /// `inactivefeeds`/`batchaddfeeds`/`batchsubscribe`, a corpus-style camelCase
 /// `markSelected`, and a mixed-case `getFeedTree` all route to a real handler
 /// (not `E_UNKNOWN_METHOD`).
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-))]
-async fn test_dispatch_case_insensitive(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db: Db = common::make_db(pool, options).await.expect("test db");
+#[tokio::test]
+async fn test_dispatch_case_insensitive() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db: Db = common::make_db_from_url(&url).await.expect("test db");
     let state = AppState::new(test_config(), db);
 
     // A session for `uid = 1` (admin) with the stored pwd hash + a valid csrf
@@ -1286,4 +1188,6 @@ async fn test_dispatch_case_insensitive(
             "routed for {body:?}: {v}"
         );
     }
+        Ok(())
+    })).await.unwrap();
 }

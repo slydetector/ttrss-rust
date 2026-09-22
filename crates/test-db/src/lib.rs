@@ -32,6 +32,9 @@
 //! depend on the oracle's golden data dump: the parity suites run under the
 //! same conditions as the PHP reference's own integration tests.
 
+pub mod template;
+pub use template::master_url;
+
 use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
