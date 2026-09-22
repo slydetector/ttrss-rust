@@ -144,7 +144,7 @@ Restructured per `research-report.md` (strangler-fig / vertical-slice / golden-m
 | **M7** | Plugin system + all first-party plugins | Rust plugin API (static loading; contract pinned 1:1 with PHP — loader swappable, WASM route preserved); all 18 first-party plugins; plugin storage portable (PHP-serialize interop, read+write); installer deferred (listing only, already landed in M4). Decomposed in §3a Phase 7: M7.1–M7.21 |
 | **M8** | CLI/daemon parity + migrations | All `update.php` subcommands, lockfile semantics, `--update-schema` reusing exact `.sql` files, exit codes |
 | **M9** | Hardening & performance | Fuzz (sanitizer/parser/URL), security matrix, perf vs PHP baseline (target: faster), Docker images, docs, cutover runbook |
-| **M10** | Internationalization (i18n) | Gettext `.mo` loading, locale negotiation, `__()` in shell/API/plugins, `translations` RPC field. See `docs/m10-draft.md` |
+| **M10** | Internationalization (i18n) | Gettext `.mo` loading, locale negotiation, `__()` in shell/API/plugins, `translations` RPC field. See `docs/i18n-research.md` |
 
 ### Where we are (current state, 2026-09-11)
 
