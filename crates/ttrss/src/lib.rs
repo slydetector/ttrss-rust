@@ -43,6 +43,7 @@ pub mod session;
 pub mod settings;
 pub mod syndication;
 pub mod system;
+pub mod i18n;
 pub mod time;
 pub mod updates;
 pub mod urlhelper;
