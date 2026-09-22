@@ -18,58 +18,16 @@ use ttrss::core::phpser::Value as PValue;
 use ttrss::core::session::Session;
 use ttrss::session::Sess;
 use ttrss::AppState;
+use test_db::template::with_test_db;
 
 /// A test-only config (the handlers only need `db`/`feed_icon_dir` here).
-fn test_config() -> Config {
-    Config {
-        db_host: "127.0.0.1".into(),
-        db_port: 5432,
-        db_user: "postgres".into(),
-        db_pass: "postgres".into(),
-        db_name: "postgres".into(),
-        db_sslmode: "disable".into(),
-        db_max_connections: 10,
-        self_url: "http://127.0.0.1:8280/tt-rss/".into(),
-        encryption_key: None,
-        single_user_mode: false,
-        forbid_password_changes: false,
-        disable_login_form: false,
-        plugins: "auth_internal".into(),
-        listen: "127.0.0.1:8281".parse().unwrap(),
-        docroot: std::path::PathBuf::from("tt-rss"),
-        feed_icon_dir: std::path::PathBuf::from("no-such-test-icon-dir"),
-        max_favicon_file_size: 1024 * 1024,
-        max_cache_file_size: 64 * 1024 * 1024,
-        force_article_purge: 0,
-        feed_fetch_timeout: 45,
-        feed_fetch_no_cache_timeout: 15,
-        max_conditional_interval: 43200,
-        http_429_throttle_interval: 3600,
-        daemon_unsuccessful_days_limit: 30,
-        fetch_extended_url_filtering: true,
-        daemon_sleep_interval: 60,
-        daemon_max_jobs: 2,
-        daemon_feed_limit: 50,
-        daemon_update_login_limit: 30,
-        cache_max_days: 7,
-        schedule_purge_orphans: String::from("@daily"),
-        schedule_disk_cache_expire_all: String::from("@daily"),
-        schedule_disable_failed_feeds: String::from("@daily"),
-        schedule_cleanup_feed_icons: String::from("@daily"),
-        schedule_log_daemon_update_login_limit_users: String::from("@daily"),
-        schedule_expire_error_log: String::from("@hourly"),
-        schedule_expire_lock_files: String::from("@hourly"),
-        schedule_send_headlines_digests: String::from("@hourly"),
-    }
-}
 
 /// `DbTestCase::setUp`: fresh fixtures + `$_SESSION["uid"] = 1`.
 async fn setup(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
+    url: &str,
 ) -> (AppState, Sess) {
-    let db: Db = common::make_db(pool, options).await.expect("test db");
-    let state = AppState::new(test_config(), db);
+    let db: Db = common::make_db_from_url(&url).await.expect("test db");
+    let state = AppState::new(common::test_config(), db);
     let mut data = Session::new();
     data.set("uid", PValue::Int(1));
     let sess = Sess::new("test-sid".to_string());
@@ -112,16 +70,10 @@ async fn tag_row_count(db: &Db) -> i64 {
 // ── setScore() ──────────────────────────────────────────────────────────────
 
 // PHP: test_set_score_single_article
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_set_score_single_article(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_set_score_single_article() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = common::make_state(&url).await;
     let db = &state.db;
 
     let result = ttrss::article::set_score(
@@ -133,19 +85,15 @@ async fn test_set_score_single_article(
     assert_eq!(result.get("score").and_then(Value::as_i64), Some(5));
 
     assert_eq!(score_of(db, 1).await, 5);
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_set_score_multiple_articles
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_set_score_multiple_articles(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_set_score_multiple_articles() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = common::make_state(&url).await;
     let db = &state.db;
 
     let result = ttrss::article::set_score(
@@ -159,19 +107,15 @@ async fn test_set_score_multiple_articles(
     for ref_id in [1i32, 2, 3] {
         assert_eq!(score_of(db, ref_id).await, 10);
     }
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_set_score_zero
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_set_score_zero(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_set_score_zero() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = common::make_state(&url).await;
     let db = &state.db;
 
     let result = ttrss::article::set_score(
@@ -183,21 +127,17 @@ async fn test_set_score_zero(
     assert_eq!(result.get("score").and_then(Value::as_i64), Some(0));
 
     assert_eq!(score_of(db, 1).await, 0);
+        Ok(())
+    })).await.unwrap();
 }
 
 // ── setArticleTags() ────────────────────────────────────────────────────────
 
 // PHP: test_set_article_tags_new_tags
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_set_article_tags_new_tags(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_set_article_tags_new_tags() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = common::make_state(&url).await;
 
     let result = ttrss::article::set_article_tags(
         &state,
@@ -209,19 +149,15 @@ async fn test_set_article_tags_new_tags(
         result.get("tags").and_then(Value::as_array),
         Some(&vec![json!("new-tag-1"), json!("new-tag-2")])
     );
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_set_article_tags_replaces_existing
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_set_article_tags_replaces_existing(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_set_article_tags_replaces_existing() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = common::make_state(&url).await;
     let db = &state.db;
 
     // Article 1 starts with tag_cache 'rust|open-source'
@@ -238,19 +174,15 @@ async fn test_set_article_tags_replaces_existing(
 
     // The old tags are gone: exactly 1 tag row remains.
     assert_eq!(tag_row_count(db).await, 1);
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_set_article_tags_clears_all
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_set_article_tags_clears_all(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_set_article_tags_clears_all() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = common::make_state(&url).await;
     let db = &state.db;
 
     let result = ttrss::article::set_article_tags(
@@ -262,19 +194,15 @@ async fn test_set_article_tags_clears_all(
     assert_eq!(result.get("tags").and_then(Value::as_array), Some(&vec![]));
 
     assert_eq!(tag_row_count(db).await, 0);
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_set_article_tags_trims_whitespace
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_set_article_tags_trims_whitespace(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_set_article_tags_trims_whitespace() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = common::make_state(&url).await;
 
     let result = ttrss::article::set_article_tags(
         &state,
@@ -286,57 +214,45 @@ async fn test_set_article_tags_trims_whitespace(
     let tags = result.get("tags").and_then(Value::as_array).unwrap();
     assert!(tags.contains(&json!("tag-a")));
     assert!(tags.contains(&json!("tag-b")));
+        Ok(())
+    })).await.unwrap();
 }
 
 // ── printArticleTags() ──────────────────────────────────────────────────────
 
 // PHP: test_print_article_tags_existing
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_print_article_tags_existing(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, _sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_print_article_tags_existing() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, _sess) = common::make_state(&url).await;
 
     let result = ttrss::article::print_article_tags(state.db.pool(), 1, 1).await;
     assert!(result.get("tags").is_some());
     assert_eq!(result.get("id").and_then(Value::as_i64), Some(1));
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_print_article_tags_empty
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_print_article_tags_empty(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, _sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_print_article_tags_empty() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, _sess) = common::make_state(&url).await;
 
     // Article 11 has tag_cache 'quantum|computing' from seed
     let result = ttrss::article::print_article_tags(state.db.pool(), 1, 11).await;
     assert!(result.get("tags").is_some());
+        Ok(())
+    })).await.unwrap();
 }
 
 // ── completeTags() ──────────────────────────────────────────────────────────
 
 // PHP: test_complete_tags_returns_matching_tags
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_complete_tags_returns_matching_tags(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_complete_tags_returns_matching_tags() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = common::make_state(&url).await;
     let db = &state.db;
 
     let int_id = int_id_for_ref1(db).await;
@@ -351,19 +267,15 @@ async fn test_complete_tags_returns_matching_tags(
         ttrss::article::complete_tags(&state, &sess, &request(&[("search", json!("test"))])).await;
     let tags = result.as_array().expect("array");
     assert!(tags.contains(&json!("testing-complete")));
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_complete_tags_no_match
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_complete_tags_no_match(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_complete_tags_no_match() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = common::make_state(&url).await;
 
     let result = ttrss::article::complete_tags(
         &state,
@@ -372,19 +284,15 @@ async fn test_complete_tags_no_match(
     )
     .await;
     assert_eq!(result.as_array(), Some(&vec![]));
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_complete_tags_case_sensitive
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_complete_tags_case_sensitive(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_complete_tags_case_sensitive() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = common::make_state(&url).await;
     let db = &state.db;
 
     let int_id = int_id_for_ref1(db).await;
@@ -399,21 +307,17 @@ async fn test_complete_tags_case_sensitive(
         ttrss::article::complete_tags(&state, &sess, &request(&[("search", json!("T"))])).await;
     let tags = result.as_array().expect("array");
     assert!(tags.contains(&json!("TagUppercase")));
+        Ok(())
+    })).await.unwrap();
 }
 
 // ── assigntolabel() / removefromlabel() ─────────────────────────────────────
 
 // PHP: test_assign_to_label
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_assign_to_label(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_assign_to_label() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = common::make_state(&url).await;
 
     let result = ttrss::article::label_ops(
         &state,
@@ -427,19 +331,15 @@ async fn test_assign_to_label(
         result.get("message").and_then(Value::as_str),
         Some("UPDATE_COUNTERS")
     );
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_remove_from_label
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_remove_from_label(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_remove_from_label() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = common::make_state(&url).await;
     let db = &state.db;
 
     // First assign a label (article_id references ttrss_entries.id, not int_id)
@@ -456,21 +356,17 @@ async fn test_remove_from_label(
     )
     .await;
     assert!(result.get("labels-for").is_some());
+        Ok(())
+    })).await.unwrap();
 }
 
 // ── getmetadatabyid() ───────────────────────────────────────────────────────
 
 // PHP: test_get_metadata_by_id
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_metadata_by_id(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, _sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_metadata_by_id() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, _sess) = common::make_state(&url).await;
 
     let result = ttrss::article::metadata_by_id(state.db.pool(), 1, 1).await;
     assert_eq!(
@@ -481,37 +377,29 @@ async fn test_get_metadata_by_id(
         result.get("title").and_then(Value::as_str),
         Some("Show HN: I built a distributed task queue in Rust")
     );
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_get_metadata_by_id_nonexistent
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_metadata_by_id_nonexistent(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, _sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_metadata_by_id_nonexistent() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, _sess) = common::make_state(&url).await;
 
     let result = ttrss::article::metadata_by_id(state.db.pool(), 1, 99999).await;
     assert_eq!(result.as_array(), Some(&vec![]));
+        Ok(())
+    })).await.unwrap();
 }
 
 // ── redirect() ──────────────────────────────────────────────────────────────
 
 // PHP: test_redirect_valid_article
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_redirect_valid_article(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_redirect_valid_article() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = common::make_state(&url).await;
 
     let (status, location, body) =
         ttrss::article::redirect(&state, &sess, &request(&[("id", json!(1))])).await;
@@ -523,4 +411,6 @@ async fn test_redirect_valid_article(
         Some("https://news.ycombinator.com/item?id=40001")
     );
     assert!(body.is_empty());
+        Ok(())
+    })).await.unwrap();
 }

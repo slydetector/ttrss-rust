@@ -23,57 +23,16 @@ use ttrss::core::phpser::Value as PValue;
 use ttrss::core::session::Session;
 use ttrss::session::Sess;
 use ttrss::AppState;
+use test_db::template::with_test_db;
 
-fn test_config() -> Config {
-    Config {
-        db_host: "127.0.0.1".into(),
-        db_port: 5432,
-        db_user: "postgres".into(),
-        db_pass: "postgres".into(),
-        db_name: "postgres".into(),
-        db_sslmode: "disable".into(),
-        db_max_connections: 10,
-        self_url: "http://127.0.0.1:8280/tt-rss/".into(),
-        encryption_key: None,
-        single_user_mode: false,
-        forbid_password_changes: false,
-        disable_login_form: false,
-        plugins: "auth_internal".into(),
-        listen: "127.0.0.1:8281".parse().unwrap(),
-        docroot: std::path::PathBuf::from("tt-rss"),
-        feed_icon_dir: std::path::PathBuf::from("no-such-test-icon-dir"),
-        max_favicon_file_size: 1024 * 1024,
-        max_cache_file_size: 64 * 1024 * 1024,
-        force_article_purge: 0,
-        feed_fetch_timeout: 45,
-        feed_fetch_no_cache_timeout: 15,
-        max_conditional_interval: 43200,
-        http_429_throttle_interval: 3600,
-        daemon_unsuccessful_days_limit: 30,
-        fetch_extended_url_filtering: true,
-        daemon_sleep_interval: 60,
-        daemon_max_jobs: 2,
-        daemon_feed_limit: 50,
-        daemon_update_login_limit: 30,
-        cache_max_days: 7,
-        schedule_purge_orphans: String::from("@daily"),
-        schedule_disk_cache_expire_all: String::from("@daily"),
-        schedule_disable_failed_feeds: String::from("@daily"),
-        schedule_cleanup_feed_icons: String::from("@daily"),
-        schedule_expire_error_log: String::from("@hourly"),
-        schedule_log_daemon_update_login_limit_users: String::from("@daily"),
-        schedule_expire_lock_files: String::from("@hourly"),
-        schedule_send_headlines_digests: String::from("@hourly"),
-    }
-}
+fn test_config() -> Config { common::test_config() }
 
 /// Fixtures + a session carrying `uid = 1` (owner of all fixture rows) + the
 /// per-user API gate enabled (the `before_and_dispatch` auth check).
 async fn setup(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
+    url: &str,
 ) -> (AppState, Sess) {
-    let db: Db = common::make_db(pool, options).await.expect("test db");
+    let db: Db = common::make_db_from_url(&url).await.expect("test db");
     let state = AppState::new(test_config(), db);
     let mut data = Session::new();
     data.set("uid", PValue::Int(1));
@@ -124,16 +83,10 @@ fn unread_of(content: &Value, id: i64) -> i64 {
 }
 
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn special_feeds_cat_minus_1(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn special_feeds_cat_minus_1() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let c = get_feeds(&state, &sess, &[("cat_id", json!(-1))]).await;
     // Six special feeds, PHP's fixed order: Starred, Published, Fresh, All,
     // Recently-read, Archived.
@@ -161,18 +114,14 @@ async fn special_feeds_cat_minus_1(
     }
     // "All articles" unread = total unread across all feeds (2+3+1+2 = 8).
     assert_eq!(unread_of(&c, -4), 8);
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn labels_cat_minus_2(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn labels_cat_minus_2() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let c = get_feeds(&state, &sess, &[("cat_id", json!(-2))]).await;
     // Both labels (0 unread each, but unread_only=false so they appear).
     let titles: std::collections::BTreeSet<String> = c
@@ -189,18 +138,14 @@ async fn labels_cat_minus_2(
         assert_eq!(e["cat_id"].as_i64(), Some(-2));
         assert_eq!(e["unread"].as_i64(), Some(0));
     }
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn all_except_virtual_cat_minus_3_full_shape(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn all_except_virtual_cat_minus_3_full_shape() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let c = get_feeds(&state, &sess, &[("cat_id", json!(-3))]).await;
     // All 4 real feeds, ordered by title (all order_id 0): Ars(3), HN(1),
     // MIT(4), Register(2).
@@ -235,50 +180,38 @@ async fn all_except_virtual_cat_minus_3_full_shape(
         c.as_array().unwrap()[0]["cat_id"].as_i64(),
         Some(1) // Ars Technica is in cat 1
     );
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn real_cat_lists_only_that_cats_feeds(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn real_cat_lists_only_that_cats_feeds() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     // Cat 1 (Technology) has feeds 1,2,3 and no children.
     let c = get_feeds(&state, &sess, &[("cat_id", json!(1))]).await;
     let mut got = ids(&c);
     got.sort();
     assert_eq!(got, vec![1, 2, 3]);
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn uncategorized_cat_0_is_empty(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn uncategorized_cat_0_is_empty() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     // No uncategorized (cat_id NULL/0) feeds in the fixture → empty.
     let c = get_feeds(&state, &sess, &[("cat_id", json!(0))]).await;
     assert_eq!(c.as_array().unwrap().len(), 0);
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn unread_only_drops_zero_unread_feeds(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn unread_only_drops_zero_unread_feeds() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     // Add a feed in cat 1 with no entries (0 unread).
     sqlx::query(
         "INSERT INTO ttrss_feeds (id, owner_uid, title, cat_id, feed_url, update_interval, purge_interval, site_url)
@@ -295,18 +228,14 @@ async fn unread_only_drops_zero_unread_feeds(
     let only = get_feeds(&state, &sess, &[("cat_id", json!(-3)), ("unread_only", json!(true))]).await;
     assert_eq!(only.as_array().unwrap().len(), 4);
     assert!(!ids(&only).contains(&5));
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn limit_and_offset_paginate(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn limit_and_offset_paginate() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     // Ordered by title: Ars(3), HN(1), MIT(4), Register(2).
     let first = get_feeds(&state, &sess, &[("cat_id", json!(-3)), ("limit", json!(2))]).await;
     assert_eq!(ids(&first), vec![3, 1]);
@@ -317,18 +246,14 @@ async fn limit_and_offset_paginate(
     )
     .await;
     assert_eq!(ids(&second), vec![4, 2]);
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn include_nested_folds_child_cat_unread(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn include_nested_folds_child_cat_unread() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     // Add a child cat 3 under cat 1, with feed 5 (1 unread entry).
     let p = state.db.pool();
     sqlx::query("INSERT INTO ttrss_feed_categories (id, owner_uid, parent_cat, title) VALUES (3, 1, 1, 'Hardware')")
@@ -383,4 +308,6 @@ async fn include_nested_folds_child_cat_unread(
     let mut sorted = feed_ids.clone();
     sorted.sort();
     assert_eq!(sorted, vec![1, 2, 3]);
+        Ok(())
+    })).await.unwrap();
 }
