@@ -66,6 +66,17 @@
 
 ---
 
+## Progress
+
+| Increment | Status | Notes |
+|-----------|--------|-------|
+| M10.1 | ✅ Done (`6cfdb93`, `65f8fce`) | `I18nCache` (lazy `.mo`), `resolve_locale`, `resolve_request_locale`, `__`, `t_sprintf`. Wired into `AppState`. |
+| M10.2 | 🔄 In progress | `translations` RPC field ✅. Shell template → minijinja with `__()` ✅. `t_nsprintf` ✅. Login/OTP/forgotpass templates ✅ (minijinja + `__()`). |
+| M10.3 | ⬜ Pending | API response string audit + `__()` wrappers. |
+| M10.4 | ⬜ Pending | Plugin strings via `HostCtx`. |
+| M10.5 | ⬜ Deferred to M8 | CLI strings. |
+| M10.6 | ⬜ Pending | Verification & parity (5 locales end-to-end). |
+
 ## Increments
 
 ### M10.1 — i18n substrate (catalog loading + locale resolution)
@@ -92,9 +103,7 @@
 - `i18n::translate(locale: Option<&str>, cache: &I18nCache, msg: &str) -> String` — the Rust `__()`.
 - `i18n::t_sprintf(locale, cache, fmt: &str, args: &[&str]) -> String` — translate + format.
 - `i18n::t_nsprintf(locale, cache, singular: &str, plural: &str, n: i64, args: &[&str]) -> String`.
-- **Shell template:** Replace hardcoded English strings in `shell.html.tpl` with `{{ __("...") }}` (minijinja) or a post-render substitution pass. The locale is resolved per-request and passed to the template context.
-  - The shell has ~100-150 translatable strings (toolbar labels, menu items, tooltips, error messages, the `<noscript>` warning, etc.).
-  - The template is `include_str!`-ed at compile time; the substitution happens at render time.
+- **Shell template:** Converted to minijinja. Translatable strings use `{{ __("…") }}` (a function registered on the per-request environment, capturing the locale + `&Arc<I18nCache>`). Dynamic values use `{{ variable }}`. JS strings that need JSON encoding use `| tojson` filter. Environment is created per-request (two HashMap inserts: `__` function + `tojson` filter). NOTE: revisiting caching after first pass — the `| t(locale)` filter approach (cached env + context var) was tried but the `__("…")` syntax is preferred for readability/PHP parity.
 - **Login / OTP / forgot-password templates:** Same treatment (fewer strings, ~20-30).
 - **The `translations` RPC field:** In the `init` RPC response, build the flat map from the resolved catalog (same as PHP's `_translations_as_array`). This is what populates `App._translations` in the frontend JS — it covers all the JS-side `__()` calls (including plugin JS strings).
 

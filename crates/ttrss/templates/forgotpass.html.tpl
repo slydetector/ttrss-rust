@@ -5,16 +5,16 @@
 	<link rel="shortcut icon" type="image/png" href="images/favicon.png">
 	<link rel="icon" type="image/png" sizes="72x72" href="images/favicon-72px.png">
 	<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-<script src="lib/dojo/dojo.js?__SCRIPTS_TS__" type="text/javascript" charset="utf-8"></script>
-<script src="lib/dojo/tt-rss-layer.js?__SCRIPTS_TS__" type="text/javascript" charset="utf-8"></script>
-<script src="js/common.js?__SCRIPTS_TS__" type="text/javascript" charset="utf-8"></script>
-<script src="js/utility.js?__SCRIPTS_TS__" type="text/javascript" charset="utf-8"></script>
+<script src="lib/dojo/dojo.js?{{ scripts_ts }}" type="text/javascript" charset="utf-8"></script>
+<script src="lib/dojo/tt-rss-layer.js?{{ scripts_ts }}" type="text/javascript" charset="utf-8"></script>
+<script src="js/common.js?{{ scripts_ts }}" type="text/javascript" charset="utf-8"></script>
+<script src="js/utility.js?{{ scripts_ts }}" type="text/javascript" charset="utf-8"></script>
 </head>
 <body class="flat ttrss_utility css_loading">
 <div class="container">
 <script type="text/javascript">
-	const __default_light_theme = "__THEME_LIGHT__";
-	const __default_dark_theme = "__THEME_DARK__";
+	const __default_light_theme = "{{ theme_light }}";
+	const __default_dark_theme = "{{ theme_dark }}";
 </script>
 
 <script type="text/javascript">
@@ -38,9 +38,9 @@
 	}
 </style>
 
-<h1>Password recovery</h1>
+<h1>{{ __("Password recovery") }}</h1>
 <div class="content">
-__CONTENT__
+{{ content }}
 </div>
 </div>
 </body>

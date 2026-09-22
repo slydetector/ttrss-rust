@@ -21,6 +21,8 @@ pub struct I18nCache {
     locale_dir: PathBuf,
     /// Locale → parsed catalog. Inserted on first use.
     catalogs: Mutex<HashMap<String, Arc<Catalog>>>,
+    /// Locale → (msgid, msgstr) pairs extracted from the `.mo` file.
+    entries: Mutex<HashMap<String, Vec<(String, String)>>>,
     /// The set of available locales (directory names under `locale_dir/`).
     available_locales: Vec<String>,
 }
@@ -49,6 +51,7 @@ impl I18nCache {
             locale_dir,
             catalogs: Mutex::new(HashMap::new()),
             available_locales,
+            entries: Mutex::new(HashMap::new()),
         }
     }
 
@@ -84,6 +87,105 @@ impl I18nCache {
         map.insert(locale.to_string(), Arc::clone(&arc));
         Some(arc)
     }
+
+    /// Build the translations map for a locale, matching PHP's
+    /// `_translations_as_array()`. Returns `None` if the locale is unknown.
+    ///
+    /// For singular entries: `{ msgid: msgstr }`.
+    /// For plural entries (msgid contains `\0`): both singular and plural forms
+    /// are included as separate keys.
+    pub fn translations_map(&self, locale: &str) -> Option<Vec<(String, String)>> {
+        // Fast path: already loaded.
+        {
+            let map = self.entries.lock().unwrap();
+            if let Some(entries) = map.get(locale) {
+                return Some(build_translations(entries));
+            }
+        }
+        // Slow path: parse the .mo file.
+        let path = self
+            .locale_dir
+            .join(locale)
+            .join("LC_MESSAGES")
+            .join("messages.mo");
+        let data = std::fs::read(&path).ok()?;
+        let raw = parse_mo_entries(&data)?;
+        let mut map = self.entries.lock().unwrap();
+        if let Some(existing) = map.get(locale) {
+            return Some(build_translations(existing));
+        }
+        map.insert(locale.to_string(), raw.clone());
+        Some(build_translations(&raw))
+    }
+}
+
+/// Parse all (msgid, msgstr) pairs from a `.mo` binary file.
+///
+/// The `.mo` format: magic, revision, N, offset_originals, offset_translations,
+/// then N × (len, offset) tables for each side. Strings are null-terminated.
+fn parse_mo_entries(data: &[u8]) -> Option<Vec<(String, String)>> {
+    if data.len() < 28 {
+        return None;
+    }
+    let r32 = |off: usize| -> Option<u32> {
+        if off + 4 > data.len() {
+            return None;
+        }
+        Some(u32::from_le_bytes(data[off..off + 4].try_into().ok()?))
+    };
+
+    let magic = r32(0)?;
+    if magic != 0x950412de && magic != 0xde120495 {
+        return None;
+    }
+    let n = r32(8)? as usize;
+    let orig_off = r32(12)? as usize;
+    let trans_off = r32(16)? as usize;
+
+    let mut entries = Vec::with_capacity(n);
+    for i in 0..n {
+        let o_len = r32(orig_off + i * 8)? as usize;
+        let o_off = r32(orig_off + i * 8 + 4)? as usize;
+        let t_len = r32(trans_off + i * 8)? as usize;
+        let t_off = r32(trans_off + i * 8 + 4)? as usize;
+
+        if o_off + o_len > data.len() || t_off + t_len > data.len() {
+            continue;
+        }
+        let msgid: String = String::from_utf8_lossy(&data[o_off..o_off + o_len]).into_owned();
+        let msgstr: String = String::from_utf8_lossy(&data[t_off..t_off + t_len]).into_owned();
+        entries.push((msgid, msgstr));
+    }
+    Some(entries)
+}
+
+/// Build the final translations map from raw `.mo` entries, matching PHP's
+/// `_translations_as_array()` logic:
+/// - Singular: `msgid → msgstr`
+/// - Plural (msgid contains `\0`): store both singular and plural forms
+fn build_translations(entries: &[(String, String)]) -> Vec<(String, String)> {
+    let mut rv = Vec::new();
+    for (msgid, msgstr) in entries {
+        if msgid.is_empty() {
+            continue; // metadata entry
+        }
+        if let Some(null_pos) = msgid.find('\0') {
+            // Plural form: "singular\0plural"
+            let singular = &msgid[..null_pos];
+            let plural = &msgid[null_pos + 1..];
+            // msgstr format: "sing_trans\0plural_trans"
+            if let Some(null_pos_t) = msgstr.find('\0') {
+                rv.push((singular.to_string(), msgstr[..null_pos_t].to_string()));
+                rv.push((plural.to_string(), msgstr[null_pos_t + 1..].to_string()));
+            } else {
+                rv.push((singular.to_string(), msgstr.clone()));
+                rv.push((plural.to_string(), msgstr.clone()));
+            }
+        } else {
+            rv.push((msgid.clone(), msgstr.clone()));
+        }
+    }
+    rv
 }
 
 /// Resolve the user's locale, matching PHP's `startup_gettext()`:
@@ -166,6 +268,38 @@ pub fn t_sprintf(locale: Option<&str>, cache: &I18nCache, fmt: &str, args: &[&st
     result
 }
 
+/// Plural-aware translation: picks singular or plural form based on `n`,
+/// matching PHP's `_ngettext()`.
+pub fn ngettext(
+    locale: Option<&str>,
+    cache: &I18nCache,
+    singular: &str,
+    plural: &str,
+    n: i64,
+) -> String {
+    let Some(locale) = locale else {
+        return if n == 1 { singular.to_string() } else { plural.to_string() };
+    };
+    let Some(catalog) = cache.catalog(locale) else {
+        return if n == 1 { singular.to_string() } else { plural.to_string() };
+    };
+    catalog.ngettext(singular, plural, n as u64).to_string()
+}
+
+/// Translate (with plural) and format: `vsprintf(_ngettext(...), args)`.
+/// Matches PHP's `T_nsprintf()`.
+pub fn t_nsprintf(
+    locale: Option<&str>,
+    cache: &I18nCache,
+    singular: &str,
+    plural: &str,
+    n: i64,
+    args: &[&str],
+) -> String {
+    let translated = ngettext(locale, cache, singular, plural, n);
+    t_sprintf(locale, cache, &translated, args)
+}
+
 /// Resolve the locale for a request: reads the `USER_LANGUAGE` pref (if set
 /// and not `"auto"`) and falls back to the `Accept-Language` header.
 ///
@@ -209,6 +343,25 @@ mod tests {
     fn test_unknown_locale_returns_none() {
         let cache = test_cache();
         assert!(cache.catalog("xx_XX").is_none());
+    }
+
+    #[test]
+    fn test_translations_map_de_de() {
+        let cache = test_cache();
+        let map = cache.translations_map("de_DE").expect("de_DE translations");
+        assert!(map.len() > 100, "should have many entries, got {}", map.len());
+        // Spot-check a known translation.
+        let entry = map
+            .iter()
+            .find(|(k, _)| k == "Loading, please wait...")
+            .expect("'Loading, please wait...' should be in the map");
+        assert_ne!(entry.1, "Loading, please wait...", "should be translated");
+    }
+
+    #[test]
+    fn test_translations_map_unknown_locale() {
+        let cache = test_cache();
+        assert!(cache.translations_map("xx_XX").is_none());
     }
 
     #[test]
@@ -324,5 +477,29 @@ mod tests {
         // "xx_XX" is not a real locale; should fall through to Accept-Language.
         let locale = resolve_request_locale(&cache, Some("fr"), Some("xx_XX"));
         assert_eq!(locale.as_deref(), Some("fr_FR"));
+    }
+
+    #[test]
+    fn test_ngettext_no_locale() {
+        let cache = test_cache();
+        assert_eq!(ngettext(None, &cache, "%d article", "%d articles", 1), "%d article");
+        assert_eq!(ngettext(None, &cache, "%d article", "%d articles", 5), "%d articles");
+    }
+
+    #[test]
+    fn test_ngettext_with_locale() {
+        let cache = test_cache();
+        // de_DE: "%d Artikel" (same for singular and plural in German)
+        let result = ngettext(Some("de_DE"), &cache, "%d article", "%d articles", 1);
+        assert_ne!(result, "1 article", "should be translated");
+    }
+
+    #[test]
+    fn test_t_nsprintf() {
+        let cache = test_cache();
+        let result = t_nsprintf(None, &cache, "%d article", "%d articles", 5, &["5"]);
+        assert_eq!(result, "5 articles");
+        let result = t_nsprintf(None, &cache, "%d article", "%d articles", 1, &["1"]);
+        assert_eq!(result, "1 article");
     }
 }

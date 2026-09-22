@@ -117,7 +117,8 @@ async fn index(
     let data = sess.data();
     if !data.is_logged_in() {
         // Not authenticated → login page.
-        let html = render::render_login_page(&state.config);
+        let locale = crate::i18n::resolve_request_locale(&state.i18n, headers.get(axum::http::header::ACCEPT_LANGUAGE).and_then(|v| v.to_str().ok()), None);
+        let html = render::render_login_page(&state.config, &locale, &state.i18n);
         return axum::http::Response::builder()
             .status(StatusCode::OK)
             .header(header::CONTENT_TYPE, "text/html; charset=UTF-8")
@@ -132,7 +133,25 @@ async fn index(
     let user_css = user_css_style(&state, &data).await;
     let active_plugins = resolve_active_plugins(&state, &data).await;
     let (plugin_css, plugin_js) = plugin_assets(&state, &active_plugins);
-    let html = render::render_shell(csrf, ts, &theme_link, &user_css, &plugin_css, &plugin_js);
+    // M10.2: resolve locale for shell translations.
+    let accept_language: Option<&str> = headers
+        .get(header::ACCEPT_LANGUAGE)
+        .and_then(|v| v.to_str().ok());
+    let uid = data.uid().unwrap_or(0);
+    let user_lang: Option<String> = sqlx::query_scalar(
+        "SELECT val_string FROM ttrss_user_prefs2 WHERE owner_uid = $1 AND name = 'USER_LANGUAGE'",
+    )
+    .bind(uid)
+    .fetch_optional(state.db.pool())
+    .await
+    .ok()
+    .flatten();
+    let locale = crate::i18n::resolve_request_locale(
+        &state.i18n,
+        accept_language,
+        user_lang.as_deref(),
+    );
+    let html = render::render_shell(csrf, ts, &theme_link, &user_css, &plugin_css, &plugin_js, locale.as_deref(), &state.i18n);
     let etag = format!("\"{}\"", md5_hex(&html));
     // `send_conditional_html`: 304 when the client's validator matches.
     if headers
@@ -161,10 +180,12 @@ async fn index(
 async fn prefs_page(
     State(state): State<AppState>,
     Extension(sess): Extension<session::Sess>,
+    headers: HeaderMap,
 ) -> Response {
     let data = sess.data();
     if !data.is_logged_in() {
-        let html = render::render_login_page(&state.config);
+        let locale = crate::i18n::resolve_request_locale(&state.i18n, headers.get(axum::http::header::ACCEPT_LANGUAGE).and_then(|v| v.to_str().ok()), None);
+        let html = render::render_login_page(&state.config, &locale, &state.i18n);
         return axum::http::Response::builder()
             .status(StatusCode::OK)
             .header(header::CONTENT_TYPE, "text/html; charset=UTF-8")
@@ -706,7 +727,7 @@ async fn login_flow(
                     remember_me: form.remember_me.clone().unwrap_or_default(),
                     profile: form.profile.clone().unwrap_or_default(),
                 };
-                let html = render::render_otp_challenge(&state.config, &enc, &otp_form);
+                let html = render::render_otp_challenge(&state.config, &enc, &otp_form, &None, &state.i18n);
                 return axum::http::Response::builder()
                     .status(StatusCode::OK)
                     .header(header::CONTENT_TYPE, "text/html; charset=UTF-8")

@@ -97,17 +97,35 @@ pub struct OtpForm {
 /// Render the OTP challenge page (`auth_internal`: the user has OTP enabled and
 /// no code was supplied yet). `return_url` is the already-encoded
 /// `urlencode(with_trailing_slash($return))` used in the form action.
-pub fn render_otp_challenge(config: &Config, return_url: &str, form: &OtpForm) -> String {
+pub fn render_otp_challenge(
+    config: &Config,
+    return_url: &str,
+    form: &OtpForm,
+    locale: &Option<String>,
+    i18n: &std::sync::Arc<crate::i18n::I18nCache>,
+) -> String {
     let scripts_ts = scripts_timestamp(config.docroot.as_path());
-    OTP_TEMPLATE
-        .replace("__SCRIPTS_TS__", &scripts_ts.to_string())
-        .replace("__RETURN_URL__", return_url)
-        .replace("__LOGIN__", &html_escape(&form.login))
-        .replace("__PASSWORD__", &html_escape(&form.password))
-        .replace("__BW_LIMIT__", &html_escape(&form.bw_limit))
-        .replace("__SAFE_MODE__", &html_escape(&form.safe_mode))
-        .replace("__REMEMBER_ME__", &html_escape(&form.remember_me))
-        .replace("__PROFILE__", &html_escape(&form.profile))
+    let mut env = minijinja::Environment::new();
+    let locale = locale.clone();
+    let i18n_arc = std::sync::Arc::clone(i18n);
+    env.add_function("__", move |msg: String| -> String {
+        crate::i18n::__(locale.as_deref(), &i18n_arc, &msg)
+    });
+    let template = env
+        .template_from_named_str("otp_challenge.html.tpl", OTP_TEMPLATE)
+        .unwrap();
+    template
+        .render(minijinja::context! {
+            scripts_ts,
+            return_url,
+            login => html_escape(&form.login),
+            password => html_escape(&form.password),
+            bw_limit => html_escape(&form.bw_limit),
+            safe_mode => html_escape(&form.safe_mode),
+            remember_me => html_escape(&form.remember_me),
+            profile => html_escape(&form.profile),
+        })
+        .unwrap_or_default()
 }
 
 /// `stylesheet_tag(get_theme_path($theme), ['id' => 'theme_css'])` — the shell's
@@ -143,16 +161,33 @@ pub fn render_shell(
     user_css_style: &str,
     plugin_css: &str,
     plugin_js: &str,
+    locale: Option<&str>,
+    i18n: &std::sync::Arc<crate::i18n::I18nCache>,
 ) -> String {
-    SHELL_TEMPLATE
-        .replace("__CSRF_TOKEN__", csrf_token)
-        .replace("__SCRIPTS_TS__", &scripts_ts.to_string())
-        .replace("__THEME_CSS_LINK__", theme_css_link)
-        .replace("__USER_CSS_STYLE__", user_css_style)
-        .replace("__PLUGIN_CSS__", plugin_css)
-        .replace("__PLUGIN_JS__", plugin_js)
+    let mut env = minijinja::Environment::new();
+    let locale = locale.map(|s| s.to_string());
+    let i18n_arc = std::sync::Arc::clone(i18n);
+    env.add_function("__", move |msg: String| -> String {
+        crate::i18n::__(locale.as_deref(), &i18n_arc, &msg)
+    });
+    env.add_filter("tojson", |v: minijinja::Value| -> minijinja::Value {
+        let s = v.to_string();
+        minijinja::Value::from(serde_json::to_string(&s).unwrap())
+    });
+    let template = env
+        .template_from_named_str("shell.html.tpl", SHELL_TEMPLATE)
+        .unwrap();
+    template
+        .render(minijinja::context! {
+            csrf_token => csrf_token,
+            scripts_ts => scripts_ts,
+            theme_css_link => theme_css_link,
+            user_css_style => user_css_style,
+            plugin_css => plugin_css,
+            plugin_js => plugin_js,
+        })
+        .unwrap()
 }
-
 /// Render the preferences SPA page (`prefs.php`). The skeleton is fixed for the
 /// golden dataset (no custom theme, empty plugin prefs CSS, the `share`
 /// plugin's prefs JS baked in); the per-session dynamic values are the CSRF
@@ -178,20 +213,35 @@ pub fn render_prefs_page(
 }
 
 /// Render the not-authenticated login page.
-pub fn render_login_page(config: &Config) -> String {
+pub fn render_login_page(
+    config: &Config,
+    locale: &Option<String>,
+    i18n: &std::sync::Arc<crate::i18n::I18nCache>,
+) -> String {
     let doc = config.docroot.as_path();
     let scripts_ts = scripts_timestamp(doc);
     let theme_light = theme_path(doc, "light.css", "themes/light.css");
     let theme_dark = theme_path(doc, "night.css", "themes/night.css");
     let return_url = urlencode(&format!("{}/", config.self_url_rtrim()));
     let lifetime = 86400; // SESSION_COOKIE_LIFETIME default
-
-    LOGIN_TEMPLATE
-        .replace("__SCRIPTS_TS__", &scripts_ts.to_string())
-        .replace("__THEME_LIGHT__", &theme_light)
-        .replace("__THEME_DARK__", &theme_dark)
-        .replace("__RETURN_URL__", &return_url)
-        .replace("__LIFETIME__", &lifetime.to_string())
+    let mut env = minijinja::Environment::new();
+    let locale = locale.clone();
+    let i18n_arc = std::sync::Arc::clone(i18n);
+    env.add_function("__", move |msg: String| -> String {
+        crate::i18n::__(locale.as_deref(), &i18n_arc, &msg)
+    });
+    let template = env
+        .template_from_named_str("login.html.tpl", include_str!("../templates/login.html.tpl"))
+        .unwrap();
+    template
+        .render(minijinja::context! {
+            scripts_ts,
+            theme_light,
+            theme_dark,
+            return_url,
+            lifetime,
+        })
+        .unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -254,10 +304,14 @@ mod tests {
 
     #[test]
     fn login_page_substitutes_dynamic_values() {
-        let html = render_login_page(&test_config());
+        let i18n = std::sync::Arc::new(crate::i18n::I18nCache::new(
+            test_config().docroot.join("locale"),
+        ));
+        let locale = None;
+        let html = render_login_page(&test_config(), &locale, &i18n);
         // No placeholders remain.
-        assert!(!html.contains("__SCRIPTS_TS__"));
-        assert!(!html.contains("__RETURN_URL__"));
+        assert!(!html.contains("{{ "));
+        assert!(!html.contains(" {{"));
         assert!(html.contains("return=http%3A%2F%2F127.0.0.1%3A8280%2Ftt-rss%2F"));
         assert!(html.contains("const __default_light_theme = \"themes/light.css?"));
         assert!(html.contains("src=\"js/common.js?"));
@@ -304,13 +358,15 @@ mod tests {
 
         // Non-empty custom CSS → the inline `<style>` block appears in both the
         // shell and the prefs page (PHP `UserHelper::print_user_stylesheet`).
-        let shell = render_shell("tok", 123, "", &block, "", "");
+        let i18n = std::sync::Arc::new(crate::i18n::I18nCache::new(std::path::PathBuf::from("../../tt-rss/locale")));
+        let shell = render_shell("tok", 123, "", &block, "", "", None, &i18n);
         assert!(shell.contains(&block), "shell missing the user stylesheet block");
         let prefs = render_prefs_page("tok", 123, 3, "", &block, "");
         assert!(prefs.contains(&block), "prefs missing the user stylesheet block");
 
         // Empty → no `user_css_style` block is emitted.
-        assert!(!render_shell("tok", 123, "", "", "", "").contains("user_css_style"));
+        let i18n = std::sync::Arc::new(crate::i18n::I18nCache::new(std::path::PathBuf::from("../../tt-rss/locale")));
+        assert!(!render_shell("tok", 123, "", "", "", "", None, &i18n).contains("user_css_style"));
         assert!(!render_prefs_page("tok", 123, 3, "", "", "").contains("user_css_style"));
     }
 
@@ -320,12 +376,38 @@ mod tests {
     fn shell_renders_plugin_assets_when_present() {
         let css = ".my-plugin { color: red; }";
         let js = "Plugins.MyPlugin = {};";
-        let shell = render_shell("tok", 123, "", "", css, js);
+        let i18n = std::sync::Arc::new(crate::i18n::I18nCache::new(std::path::PathBuf::from("../../tt-rss/locale")));
+        let shell = render_shell("tok", 123, "", "", css, js, None, &i18n);
         assert!(shell.contains(css), "shell missing plugin CSS");
         assert!(shell.contains(js), "shell missing plugin JS");
         // Empty assets → no plugin CSS/JS in the shell.
-        let shell_empty = render_shell("tok", 123, "", "", "", "");
+        let i18n = std::sync::Arc::new(crate::i18n::I18nCache::new(std::path::PathBuf::from("../../tt-rss/locale")));
+        let shell_empty = render_shell("tok", 123, "", "", "", "", None, &i18n);
         assert!(!shell_empty.contains("Plugins."), "empty shell should have no plugin JS");
+    }
+
+    #[test]
+    fn shell_translates_strings_for_non_english_locale() {
+        let i18n = std::sync::Arc::new(crate::i18n::I18nCache::new(std::path::PathBuf::from("../../tt-rss/locale")));
+        // English (no locale): the original string is present.
+        let en = render_shell("tok", 123, "", "", "", "", None, &i18n);
+        assert!(en.contains("Loading, please wait..."), "English shell should have the original string");
+        // German: the string should be translated.
+        let de = render_shell("tok", 123, "", "", "", "", Some("de_DE"), &i18n);
+        assert!(!de.contains("Loading, please wait..."), "German shell should not have the English string");
+        assert!(de.contains("Ladevorgang, bitte warten..."), "German shell should contain the translated string");
+    }
+
+    #[test]
+    fn login_page_translates_for_non_english_locale() {
+        let i18n = std::sync::Arc::new(crate::i18n::I18nCache::new(std::path::PathBuf::from("../../tt-rss/locale")));
+        // English (no locale): the original string is present.
+        let en = render_login_page(&test_config(), &None, &i18n);
+        assert!(en.contains("Log in"), "English login should have the original string");
+        // German: the string should be translated.
+        let de = render_login_page(&test_config(), &Some("de_DE".to_string()), &i18n);
+        assert!(!de.contains(">Log in<"), "German login should not have the English button text");
+        assert!(de.contains(">Anmelden<"), "German login should contain the translated button text");
     }
 
     #[test]

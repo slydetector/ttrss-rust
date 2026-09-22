@@ -5,10 +5,10 @@
 	<link rel="shortcut icon" type="image/png" href="images/favicon.png">
 	<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
 	<meta name="viewport" content="initial-scale=1,width=device-width" />
-<script src="lib/dojo/dojo.js?__SCRIPTS_TS__" type="text/javascript" charset="utf-8"></script>
-<script src="lib/dojo/tt-rss-layer.js?__SCRIPTS_TS__" type="text/javascript" charset="utf-8"></script>
-<script src="js/common.js?__SCRIPTS_TS__" type="text/javascript" charset="utf-8"></script>
-<script src="js/utility.js?__SCRIPTS_TS__" type="text/javascript" charset="utf-8"></script>
+<script src="lib/dojo/dojo.js?{{ scripts_ts }}" type="text/javascript" charset="utf-8"></script>
+<script src="lib/dojo/tt-rss-layer.js?{{ scripts_ts }}" type="text/javascript" charset="utf-8"></script>
+<script src="js/common.js?{{ scripts_ts }}" type="text/javascript" charset="utf-8"></script>
+<script src="js/utility.js?{{ scripts_ts }}" type="text/javascript" charset="utf-8"></script>
 
 	
 	<style type="text/css">
@@ -28,8 +28,8 @@
 	</script>
 
 	<script type="text/javascript">
-		const __default_light_theme = "__THEME_LIGHT__";
-		const __default_dark_theme = "__THEME_DARK__";
+		const __default_light_theme = "{{ theme_light }}";
+		const __default_dark_theme = "{{ theme_dark }}";
 	</script>
 
 	<script type="text/javascript">
@@ -81,7 +81,7 @@
     	},
         bwLimitChange: function(elem) {
         	Cookie.set("ttrss_bwlimit", elem.checked,
-				__LIFETIME__);
+				{{ lifetime }});
 	    }
     };
 
@@ -91,9 +91,9 @@
 
 <div class="container">
 
-	<h1>Authentication</h1>
+	<h1>{{ __("Authentication") }}</h1>
 	<div class="content">
-		<form action="public.php?return=__RETURN_URL__"
+		<form action="public.php?return={{ return_url }}"
 			  dojoType="dijit.form.Form" method="POST">
 
 			<input dojoType="dijit.form.TextBox" style="display : none"
@@ -101,7 +101,7 @@
                value="login">
 			
 			<fieldset>
-				<label>Login:</label>
+				<label>{{ __("Login:") }}</label>
 				<input name="login" id="login" dojoType="dijit.form.TextBox" type="text"
 					autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false"
 					onchange="UtilityApp.fetchProfiles()"
@@ -111,7 +111,7 @@
 			</fieldset>
 
 			<fieldset>
-				<label>Password:</label>
+				<label>{{ __("Password:") }}</label>
 
 				<input type="password" name="password" required="1"
 					autocomplete="current-password"
@@ -122,15 +122,15 @@
 					onblur="UtilityApp.fetchProfiles()"
 										value=""/>
 			</fieldset>
-							<fieldset class="align-right">
-					<a href="public.php?op=forgotpass">I forgot my password</a>
+						<fieldset class="align-right">
+					<a href="public.php?op=forgotpass">{{ __("I forgot my password") }}</a>
 				</fieldset>
 			
-							<fieldset>
-					<label>Profile:</label>
+						<fieldset>
+					<label>{{ __("Profile:") }}</label>
 
 					<select disabled='disabled' name="profile" id="profile" dojoType='dijit.form.Select'>
-						<option>Default profile</option>
+						<option>{{ __("Default profile") }}</option>
 					</select>
 				</fieldset>
 
@@ -139,35 +139,35 @@
 
 					<label id="bw_limit_label">
 						<input dojoType='dijit.form.CheckBox' name="bw_limit"
-                    onchange="UtilityApp.bwLimitChange(this)" id="bw_limit">						Use less traffic</label>
+                    onchange="UtilityApp.bwLimitChange(this)" id="bw_limit">						{{ __("Use less traffic") }}</label>
 				</fieldset>
 
 				<div dojoType="dijit.Tooltip" connectId="bw_limit_label" position="below" style="display:none">
-					Does not display images in articles, reduces automatic refreshes.				</div>
+					{{ __("Does not display images in articles, reduces automatic refreshes.") }}				</div>
 
 				<fieldset class="narrow">
 					<label> </label>
 
 					<label id="safe_mode_label">
 						<input dojoType='dijit.form.CheckBox' name="safe_mode"
-                     id="">						Safe mode					</label>
+                     id="">						{{ __("Safe mode") }}					</label>
 				</fieldset>
 
 				<div dojoType="dijit.Tooltip" connectId="safe_mode_label" position="below" style="display:none">
-					Uses default theme and prevents all plugins from loading.				</div>
+					{{ __("Uses default theme and prevents all plugins from loading.") }}				</div>
 
 									<fieldset class="narrow">
 						<label> </label>
 						<label>
 							<input dojoType='dijit.form.CheckBox' name="remember_me"
-                     id="">							Remember me						</label>
+                     id="">							{{ __("Remember me") }}						</label>
 					</fieldset>
-							
+						
 			<hr/>
 
 			<fieldset class="align-right">
 				<label> </label>
-								<button dojoType="dijit.form.Button" class="alt-primary" type="submit">Log in</button>											</fieldset>
+							<button dojoType="dijit.form.Button" class="alt-primary" type="submit">{{ __("Log in") }}</button>											</fieldset>
 
 		</form>
 	</div>

@@ -4,19 +4,19 @@
 	<title>Tiny Tiny RSS</title>
     <meta name="viewport" content="initial-scale=1,width=device-width" />
 
-	__THEME_CSS_LINK__
+	{{ theme_css_link }}
 	
 	<script type="text/javascript">
-		const __csrf_token = "__CSRF_TOKEN__";
+		const __csrf_token = "{{ csrf_token }}";
 
-		const __default_light_theme = "themes/light.css?__SCRIPTS_TS__";
-		const __default_dark_theme = "themes/night.css?__SCRIPTS_TS__";
+		const __default_light_theme = "themes/light.css?{{ scripts_ts }}";
+		const __default_dark_theme = "themes/night.css?{{ scripts_ts }}";
 	</script>
 
 	
-	__USER_CSS_STYLE__
+	{{ user_css_style }}
 	<style type="text/css">
-	__PLUGIN_CSS__
+	{{ plugin_css }}
 	</style>
 
 	<link rel="shortcut icon" type="image/png" href="images/favicon.png"/>
@@ -35,24 +35,24 @@
 	<script>
 		dojoConfig = {
 			async: true,
-			cacheBust: "__SCRIPTS_TS__",
+			cacheBust: "{{ scripts_ts }}",
 			packages: [
 				{ name: "fox", location: "../../js" },
 			]
 		};
 	</script>
 
-	<script src="lib/dojo/dojo.js?__SCRIPTS_TS__" type="text/javascript" charset="utf-8"></script>
-<script src="lib/dojo/tt-rss-layer.js?__SCRIPTS_TS__" type="text/javascript" charset="utf-8"></script>
-<script src="js/tt-rss.js?__SCRIPTS_TS__" type="text/javascript" charset="utf-8"></script>
-<script src="js/common.js?__SCRIPTS_TS__" type="text/javascript" charset="utf-8"></script>
+	<script src="lib/dojo/dojo.js?{{ scripts_ts }}" type="text/javascript" charset="utf-8"></script>
+<script src="lib/dojo/tt-rss-layer.js?{{ scripts_ts }}" type="text/javascript" charset="utf-8"></script>
+<script src="js/tt-rss.js?{{ scripts_ts }}" type="text/javascript" charset="utf-8"></script>
+<script src="js/common.js?{{ scripts_ts }}" type="text/javascript" charset="utf-8"></script>
 
 	<script type="text/javascript">
 		require({cache:{}});
 	</script>
 
 	<script type="text/javascript">
-	__PLUGIN_JS__
+	{{ plugin_js }}
 	</script>
 
 	<style type="text/css">
@@ -68,7 +68,7 @@
 	</style>
 
 	<noscript>
-		<link href="themes/light.css?__SCRIPTS_TS__" rel="stylesheet" type="text/css" data-orig-href="themes/light.css"/>
+		<link href="themes/light.css?{{ scripts_ts }}" rel="stylesheet" type="text/css" data-orig-href="themes/light.css"/>
 
 		<style type="text/css">
 			body.css_loading noscript {
@@ -84,11 +84,11 @@
 
 <body class="flat ttrss_main ttrss_index css_loading">
 
-<noscript class="alert alert-error">Javascript is disabled. Please enable it.</noscript>
+<noscript class="alert alert-error">{{ __("Javascript is disabled. Please enable it.") }}</noscript>
 
 <div id="overlay">
 	<div id="overlay_inner">
-		Loading, please wait...		<div dojoType="dijit.ProgressBar" places="0" style="width : 300px" id="loading_bar"
+		{{ __("Loading, please wait...") }}		<div dojoType="dijit.ProgressBar" places="0" style="width : 300px" id="loading_bar"
 	     progress="0" maximum="100">
 		</div>
 	</div>
@@ -105,7 +105,7 @@
     <div id="feeds-holder" dojoType="dijit.layout.ContentPane" region="leading" style="width : 20%" splitter="true">
         <div id="feedlistLoading" class="text-center text-muted text-small">
 			  	<img class="icon-three-dots" src="images/three-dots.svg?2">
-				Loading, please wait...			</div>
+				{{ __("Loading, please wait...") }}			</div>
                 <div id="feedTree"></div>
     </div>
 
@@ -115,27 +115,27 @@
 
 					<!-- order -1: feed drawer toggle (the app logo), shown only in narrow/phone layout -->
 					<img class="sidebar-toggle" src="images/favicon-72px.png" alt="" draggable="false" role="button" tabindex="0"
-						aria-expanded="false" title="Toggle feed list"
+						aria-expanded="false" title="{{ __("Toggle feed list") }}"
 						onclick="App.toggleSidebar()"
 						onkeydown="if (event.key === 'Enter' || event.key === ' ') { App.toggleSidebar(); event.preventDefault(); }">
 
 			 	<!-- order 0, default -->
 
-				
+
 				<!-- order 5: alert icons -->
 
 						<i class="material-icons net-alert" style="display : none; order : 5"
-							title="Communication problem with server.">error_outline</i>
+							title="{{ __("Communication problem with server.") }}">error_outline</i>
 
 						<i class="material-icons log-alert" style="display : none; order : 5" onclick="App.openPreferences('system')"
-							title="Recent entries found in event log.">warning</i>
+							title="{{ __("Recent entries found in event log.") }}">warning</i>
 
 						<a id="updates-available" target="_blank" rel="noopener noreferrer" href="" style="display: none; order: 5">
-							<i class="material-icons icon-new-version" title="Updates for Tiny Tiny RSS are available.">new_releases</i>
+							<i class="material-icons icon-new-version" title="{{ __("Updates for Tiny Tiny RSS are available.") }}">new_releases</i>
 						</a>
 
 						<a id="plugin-updates-available" href="prefs.php?tab=prefs" style="display: none; order: 5">
-							<i class="material-icons icon-new-version" title="Updates for some local plugins are available.">new_releases</i>
+							<i class="material-icons icon-new-version" title="{{ __("Updates for some local plugins are available.") }}">new_releases</i>
 						</a>
 
 				<!-- order 10: headlines toolbar -->
@@ -143,34 +143,34 @@
 
 				<!-- order 20: main toolbar contents (dropdowns) -->
 				<form id="toolbar-main" dojoType="dijit.form.Form" action="" style="order : 20" onsubmit="return false">
-					<select name="view_mode" title="Show articles"
+					<select name="view_mode" title="{{ __("Show articles") }}"
 						onchange="Feeds.onViewModeChanged()"
 						dojoType="fox.form.Select">
-						<option selected="selected" value="adaptive">Adaptive</option>
-						<option value="all_articles">All Articles</option>
-						<option value="marked">Starred</option>
-						<option value="published">Published</option>
-						<option value="unread">Unread</option>
-						<option value="has_note">With Note</option>
+						<option selected="selected" value="adaptive">{{ __("Adaptive") }}</option>
+						<option value="all_articles">{{ __("All Articles") }}</option>
+						<option value="marked">{{ __("Starred") }}</option>
+						<option value="published">{{ __("Published") }}</option>
+						<option value="unread">{{ __("Unread") }}</option>
+						<option value="has_note">{{ __("With Note") }}</option>
 					</select>
 
-					<select title="Sort articles"
+					<select title="{{ __("Sort articles") }}"
 							onchange="Feeds.onViewModeChanged()"
 							dojoType="fox.form.Select" name="order_by">
 
-						<option selected="selected" value="default">Default</option>
-							<option value="feed_dates">Newest first</option>
-							<option value="date_reverse">Oldest first</option>
-							<option value="title">Title</option>
+						<option selected="selected" value="default">{{ __("Default") }}</option>
+							<option value="feed_dates">{{ __("Newest first") }}</option>
+							<option value="date_reverse">{{ __("Oldest first") }}</option>
+							<option value="title">{{ __("Title") }}</option>
 
 											</select>
 
 					<select class="catchup-button" id="main-catchup-dropdown" dojoType="fox.form.Select"
 						data-prevent-value-change="true">
-						<option value="">Mark as read</option>
-						<option value="1day">Older than one day</option>
-						<option value="1week">Older than one week</option>
-						<option value="2week">Older than two weeks</option>
+						<option value="">{{ __("Mark as read") }}</option>
+						<option value="1day">{{ __("Older than one day") }}</option>
+						<option value="1week">{{ __("Older than one week") }}</option>
+						<option value="2week">{{ __("Older than two weeks") }}</option>
 					</select>
 				</form>
 
@@ -178,7 +178,7 @@
 
 				<div class="action-chooser" style="order : 30">
 					
-					<div dojoType="fox.form.DropDownButton" class="action-button" title="Actions...">
+					<div dojoType="fox.form.DropDownButton" class="action-button" title="{{ __("Actions...") }}">
 						<span><i class="material-icons">menu</i></span>
 						<div dojoType="dijit.Menu" style="display: none">
 								<script type='dojo/method' event='onOpen' args='evt,a,b,c'>
@@ -188,42 +188,42 @@
 
 									if (combined)
 										combined.attr('label',
-											App.isCombinedMode() ? "Switch to three panel view" : "Switch to combined view");
+											App.isCombinedMode() ? {{ __("Switch to three panel view") | tojson }} : {{ __("Switch to combined view") | tojson }});
 
 									if (widescreen)
 										widescreen
 											.attr('hidden', !!App.isCombinedMode())
 											.attr('label',
-												App.isWideScreenMode() ? "Disable widescreen mode" : "Enable widescreen mode");
+												App.isWideScreenMode() ? {{ __("Disable widescreen mode") | tojson }} : {{ __("Enable widescreen mode") | tojson }});
 
 									if (expanded)
 										expanded
 											.attr('hidden', !App.isCombinedMode())
 											.attr('label',
-												App.isExpandedMode() ? "Expand selected article only" : "Expand all articles");
+												App.isExpandedMode() ? {{ __("Expand selected article only") | tojson }} : {{ __("Expand all articles") | tojson }});
 								</script>
 
-								<div dojoType="dijit.MenuItem" onclick="App.onActionSelected('qmcPrefs')">Preferences...</div>
-								<div dojoType="dijit.MenuItem" onclick="App.onActionSelected('qmcSearch')">Search...</div>
-								<div dojoType="dijit.MenuItem" onclick="App.onActionSelected('qmcFilterFeeds')">Search feeds...</div>
-								<div dojoType="dijit.MenuItem" disabled="1">Feed actions:</div>
-								<div dojoType="dijit.MenuItem" onclick="App.onActionSelected('qmcAddFeed')">Subscribe to feed...</div>
-								<div dojoType="dijit.MenuItem" onclick="App.onActionSelected('qmcEditFeed')">Edit this feed...</div>
-								<div dojoType="dijit.MenuItem" onclick="App.onActionSelected('qmcRemoveFeed')">Unsubscribe</div>
-								<div dojoType="dijit.MenuItem" disabled="1">All feeds:</div>
-								<div dojoType="dijit.MenuItem" onclick="App.onActionSelected('qmcCatchupAll')">Mark as read</div>
-								<div dojoType="dijit.MenuItem" onclick="App.onActionSelected('qmcShowOnlyUnread')">(Un)hide read feeds</div>
-								<div dojoType="dijit.MenuItem" disabled="1">UI layout:</div>
-								<div dojoType="dijit.MenuItem" id="qmcToggleCombined" onclick="App.onActionSelected('qmcToggleCombined')">Toggle combined mode</div>
+								<div dojoType="dijit.MenuItem" onclick="App.onActionSelected('qmcPrefs')">{{ __("Preferences...") }}</div>
+								<div dojoType="dijit.MenuItem" onclick="App.onActionSelected('qmcSearch')">{{ __("Search...") }}</div>
+								<div dojoType="dijit.MenuItem" onclick="App.onActionSelected('qmcFilterFeeds')">{{ __("Search feeds...") }}</div>
+								<div dojoType="dijit.MenuItem" disabled="1">{{ __("Feed actions:") }}</div>
+								<div dojoType="dijit.MenuItem" onclick="App.onActionSelected('qmcAddFeed')">{{ __("Subscribe to feed...") }}</div>
+								<div dojoType="dijit.MenuItem" onclick="App.onActionSelected('qmcEditFeed')">{{ __("Edit this feed...") }}</div>
+								<div dojoType="dijit.MenuItem" onclick="App.onActionSelected('qmcRemoveFeed')">{{ __("Unsubscribe") }}</div>
+								<div dojoType="dijit.MenuItem" disabled="1">{{ __("All feeds:") }}</div>
+								<div dojoType="dijit.MenuItem" onclick="App.onActionSelected('qmcCatchupAll')">{{ __("Mark as read") }}</div>
+								<div dojoType="dijit.MenuItem" onclick="App.onActionSelected('qmcShowOnlyUnread')">{{ __("Unhide read feeds") }}</div>
+								<div dojoType="dijit.MenuItem" disabled="1">{{ __("UI layout:") }}</div>
+								<div dojoType="dijit.MenuItem" id="qmcToggleCombined" onclick="App.onActionSelected('qmcToggleCombined')">{{ __("Toggle combined mode") }}</div>
 								<div dojoType="dijit.MenuItem" id="qmcToggleWidescreen" onclick="App.onActionSelected('qmcToggleWidescreen')">
-									Toggle widescreen mode</div>
+									{{ __("Toggle widescreen mode") }}</div>
 								<div dojoType="dijit.MenuItem" id="qmcToggleExpanded" onclick="App.onActionSelected('qmcToggleExpanded')">
-									Toggle expand all articles</div>
-								<div dojoType="dijit.MenuItem" disabled="1">Other actions:</div>
-                        <div dojoType="dijit.MenuItem" onclick="App.onActionSelected('qmcHKhelp')">Keyboard shortcuts help</div>
+									{{ __("Toggle expand all articles") }}</div>
+								<div dojoType="dijit.MenuItem" disabled="1">{{ __("Other actions:") }}</div>
+                        <div dojoType="dijit.MenuItem" onclick="App.onActionSelected('qmcHKhelp')">{{ __("Keyboard shortcuts help") }}</div>
 
                         
-                                                    <div dojoType="dijit.MenuItem" onclick="App.onActionSelected('qmcLogout')">Logout</div>
+                                                    <div dojoType="dijit.MenuItem" onclick="App.onActionSelected('qmcLogout')">{{ __("Logout") }}</div>
                                             </div>
                 </div>
             </div>
@@ -233,7 +233,7 @@
             <div id="headlines-frame" dojoType="dijit.layout.ContentPane" tabindex="0"
                     region="center">
                 <div id="headlinesInnerContainer">
-                    <div class="whiteBox">Loading, please wait...</div>
+                    <div class="whiteBox">{{ __("Loading, please wait...") }}</div>
                 </div>
             </div>
             <div id="content-insert" dojoType="dijit.layout.ContentPane" region="bottom"
