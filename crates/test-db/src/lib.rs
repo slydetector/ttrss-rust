@@ -39,6 +39,7 @@ use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
 use testcontainers_modules::postgres::Postgres;
 use testcontainers_modules::testcontainers::runners::AsyncRunner;
+use testcontainers_modules::testcontainers::core::Mount;
 use testcontainers_modules::testcontainers::{ContainerAsync, ImageExt, ReuseDirective};
 
 /// Fixed name of the dedicated test Postgres container.
@@ -80,7 +81,8 @@ impl PgServer {
             let request = Postgres::default()
                 .with_tag("17-alpine")
                 .with_container_name(CONTAINER_NAME)
-                .with_reuse(ReuseDirective::Always);
+                .with_reuse(ReuseDirective::Always)
+                .with_mount(Mount::tmpfs_mount("/var/lib/postgresql/data"));
             match request.start().await {
                 Ok(container) => {
                     let port = container
