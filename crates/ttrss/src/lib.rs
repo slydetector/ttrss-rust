@@ -60,9 +60,10 @@ pub struct AppState {
     pub config: Config,
     pub db: Db,
     /// The plugin registry, built once at startup ([`PluginHost::startup`]).
-    /// M7.1: the static list is empty (the no-op baseline); grows as M7.4+
-    /// land.
     pub plugins: Arc<PluginHost>,
+    /// Per-process prefs cache (the PHP's `Prefs` singleton `$cache`): one
+    /// `SELECT` per (uid, profile), then memory hits. Invalidated on prefs save.
+    pub(crate) prefs_cache: Arc<std::sync::RwLock<std::collections::HashMap<(i64, Option<i32>), Vec<(String, Option<i32>, String)>>>>,
 }
 
 impl AppState {
@@ -71,6 +72,7 @@ impl AppState {
             plugins: Arc::new(PluginHost::startup(&crate::pluginhost::all_plugins())),
             config,
             db,
+            prefs_cache: Arc::new(std::sync::RwLock::new(std::collections::HashMap::new())),
         }
     }
 }

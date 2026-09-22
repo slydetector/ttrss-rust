@@ -98,7 +98,8 @@ async fn index(
     let ts = render::scripts_timestamp(state.config.docroot.as_path());
     let theme_link = theme_css_link(&state, &data).await;
     let user_css = user_css_style(&state, &data).await;
-    let (plugin_css, plugin_js) = plugin_assets(&state, &data).await;
+    let active_plugins = resolve_active_plugins(&state, &data).await;
+    let (plugin_css, plugin_js) = plugin_assets(&state, &active_plugins);
     let html = render::render_shell(csrf, ts, &theme_link, &user_css, &plugin_css, &plugin_js);
     let etag = format!("\"{}\"", md5_hex(&html));
     // `send_conditional_html`: 304 when the client's validator matches.
@@ -157,9 +158,10 @@ async fn prefs_page(
 /// The shell/prefs-page per-user theme `<link>` (PHP `index.php`/`prefs.php`
 /// head): the `USER_CSS_THEME` pref resolved per (uid, profile), skipped in
 /// safe mode, and only rendered when the theme file exists.
-/// M7.21: generate the active plugins' CSS and JS for the shell (the PHP's
-/// `index.php` `foreach get_plugins(): get_css()/get_js()` loops).
-async fn plugin_assets(state: &AppState, data: &core_session::Session) -> (String, String) {
+/// Resolve the active plugin names for this user (the PHP's
+/// `init_plugins()`: system from `TTRSS_PLUGINS` + user from
+/// `_ENABLED_PLUGINS`). Called once per request.
+async fn resolve_active_plugins(state: &AppState, data: &core_session::Session) -> Vec<String> {
     let uid = data.uid().unwrap_or(0);
     let profile = data.profile().map(|p| p as i32);
     let system: Vec<String> = state
@@ -169,7 +171,7 @@ async fn plugin_assets(state: &AppState, data: &core_session::Session) -> (Strin
         .map(|s| s.trim().to_lowercase())
         .filter(|s| !s.is_empty())
         .collect();
-    let pref_rows = crate::prefs::load_rows(&state.db, uid, profile).await;
+    let pref_rows = crate::prefs::load_rows_cached(&state.prefs_cache, &state.db, uid, profile).await;
     let enabled =
         crate::prefs::resolve(crate::prefs::_ENABLED_PLUGINS, &pref_rows, profile).as_str().to_string();
     let user: Vec<String> = enabled
@@ -178,16 +180,22 @@ async fn plugin_assets(state: &AppState, data: &core_session::Session) -> (Strin
         .filter(|s| !s.is_empty())
         .collect();
     // Union of system + user plugins (the PHP loads both).
-    let mut active: Vec<&str> = system.iter().map(|s| s.as_str()).collect();
-    for p in &user {
-        if !active.contains(&p.as_str()) {
+    let mut active: Vec<String> = system;
+    for p in user {
+        if !active.contains(&p) {
             active.push(p);
         }
     }
-    // Generate CSS (concatenated) and JS (try/catch per plugin) in the PHP's format.
+    active
+}
+
+/// Generate the active plugins' CSS and JS for the shell (the PHP's
+/// `index.php` `foreach get_plugins(): get_css()/get_js()` loops).
+/// Pure registry lookup — no DB access.
+fn plugin_assets(state: &AppState, active: &[String]) -> (String, String) {
     let mut css_parts: Vec<String> = Vec::new();
     let mut js_parts: Vec<String> = Vec::new();
-    for name in &active {
+    for name in active {
         if let Some(plugin) = state.plugins.get_plugin(name) {
             let css = plugin.get_css();
             if !css.is_empty() {
@@ -210,7 +218,7 @@ async fn theme_css_link(state: &AppState, data: &core_session::Session) -> Strin
     }
     let uid = data.uid().unwrap_or(0);
     let profile = data.profile().map(|p| p as i32);
-    let rows = crate::prefs::load_rows(&state.db, uid, profile).await;
+    let rows = crate::prefs::load_rows_cached(&state.prefs_cache, &state.db, uid, profile).await;
     let pref = crate::prefs::resolve("USER_CSS_THEME", &rows, profile);
     let theme = pref.as_str();
     render::theme_css_link(state.config.docroot.as_path(), theme)
@@ -224,7 +232,7 @@ async fn theme_css_link(state: &AppState, data: &core_session::Session) -> Strin
 async fn user_css_style(state: &AppState, data: &core_session::Session) -> String {
     let uid = data.uid().unwrap_or(0);
     let profile = data.profile().map(|p| p as i32);
-    let rows = crate::prefs::load_rows(&state.db, uid, profile).await;
+    let rows = crate::prefs::load_rows_cached(&state.prefs_cache, &state.db, uid, profile).await;
     let value = crate::prefs::resolve(crate::prefs::USER_STYLESHEET, &rows, profile)
         .as_str()
         .to_string();

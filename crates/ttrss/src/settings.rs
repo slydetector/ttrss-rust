@@ -411,6 +411,10 @@ pub async fn saveconfig(state: &AppState, sess: &Sess, extra: &Map<String, Value
         }
     }
 
+    // Invalidate the per-process prefs cache so the next read reflects the
+    // saved values (the PHP's `Prefs::set` updates the in-memory cache).
+    crate::prefs::invalidate(&state.prefs_cache, uid, profile);
+
     if need_reload {
         "PREFS_NEED_RELOAD".to_string()
     } else {
@@ -424,6 +428,7 @@ pub async fn resetconfig(state: &AppState, sess: &Sess) -> String {
     let uid = sess.data().uid().unwrap_or(0);
     let profile = sess.data().profile().map(|p| p as i32);
     prefs::reset(&state.db, uid, profile).await;
+    crate::prefs::invalidate(&state.prefs_cache, uid, profile);
     "PREFS_NEED_RELOAD".to_string()
 }
 

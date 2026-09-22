@@ -444,6 +444,35 @@ pub async fn load_rows_pool(
         .collect()
 }
 
+/// `load_rows` with a per-process cache (the PHP's `Prefs` singleton `$cache`):
+/// one `SELECT` per (uid, profile), then memory hits until invalidated.
+pub async fn load_rows_cached(
+    cache: &std::sync::RwLock<std::collections::HashMap<(i64, Option<i32>), Vec<(String, Option<i32>, String)>>>,
+    db: &Db,
+    uid: i64,
+    profile: Option<i32>,
+) -> Vec<(String, Option<i32>, String)> {
+    // Fast path: cache hit.
+    if let Some(rows) = cache.read().ok().and_then(|c| c.get(&(uid, profile)).cloned()) {
+        return rows;
+    }
+    // Slow path: query + populate.
+    let rows = load_rows(db, uid, profile).await;
+    if let Ok(mut c) = cache.write() {
+        c.insert((uid, profile), rows.clone());
+    }
+    rows
+}
+
+/// Drop the cached rows for a (uid, profile) — called after a prefs save so
+/// the next read reflects the change (the PHP's `Prefs::set` updates the
+/// in-memory cache entry).
+pub fn invalidate(cache: &std::sync::RwLock<std::collections::HashMap<(i64, Option<i32>), Vec<(String, Option<i32>, String)>>>, uid: i64, profile: Option<i32>) {
+    if let Ok(mut c) = cache.write() {
+        c.remove(&(uid, profile));
+    }
+}
+
 /// Resolve a pref: (uid, profile) override -> profile-blacklist default ->
 /// PHP default, then cast to the type hint.
 pub fn resolve(name: &str, rows: &[(String, Option<i32>, String)], profile: Option<i32>) -> Pref {
