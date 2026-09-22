@@ -166,6 +166,20 @@ pub fn t_sprintf(locale: Option<&str>, cache: &I18nCache, fmt: &str, args: &[&st
     result
 }
 
+/// Resolve the locale for a request: reads the `USER_LANGUAGE` pref (if set
+/// and not `"auto"`) and falls back to the `Accept-Language` header.
+///
+/// This is the per-request equivalent of PHP's `startup_gettext()`, which runs
+/// at the top of every `index.php`/`api/` request. The resolved locale is
+/// `None` for English (identity translation).
+pub fn resolve_request_locale(
+    cache: &I18nCache,
+    accept_language: Option<&str>,
+    user_language_pref: Option<&str>,
+) -> Option<String> {
+    resolve_locale(accept_language, user_language_pref, cache.available_locales())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -282,5 +296,33 @@ mod tests {
         let cache = test_cache();
         let result = t_sprintf(None, &cache, "Hello %s, you have %d items", &["world", "5"]);
         assert_eq!(result, "Hello world, you have 5 items");
+    }
+
+    #[test]
+    fn test_resolve_request_locale_pref_overrides_header() {
+        let cache = test_cache();
+        let locale = resolve_request_locale(&cache, Some("fr-FR"), Some("de_DE"));
+        assert_eq!(locale.as_deref(), Some("de_DE"));
+    }
+
+    #[test]
+    fn test_resolve_request_locale_header_only() {
+        let cache = test_cache();
+        let locale = resolve_request_locale(&cache, Some("de-DE,de;q=0.9"), None);
+        assert_eq!(locale.as_deref(), Some("de_DE"));
+    }
+
+    #[test]
+    fn test_resolve_request_locale_nothing() {
+        let cache = test_cache();
+        assert_eq!(resolve_request_locale(&cache, None, None), None);
+    }
+
+    #[test]
+    fn test_resolve_request_locale_unavailable_pref_falls_through() {
+        let cache = test_cache();
+        // "xx_XX" is not a real locale; should fall through to Accept-Language.
+        let locale = resolve_request_locale(&cache, Some("fr"), Some("xx_XX"));
+        assert_eq!(locale.as_deref(), Some("fr_FR"));
     }
 }

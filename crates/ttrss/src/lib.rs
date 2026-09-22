@@ -65,15 +65,19 @@ pub struct AppState {
     /// Per-process prefs cache (the PHP's `Prefs` singleton `$cache`): one
     /// `SELECT` per (uid, profile), then memory hits. Invalidated on prefs save.
     pub(crate) prefs_cache: Arc<std::sync::RwLock<std::collections::HashMap<(i64, Option<i32>), Vec<(String, Option<i32>, String)>>>>,
+    /// Gettext catalog cache (M10.1): lazily loads `.mo` files per locale.
+    pub i18n: Arc<i18n::I18nCache>,
 }
 
 impl AppState {
     pub fn new(config: Config, db: Db) -> Self {
+        let i18n = Arc::new(i18n::I18nCache::new(config.docroot.join("locale")));
         Self {
             plugins: Arc::new(PluginHost::startup(&crate::pluginhost::all_plugins())),
             config,
             db,
             prefs_cache: Arc::new(std::sync::RwLock::new(std::collections::HashMap::new())),
+            i18n,
         }
     }
 }
