@@ -11,58 +11,12 @@
 mod common;
 
 use ttrss::auth;
-use ttrss::core::db::Db;
 use ttrss::AppState;
+use test_db::template::with_test_db;
 
-fn test_config() -> ttrss::core::config::Config {
-    ttrss::core::config::Config {
-        db_host: "127.0.0.1".into(),
-        db_port: 5432,
-        db_user: "postgres".into(),
-        db_pass: "postgres".into(),
-        db_name: "postgres".into(),
-        db_sslmode: "disable".into(),
-        db_max_connections: 10,
-        self_url: "http://127.0.0.1:8280/tt-rss/".into(),
-        encryption_key: None,
-        single_user_mode: false,
-        forbid_password_changes: false,
-        disable_login_form: false,
-        plugins: "auth_internal".into(),
-        listen: "127.0.0.1:8281".parse().unwrap(),
-        docroot: std::path::PathBuf::from("tt-rss"),
-        feed_icon_dir: std::path::PathBuf::from("no-such-test-icon-dir"),
-        max_favicon_file_size: 1024 * 1024,
-        max_cache_file_size: 64 * 1024 * 1024,
-        force_article_purge: 0,
-        feed_fetch_timeout: 45,
-        feed_fetch_no_cache_timeout: 15,
-        max_conditional_interval: 43200,
-        http_429_throttle_interval: 3600,
-        daemon_unsuccessful_days_limit: 30,
-        fetch_extended_url_filtering: true,
-        daemon_sleep_interval: 60,
-        daemon_max_jobs: 2,
-        daemon_feed_limit: 50,
-        daemon_update_login_limit: 30,
-        cache_max_days: 7,
-        schedule_purge_orphans: String::from("@daily"),
-        schedule_disk_cache_expire_all: String::from("@daily"),
-        schedule_disable_failed_feeds: String::from("@daily"),
-        schedule_cleanup_feed_icons: String::from("@daily"),
-        schedule_log_daemon_update_login_limit_users: String::from("@daily"),
-        schedule_expire_error_log: String::from("@hourly"),
-        schedule_expire_lock_files: String::from("@hourly"),
-        schedule_send_headlines_digests: String::from("@hourly"),
-    }
-}
-
-async fn make_state(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) -> AppState {
-    let db: Db = common::make_db(pool, options).await.expect("test db");
-    AppState::new(test_config(), db)
+async fn make_state(url: &str) -> AppState {
+    let db = common::make_db_from_url(url).await.expect("test db");
+    AppState::new(common::test_config(), db)
 }
 
 /// Insert a user + profiles; returns the user id.
@@ -90,48 +44,34 @@ async fn add_user_with_profiles(
     uid
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_getprofiles_empty_login_returns_empty(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let state = make_state(pool, options).await;
+#[tokio::test]
+async fn test_getprofiles_empty_login_returns_empty() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = make_state(&url).await;
     let v = auth::get_profiles(&state.db, "").await;
     assert_eq!(v, serde_json::json!([]), "no login -> []: {v}");
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_getprofiles_unknown_login_returns_default_only(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let state = make_state(pool, options).await;
+#[tokio::test]
+async fn test_getprofiles_unknown_login_returns_default_only() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = make_state(&url).await;
     let v = auth::get_profiles(&state.db, "nouser").await;
     assert_eq!(
         v,
         serde_json::json!([ { "label": "Default profile", "value": 0 } ]),
         "unknown login -> default only: {v}"
     );
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_getprofiles_lists_profiles_title_asc(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let state = make_state(pool, options).await;
+#[tokio::test]
+async fn test_getprofiles_lists_profiles_title_asc() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = make_state(&url).await;
     // Inserted out of order; the response must be title-ascending.
     let uid = add_user_with_profiles(&state, "profuser", &["Zeta", "Alpha", "Mid"]).await;
 
@@ -154,18 +94,14 @@ async fn test_getprofiles_lists_profiles_title_asc(
     .await
     .expect("alpha id");
     assert_eq!(arr[1]["value"], serde_json::json!(alpha_id));
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_getprofiles_login_case_insensitive(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let state = make_state(pool, options).await;
+#[tokio::test]
+async fn test_getprofiles_login_case_insensitive() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = make_state(&url).await;
     add_user_with_profiles(&state, "CaseUser", &["P1"]).await;
 
     for login in ["caseuser", "CASEUSER", "CaseUser"] {
@@ -177,4 +113,6 @@ async fn test_getprofiles_login_case_insensitive(
             "case-insensitive match for {login:?}: {v}"
         );
     }
+        Ok(())
+    })).await.unwrap();
 }

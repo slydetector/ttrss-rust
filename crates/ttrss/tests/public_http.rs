@@ -14,59 +14,13 @@ use axum::http::{Method, Request, StatusCode};
 use axum::Router;
 use tower::ServiceExt;
 use serde_json::Value;
-use ttrss::core::db::Db;
 use ttrss::http;
 use ttrss::AppState;
+use test_db::template::with_test_db;
 
-fn test_config() -> ttrss::core::config::Config {
-    ttrss::core::config::Config {
-        db_host: "127.0.0.1".into(),
-        db_port: 5432,
-        db_user: "postgres".into(),
-        db_pass: "postgres".into(),
-        db_name: "postgres".into(),
-        db_sslmode: "disable".into(),
-        db_max_connections: 10,
-        self_url: "http://127.0.0.1:8280/tt-rss/".into(),
-        encryption_key: None,
-        single_user_mode: false,
-        forbid_password_changes: false,
-        disable_login_form: false,
-        plugins: "auth_internal".into(),
-        listen: "127.0.0.1:8281".parse().unwrap(),
-        docroot: std::path::PathBuf::from("tt-rss"),
-        feed_icon_dir: std::path::PathBuf::from("no-such-test-icon-dir"),
-        max_favicon_file_size: 1024 * 1024,
-        max_cache_file_size: 64 * 1024 * 1024,
-        force_article_purge: 0,
-        feed_fetch_timeout: 45,
-        feed_fetch_no_cache_timeout: 15,
-        max_conditional_interval: 43200,
-        http_429_throttle_interval: 3600,
-        daemon_unsuccessful_days_limit: 30,
-        fetch_extended_url_filtering: true,
-        daemon_sleep_interval: 60,
-        daemon_max_jobs: 2,
-        daemon_feed_limit: 50,
-        daemon_update_login_limit: 30,
-        cache_max_days: 7,
-        schedule_purge_orphans: String::from("@daily"),
-        schedule_disk_cache_expire_all: String::from("@daily"),
-        schedule_disable_failed_feeds: String::from("@daily"),
-        schedule_cleanup_feed_icons: String::from("@daily"),
-        schedule_log_daemon_update_login_limit_users: String::from("@daily"),
-        schedule_expire_error_log: String::from("@hourly"),
-        schedule_expire_lock_files: String::from("@hourly"),
-        schedule_send_headlines_digests: String::from("@hourly"),
-    }
-}
-
-async fn make_state(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) -> AppState {
-    let db: Db = common::make_db(pool, options).await.expect("test db");
-    AppState::new(test_config(), db)
+async fn make_state(url: &str) -> AppState {
+    let db = common::make_db_from_url(url).await.expect("test db");
+    AppState::new(common::test_config(), db)
 }
 
 /// The router as the binary builds it (state consumed by `with_state`).
@@ -140,16 +94,10 @@ async fn expect_profiles(state: &AppState, v: &serde_json::Value, login: &str) {
     assert_eq!(v, &serde_json::json!(expected), "login={login:?}");
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_getprofiles_form_post_populates_dropdown(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let state = make_state(pool, options).await;
+#[tokio::test]
+async fn test_getprofiles_form_post_populates_dropdown() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = make_state(&url).await;
     // Inserted out of order; the response must be title-ascending.
     add_user_with_profiles(&state, "httpprofile", &["Work", "Home"]).await;
     let app = app(state.clone());
@@ -161,18 +109,14 @@ async fn test_getprofiles_form_post_populates_dropdown(
     assert_eq!(resp.status(), StatusCode::OK, "form POST must be 200");
     let v = body_json(resp).await;
     expect_profiles(&state, &v, "httpprofile").await;
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_getprofiles_query_string_still_works(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let state = make_state(pool, options).await;
+#[tokio::test]
+async fn test_getprofiles_query_string_still_works() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = make_state(&url).await;
     add_user_with_profiles(&state, "queryprofile", &["Solo"]).await;
     let app = app(state.clone());
 
@@ -185,18 +129,14 @@ async fn test_getprofiles_query_string_still_works(
     assert_eq!(resp.status(), StatusCode::OK);
     let v = body_json(resp).await;
     expect_profiles(&state, &v, "queryprofile").await;
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_getprofiles_form_post_missing_login_returns_empty(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let state = make_state(pool, options).await;
+#[tokio::test]
+async fn test_getprofiles_form_post_missing_login_returns_empty() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = make_state(&url).await;
     let app = app(state);
 
     // `$_REQUEST["login"]` unset in either layer -> PHP `if ($login)` is
@@ -208,6 +148,8 @@ async fn test_getprofiles_form_post_missing_login_returns_empty(
         .expect("response");
     assert_eq!(resp.status(), StatusCode::OK);
     assert_eq!(body_json(resp).await, serde_json::json!([]));
+        Ok(())
+    })).await.unwrap();
 }
 
 // ── M5a.1: the client directory-URL API routes (`POST /api/`, `POST /api`) ──
@@ -287,16 +229,10 @@ async fn expect_api_login_envelope(resp: axum::response::Response) {
     assert_eq!(content.get("api_level").and_then(Value::as_i64), Some(23));
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_api_login_via_directory_url(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let state = make_state(pool, options).await;
+#[tokio::test]
+async fn test_api_login_via_directory_url() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = make_state(&url).await;
     add_user_with_api_password(&state).await;
     let app = app(state);
 
@@ -310,18 +246,14 @@ async fn test_api_login_via_directory_url(
         .await
         .expect("response");
     expect_api_login_envelope(resp).await;
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_api_login_via_bare_path(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let state = make_state(pool, options).await;
+#[tokio::test]
+async fn test_api_login_via_bare_path() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = make_state(&url).await;
     add_user_with_api_password(&state).await;
     let app = app(state);
 
@@ -334,6 +266,8 @@ async fn test_api_login_via_bare_path(
         .await
         .expect("response");
     expect_api_login_envelope(resp).await;
+        Ok(())
+    })).await.unwrap();
 }
 
 /// Insert a user with a *main* (web) password and **no** `_api` app password;
@@ -376,16 +310,10 @@ async fn add_user_with_main_password(
 /// `API::login` (service `_api`): a user with OTP **off** and no matching app
 /// password authenticates via the *regular* password fallback — the `admin/admin`
 /// scenario the Android client hits.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_api_login_main_password_fallback(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let state = make_state(pool, options).await;
+#[tokio::test]
+async fn test_api_login_main_password_fallback() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = make_state(&url).await;
     let login = add_user_with_main_password(&state, "mainlogin", "mainpass", false).await;
     let app = app(state);
 
@@ -397,20 +325,16 @@ async fn test_api_login_main_password_fallback(
         .await
         .expect("response");
     expect_api_login_envelope(resp).await;
+        Ok(())
+    })).await.unwrap();
 }
 
 /// The fallback must NOT apply to OTP-enabled accounts: with OTP on and no
 /// app password, the regular password is rejected (app passwords only).
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_api_login_otp_enabled_requires_app_password(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let state = make_state(pool, options).await;
+#[tokio::test]
+async fn test_api_login_otp_enabled_requires_app_password() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = make_state(&url).await;
     let login = add_user_with_main_password(&state, "otplogin", "otppass", true).await;
     let app = app(state);
 
@@ -428,18 +352,14 @@ async fn test_api_login_otp_enabled_requires_app_password(
         Some("LOGIN_ERROR"),
         "envelope={v:?}"
     );
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_base_path_redirects_to_trailing_slash(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let state = make_state(pool, options).await;
+#[tokio::test]
+async fn test_base_path_redirects_to_trailing_slash() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = make_state(&url).await;
     let app = app(state);
 
     // GET /tt-rss (no trailing slash) must 301 → /tt-rss/
@@ -460,4 +380,6 @@ async fn test_base_path_redirects_to_trailing_slash(
         .and_then(|v| v.to_str().ok())
         .expect("Location header");
     assert_eq!(location, "/tt-rss/", "redirect target");
+        Ok(())
+    })).await.unwrap();
 }

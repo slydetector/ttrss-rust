@@ -10,9 +10,9 @@
 //! * `UserHelperTest::setUp` then inserts a `testuser` with a known
 //!   SSHA-512 password hash.
 //!
-//! The Rust side gets the same state from the `#[sqlx::test]` harness (a
-//! fresh per-test database with the versioned `schema` + `baseline` + `seed`
-//! fixtures applied, in order) plus the same user insert.
+//! The Rust side gets the same state from the shared test-database template
+//! (`with_test_db`: a fresh per-test database restored from the versioned
+//! `schema` + `baseline` + `seed` fixtures) plus the same user insert.
 //!
 //! The PHP suite runs with `TTRSS_SINGLE_USER_MODE` unset (multi-user mode);
 //! the Rust server only implements the multi-user `authenticate` path, so the
@@ -23,15 +23,13 @@ mod common;
 use ttrss::auth::{self, AuthOutcome};
 use ttrss::core::db::Db;
 use ttrss::core::user;
+use test_db::template::with_test_db;
 
 /// `UserHelperTest::setUp` on top of the harness-injected pool: a `testuser`
 /// with the known SSHA-512 password `testpass123` (fresh salt, as in PHP).
 /// Returns the DB and the new user's id.
-async fn setup(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) -> (Db, i32) {
-    let db = common::make_db(pool, options).await.expect("test db");
+async fn setup(url: &str) -> (Db, i32) {
+    let db = common::make_db_from_url(url).await.expect("test db");
     let (hash, salt) = test_db::ssha512_password("testuser", "testpass123");
     let uid: i32 = sqlx::query_scalar(
         "INSERT INTO ttrss_users (login, pwd_hash, salt, access_level)
@@ -69,16 +67,10 @@ fn expect_failure(outcome: AuthOutcome) -> String {
 // ── Happy paths ──────────────────────────────────────────────────────────────
 
 // PHP: test_correct_credentials_returns_true_and_sets_session
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_correct_credentials_returns_true_and_sets_session(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (db, uid) = setup(pool, options).await;
+#[tokio::test]
+async fn test_correct_credentials_returns_true_and_sets_session() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (db, uid) = setup(&url).await;
 
     let (id, login, access_level) =
         expect_success(auth::authenticate(db.pool(), "testuser", "testpass123", None).await);
@@ -92,19 +84,15 @@ async fn test_correct_credentials_returns_true_and_sets_session(
     // Rust handler layer (main.rs login_flow) sets that session key from the
     // same Success value — asserted at the handler/session layer (parity row
     // 9, SessionsIntegrationTest).
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_admin_credentials_work
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_admin_credentials_work(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (db, _) = setup(pool, options).await;
+#[tokio::test]
+async fn test_admin_credentials_work() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (db, _) = setup(&url).await;
 
     let (id, _login, access_level) =
         expect_success(auth::authenticate(db.pool(), "admin", "password", None).await);
@@ -116,6 +104,8 @@ async fn test_admin_credentials_work(
     // 'password', SHA1 hash, access_level 10). PHP's check_password upgrades
     // the stored hash to SSHA-512 on success; the Rust port does the same in
     // `auth::authenticate` (the session receives the upgraded hash).
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_authenticate_regenerates_session_id
@@ -124,16 +114,10 @@ async fn test_admin_credentials_work(
 // `auth::build_login_session`.
 
 // PHP: test_authenticate_updates_last_login
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_authenticate_updates_last_login(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (db, _) = setup(pool, options).await;
+#[tokio::test]
+async fn test_authenticate_updates_last_login() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (db, _) = setup(&url).await;
 
     // PHP: usleep(100_000) before authenticating.
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
@@ -146,71 +130,55 @@ async fn test_authenticate_updates_last_login(
             .expect("query last_login");
 
     assert!(last_login.is_some());
+        Ok(())
+    })).await.unwrap();
 }
 
 // ── Failures ─────────────────────────────────────────────────────────────────
 
 // PHP: test_wrong_password_returns_false
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_wrong_password_returns_false(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (db, _) = setup(pool, options).await;
+#[tokio::test]
+async fn test_wrong_password_returns_false() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (db, _) = setup(&url).await;
 
     let _msg = expect_failure(auth::authenticate(db.pool(), "testuser", "wrong", None).await);
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_nonexistent_user_returns_false
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_nonexistent_user_returns_false(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (db, _) = setup(pool, options).await;
+#[tokio::test]
+async fn test_nonexistent_user_returns_false() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (db, _) = setup(&url).await;
 
     let _msg = expect_failure(auth::authenticate(db.pool(), "ghost", "anything", None).await);
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_login_is_case_insensitive
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_login_is_case_insensitive(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (db, uid) = setup(pool, options).await;
+#[tokio::test]
+async fn test_login_is_case_insensitive() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (db, uid) = setup(&url).await;
 
     let (id, _login, _access_level) =
         expect_success(auth::authenticate(db.pool(), "TESTUSER", "testpass123", None).await);
 
     assert_eq!(id, uid);
+        Ok(())
+    })).await.unwrap();
 }
 
 // ── Disabled user ────────────────────────────────────────────────────────────
 
 // PHP: test_disabled_user_cannot_authenticate
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_disabled_user_cannot_authenticate(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (db, _) = setup(pool, options).await;
+#[tokio::test]
+async fn test_disabled_user_cannot_authenticate() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (db, _) = setup(&url).await;
 
     // PHP inserts: hash_password('nope', 'saltxx', HASH_ALGO_SSHA512),
     // access_level -2 (ACCESS_LEVEL_DISABLED).
@@ -225,4 +193,6 @@ async fn test_disabled_user_cannot_authenticate(
     .expect("insert disabled user");
 
     let _msg = expect_failure(auth::authenticate(db.pool(), "disabled", "nope", None).await);
+        Ok(())
+    })).await.unwrap();
 }

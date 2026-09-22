@@ -15,66 +15,19 @@ mod common;
 
 use serde_json::{json, Map, Value};
 use sqlx::AssertSqlSafe;
-use ttrss::core::config::Config;
 use ttrss::core::db::Db;
-use ttrss::core::phpser::Value as PValue;
-use ttrss::core::session::Session;
 use ttrss::session::Sess;
 use ttrss::AppState;
+use test_db::template::with_test_db;
 
-/// A test-only config (the handlers only need `db` for these cases).
-fn test_config() -> Config {
-    Config {
-        db_host: "127.0.0.1".into(),
-        db_port: 5432,
-        db_user: "postgres".into(),
-        db_pass: "postgres".into(),
-        db_name: "postgres".into(),
-        db_sslmode: "disable".into(),
-        db_max_connections: 10,
-        self_url: "http://127.0.0.1:8280/tt-rss/".into(),
-        encryption_key: None,
-        single_user_mode: false,
-        forbid_password_changes: false,
-        disable_login_form: false,
-        plugins: "auth_internal".into(),
-        listen: "127.0.0.1:8281".parse().unwrap(),
-        docroot: std::path::PathBuf::from("tt-rss"),
-        feed_icon_dir: std::path::PathBuf::from("no-such-test-icon-dir"),
-        max_favicon_file_size: 1024 * 1024,
-        max_cache_file_size: 64 * 1024 * 1024,
-        force_article_purge: 0,
-        feed_fetch_timeout: 45,
-        feed_fetch_no_cache_timeout: 15,
-        max_conditional_interval: 43200,
-        http_429_throttle_interval: 3600,
-        daemon_unsuccessful_days_limit: 30,
-        fetch_extended_url_filtering: true,
-        daemon_sleep_interval: 60,
-        daemon_max_jobs: 2,
-        daemon_feed_limit: 50,
-        daemon_update_login_limit: 30,
-        cache_max_days: 7,
-        schedule_purge_orphans: String::from("@daily"),
-        schedule_disk_cache_expire_all: String::from("@daily"),
-        schedule_disable_failed_feeds: String::from("@daily"),
-        schedule_cleanup_feed_icons: String::from("@daily"),
-        schedule_log_daemon_update_login_limit_users: String::from("@daily"),
-        schedule_expire_error_log: String::from("@hourly"),
-        schedule_expire_lock_files: String::from("@hourly"),
-        schedule_send_headlines_digests: String::from("@hourly"),
-    }
-}
 
-/// Fresh fixtures + a session carrying `uid = 1` (owner of all fixture rows).
-async fn setup(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) -> (AppState, Sess) {
-    let db: Db = common::make_db(pool, options).await.expect("test db");
-    let state = AppState::new(test_config(), db);
-    let mut data = Session::new();
-    data.set("uid", PValue::Int(1));
+/// The template database + a session carrying `uid = 1` (owner of all
+/// fixture rows).
+async fn setup(url: &str) -> (AppState, Sess) {
+    let db = common::make_db_from_url(url).await.expect("test db");
+    let state = AppState::new(common::test_config(), db);
+    let mut data = ttrss::core::session::Session::new();
+    data.set("uid", ttrss::core::phpser::Value::Int(1));
     let sess = Sess::new("test-sid".to_string());
     sess.replace("test-sid".to_string(), data);
     (state, sess)
@@ -145,16 +98,10 @@ fn assert_catchup(before: &[Row], after: &[Row], in_scope: impl Fn(&Row) -> bool
     }
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_catchup_single_feed(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_catchup_single_feed() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let db = &state.db;
 
     let before = entry_rows(db).await;
@@ -170,18 +117,14 @@ async fn test_catchup_single_feed(
 
     let after = entry_rows(db).await;
     assert_catchup(&before, &after, |r| r.feed_id == 1);
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_catchup_category(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_catchup_category() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let db = &state.db;
     let before = entry_rows(db).await;
 
@@ -197,18 +140,14 @@ async fn test_catchup_category(
 
     let after = entry_rows(db).await;
     assert_catchup(&before, &after, |r| matches!(r.feed_id, 1..=3));
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_catchup_all(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_catchup_all() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let db = &state.db;
     let before = entry_rows(db).await;
 
@@ -219,18 +158,14 @@ async fn test_catchup_all(
 
     let after = entry_rows(db).await;
     assert_catchup(&before, &after, |_| true);
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_catchup_starred(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_catchup_starred() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let db = &state.db;
 
     // Star the unread ref 5 so the scope (marked = true) contains an unread
@@ -250,18 +185,14 @@ async fn test_catchup_starred(
 
     let after = entry_rows(db).await;
     assert_catchup(&before, &after, |r| r.marked);
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_catchup_published(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_catchup_published() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let db = &state.db;
 
     // Publish the unread ref 6 so the scope (published = true) contains an
@@ -280,18 +211,14 @@ async fn test_catchup_published(
 
     let after = entry_rows(db).await;
     assert_catchup(&before, &after, |r| r.published);
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_catchup_label(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_catchup_label() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let db = &state.db;
 
     // Label 1: unread refs 4 and 7 plus already-read ref 8 (the seed has
@@ -317,18 +244,14 @@ async fn test_catchup_label(
 
     let after = entry_rows(db).await;
     assert_catchup(&before, &after, |r| labeled.contains(&r.ref_id));
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_catchup_cat_labels(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_catchup_cat_labels() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let db = &state.db;
 
     // Entries belonging to >= 1 label, across two different labels.
@@ -355,18 +278,14 @@ async fn test_catchup_cat_labels(
 
     let after = entry_rows(db).await;
     assert_catchup(&before, &after, |r| labeled.contains(&r.ref_id));
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_catchup_tag(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_catchup_tag() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let db = &state.db;
 
     // Tag the unread ref 4 and the already-read ref 8 (the seed has no tag
@@ -406,18 +325,14 @@ async fn test_catchup_tag(
 
     let after = entry_rows(db).await;
     assert_catchup(&before, &after, |r| tagged.contains(&r.ref_id));
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_catchup_uncategorized(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_catchup_uncategorized() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let db = &state.db;
 
     // All four fixture feeds have a category, so add a feed without one plus
@@ -460,6 +375,8 @@ async fn test_catchup_uncategorized(
 
     let after = entry_rows(db).await;
     assert_catchup(&before, &after, |r| r.feed_id == 5);
+        Ok(())
+    })).await.unwrap();
 }
 
 /// Insert an extra entry + unread user entry for owner 1 (feed 4).
@@ -512,16 +429,10 @@ async fn add_entry(
     }
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_catchup_fresh(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_catchup_fresh() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let db = &state.db;
 
     // All fixture entries are months old, so add two fresh (NOW()) unread
@@ -555,18 +466,14 @@ async fn test_catchup_fresh(
 
     let after = entry_rows(db).await;
     assert_catchup(&before, &after, |r| r.ref_id == 13);
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_catchup_mode_1day(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_catchup_mode_1day() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let db = &state.db;
 
     // A NOW() entry (inside the 1-day window) and a 3-day-old entry (outside
@@ -603,18 +510,14 @@ async fn test_catchup_mode_1day(
 
     let after = entry_rows(db).await;
     assert_catchup(&before, &after, |r| r.ref_id != 13);
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_catchup_mode_1week(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_catchup_mode_1week() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let db = &state.db;
 
     // Same shape as the 1day test: the 3-day-old entry is now INSIDE the
@@ -650,4 +553,6 @@ async fn test_catchup_mode_1week(
 
     let after = entry_rows(db).await;
     assert_catchup(&before, &after, |r| r.ref_id <= 11);
+        Ok(())
+    })).await.unwrap();
 }

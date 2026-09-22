@@ -8,68 +8,19 @@
 mod common;
 
 use serde_json::{json, Map, Value};
-use ttrss::core::config::Config;
-use ttrss::core::db::Db;
-use ttrss::core::phpser::Value as PValue;
-use ttrss::core::session::Session;
 use ttrss::session::Sess;
 use ttrss::AppState;
+use test_db::template::with_test_db;
 
 type Pool = sqlx::PgPool;
 
-/// A test-only config (the handlers only need `db`).
-fn test_config() -> Config {
-    Config {
-        db_host: "127.0.0.1".into(),
-        db_port: 5432,
-        db_user: "postgres".into(),
-        db_pass: "postgres".into(),
-        db_name: "postgres".into(),
-        db_sslmode: "disable".into(),
-        db_max_connections: 10,
-        self_url: "http://127.0.0.1:8280/tt-rss/".into(),
-        encryption_key: None,
-        single_user_mode: false,
-        forbid_password_changes: false,
-        disable_login_form: false,
-        plugins: "auth_internal".into(),
-        listen: "127.0.0.1:8281".parse().unwrap(),
-        docroot: std::path::PathBuf::from("tt-rss"),
-        feed_icon_dir: std::path::PathBuf::from("no-such-test-icon-dir"),
-        max_favicon_file_size: 1024 * 1024,
-        max_cache_file_size: 64 * 1024 * 1024,
-        force_article_purge: 0,
-        feed_fetch_timeout: 45,
-        feed_fetch_no_cache_timeout: 15,
-        max_conditional_interval: 43200,
-        http_429_throttle_interval: 3600,
-        daemon_unsuccessful_days_limit: 30,
-        fetch_extended_url_filtering: true,
-        daemon_sleep_interval: 60,
-        daemon_max_jobs: 2,
-        daemon_feed_limit: 50,
-        daemon_update_login_limit: 30,
-        cache_max_days: 7,
-        schedule_purge_orphans: String::from("@daily"),
-        schedule_disk_cache_expire_all: String::from("@daily"),
-        schedule_disable_failed_feeds: String::from("@daily"),
-        schedule_cleanup_feed_icons: String::from("@daily"),
-        schedule_log_daemon_update_login_limit_users: String::from("@daily"),
-        schedule_expire_error_log: String::from("@hourly"),
-        schedule_expire_lock_files: String::from("@hourly"),
-        schedule_send_headlines_digests: String::from("@hourly"),
-    }
-}
-
-/// Fresh fixtures + a session carrying `uid = 1` (owner of the fixture rows).
-async fn setup(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) -> (AppState, Sess) {
-    let db: Db = common::make_db(pool, options).await.expect("test db");
-    let state = AppState::new(test_config(), db);
-    let mut data = Session::new();
-    data.set("uid", PValue::Int(1));
+/// The template database + a session carrying `uid = 1` (owner of the
+/// fixture rows).
+async fn setup(url: &str) -> (AppState, Sess) {
+    let db = common::make_db_from_url(url).await.expect("test db");
+    let state = AppState::new(common::test_config(), db);
+    let mut data = ttrss::core::session::Session::new();
+    data.set("uid", ttrss::core::phpser::Value::Int(1));
     let sess = Sess::new("test-sid".to_string());
     sess.replace("test-sid".to_string(), data);
     (state, sess)
@@ -112,15 +63,10 @@ async fn last_digest_sent(db: &Pool) -> Option<chrono::NaiveDateTime> {
         .unwrap()
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql"
-))]
-async fn test_saveconfig_sets_prefs(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_saveconfig_sets_prefs() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let db = state.db.pool();
 
     let msg = ttrss::settings::saveconfig(
@@ -144,17 +90,14 @@ async fn test_saveconfig_sets_prefs(
         Some("body { color: red; }")
     );
     assert_eq!(msg, "The configuration was saved.");
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql"
-))]
-async fn test_saveconfig_boolean_default(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_saveconfig_boolean_default() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let db = state.db.pool();
 
     // `boolean_prefs` lists a pref the form did not submit; it defaults to
@@ -179,17 +122,14 @@ async fn test_saveconfig_boolean_default(
     // `HIDE_READ_FEEDS` (default false) set to false is a no-op in `set` (no
     // override row written), so it resolves to the default.
     assert_eq!(pref_value(db, "HIDE_READ_FEEDS").await, None);
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql"
-))]
-async fn test_saveconfig_ignores_invalid_pref(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_saveconfig_ignores_invalid_pref() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let db = state.db.pool();
 
     // A made-up pref name is not a valid pref key, so it is not stored.
@@ -208,17 +148,14 @@ async fn test_saveconfig_ignores_invalid_pref(
         pref_value(db, "USER_STYLESHEET").await.as_deref(),
         Some("a")
     );
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql"
-))]
-async fn test_saveconfig_blacklisted_tags_normalized(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_saveconfig_blacklisted_tags_normalized() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let db = state.db.pool();
 
     // `BLACKLISTED_TAGS` is normalized: lowercased, numeric tags get the
@@ -234,17 +171,14 @@ async fn test_saveconfig_blacklisted_tags_normalized(
         pref_value(db, "BLACKLISTED_TAGS").await.as_deref(),
         Some("main, news, t:5")
     );
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql"
-))]
-async fn test_saveconfig_need_reload_on_theme_change(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_saveconfig_need_reload_on_theme_change() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let db = state.db.pool();
 
     // A changed `USER_CSS_THEME` (default "") triggers a reload.
@@ -260,17 +194,14 @@ async fn test_saveconfig_need_reload_on_theme_change(
         pref_value(db, "USER_CSS_THEME").await.as_deref(),
         Some("dark")
     );
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql"
-))]
-async fn test_saveconfig_no_reload_unchanged(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_saveconfig_no_reload_unchanged() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
 
     // Saving an unchanged `USER_CSS_THEME` (still the default "") does not
     // trigger a reload.
@@ -279,17 +210,14 @@ async fn test_saveconfig_no_reload_unchanged(
             .await;
 
     assert_eq!(msg, "The configuration was saved.");
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql"
-))]
-async fn test_saveconfig_digest_time_resets(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_saveconfig_digest_time_resets() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let db = state.db.pool();
 
     // Seed a non-NULL digest time.
@@ -312,17 +240,14 @@ async fn test_saveconfig_digest_time_resets(
         pref_value(db, "DIGEST_PREFERRED_TIME").await.as_deref(),
         Some("05:00")
     );
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql"
-))]
-async fn test_resetconfig_discards_overrides(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_resetconfig_discards_overrides() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let db = state.db.pool();
 
     // Seed some overrides (plus `_PREFS_MIGRATED`, which `Prefs::reset` keeps).
@@ -354,4 +279,6 @@ async fn test_resetconfig_discards_overrides(
         pref_value(db, "_PREFS_MIGRATED").await.as_deref(),
         Some("1")
     );
+        Ok(())
+    })).await.unwrap();
 }

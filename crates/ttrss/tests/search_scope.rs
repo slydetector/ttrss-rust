@@ -23,65 +23,17 @@ mod common;
 
 use serde_json::{json, Map, Value};
 use sqlx::Row;
-use ttrss::core::config::Config;
 use ttrss::core::db::Db;
-use ttrss::core::phpser::Value as PValue;
-use ttrss::core::session::Session;
 use ttrss::headlines::{get_headlines_query, HeadlinesParams};
 use ttrss::session::Sess;
 use ttrss::AppState;
+use test_db::template::with_test_db;
 
-fn test_config() -> Config {
-    Config {
-        db_host: "127.0.0.1".into(),
-        db_port: 5432,
-        db_user: "postgres".into(),
-        db_pass: "postgres".into(),
-        db_name: "postgres".into(),
-        db_sslmode: "disable".into(),
-        db_max_connections: 10,
-        self_url: "http://127.0.0.1:8280/tt-rss/".into(),
-        encryption_key: None,
-        single_user_mode: false,
-        forbid_password_changes: false,
-        disable_login_form: false,
-        plugins: "auth_internal".into(),
-        listen: "127.0.0.1:8282".parse().unwrap(),
-        docroot: std::path::PathBuf::from("tt-rss"),
-        feed_icon_dir: std::path::PathBuf::from("no-such-test-icon-dir"),
-        max_favicon_file_size: 1024 * 1024,
-        max_cache_file_size: 64 * 1024 * 1024,
-        force_article_purge: 0,
-        feed_fetch_timeout: 45,
-        feed_fetch_no_cache_timeout: 15,
-        max_conditional_interval: 43200,
-        http_429_throttle_interval: 3600,
-        daemon_unsuccessful_days_limit: 30,
-        fetch_extended_url_filtering: true,
-        daemon_sleep_interval: 60,
-        daemon_max_jobs: 2,
-        daemon_feed_limit: 50,
-        daemon_update_login_limit: 30,
-        cache_max_days: 7,
-        schedule_purge_orphans: String::from("@daily"),
-        schedule_disk_cache_expire_all: String::from("@daily"),
-        schedule_disable_failed_feeds: String::from("@daily"),
-        schedule_cleanup_feed_icons: String::from("@daily"),
-        schedule_log_daemon_update_login_limit_users: String::from("@daily"),
-        schedule_expire_error_log: String::from("@hourly"),
-        schedule_expire_lock_files: String::from("@hourly"),
-        schedule_send_headlines_digests: String::from("@hourly"),
-    }
-}
-
-async fn setup(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) -> (AppState, Sess, Db) {
-    let db: Db = common::make_db(pool, options).await.expect("test db");
-    let state = AppState::new(test_config(), db.clone());
-    let mut data = Session::new();
-    data.set("uid", PValue::Int(1));
+async fn setup(url: &str) -> (AppState, Sess, Db) {
+    let db = common::make_db_from_url(url).await.expect("test db");
+    let state = AppState::new(common::test_config(), db.clone());
+    let mut data = ttrss::core::session::Session::new();
+    data.set("uid", ttrss::core::phpser::Value::Int(1));
     let sess = Sess::new("test-sid".to_string());
     sess.replace("test-sid".to_string(), data);
     (state, sess, db)
@@ -127,16 +79,10 @@ async fn entries(db: &Db) -> Vec<Entry> {
         })
         .collect()
 }
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn headline_fts_filters_rows(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (_state, _sess, db) = setup(pool, options).await;
+#[tokio::test]
+async fn headline_fts_filters_rows() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (_state, _sess, db) = setup(&url).await;
     let lang = "english";
 
     // Bare words → FTS (stemmed, english config). Feed 1 = HN (refs 1-3),
@@ -160,18 +106,14 @@ async fn headline_fts_filters_rows(
         head_ids(&db, "1", "postgres", lang).await,
         Vec::<i32>::new()
     );
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn headline_fts_empty_language_is_unexecutable(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (_state, _sess, db) = setup(pool, options).await;
+#[tokio::test]
+async fn headline_fts_empty_language_is_unexecutable() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (_state, _sess, db) = setup(&url).await;
 
     // Default search language "" → to_tsquery('', …) → parse error in the
     // dry run → filter degrades to `false`, no rows, override message.
@@ -179,18 +121,14 @@ async fn headline_fts_empty_language_is_unexecutable(
     assert!(q.article_rows.is_empty());
     assert_eq!(q.query_error_override, "Incorrect search syntax: task.");
     assert_eq!(q.search_words, vec!["task".to_string()]);
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn headline_title_like_filters(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (_state, _sess, db) = setup(pool, options).await;
+#[tokio::test]
+async fn headline_title_like_filters() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (_state, _sess, db) = setup(&url).await;
     let lang = "english";
 
     // `title:` is a case-insensitive substring match on the title — no FTS
@@ -200,18 +138,14 @@ async fn headline_title_like_filters(
     assert_eq!(head_ids(&db, "2", "title:outage", lang).await, vec![5]);
     // Negation: everything except titles containing the word.
     assert_eq!(head_ids(&db, "2", "-title:outage", lang).await, vec![4, 6]);
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn headline_star_search(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (_state, _sess, db) = setup(pool, options).await;
+#[tokio::test]
+async fn headline_star_search() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (_state, _sess, db) = setup(&url).await;
     let lang = "english";
 
     // Only ref 3 is marked in feed 1; only ref 8 in feed 3.
@@ -227,18 +161,14 @@ async fn headline_star_search(
         head_ids(&db, "1", "task|webassembly star:false", lang).await,
         vec![1]
     );
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn headline_dry_run_errors(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (_state, _sess, db) = setup(pool, options).await;
+#[tokio::test]
+async fn headline_dry_run_errors() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (_state, _sess, db) = setup(&url).await;
 
     // `note:` resolves against `ttrss_user_entries.note` (valid SQL); the
     // fixture has no notes until we add one.
@@ -263,18 +193,14 @@ async fn headline_dry_run_errors(
     let q = get_headlines_query(&db, &params("1", "task", "english")).await;
     assert!(q.query_error_override.is_empty());
     assert_eq!(q.search_words, vec!["task".to_string()]);
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn catchup_scoped_to_search(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess, db) = setup(pool, options).await;
+#[tokio::test]
+async fn catchup_scoped_to_search() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess, db) = setup(&url).await;
     let before = entries(&db).await;
 
     // `RPC::catchupFeed` with a search: only the unread entries matching
@@ -300,18 +226,14 @@ async fn catchup_scoped_to_search(
             assert_eq!(a.last_read_set, b.last_read_set);
         }
     }
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn catchup_search_with_mode_window(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess, db) = setup(pool, options).await;
+#[tokio::test]
+async fn catchup_search_with_mode_window() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess, db) = setup(&url).await;
 
     // A FRESH unread "task" article in feed 1 (date_entered = NOW()).
     sqlx::query(
@@ -352,4 +274,6 @@ async fn catchup_search_with_mode_window(
     assert!(!by_id(1).unread && by_id(1).last_read_set, "old ref 1 read");
     assert!(by_id(12).unread, "fresh ref 12 excluded by the 1day window");
     assert!(by_id(2).unread, "ref 2 untouched");
+        Ok(())
+    })).await.unwrap();
 }
