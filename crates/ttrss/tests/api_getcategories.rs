@@ -14,64 +14,17 @@ mod common;
 
 use serde_json::{json, Map, Value};
 use ttrss::api;
-use ttrss::core::config::Config;
-use ttrss::core::db::Db;
 use ttrss::core::phpser::Value as PValue;
 use ttrss::core::session::Session;
 use ttrss::session::Sess;
 use ttrss::AppState;
-
-fn test_config() -> Config {
-    Config {
-        db_host: "127.0.0.1".into(),
-        db_port: 5432,
-        db_user: "postgres".into(),
-        db_pass: "postgres".into(),
-        db_name: "postgres".into(),
-        db_sslmode: "disable".into(),
-        db_max_connections: 10,
-        self_url: "http://127.0.0.1:8280/tt-rss/".into(),
-        encryption_key: None,
-        single_user_mode: false,
-        forbid_password_changes: false,
-        disable_login_form: false,
-        plugins: "auth_internal".into(),
-        listen: "127.0.0.1:8281".parse().unwrap(),
-        docroot: std::path::PathBuf::from("tt-rss"),
-        feed_icon_dir: std::path::PathBuf::from("no-such-test-icon-dir"),
-        max_favicon_file_size: 1024 * 1024,
-        max_cache_file_size: 64 * 1024 * 1024,
-        force_article_purge: 0,
-        feed_fetch_timeout: 45,
-        feed_fetch_no_cache_timeout: 15,
-        max_conditional_interval: 43200,
-        http_429_throttle_interval: 3600,
-        daemon_unsuccessful_days_limit: 30,
-        fetch_extended_url_filtering: true,
-        daemon_sleep_interval: 60,
-        daemon_max_jobs: 2,
-        daemon_feed_limit: 50,
-        daemon_update_login_limit: 30,
-        cache_max_days: 7,
-        schedule_purge_orphans: String::from("@daily"),
-        schedule_disk_cache_expire_all: String::from("@daily"),
-        schedule_disable_failed_feeds: String::from("@daily"),
-        schedule_cleanup_feed_icons: String::from("@daily"),
-        schedule_log_daemon_update_login_limit_users: String::from("@daily"),
-        schedule_expire_error_log: String::from("@hourly"),
-        schedule_expire_lock_files: String::from("@hourly"),
-        schedule_send_headlines_digests: String::from("@hourly"),
-    }
-}
+use test_db::template::with_test_db;
 
 /// Fixtures + a session carrying `uid = 1` (owner of all fixture rows) + the
 /// per-user API gate enabled (the `before_and_dispatch` auth check).
-async fn setup(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) -> (AppState, Sess) {
-    let db: Db = common::make_db(pool, options).await.expect("test db");
-    let state = AppState::new(test_config(), db);
+async fn setup(url: &str) -> (AppState, Sess) {
+    let db = common::make_db_from_url(url).await.expect("test db");
+    let state = AppState::new(common::test_config(), db);
     let mut data = Session::new();
     data.set("uid", PValue::Int(1));
     let sess = Sess::new("test-sid".to_string());
@@ -132,90 +85,78 @@ fn real_cats(content: &Value) -> std::collections::BTreeMap<i64, i64> {
     m
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_flat_lists_nested_cat_and_omits_descendant_unread(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
-    add_nested_cat(state.db.pool()).await;
+#[tokio::test]
+async fn test_flat_lists_nested_cat_and_omits_descendant_unread() {
+    let _ = with_test_db(|url| Box::pin(async move {
+        let (state, sess) = setup(&url).await;
+        add_nested_cat(state.db.pool()).await;
 
-    // No `enable_nested`: every category (roots and nested) is its own entry,
-    // and each counter covers only its direct feeds.
-    let (status, content) =
-        api::before_and_dispatch(&state, &sess, "getcategories", &request(&[]), None).await;
-    assert_eq!(status, 0);
-    let cats = real_cats(&content);
-    assert_eq!(cats.get(&1), Some(&6), "cat 1 direct unread; got {cats:?}");
-    assert_eq!(cats.get(&2), Some(&2), "cat 2 direct unread; got {cats:?}");
-    assert_eq!(cats.get(&3), Some(&1), "nested cat 3 listed; got {cats:?}");
+        // No `enable_nested`: every category (roots and nested) is its own entry,
+        // and each counter covers only its direct feeds.
+        let (status, content) =
+            api::before_and_dispatch(&state, &sess, "getcategories", &request(&[]), None).await;
+        assert_eq!(status, 0);
+        let cats = real_cats(&content);
+        assert_eq!(cats.get(&1), Some(&6), "cat 1 direct unread; got {cats:?}");
+        assert_eq!(cats.get(&2), Some(&2), "cat 2 direct unread; got {cats:?}");
+        assert_eq!(cats.get(&3), Some(&1), "nested cat 3 listed; got {cats:?}");
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_enable_nested_lists_roots_only_and_folds_descendants(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
-    add_nested_cat(state.db.pool()).await;
+#[tokio::test]
+async fn test_enable_nested_lists_roots_only_and_folds_descendants() {
+    let _ = with_test_db(|url| Box::pin(async move {
+        let (state, sess) = setup(&url).await;
+        add_nested_cat(state.db.pool()).await;
 
-    // `enable_nested` (the client's param): roots only, descendants' unread
-    // folded in (cat 1 = 6 direct + 1 in nested cat 3).
-    let (status, content) = api::before_and_dispatch(
-        &state,
-        &sess,
-        "getcategories",
-        &request(&[("enable_nested", json!("true"))]),
-        None,
-    )
-    .await;
-    assert_eq!(status, 0);
-    let cats = real_cats(&content);
-    assert_eq!(cats.get(&1), Some(&7), "cat 1 incl. descendants; got {cats:?}");
-    assert_eq!(cats.get(&2), Some(&2), "cat 2 unchanged; got {cats:?}");
-    assert!(!cats.contains_key(&3), "nested cat 3 must be absent; got {cats:?}");
+        // `enable_nested` (the client's param): roots only, descendants' unread
+        // folded in (cat 1 = 6 direct + 1 in nested cat 3).
+        let (status, content) = api::before_and_dispatch(
+            &state,
+            &sess,
+            "getcategories",
+            &request(&[("enable_nested", json!("true"))]),
+            None,
+        )
+        .await;
+        assert_eq!(status, 0);
+        let cats = real_cats(&content);
+        assert_eq!(cats.get(&1), Some(&7), "cat 1 incl. descendants; got {cats:?}");
+        assert_eq!(cats.get(&2), Some(&2), "cat 2 unchanged; got {cats:?}");
+        assert!(!cats.contains_key(&3), "nested cat 3 must be absent; got {cats:?}");
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_enable_nested_unread_only_drops_zero_unread_roots(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
-    add_nested_cat(state.db.pool()).await;
-    // Read all of cat 2's feed so the root has zero unread.
-    sqlx::query("UPDATE ttrss_user_entries SET unread = false WHERE feed_id = 4")
-        .execute(state.db.pool())
-        .await
-        .expect("mark read");
+#[tokio::test]
+async fn test_enable_nested_unread_only_drops_zero_unread_roots() {
+    let _ = with_test_db(|url| Box::pin(async move {
+        let (state, sess) = setup(&url).await;
+        add_nested_cat(state.db.pool()).await;
+        // Read all of cat 2's feed so the root has zero unread.
+        sqlx::query("UPDATE ttrss_user_entries SET unread = false WHERE feed_id = 4")
+            .execute(state.db.pool())
+            .await
+            .expect("mark read");
 
-    let (status, content) = api::before_and_dispatch(
-        &state,
-        &sess,
-        "getcategories",
-        &request(&[
-            ("enable_nested", json!("true")),
-            ("unread_only", json!("true")),
-        ]),
-        None,
-    )
-    .await;
-    assert_eq!(status, 0);
-    let cats = real_cats(&content);
-    assert_eq!(cats.get(&1), Some(&7), "cat 1 kept; got {cats:?}");
-    assert!(!cats.contains_key(&2), "cat 2 (zero unread) dropped; got {cats:?}");
+        let (status, content) = api::before_and_dispatch(
+            &state,
+            &sess,
+            "getcategories",
+            &request(&[
+                ("enable_nested", json!("true")),
+                ("unread_only", json!("true")),
+            ]),
+            None,
+        )
+        .await;
+        assert_eq!(status, 0);
+        let cats = real_cats(&content);
+        assert_eq!(cats.get(&1), Some(&7), "cat 1 kept; got {cats:?}");
+        assert!(!cats.contains_key(&2), "cat 2 (zero unread) dropped; got {cats:?}");
+        Ok(())
+    })).await.unwrap();
 }
 
 /// Without `include_empty`, the special cats are gated by `_is_cat_empty`,
@@ -223,37 +164,33 @@ async fn test_enable_nested_unread_only_drops_zero_unread_roots(
 /// SPECIAL is *never* empty (the PHP returns `false` for it), and its unread
 /// is always 0. The fixture has labels, so LABELS is present; there are no
 /// uncategorized feeds, so UNCATEGORIZED (id 0) is absent.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_special_cats_without_include_empty(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_special_cats_without_include_empty() {
+    let _ = with_test_db(|url| Box::pin(async move {
+        let (state, sess) = setup(&url).await;
 
-    let (status, content) =
-        api::before_and_dispatch(&state, &sess, "getcategories", &request(&[]), None).await;
-    assert_eq!(status, 0);
+        let (status, content) =
+            api::before_and_dispatch(&state, &sess, "getcategories", &request(&[]), None).await;
+        assert_eq!(status, 0);
 
-    let ids: Vec<i64> = content
-        .as_array()
-        .expect("array response")
-        .iter()
-        .map(|e| e.get("id").and_then(Value::as_i64).expect("id"))
-        .collect();
-    assert!(ids.contains(&-2), "LABELS present (labels exist): {ids:?}");
-    assert!(ids.contains(&-1), "SPECIAL never empty: {ids:?}");
-    assert!(!ids.contains(&0), "UNCATEGORIZED absent (no feeds): {ids:?}");
+        let ids: Vec<i64> = content
+            .as_array()
+            .expect("array response")
+            .iter()
+            .map(|e| e.get("id").and_then(Value::as_i64).expect("id"))
+            .collect();
+        assert!(ids.contains(&-2), "LABELS present (labels exist): {ids:?}");
+        assert!(ids.contains(&-1), "SPECIAL never empty: {ids:?}");
+        assert!(!ids.contains(&0), "UNCATEGORIZED absent (no feeds): {ids:?}");
 
-    // SPECIAL's unread is always 0 (PHP `_get_cat_unread` short-circuits it).
-    let special = content
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|e| e.get("id").and_then(Value::as_i64) == Some(-1))
-        .expect("SPECIAL entry");
-    assert_eq!(special.get("unread").and_then(Value::as_i64), Some(0));
+        // SPECIAL's unread is always 0 (PHP `_get_cat_unread` short-circuits it).
+        let special = content
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|e| e.get("id").and_then(Value::as_i64) == Some(-1))
+            .expect("SPECIAL entry");
+        assert_eq!(special.get("unread").and_then(Value::as_i64), Some(0));
+        Ok(())
+    })).await.unwrap();
 }

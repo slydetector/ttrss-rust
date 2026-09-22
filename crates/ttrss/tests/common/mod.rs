@@ -109,6 +109,47 @@ pub async fn make_db_from_url(url: &str) -> anyhow::Result<Db> {
     Ok(Db::from_pool(pool))
 }
 
+// ── Consolidated test helpers (replaces per-file test_config + setup) ──────
+
+/// Standard test [`Config`]: `Config::for_test()` with the default test
+/// plugin + URL filtering enabled.
+pub fn test_config() -> ttrss::core::config::Config {
+    let mut cfg = ttrss::core::config::Config::for_test();
+    cfg.plugins = "auth_internal".into();
+    cfg.fetch_extended_url_filtering = true;
+    cfg
+}
+
+/// Standard admin session: `uid = 1`, `access_level = 10`.
+pub fn admin_sess() -> ttrss::session::Sess {
+    use ttrss::core::phpser::Value as PValue;
+    use ttrss::core::session::Session;
+    use ttrss::session::Sess;
+    let mut data = Session::new();
+    data.set("uid", PValue::Int(1));
+    data.set("access_level", PValue::Int(10));
+    let sess = Sess::new("test-sid".to_string());
+    sess.replace("test-sid".to_string(), data);
+    sess
+}
+
+/// Standard test state: [`AppState`] + admin [`Sess`] (the most common pattern).
+pub async fn make_state(url: &str) -> (ttrss::AppState, ttrss::session::Sess) {
+    let db = make_db_from_url(url).await.expect("test db");
+    let state = ttrss::AppState::new(test_config(), db);
+    (state, admin_sess())
+}
+
+/// [`AppState`] only (for tests that build their own session).
+pub async fn make_app_state(url: &str) -> ttrss::AppState {
+    let db = make_db_from_url(url).await.expect("test db");
+    ttrss::AppState::new(test_config(), db)
+}
+
+/// [`Db`] only (for tests that just need database access).
+pub async fn make_db_ref(url: &str) -> Db {
+    make_db_from_url(url).await.expect("test db")
+}
 // ── Loopback mock HTTP server (shared by the fetch / on-demand-update tests) ─
 
 /// A canned HTTP response served by [`MockServer`].
