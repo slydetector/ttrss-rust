@@ -16,6 +16,7 @@ use ttrss::core::session::Session;
 use ttrss::session::Sess;
 use ttrss::users;
 use ttrss::AppState;
+use test_db::template::with_test_db;
 
 /// A test-only config (the handlers only need `db` + `config`).
 fn test_config() -> Config {
@@ -64,11 +65,8 @@ fn test_config() -> Config {
 }
 
 /// Fresh fixtures + an admin session (`uid = 1`, `access_level = 10`).
-async fn setup(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) -> (AppState, Sess) {
-    let db: Db = common::make_db(pool, options).await.expect("test db");
+async fn setup(url: &str) -> (AppState, Sess) {
+    let db: Db = common::make_db_from_url(&url).await.expect("test db");
     let state = AppState::new(test_config(), db);
     let mut data = Session::new();
     data.set("uid", PValue::Int(1));
@@ -96,15 +94,10 @@ async fn seed_plain_user(pool: &sqlx::PgPool, login: &str) -> i32 {
         .expect("seed user")
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql"
-))]
-async fn test_edit(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_edit() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
 
     // Admin (uid 1) exists → the edit dialog data.
     let v = users::edit(&state, &sess, &form(&[("id", "1")])).await;
@@ -121,6 +114,8 @@ async fn test_edit(
     assert!(users::edit(&state, &sess, &form(&[("id", "99999")]))
         .await
         .is_none());
+        Ok(())
+    })).await.unwrap();
 }
 
 /// Read a user's mutable fields back (login, access_level, email, otp).
@@ -139,15 +134,10 @@ async fn read_user(
     .flatten()
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql"
-))]
-async fn test_edit_save_update(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_edit_save_update() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let pool = state.db.pool();
     let id = seed_plain_user(pool, "TestUser").await;
 
@@ -169,17 +159,14 @@ async fn test_edit_save_update(
     assert_eq!(login, "testuser", "login is lowercased");
     assert_eq!(level, 5);
     assert_eq!(email, "new@example.com");
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql"
-))]
-async fn test_edit_save_admin_forced_admin_login(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_edit_save_admin_forced_admin_login() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let pool = state.db.pool();
 
     // id == 1 → the login is forced to "admin" regardless of the input.
@@ -196,17 +183,14 @@ async fn test_edit_save_admin_forced_admin_login(
     .await;
     let (login, ..) = read_user(pool, 1).await.expect("admin present");
     assert_eq!(login, "admin", "admin login cannot be renamed");
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql"
-))]
-async fn test_edit_save_empty_login_early_return(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_edit_save_empty_login_early_return() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let pool = state.db.pool();
     let id = seed_plain_user(pool, "keepme").await;
 
@@ -229,17 +213,14 @@ async fn test_edit_save_empty_login_early_return(
     assert_eq!(login, "keepme", "login unchanged");
     assert_eq!(level, 0, "access level unchanged");
     assert_eq!(email, "", "email unchanged");
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql"
-))]
-async fn test_edit_save_password_reset(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_edit_save_password_reset() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let pool = state.db.pool();
     let id = seed_plain_user(pool, "pwreset").await;
     let old_hash: String = sqlx::query_scalar("SELECT pwd_hash FROM ttrss_users WHERE id = $1")
@@ -280,17 +261,14 @@ async fn test_edit_save_password_reset(
     assert!(ttrss::core::user::verify_password(
         &new_hash, "hunter2", &salt
     ));
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql"
-))]
-async fn test_remove(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_remove() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let pool = state.db.pool();
     let victim = seed_plain_user(pool, "victim").await;
 
@@ -304,17 +282,14 @@ async fn test_remove(
 
     // A non-existent id is a no-op.
     users::remove(&state, &sess, &form(&[("ids", "99999")])).await;
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql"
-))]
-async fn test_add(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_add() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let pool = state.db.pool();
 
     // A new user is created with a random password.
@@ -344,17 +319,14 @@ async fn test_add(
     // A blank login → empty (no user created, no message).
     let out = users::add(&state, &sess, &form(&[("login", "")])).await;
     assert_eq!(out, "");
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql"
-))]
-async fn test_reset_pass(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_reset_pass() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     // Reset an existing user's password to a random one.
     let out = users::reset_pass(&state, &sess, &form(&[("id", "1")])).await;
     assert!(
@@ -366,20 +338,17 @@ async fn test_reset_pass(
     // A missing user → "User not found".
     let out = users::reset_pass(&state, &sess, &form(&[("id", "99999")])).await;
     assert_eq!(out, "User not found");
+        Ok(())
+    })).await.unwrap();
 }
 
 /// The admin gate (`Handler_Administrative::before`): a `Pref_Users` write is
 /// rejected for a non-admin session even when the csrf token is valid, and
 /// proceeds for an admin. Exercised through the public `rpc::handler`.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql"
-))]
-async fn test_admin_gate_denies_non_admin(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, _sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_admin_gate_denies_non_admin() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, _sess) = setup(&url).await;
 
     // A session for `uid = 1` (admin in the DB) carrying the admin's stored
     // pwd hash + a valid csrf token, so `validate_session` passes and the
@@ -441,4 +410,6 @@ async fn test_admin_gate_denies_non_admin(
         s.contains("Added user gateuser with password"),
         "admin proceeds: {s}"
     );
+        Ok(())
+    })).await.unwrap();
 }

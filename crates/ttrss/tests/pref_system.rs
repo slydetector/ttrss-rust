@@ -17,6 +17,7 @@ use ttrss::core::session::Session;
 use ttrss::session::Sess;
 use ttrss::system;
 use ttrss::AppState;
+use test_db::template::with_test_db;
 
 /// A test-only config (the handlers only need `db` + `config`).
 fn test_config() -> Config {
@@ -65,11 +66,8 @@ fn test_config() -> Config {
 }
 
 /// Fresh fixtures + an admin session (`uid = 1`, `access_level = 10`).
-async fn setup(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) -> (AppState, Sess) {
-    let db: Db = common::make_db(pool, options).await.expect("test db");
+async fn setup(url: &str) -> (AppState, Sess) {
+    let db: Db = common::make_db_from_url(&url).await.expect("test db");
     let state = AppState::new(test_config(), db);
     let mut data = Session::new();
     data.set("uid", PValue::Int(1));
@@ -100,15 +98,10 @@ fn count_log_rows(html: &str) -> usize {
 }
 
 /// `index` renders the accordion with all four panes (assumes SQL logging).
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-))]
-async fn test_index_structure(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_index_structure() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let html = system::index(&state, &sess, &Map::new()).await;
     for marker in [
         "dijit.layout.AccordionContainer",
@@ -123,20 +116,17 @@ async fn test_index_structure(
     ] {
         assert!(html.contains(marker), "index should contain {marker:?}");
     }
+        Ok(())
+    })).await.unwrap();
 }
 
 /// `_log_viewer` severity filter: default (Warnings, errno 512) shows both an
 /// E_USER_ERROR (256) and an E_WARNING (2) row; "Errors" (256) shows only the
 /// E_USER_ERROR row; "Everything" (1024) shows both.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-))]
-async fn test_log_viewer_severity(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_log_viewer_severity() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     seed_error(state.db.pool(), 256, "a user error").await;
     seed_error(state.db.pool(), 2, "a warning").await;
 
@@ -171,18 +161,15 @@ async fn test_log_viewer_severity(
     )
     .await;
     assert_eq!(count_log_rows(&all_html), 2, "Everything shows both");
+        Ok(())
+    })).await.unwrap();
 }
 
 /// `clearLog` deletes all error-log rows.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-))]
-async fn test_clear_log(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, _) = setup(pool, options).await;
+#[tokio::test]
+async fn test_clear_log() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, _) = setup(&url).await;
     seed_error(state.db.pool(), 256, "one").await;
     seed_error(state.db.pool(), 2, "two").await;
     let before: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM ttrss_error_log")
@@ -198,6 +185,8 @@ async fn test_clear_log(
         .await
         .expect("count after");
     assert_eq!(after, 0, "error log is cleared");
+        Ok(())
+    })).await.unwrap();
 }
 
 /// `sendTestEmail` is a no-op: `rc = 0` + a "not supported" error.
@@ -211,15 +200,10 @@ fn test_send_test_email_noop() {
 
 /// `getphpinfo` surfaces Rust/server diagnostics (version + config), not a PHP
 /// dump, and omits the db password / encryption key.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-))]
-async fn test_get_php_info(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, _) = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_php_info() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, _) = setup(&url).await;
     let html = system::get_php_info(&state);
     assert!(
         html.contains(ttrss::core::config::VERSION),
@@ -233,4 +217,6 @@ async fn test_get_php_info(
     // The password (`postgres`) appears as the db name too, so assert the
     // encryption key is absent by the omission of its (None) — nothing to leak.
     assert!(!html.contains("E_ERROR"), "not a phpinfo() dump");
+        Ok(())
+    })).await.unwrap();
 }

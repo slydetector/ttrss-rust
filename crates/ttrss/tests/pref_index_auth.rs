@@ -15,6 +15,7 @@ use ttrss::core::phpser::Value as PValue;
 use ttrss::core::session::Session;
 use ttrss::session::Sess;
 use ttrss::AppState;
+use test_db::template::with_test_db;
 
 /// A test-only config (the handlers only need `db`).
 fn test_config() -> Config {
@@ -64,11 +65,8 @@ fn test_config() -> Config {
 
 /// Fresh fixtures + a session carrying `uid = 1`, the admin access level, the
 /// `auth_internal` module and the `admin` login name.
-async fn setup(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) -> (AppState, Sess) {
-    let db: Db = common::make_db(pool, options).await.expect("test db");
+async fn setup(url: &str) -> (AppState, Sess) {
+    let db: Db = common::make_db_from_url(&url).await.expect("test db");
     let state = AppState::new(test_config(), db);
     let mut data = Session::new();
     data.set("uid", PValue::Int(1));
@@ -85,15 +83,10 @@ fn normalize(s: &str) -> String {
     s.chars().filter(|c| !c.is_whitespace()).collect()
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql"
-))]
-async fn test_index_auth_structure(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_index_auth_structure() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let db = state.db.pool();
 
     let html = ttrss::pref_ui::index_auth(&state, &sess)
@@ -158,17 +151,14 @@ async fn test_index_auth_structure(
         n.contains(&format!("<code>{b32}</code>")),
         "missing formatted secret"
     );
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql"
-))]
-async fn test_index_auth_otp_enabled(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_index_auth_otp_enabled() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let db = state.db.pool();
 
     // OTP already enabled → the pane shows the disable form (no QR / secret).
@@ -189,4 +179,6 @@ async fn test_index_auth_otp_enabled(
     // The disabled-branch artifacts are absent.
     assert!(!n.contains("otpenable"));
     assert!(!n.contains("data:image/png;base64,"));
+        Ok(())
+    })).await.unwrap();
 }

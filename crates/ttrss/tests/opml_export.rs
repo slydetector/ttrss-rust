@@ -8,74 +8,16 @@
 
 mod common;
 
-use ttrss::core::config::Config;
-use ttrss::core::db::Db;
 use ttrss::session::Sess;
-use ttrss::AppState;
+use test_db::template::with_test_db;
 
-fn test_config() -> Config {
-    Config {
-        db_host: "127.0.0.1".into(),
-        db_port: 5432,
-        db_user: "postgres".into(),
-        db_pass: "postgres".into(),
-        db_name: "postgres".into(),
-        db_sslmode: "disable".into(),
-        db_max_connections: 10,
-        self_url: "http://127.0.0.1:8280/tt-rss/".into(),
-        encryption_key: None,
-        single_user_mode: false,
-        forbid_password_changes: false,
-        disable_login_form: false,
-        plugins: "auth_internal".into(),
-        listen: "127.0.0.1:8281".parse().unwrap(),
-        docroot: std::path::PathBuf::from("tt-rss"),
-        feed_icon_dir: std::path::PathBuf::from("no-such-test-icon-dir"),
-        max_favicon_file_size: 1024 * 1024,
-        max_cache_file_size: 64 * 1024 * 1024,
-        force_article_purge: 0,
-        feed_fetch_timeout: 45,
-        feed_fetch_no_cache_timeout: 15,
-        max_conditional_interval: 43200,
-        http_429_throttle_interval: 3600,
-        daemon_unsuccessful_days_limit: 30,
-        fetch_extended_url_filtering: true,
-        daemon_sleep_interval: 60,
-        daemon_max_jobs: 2,
-        daemon_feed_limit: 50,
-        daemon_update_login_limit: 30,
-        cache_max_days: 7,
-        schedule_purge_orphans: String::from("@daily"),
-        schedule_disk_cache_expire_all: String::from("@daily"),
-        schedule_disable_failed_feeds: String::from("@daily"),
-        schedule_cleanup_feed_icons: String::from("@daily"),
-        schedule_log_daemon_update_login_limit_users: String::from("@daily"),
-        schedule_expire_error_log: String::from("@hourly"),
-        schedule_expire_lock_files: String::from("@hourly"),
-        schedule_send_headlines_digests: String::from("@hourly"),
-    }
-}
-
-async fn make_state(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) -> AppState {
-    let db: Db = common::make_db(pool, options).await.expect("test db");
-    AppState::new(test_config(), db)
-}
 
 /// The feed-tree export (no settings): both categories, all four feeds, each
 /// nested under its category, with `htmlUrl`, and *no* `ttrss*` attributes.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_export_feed_tree(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let state = make_state(pool, options).await;
+#[tokio::test]
+async fn test_export_feed_tree() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = common::make_app_state(&url).await;
     let opml = ttrss::opml::build_opml(state.db.pool(), 1, false).await;
 
     // Envelope.
@@ -105,20 +47,16 @@ async fn test_export_feed_tree(
     // No settings → no ttrss* attributes.
     assert!(!opml.contains("ttrssSortOrder"), "no ttrss attrs: {opml}");
     assert!(!opml.contains("tt-rss-prefs"));
+        Ok(())
+    })).await.unwrap();
 }
 
 /// With `include_settings`, the feed outlines carry the `ttrss*` attributes and
 /// the category carries `ttrssSortOrder`.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_export_include_settings(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let state = make_state(pool, options).await;
+#[tokio::test]
+async fn test_export_include_settings() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = common::make_app_state(&url).await;
     let opml = ttrss::opml::build_opml(state.db.pool(), 1, true).await;
 
     // Category sort order.
@@ -137,19 +75,15 @@ async fn test_export_include_settings(
         opml.contains("ttrssUpdateInterval=\"120\""),
         "MIT ttrss: {opml}"
     );
+        Ok(())
+    })).await.unwrap();
 }
 
 /// The `export` handler returns the OPML as a download (content-type + filename).
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_export_handler(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let state = make_state(pool, options).await;
+#[tokio::test]
+async fn test_export_handler() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = common::make_app_state(&url).await;
     let mut data = ttrss::core::session::Session::new();
     data.set("uid", ttrss::core::phpser::Value::Int(1));
     data.set("name", ttrss::core::phpser::Value::Bytes(b"admin".to_vec()));
@@ -169,6 +103,8 @@ async fn test_export_handler(
     assert!(disp.ends_with(".opml"), "disposition: {disp}");
     assert!(body.contains("<opml version=\"1.0\">"), "body: {body}");
     assert!(body.contains("text=\"Hacker News\""), "body: {body}");
+        Ok(())
+    })).await.unwrap();
 }
 
 /// Empty categories are RETAINED. PHP `opml_export_category` emits every
@@ -177,16 +113,10 @@ async fn test_export_handler(
 /// while every exported outline uses `text` (not `title`). A functionally
 /// equivalent export must reproduce this so an empty category round-trips on
 /// import.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_export_retains_empty_category(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let state = make_state(pool, options).await;
+#[tokio::test]
+async fn test_export_retains_empty_category() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = common::make_app_state(&url).await;
     // Add an empty category (no feeds, no sub-cats).
     sqlx::query("INSERT INTO ttrss_feed_categories (owner_uid, title) VALUES (1, 'Empty Cat')")
         .execute(state.db.pool())
@@ -202,4 +132,6 @@ async fn test_export_retains_empty_category(
     // The real categories remain.
     assert!(opml.contains("text=\"Technology\""));
     assert!(opml.contains("text=\"Science &amp; Nature\""));
+        Ok(())
+    })).await.unwrap();
 }

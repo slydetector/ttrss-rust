@@ -15,57 +15,14 @@ use ttrss::core::phpser::Value as PValue;
 use ttrss::core::session::Session;
 use ttrss::session::Sess;
 use ttrss::AppState;
+use test_db::template::with_test_db;
 
 /// A test-only config (the handlers only need `db`).
-fn test_config() -> Config {
-    Config {
-        db_host: "127.0.0.1".into(),
-        db_port: 5432,
-        db_user: "postgres".into(),
-        db_pass: "postgres".into(),
-        db_name: "postgres".into(),
-        db_sslmode: "disable".into(),
-        db_max_connections: 10,
-        self_url: "http://127.0.0.1:8280/tt-rss/".into(),
-        encryption_key: None,
-        single_user_mode: false,
-        forbid_password_changes: false,
-        disable_login_form: false,
-        plugins: "auth_internal".into(),
-        listen: "127.0.0.1:8281".parse().unwrap(),
-        feed_icon_dir: std::path::PathBuf::from("no-such-test-icon-dir"),
-        max_favicon_file_size: 1024 * 1024,
-        max_cache_file_size: 64 * 1024 * 1024,
-        force_article_purge: 0,
-        feed_fetch_timeout: 45,
-        feed_fetch_no_cache_timeout: 15,
-        max_conditional_interval: 43200,
-        http_429_throttle_interval: 3600,
-        daemon_unsuccessful_days_limit: 30,
-        fetch_extended_url_filtering: true,
-        daemon_sleep_interval: 60,
-        daemon_max_jobs: 2,
-        daemon_feed_limit: 50,
-        daemon_update_login_limit: 30,
-        cache_max_days: 7,
-        schedule_purge_orphans: String::from("@daily"),
-        schedule_disk_cache_expire_all: String::from("@daily"),
-        schedule_disable_failed_feeds: String::from("@daily"),
-        schedule_cleanup_feed_icons: String::from("@daily"),
-        schedule_log_daemon_update_login_limit_users: String::from("@daily"),
-        schedule_expire_error_log: String::from("@hourly"),
-        schedule_expire_lock_files: String::from("@hourly"),
-        schedule_send_headlines_digests: String::from("@hourly"),
-        docroot: std::path::PathBuf::from("tt-rss"),
-    }
-}
+fn test_config() -> Config { common::test_config() }
 
 /// Fresh fixtures + a session carrying `uid = 1` (the fixture owner).
-async fn setup(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) -> (AppState, Sess) {
-    let db: Db = common::make_db(pool, options).await.expect("test db");
+async fn setup(url: &str) -> (AppState, Sess) {
+    let db: Db = common::make_db_from_url(&url).await.expect("test db");
     let state = AppState::new(test_config(), db);
     let mut data = Session::new();
     data.set("uid", PValue::Int(1));
@@ -81,15 +38,10 @@ fn normalize(s: &str) -> String {
 
 // ── Pref_Labels::index ───────────────────────────────────────────────────────
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-))]
-async fn test_labels_index_structure(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_labels_index_structure() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let html = ttrss::labels::index(&state, &sess, &Map::new());
     let n = normalize(&html);
 
@@ -118,19 +70,16 @@ async fn test_labels_index_structure(
     assert!(n.contains("fox.PrefLabelTree"));
     // Clicking a label row opens the edit dialog.
     assert!(n.contains("editLabel(bare_id)"));
+        Ok(())
+    })).await.unwrap();
 }
 
 // ── Pref_Feeds::index ────────────────────────────────────────────────────────
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-))]
-async fn test_feeds_index_structure(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_feeds_index_structure() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let html = ttrss::feeds::index(&state, &sess, &Map::new()).await;
     let n = normalize(&html);
 
@@ -189,6 +138,8 @@ async fn test_feeds_index_structure(
     assert!(n.contains("DisplayURL"));
     assert!(n.contains("clearFeedAccessKeys()"));
     assert!(n.contains("ClearallgeneratedURLs"));
+        Ok(())
+    })).await.unwrap();
 }
 
 // ── `search` term: request param + session cache ─────────────────────────────
@@ -197,15 +148,10 @@ async fn test_feeds_index_structure(
 // cleaned (strip_tags + trim), cached in the session as `prefs_feed_search`,
 // and echoed into the search box (HTML-escaped); a later load without the
 // param recalls the cached term. A non-empty term also sets autoExpand=true.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-))]
-async fn test_feeds_index_search_term_and_cache(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_feeds_index_search_term_and_cache() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
 
     // 1. No search param → empty term, autoExpand false.
     let html = ttrss::feeds::index(&state, &sess, &Map::new()).await;
@@ -240,4 +186,6 @@ async fn test_feeds_index_search_term_and_cache(
     let n = normalize(&html);
     assert!(n.contains("value=\"\""));
     assert!(n.contains("autoExpand=\"false\""));
+        Ok(())
+    })).await.unwrap();
 }

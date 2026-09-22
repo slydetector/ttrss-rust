@@ -9,62 +9,11 @@
 
 mod common;
 
-use ttrss::core::config::Config;
 use sqlx::AssertSqlSafe;
-use ttrss::core::db::Db;
 use ttrss::session::Sess;
-use ttrss::AppState;
+use test_db::template::with_test_db;
 
-fn test_config() -> Config {
-    Config {
-        db_host: "127.0.0.1".into(),
-        db_port: 5432,
-        db_user: "postgres".into(),
-        db_pass: "postgres".into(),
-        db_name: "postgres".into(),
-        db_sslmode: "disable".into(),
-        db_max_connections: 10,
-        self_url: "http://127.0.0.1:8280/tt-rss/".into(),
-        encryption_key: None,
-        single_user_mode: false,
-        forbid_password_changes: false,
-        disable_login_form: false,
-        plugins: "auth_internal".into(),
-        listen: "127.0.0.1:8281".parse().unwrap(),
-        docroot: std::path::PathBuf::from("tt-rss"),
-        feed_icon_dir: std::path::PathBuf::from("no-such-test-icon-dir"),
-        max_favicon_file_size: 1024 * 1024,
-        max_cache_file_size: 64 * 1024 * 1024,
-        force_article_purge: 0,
-        feed_fetch_timeout: 45,
-        feed_fetch_no_cache_timeout: 15,
-        max_conditional_interval: 43200,
-        http_429_throttle_interval: 3600,
-        daemon_unsuccessful_days_limit: 30,
-        fetch_extended_url_filtering: true,
-        daemon_sleep_interval: 60,
-        daemon_max_jobs: 2,
-        daemon_feed_limit: 50,
-        daemon_update_login_limit: 30,
-        cache_max_days: 7,
-        schedule_purge_orphans: String::from("@daily"),
-        schedule_disk_cache_expire_all: String::from("@daily"),
-        schedule_disable_failed_feeds: String::from("@daily"),
-        schedule_cleanup_feed_icons: String::from("@daily"),
-        schedule_log_daemon_update_login_limit_users: String::from("@daily"),
-        schedule_expire_error_log: String::from("@hourly"),
-        schedule_expire_lock_files: String::from("@hourly"),
-        schedule_send_headlines_digests: String::from("@hourly"),
-    }
-}
 
-async fn make_state(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) -> AppState {
-    let db: Db = common::make_db(pool, options).await.expect("test db");
-    AppState::new(test_config(), db)
-}
 
 /// A logged-in session for `uid` (mirrors the `opml_export.rs` setup).
 fn sess_for(uid: i64) -> Sess {
@@ -83,16 +32,10 @@ async fn count(pool: &sqlx::PgPool, sql: &str) -> i64 {
         .expect("count query")
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_import_creates_category_and_feed(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let state = make_state(pool, options).await;
+#[tokio::test]
+async fn test_import_creates_category_and_feed() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = common::make_app_state(&url).await;
     let sess = sess_for(1);
     let opml = r#"<?xml version="1.0" encoding="utf-8"?>
 <opml version="1.0">
@@ -138,18 +81,14 @@ async fn test_import_creates_category_and_feed(
     assert_eq!(fcat, Some(cat), "feed in New Cat");
     assert_eq!(forder, 3, "imported ttrssSortOrder");
     assert_eq!(fupdate, 45, "imported ttrssUpdateInterval");
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_import_dedupes_feeds(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let state = make_state(pool, options).await;
+#[tokio::test]
+async fn test_import_dedupes_feeds() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = common::make_app_state(&url).await;
     let sess = sess_for(1);
     let opml = r#"<opml version="1.0"><body>
       <outline text="Dup Cat">
@@ -170,18 +109,14 @@ async fn test_import_dedupes_feeds(
     .await;
     assert_eq!(second, 1, "no duplicate feed");
     assert_eq!(cats, 1, "no duplicate category");
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_import_top_level_feed_uncategorized(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let state = make_state(pool, options).await;
+#[tokio::test]
+async fn test_import_top_level_feed_uncategorized() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = common::make_app_state(&url).await;
     let sess = sess_for(1);
     // A top-level feed (not inside a category) goes to the "Imported feeds"
     // category if it exists, else NULL (uncategorized). No such category here.
@@ -198,18 +133,14 @@ async fn test_import_top_level_feed_uncategorized(
         Some(None),
         "top-level feed is uncategorized when no 'Imported feeds' cat"
     );
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_import_top_level_feed_uses_imported_cat(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let state = make_state(pool, options).await;
+#[tokio::test]
+async fn test_import_top_level_feed_uses_imported_cat() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = common::make_app_state(&url).await;
     let sess = sess_for(1);
     // Pre-create the "Imported feeds" category: a top-level feed now lands in it.
     sqlx::query(
@@ -237,18 +168,14 @@ async fn test_import_top_level_feed_uses_imported_cat(
         Some(Some(imported_cat)),
         "top-level feed lands in 'Imported feeds'"
     );
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_import_unknown_feed_title(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let state = make_state(pool, options).await;
+#[tokio::test]
+async fn test_import_unknown_feed_title() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = common::make_app_state(&url).await;
     let sess = sess_for(1);
     // No text/title → the feed title defaults to "[Unknown]".
     let opml = r#"<opml version="1.0"><body>
@@ -264,36 +191,28 @@ async fn test_import_unknown_feed_title(
         Some("[Unknown]".to_string()),
         "untitled feed defaults to [Unknown]"
     );
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_import_parse_error_returns_error(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let state = make_state(pool, options).await;
+#[tokio::test]
+async fn test_import_parse_error_returns_error() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = common::make_app_state(&url).await;
     let sess = sess_for(1);
     let body = ttrss::opml::import(&state, &sess, Some(b"this is not xml <<<")).await;
     assert!(
         body.contains("Error while parsing document.<br/>"),
         "parse error reported: {body}"
     );
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_import_labels(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let state = make_state(pool, options).await;
+#[tokio::test]
+async fn test_import_labels() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = common::make_app_state(&url).await;
     let sess = sess_for(1);
     let opml = r##"<opml version="1.0"><body>
       <outline text="tt-rss-labels">
@@ -318,18 +237,14 @@ async fn test_import_labels(
     )
     .await;
     assert_eq!(second, 1, "Second Label created (default colors)");
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_import_labels_dedup(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let state = make_state(pool, options).await;
+#[tokio::test]
+async fn test_import_labels_dedup() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = common::make_app_state(&url).await;
     let sess = sess_for(1);
     let opml = r#"<opml version="1.0"><body>
       <outline text="tt-rss-labels">
@@ -344,18 +259,14 @@ async fn test_import_labels_dedup(
     )
     .await;
     assert_eq!(n, 1, "label deduped by caption");
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_import_prefs(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let state = make_state(pool, options).await;
+#[tokio::test]
+async fn test_import_prefs() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = common::make_app_state(&url).await;
     let sess = sess_for(1);
     let opml = r#"<opml version="1.0"><body>
       <outline text="tt-rss-prefs">
@@ -375,18 +286,14 @@ async fn test_import_prefs(
         .await
         .expect("date format query");
     assert_eq!(fmt, Some("Y-m-d".to_string()), "SHORT_DATE_FORMAT pref set");
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_import_filter(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let state = make_state(pool, options).await;
+#[tokio::test]
+async fn test_import_filter() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = common::make_app_state(&url).await;
     let sess = sess_for(1);
     let opml = r#"<opml version="1.0"><body>
       <outline text="tt-rss-filters">
@@ -423,18 +330,14 @@ async fn test_import_filter(
     .await
     .expect("action query");
     assert_eq!(action, 1, "action created");
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_import_no_file_reports_upload_error(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let state = make_state(pool, options).await;
+#[tokio::test]
+async fn test_import_no_file_reports_upload_error() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = common::make_app_state(&url).await;
     let sess = sess_for(1);
     let body = ttrss::opml::import(&state, &sess, None).await;
     // PHP: `$_FILES['opml_file']['error']` = UPLOAD_ERR_NO_FILE (4) → `print_error`.
@@ -443,6 +346,8 @@ async fn test_import_no_file_reports_upload_error(
         "no-file error: {body}"
     );
     assert!(body.contains("alert alert-danger"), "error div: {body}");
+        Ok(())
+    })).await.unwrap();
 }
 
 /// A full session (uid + access level + stored pwd hash + CSRF token), so
@@ -470,16 +375,10 @@ fn sess_authed(uid: i64) -> Sess {
 /// `opml_file`) to `backend.php` with `op=Pref_Feeds&method=importOpml`. This
 /// drives the full handler to prove the route exists (regression: it used to
 /// 404 as `E_UNKNOWN_METHOD`) and returns the `opml_notice` body.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_dispatch_pref_feeds_importopml(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let state = make_state(pool, options).await;
+#[tokio::test]
+async fn test_dispatch_pref_feeds_importopml() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = common::make_app_state(&url).await;
     let opml = r#"<?xml version="1.0" encoding="utf-8"?>
 <opml version="1.0">
   <body>
@@ -534,4 +433,6 @@ async fn test_dispatch_pref_feeds_importopml(
     )
     .await;
     assert_eq!(n, 1, "feed inserted");
+        Ok(())
+    })).await.unwrap();
 }
