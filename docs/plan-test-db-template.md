@@ -170,16 +170,16 @@ pub async fn setup_from_pool(pool: PgPool) -> (AppState, Sess) {
 
 ## Phases
 
-| Phase | Work | Est. time |
-|-------|------|-----------|
-| 1 | Implement `template.rs` (ensure_template + with_test_db) | 1-2 hrs |
-| 2 | Update `#[ctor]` + migrate **2 pilot files** (e.g. `api_writes.rs` + `feed_crud.rs`) | 1 hr |
-| 3 | **Verify:** `cargo check` + `cargo test` on pilot files + full suite still green | 30 min |
-| 4 | Write migration script + apply to remaining 57 files / 560+ tests | 2-3 hrs |
-| 5 | Run full test suite, fix failures | 1-2 hrs |
-| 6 | Measure: compare `cargo-nextest run` wall time before/after | 15 min |
+| Phase | Work | Status |
+|-------|------|--------|
+| 1 | Implement `template.rs` (ensure_template + with_test_db) | ✅ done |
+| 2 | Update `#[ctor]` + migrate **pilot file** (`feed_crud.rs`, 27 tests) | ✅ done |
+| 3 | **Verify:** `cargo check` + `cargo test` on pilot + full suite still green | ✅ done (27/27 pass, 1.75s) |
+| 4 | Write migration script + apply to remaining 58 files / 558+ tests | ⬜ |
+| 5 | Run full test suite, fix failures | ⬜ |
+| 6 | Measure: compare `cargo-nextest run` wall time before/after | ⬜ |
 
-**Total: ~1 day** (dominated by Phase 4 script + fixups)
+**Total remaining: ~half a day** (dominated by Phase 4 script + fixups)
 
 ### Pilot files (Phase 2)
 
