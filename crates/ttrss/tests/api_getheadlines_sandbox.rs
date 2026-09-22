@@ -241,3 +241,49 @@ async fn test_getarticle_reads_the_session_flag(
         "kept in getArticle via session flag: {content}"
     );
 }
+
+/// The `score` field in the headlines JSON is a **string** (not a number).
+///
+/// The frozen frontend (`tt-rss/js/Headlines.js`) MutationObserver reads
+/// `data-score` via `row.getAttribute('data-score')` — always a string — and
+/// compares it with `!==` against `hl.score` (the initial value from the JSON
+/// response). If the backend sends a number, `0 !== "0"` is `true` under
+/// strict comparison, causing a spurious `setScore(0)` RPC on any class
+/// mutation (e.g. mark-as-read on scroll removes the `Unread` class).
+///
+/// Sending score as a string ensures `hl.score` from JSON is a string,
+/// matching what `getAttribute` returns, so the comparison is `"0" !== "0"`
+/// → `false` → no spurious RPC.
+#[sqlx::test(fixtures(
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
+))]
+async fn test_headlines_score_is_json_string(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
+    let (state, sess) = setup(pool, options).await;
+    add_iframe_entry(state.db.pool()).await;
+
+    let (status, content) = api::before_and_dispatch(
+        &state, &sess, "getheadlines",
+        &request(&[("feed_id", json!("5"))]),
+    )
+    .await;
+    assert_eq!(status, 0);
+
+    let lines = content.as_array().expect("array response");
+    let article = lines
+        .iter()
+        .find(|e| e.get("id").and_then(Value::as_i64) == Some(50))
+        .expect("article 50 present");
+
+    let score = article.get("score").expect("score field present");
+    // Must be a JSON string so the frontend strict comparison works.
+    assert!(
+        score.is_string(),
+        "score must be a JSON string (frontend getAttribute parity), got: {score:?}"
+    );
+    assert_eq!(score.as_str(), Some("0"), "default score is \"0\"");
+}

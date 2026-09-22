@@ -1031,7 +1031,7 @@ async fn api_headline_row(
         json!(always_enc.unwrap_or(false)),
     );
     m.insert("author".into(), Value::from(author));
-    m.insert("score".into(), json!(score));
+    m.insert("score".into(), json!(score.to_string()));
     m.insert(
         "note".into(),
         match note {
@@ -1195,7 +1195,7 @@ async fn get_article(
             ),
         );
         let score: i32 = r.get(12);
-        m.insert("score".into(), json!(score));
+        m.insert("score".into(), json!(score.to_string()));
         m.insert(
             "feed_title".into(),
             Value::from(r.get::<Option<String>, _>(15).unwrap_or_default()),
