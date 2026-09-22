@@ -20,6 +20,7 @@ mod common;
 
 use ttrss::core::db::Db;
 use ttrss::feeds;
+use test_db::template::with_test_db;
 
 /// PHP `Feeds::*` constants (mirrors `tt-rss/classes/Feeds.php`).
 const FEED_ARCHIVED: i64 = 0;
@@ -33,231 +34,196 @@ const CATEGORY_UNCATEGORIZED: i64 = 0;
 const CATEGORY_SPECIAL: i64 = -1;
 const CATEGORY_LABELS: i64 = -2;
 
-async fn setup(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) -> Db {
-    common::make_db(pool, options).await.expect("test db")
-}
-
 // ── FeedsTest (functional: no seed data required) ───────────────────────────
 
 /// PHP: test_get_title_special_feeds (functional + integration).
-#[sqlx::test]
-async fn test_get_title_special_feeds(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
-    let uid = 1;
-    assert_eq!(
-        "Starred articles",
-        feeds::feed_title(db.pool(), FEED_STARRED, uid).await
-    );
-    assert_eq!(
-        "Published articles",
-        feeds::feed_title(db.pool(), FEED_PUBLISHED, uid).await
-    );
-    assert_eq!(
-        "Fresh articles",
-        feeds::feed_title(db.pool(), FEED_FRESH, uid).await
-    );
-    assert_eq!(
-        "All articles",
-        feeds::feed_title(db.pool(), FEED_ALL, uid).await
-    );
-    assert_eq!(
-        "Archived articles",
-        feeds::feed_title(db.pool(), FEED_ARCHIVED, uid).await
-    );
-    assert_eq!(
-        "Recently read",
-        feeds::feed_title(db.pool(), FEED_RECENTLY_READ, uid).await
-    );
+#[tokio::test]
+async fn test_get_title_special_feeds() {
+    let _ = with_test_db(|url| Box::pin(async move {
+        let db = common::make_db_ref(&url).await;
+        let uid = 1;
+        assert_eq!(
+            "Starred articles",
+            feeds::feed_title(db.pool(), FEED_STARRED, uid).await
+        );
+        assert_eq!(
+            "Published articles",
+            feeds::feed_title(db.pool(), FEED_PUBLISHED, uid).await
+        );
+        assert_eq!(
+            "Fresh articles",
+            feeds::feed_title(db.pool(), FEED_FRESH, uid).await
+        );
+        assert_eq!(
+            "All articles",
+            feeds::feed_title(db.pool(), FEED_ALL, uid).await
+        );
+        assert_eq!(
+            "Archived articles",
+            feeds::feed_title(db.pool(), FEED_ARCHIVED, uid).await
+        );
+        assert_eq!(
+            "Recently read",
+            feeds::feed_title(db.pool(), FEED_RECENTLY_READ, uid).await
+        );
+        Ok(())
+    })).await.unwrap();
 }
 
 /// PHP: test_get_title_error_feed (functional + integration).
-#[sqlx::test]
-async fn test_get_title_error_feed(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
-    // FEED_ERROR (-7) is < 0 and >= LABEL_BASE_INDEX (-1024): the final else
-    // branch returns the id as a string.
-    assert_eq!("-7", feeds::feed_title(db.pool(), FEED_ERROR, 1).await);
+#[tokio::test]
+async fn test_get_title_error_feed() {
+    let _ = with_test_db(|url| Box::pin(async move {
+        let db = common::make_db_ref(&url).await;
+        // FEED_ERROR (-7) is < 0 and >= LABEL_BASE_INDEX (-1024): the final else
+        // branch returns the id as a string.
+        assert_eq!("-7", feeds::feed_title(db.pool(), FEED_ERROR, 1).await);
+        Ok(())
+    })).await.unwrap();
 }
 
 // ── FeedsIntegrationTest (DB-backed) ─────────────────────────────────────────
 
 /// PHP: test_get_title_numeric_feed_id_existing.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_title_numeric_feed_id_existing(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
-    let uid = 1;
-    assert_eq!("Hacker News", feeds::feed_title(db.pool(), 1, uid).await);
-    assert_eq!("The Register", feeds::feed_title(db.pool(), 2, uid).await);
-    assert_eq!("Ars Technica", feeds::feed_title(db.pool(), 3, uid).await);
-    assert_eq!(
-        "MIT Tech Review",
-        feeds::feed_title(db.pool(), 4, uid).await
-    );
+#[tokio::test]
+async fn test_get_title_numeric_feed_id_existing() {
+    let _ = with_test_db(|url| Box::pin(async move {
+        let db = common::make_db_ref(&url).await;
+        let uid = 1;
+        assert_eq!("Hacker News", feeds::feed_title(db.pool(), 1, uid).await);
+        assert_eq!("The Register", feeds::feed_title(db.pool(), 2, uid).await);
+        assert_eq!("Ars Technica", feeds::feed_title(db.pool(), 3, uid).await);
+        assert_eq!(
+            "MIT Tech Review",
+            feeds::feed_title(db.pool(), 4, uid).await
+        );
+        Ok(())
+    })).await.unwrap();
 }
 
 /// PHP: test_get_title_numeric_feed_id_missing.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_title_numeric_feed_id_missing(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
-    // Feed id 999 does not exist for owner 1.
-    assert_eq!(
-        "Unknown feed (999)",
-        feeds::feed_title(db.pool(), 999, 1).await
-    );
+#[tokio::test]
+async fn test_get_title_numeric_feed_id_missing() {
+    let _ = with_test_db(|url| Box::pin(async move {
+        let db = common::make_db_ref(&url).await;
+        // Feed id 999 does not exist for owner 1.
+        assert_eq!(
+            "Unknown feed (999)",
+            feeds::feed_title(db.pool(), 999, 1).await
+        );
+        Ok(())
+    })).await.unwrap();
 }
 
 /// PHP: test_get_title_label_id_existing.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_title_label_id_existing(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
-    let uid = 1;
-    // Label reference IDs must be < LABEL_BASE_INDEX (-1024); the label id is
-    // recovered from the reference via `feed_to_label_id`.
-    let ref_id_1 = ttrss::labels::label_to_feed_id(1);
-    assert_eq!(
-        "test-label-1",
-        feeds::feed_title(db.pool(), ref_id_1, uid).await
-    );
-    let ref_id_2 = ttrss::labels::label_to_feed_id(2);
-    assert_eq!(
-        "test-label-2",
-        feeds::feed_title(db.pool(), ref_id_2, uid).await
-    );
+#[tokio::test]
+async fn test_get_title_label_id_existing() {
+    let _ = with_test_db(|url| Box::pin(async move {
+        let db = common::make_db_ref(&url).await;
+        let uid = 1;
+        // Label reference IDs must be < LABEL_BASE_INDEX (-1024); the label id is
+        // recovered from the reference via `feed_to_label_id`.
+        let ref_id_1 = ttrss::labels::label_to_feed_id(1);
+        assert_eq!(
+            "test-label-1",
+            feeds::feed_title(db.pool(), ref_id_1, uid).await
+        );
+        let ref_id_2 = ttrss::labels::label_to_feed_id(2);
+        assert_eq!(
+            "test-label-2",
+            feeds::feed_title(db.pool(), ref_id_2, uid).await
+        );
+        Ok(())
+    })).await.unwrap();
 }
 
 /// PHP: test_get_title_label_id_missing.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_title_label_id_missing(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
-    // Label id 9999 does not exist; its reference is < LABEL_BASE_INDEX.
-    let ref_id = ttrss::labels::label_to_feed_id(9999);
-    assert_eq!(
-        "Unknown label (9999)",
-        feeds::feed_title(db.pool(), ref_id, 1).await
-    );
+#[tokio::test]
+async fn test_get_title_label_id_missing() {
+    let _ = with_test_db(|url| Box::pin(async move {
+        let db = common::make_db_ref(&url).await;
+        // Label id 9999 does not exist; its reference is < LABEL_BASE_INDEX.
+        let ref_id = ttrss::labels::label_to_feed_id(9999);
+        assert_eq!(
+            "Unknown label (9999)",
+            feeds::feed_title(db.pool(), ref_id, 1).await
+        );
+        Ok(())
+    })).await.unwrap();
 }
 
 /// PHP: test_get_title_category_special.
-#[sqlx::test]
-async fn test_get_title_category_special(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
-    assert_eq!(
-        "Special",
-        feeds::category_title(db.pool(), CATEGORY_SPECIAL, 1).await
-    );
+#[tokio::test]
+async fn test_get_title_category_special() {
+    let _ = with_test_db(|url| Box::pin(async move {
+        let db = common::make_db_ref(&url).await;
+        assert_eq!(
+            "Special",
+            feeds::category_title(db.pool(), CATEGORY_SPECIAL, 1).await
+        );
+        Ok(())
+    })).await.unwrap();
 }
 
 /// PHP: test_get_title_category_uncategorized.
-#[sqlx::test]
-async fn test_get_title_category_uncategorized(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
-    assert_eq!(
-        "Uncategorized",
-        feeds::category_title(db.pool(), CATEGORY_UNCATEGORIZED, 1).await
-    );
+#[tokio::test]
+async fn test_get_title_category_uncategorized() {
+    let _ = with_test_db(|url| Box::pin(async move {
+        let db = common::make_db_ref(&url).await;
+        assert_eq!(
+            "Uncategorized",
+            feeds::category_title(db.pool(), CATEGORY_UNCATEGORIZED, 1).await
+        );
+        Ok(())
+    })).await.unwrap();
 }
 
 /// PHP: test_get_title_category_labels.
-#[sqlx::test]
-async fn test_get_title_category_labels(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
-    assert_eq!(
-        "Labels",
-        feeds::category_title(db.pool(), CATEGORY_LABELS, 1).await
-    );
+#[tokio::test]
+async fn test_get_title_category_labels() {
+    let _ = with_test_db(|url| Box::pin(async move {
+        let db = common::make_db_ref(&url).await;
+        assert_eq!(
+            "Labels",
+            feeds::category_title(db.pool(), CATEGORY_LABELS, 1).await
+        );
+        Ok(())
+    })).await.unwrap();
 }
 
 /// PHP: test_get_title_category_existing.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_title_category_existing(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
-    let uid = 1;
-    assert_eq!("Technology", feeds::category_title(db.pool(), 1, uid).await);
-    assert_eq!(
-        "Science & Nature",
-        feeds::category_title(db.pool(), 2, uid).await
-    );
+#[tokio::test]
+async fn test_get_title_category_existing() {
+    let _ = with_test_db(|url| Box::pin(async move {
+        let db = common::make_db_ref(&url).await;
+        let uid = 1;
+        assert_eq!("Technology", feeds::category_title(db.pool(), 1, uid).await);
+        assert_eq!(
+            "Science & Nature",
+            feeds::category_title(db.pool(), 2, uid).await
+        );
+        Ok(())
+    })).await.unwrap();
 }
 
 /// PHP: test_get_title_category_missing.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_title_category_missing(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
-    // Category id 999 does not exist for owner 1.
-    assert_eq!("UNKNOWN", feeds::category_title(db.pool(), 999, 1).await);
+#[tokio::test]
+async fn test_get_title_category_missing() {
+    let _ = with_test_db(|url| Box::pin(async move {
+        let db = common::make_db_ref(&url).await;
+        // Category id 999 does not exist for owner 1.
+        assert_eq!("UNKNOWN", feeds::category_title(db.pool(), 999, 1).await);
+        Ok(())
+    })).await.unwrap();
 }
 
 /// PHP: test_get_title_different_owner_uid.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_title_different_owner_uid(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
-    // seed data is for owner 1; owner 2 has no categories.
-    assert_eq!("UNKNOWN", feeds::category_title(db.pool(), 1, 2).await);
+#[tokio::test]
+async fn test_get_title_different_owner_uid() {
+    let _ = with_test_db(|url| Box::pin(async move {
+        let db = common::make_db_ref(&url).await;
+        // seed data is for owner 1; owner 2 has no categories.
+        assert_eq!("UNKNOWN", feeds::category_title(db.pool(), 1, 2).await);
+        Ok(())
+    })).await.unwrap();
 }
