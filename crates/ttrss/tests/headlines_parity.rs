@@ -17,16 +17,16 @@ mod common;
 use sqlx::Row;
 use ttrss::core::db::Db;
 use ttrss::headlines::{get_headlines_query, HeadlinesParams};
+use test_db::template::with_test_db;
 
 /// `DbTestCase::setUp`: `$_SESSION["uid"] = 1`.
 const SESSION_UID: i64 = 1;
 
 /// `DbTestCase::setUp` + the test class `setUp` on top of the harness pool.
 async fn setup(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
+    url: &str,
 ) -> Db {
-    let db = common::make_db(pool, options).await.expect("test db");
+    let db = common::make_db_from_url(url).await.expect("test db");
     // Prefs::set(Prefs::FRESH_ARTICLE_MAX_AGE, 999999, 1, null)
     sqlx::query(
         "INSERT INTO ttrss_user_prefs2 (owner_uid, pref_name, profile, value)
@@ -51,16 +51,10 @@ fn row_ids(rows: &[sqlx::postgres::PgRow]) -> Vec<i32> {
 // ── Return structure ────────────────────────────────────────────────────────
 
 // PHP: test_get_headlines_return_structure
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_headlines_return_structure(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_headlines_return_structure() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     let q = get_headlines_query(&db, &params(-4)).await; // Feeds::FEED_ALL
 
     // The Rust HeadlinesQuery is the typed form of PHP's 9-element return
@@ -77,21 +71,17 @@ async fn test_get_headlines_return_structure(
     // feed_title / feed_site_url / last_error are Strings; last_updated is
     // Option<String> (PHP "" => None for virtual feeds).
     assert!(q.last_updated.is_none());
+        Ok(())
+    })).await.unwrap();
 }
 
 // ── Feed ID queries ─────────────────────────────────────────────────────────
 
 // PHP: test_get_headlines_by_feed_id
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_headlines_by_feed_id(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_headlines_by_feed_id() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     let q = get_headlines_query(&db, &params(1)).await; // Hacker News
 
     assert_eq!("Hacker News", q.feed_title);
@@ -106,35 +96,27 @@ async fn test_get_headlines_by_feed_id(
             assert!(row.try_column(col).is_ok(), "Missing column: {col}");
         }
     }
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_get_headlines_by_feed_id_empty
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_headlines_by_feed_id_empty(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_headlines_by_feed_id_empty() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     // Feed id 999 does not exist
     let q = get_headlines_query(&db, &params(999)).await;
     assert!(q.article_rows.is_empty());
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_get_headlines_by_feed_id_different_owner
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_headlines_by_feed_id_different_owner(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_headlines_by_feed_id_different_owner() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     // Feed 1 exists but owner_uid=2 has no subscriptions
     let mut p = params(1);
     p.owner_uid = 2;
@@ -143,21 +125,17 @@ async fn test_get_headlines_by_feed_id_different_owner(
         q.article_rows.is_empty(),
         "Owner 2 should see no headlines for feed 1"
     );
+        Ok(())
+    })).await.unwrap();
 }
 
 // ── Virtual feeds ───────────────────────────────────────────────────────────
 
 // PHP: test_get_headlines_feed_all
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_headlines_feed_all(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_headlines_feed_all() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     let q = get_headlines_query(&db, &params(-4)).await; // Feeds::FEED_ALL
 
     assert!(q.is_vfeed);
@@ -165,19 +143,15 @@ async fn test_get_headlines_feed_all(
         q.article_rows.len() >= 11,
         "FEED_ALL should return all 11 seeded articles"
     );
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_get_headlines_feed_starred
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_headlines_feed_starred(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_headlines_feed_starred() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     let q = get_headlines_query(&db, &params(-1)).await; // Feeds::FEED_STARRED
 
     assert!(q.is_vfeed);
@@ -194,19 +168,15 @@ async fn test_get_headlines_feed_starred(
             "Each starred headline should be marked"
         );
     }
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_get_headlines_feed_fresh
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_headlines_feed_fresh(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_headlines_feed_fresh() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     let q = get_headlines_query(&db, &params(-3)).await; // Feeds::FEED_FRESH
 
     assert!(
@@ -220,19 +190,15 @@ async fn test_get_headlines_feed_fresh(
             "Each fresh headline should be unread"
         );
     }
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_get_headlines_feed_recently_read
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_headlines_feed_recently_read(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_headlines_feed_recently_read() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     // Articles 3, 8, 11 are marked=true in seed but have last_read=NULL.
     // Use _catchup_by_id to set last_read = NOW() so they qualify as
     // "recently read".
@@ -266,21 +232,17 @@ async fn test_get_headlines_feed_recently_read(
             "Recently read articles should not be unread"
         );
     }
+        Ok(())
+    })).await.unwrap();
 }
 
 // ── View modes ──────────────────────────────────────────────────────────────
 
 // PHP: test_get_headlines_view_mode_unread
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_headlines_view_mode_unread(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_headlines_view_mode_unread() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     let mut p = params(1); // Hacker News (3 articles: 2 unread, 1 read)
     p.view_mode = "unread".into();
     let q = get_headlines_query(&db, &p).await;
@@ -297,19 +259,15 @@ async fn test_get_headlines_view_mode_unread(
             "Each headline should be unread"
         );
     }
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_get_headlines_view_mode_marked
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_headlines_view_mode_marked(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_headlines_view_mode_marked() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     let mut p = params(-4);
     p.view_mode = "marked".into();
     let q = get_headlines_query(&db, &p).await;
@@ -323,19 +281,15 @@ async fn test_get_headlines_view_mode_marked(
             "Each headline should be marked"
         );
     }
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_get_headlines_view_mode_published
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_headlines_view_mode_published(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_headlines_view_mode_published() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     let mut p = params(-4);
     p.view_mode = "published".into();
     let q = get_headlines_query(&db, &p).await;
@@ -345,22 +299,18 @@ async fn test_get_headlines_view_mode_published(
         q.article_rows.is_empty(),
         "No published articles in seed data"
     );
+        Ok(())
+    })).await.unwrap();
 }
 
 // Rust-only. `adaptive` is the default view mode but the PHP suite exercises
 // the explicit "unread"/"marked"/"published" modes, not adaptive. The ported
 // behavior: a concrete feed with any unread is scoped to unread; with no
 // unread it falls back to all articles (Feeds.php `$view_mode == "adaptive"`).
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_headlines_view_mode_adaptive_scopes_to_unread(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_headlines_view_mode_adaptive_scopes_to_unread() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     let mut p = params(1); // Hacker News (3 articles: 2 unread, 1 read)
     p.view_mode = "adaptive".into();
     let q = get_headlines_query(&db, &p).await;
@@ -376,18 +326,14 @@ async fn test_get_headlines_view_mode_adaptive_scopes_to_unread(
             "each adaptive headline should be unread"
         );
     }
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_headlines_view_mode_adaptive_falls_back_to_all(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_headlines_view_mode_adaptive_falls_back_to_all() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     // Mark every article in feed 1 read so there is no unread to scope to.
     let ids: Vec<i32> = sqlx::query_scalar(
         "SELECT e.id FROM ttrss_entries e \
@@ -415,18 +361,14 @@ async fn test_get_headlines_view_mode_adaptive_falls_back_to_all(
         q.article_rows.len(),
         "adaptive with no unread should fall back to all articles"
     );
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_headlines_view_mode_adaptive_category(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_headlines_view_mode_adaptive_category() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     let mut p = params(1); // category 1 = Technology (feeds 1, 2, 3)
     p.cat_view = true;
     p.view_mode = "adaptive".into();
@@ -453,21 +395,17 @@ async fn test_get_headlines_view_mode_adaptive_category(
             "each adaptive category headline should be unread"
         );
     }
+        Ok(())
+    })).await.unwrap();
 }
 
 // ── Pagination ──────────────────────────────────────────────────────────────
 
 // PHP: test_get_headlines_limit
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_headlines_limit(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_headlines_limit() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     let mut p = params(-4);
     p.limit = 5;
     let q = get_headlines_query(&db, &p).await;
@@ -477,19 +415,15 @@ async fn test_get_headlines_limit(
         q.article_rows.len(),
         "Limit of 5 should return exactly 5 headlines"
     );
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_get_headlines_offset
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_headlines_offset(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_headlines_offset() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     // First call: limit=5, offset=0 (page 1)
     let mut p = params(-4);
     p.limit = 5;
@@ -513,21 +447,17 @@ async fn test_get_headlines_offset(
     all.extend(ids_page2);
     let unique: std::collections::HashSet<_> = all.iter().copied().collect();
     assert_eq!(10, unique.len());
+        Ok(())
+    })).await.unwrap();
 }
 
 // ── Since ID ────────────────────────────────────────────────────────────────
 
 // PHP: test_get_headlines_since_id
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_headlines_since_id(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_headlines_since_id() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     let mut p = params(-4);
     p.since_id = 5;
     let q = get_headlines_query(&db, &p).await;
@@ -536,21 +466,17 @@ async fn test_get_headlines_since_id(
     for id in row_ids(&q.article_rows) {
         assert!(id > 5, "All returned articles should have id > 5");
     }
+        Ok(())
+    })).await.unwrap();
 }
 
 // ── Category view ───────────────────────────────────────────────────────────
 
 // PHP: test_get_headlines_cat_view
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_headlines_cat_view(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_headlines_cat_view() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     // Category 1 = "Technology" (feeds 1, 2, 3)
     let mut p = params(1); // category id
     p.cat_view = true;
@@ -563,19 +489,15 @@ async fn test_get_headlines_cat_view(
         q.article_rows.len(),
         "Category Technology should have 8 articles"
     );
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_get_headlines_cat_view_uncategorized
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_headlines_cat_view_uncategorized(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_headlines_cat_view_uncategorized() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     let mut p = params(0); // Feeds::CATEGORY_UNCATEGORIZED
     p.cat_view = true;
     let q = get_headlines_query(&db, &p).await;
@@ -583,59 +505,47 @@ async fn test_get_headlines_cat_view_uncategorized(
     assert_eq!("Uncategorized", q.feed_title);
     // All seeded feeds have a category, so uncategorized should be empty
     assert!(q.article_rows.is_empty());
+        Ok(())
+    })).await.unwrap();
 }
 
 // ── Metadata ────────────────────────────────────────────────────────────────
 
 // PHP: test_get_headlines_metadata_feed
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_headlines_metadata_feed(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_headlines_metadata_feed() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     let q = get_headlines_query(&db, &params(1)).await;
 
     assert_eq!("Hacker News", q.feed_title);
     assert_eq!("https://news.ycombinator.com", q.feed_site_url);
     assert!(q.last_error.is_empty());
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_get_headlines_metadata_category
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_headlines_metadata_category(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_headlines_metadata_category() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     let mut p = params(1);
     p.cat_view = true;
     let q = get_headlines_query(&db, &p).await;
 
     assert_eq!("Technology", q.feed_title);
+        Ok(())
+    })).await.unwrap();
 }
 
 // ── Headline columns ────────────────────────────────────────────────────────
 
 // PHP: test_get_headlines_columns
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_headlines_columns(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_headlines_columns() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     let q = get_headlines_query(&db, &params(1)).await;
 
     assert!(!q.article_rows.is_empty());
@@ -677,21 +587,17 @@ async fn test_get_headlines_columns(
             assert!(row.try_column(col).is_ok(), "Missing column: {col}");
         }
     }
+        Ok(())
+    })).await.unwrap();
 }
 
 // ── Feed with no articles for owner ─────────────────────────────────────────
 
 // PHP: test_get_headlines_feed_not_subscribed
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_headlines_feed_not_subscribed(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_headlines_feed_not_subscribed() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     // Feed 1 exists in the DB but owner_uid=2 has no ttrss_user_entries
     // for it
     let mut p = params(1);
@@ -701,4 +607,6 @@ async fn test_get_headlines_feed_not_subscribed(
     assert!(q.article_rows.is_empty());
     // Feed doesn't exist for owner_uid=2, so _get_title returns "Unknown feed"
     assert_eq!("Unknown feed (1)", q.feed_title);
+        Ok(())
+    })).await.unwrap();
 }
