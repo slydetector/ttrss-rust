@@ -394,6 +394,30 @@ async fn format_headlines_list(
     // `if ($search) $disable_cache = true;`
     let disable_cache = !search.is_empty();
 
+    // Resolve active plugins for the user (system + user prefs) so that
+    // `article_buttons` only emits buttons for enabled plugins (PHP parity:
+    // `hook_article_button` only runs for enabled plugins).
+    let system: Vec<String> = state
+        .config
+        .plugins
+        .split(',')
+        .map(|s| s.trim().to_lowercase())
+        .filter(|s| !s.is_empty())
+        .collect();
+    let enabled_pref =
+        prefs::resolve(prefs::_ENABLED_PLUGINS, rows, profile).as_str().to_string();
+    let user: Vec<String> = enabled_pref
+        .split(',')
+        .map(|s| s.trim().to_lowercase())
+        .filter(|s| !s.is_empty())
+        .collect();
+    let mut active_plugins: Vec<String> = system;
+    for p in user {
+        if !active_plugins.contains(&p) {
+            active_plugins.push(p);
+        }
+    }
+
     let vfeed_group_enabled = prefs::resolve("VFEED_GROUP_BY_FEED", rows, profile).as_bool()
         && !((feed_num
             .map(|f| NEVER_GROUP_FEEDS.contains(&f))
@@ -696,7 +720,7 @@ async fn format_headlines_list(
         line.insert("buttons_left".into(), json!(""));
         line.insert(
             "buttons".into(),
-            json!(article_buttons(id, int_id, is_shared)),
+            json!(article_buttons(id, int_id, is_shared, &active_plugins)),
         );
         line.insert("enclosures".into(), enclosures);
         line.insert(
@@ -817,19 +841,25 @@ async fn format_headlines_list(
 /// share). The PHP DOM round-trip normalizes the markup (attribute order
 /// preserved, single quotes become double quotes, `data-plugin-name` appended
 /// last); the result strings below are the oracle's exact output.
-fn article_buttons(id: i32, int_id: i32, is_shared: bool) -> String {
+fn article_buttons(id: i32, int_id: i32, is_shared: bool, active: &[String]) -> String {
     let mut out = String::new();
-    out.push_str(&format!(
-        "<i style=\"cursor : pointer\" class=\"material-icons\" onclick=\"Plugins.Psql_Trgm.showRelated({id})\" title=\"Show related articles\" data-plugin-name=\"Af_Psql_Trgm\">bookmark_outline</i>"
-    ));
-    out.push_str(&format!(
-        "<i class=\"material-icons\" onclick=\"Plugins.Note.edit({id})\" style=\"cursor : pointer\" title=\"Edit article note\" data-plugin-name=\"Note\">note</i>"
-    ));
-    // `is-shared` class only when the article has a share uuid.
-    let icon_class = if is_shared { "is-shared" } else { "" };
-    out.push_str(&format!(
-        "<i class=\"material-icons icon-share share-icon-{int_id} {icon_class}\" style=\"cursor : pointer\" onclick=\"Plugins.Share.shareArticle({int_id})\" title=\"Share by URL\" data-plugin-name=\"Share\">link</i>"
-    ));
+    if active.iter().any(|p| p == "af_psql_trgm") {
+        out.push_str(&format!(
+            "<i style=\"cursor : pointer\" class=\"material-icons\" onclick=\"Plugins.Psql_Trgm.showRelated({id})\" title=\"Show related articles\" data-plugin-name=\"Af_Psql_Trgm\">bookmark_outline</i>"
+        ));
+    }
+    if active.iter().any(|p| p == "note") {
+        out.push_str(&format!(
+            "<i class=\"material-icons\" onclick=\"Plugins.Note.edit({id})\" style=\"cursor : pointer\" title=\"Edit article note\" data-plugin-name=\"Note\">note</i>"
+        ));
+    }
+    if active.iter().any(|p| p == "share") {
+        // `is-shared` class only when the article has a share uuid.
+        let icon_class = if is_shared { "is-shared" } else { "" };
+        out.push_str(&format!(
+            "<i class=\"material-icons icon-share share-icon-{int_id} {icon_class}\" style=\"cursor : pointer\" onclick=\"Plugins.Share.shareArticle({int_id})\" title=\"Share by URL\" data-plugin-name=\"Share\">link</i>"
+        ));
+    }
     out
 }
 
@@ -1697,3 +1727,30 @@ mod tests {
         assert_eq!(basename(""), "");
     }
 }
+
+    #[test]
+    fn article_buttons_only_for_active_plugins() {
+        // No plugins active → no buttons.
+        let out = article_buttons(1, 100, false, &[]);
+        assert_eq!(out, "", "no plugins → empty");
+
+        // Only note active → only note button.
+        let out = article_buttons(1, 100, false, &["note".into()]);
+        assert!(out.contains("Plugins.Note.edit"));
+        assert!(!out.contains("Psql_Trgm"));
+        assert!(!out.contains("Share.shareArticle"));
+
+        // Only share active → only share button.
+        let out = article_buttons(1, 100, true, &["share".into()]);
+        assert!(out.contains("Plugins.Share.shareArticle"));
+        assert!(out.contains("is-shared"));
+        assert!(!out.contains("Psql_Trgm"));
+        assert!(!out.contains("Note.edit"));
+
+        // All three active → all buttons.
+        let out = article_buttons(2, 200, false, &["af_psql_trgm".into(), "note".into(), "share".into()]);
+        assert!(out.contains("Plugins.Psql_Trgm.showRelated(2)"));
+        assert!(out.contains("Plugins.Note.edit(2)"));
+        assert!(out.contains("Plugins.Share.shareArticle(200)"));
+        assert!(!out.contains("is-shared"));
+    }

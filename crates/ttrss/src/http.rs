@@ -177,7 +177,14 @@ async fn prefs_page(
     let access_level = data.access_level().unwrap_or(0);
     let theme_link = theme_css_link(&state, &data).await;
     let user_css = user_css_style(&state, &data).await;
-    let html = render::render_prefs_page(csrf, ts, access_level, &theme_link, &user_css);
+    let active_plugins = resolve_active_plugins(&state, &data).await;
+    let (_, plugin_js) = plugin_assets(&state, &active_plugins);
+    let prefs_plugin_js = if plugin_js.is_empty() {
+        String::new()
+    } else {
+        format!("<script type=\"text/javascript\">\ntry {{\n\t\t\t\t\t/* global __, Plugins, Notify, xhr, App */\n\n{plugin_js}\n\n\t\t\t\t}} catch (e) {{\n\t\t\t\t\tconsole.warn('failed to initialize plugin JS', e);\n\t\t\t\t}}\t</script>")
+    };
+    let html = render::render_prefs_page(csrf, ts, access_level, &theme_link, &user_css, &prefs_plugin_js);
     let etag = format!("W/\"{}\"", md5_hex(&html));
     axum::http::Response::builder()
         .status(StatusCode::OK)
