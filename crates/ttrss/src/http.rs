@@ -51,12 +51,26 @@ pub fn build_router(state: &AppState) -> Router<AppState> {
     let app = if base.is_empty() {
         inner
     } else {
-        // `nest` maps `<base>` and `<base>/…` but not `<base>/` (trailing
-        // slash) to the inner root, so serve the index there explicitly.
+        // Apache's DirectorySlash: 301 redirect <base> → <base>/ so relative
+        // asset paths resolve correctly. The nest maps <base>/… to the inner
+        // router; the explicit route serves <base>/ (the index).
         let base_slash = format!("{base}/");
+        let base_for_fallback = base.clone();
         Router::new()
             .nest(&base, inner)
             .route(&base_slash, get(index))
+            .fallback(move |req: axum::http::Request<axum::body::Body>| {
+                let base = base_for_fallback.clone();
+                async move {
+                    let path = req.uri().path().to_owned();
+                    if path == base {
+                        let target = format!("{base}/");
+                        axum::response::Redirect::to(target.as_str()).into_response()
+                    } else {
+                        (axum::http::StatusCode::NOT_FOUND, "not found").into_response()
+                    }
+                }
+            })
     };
 
     // Session middleware at the outer level so every route (inner + the
@@ -74,6 +88,9 @@ async fn healthz() -> impl IntoResponse {
         .body(Body::from("OK"))
         .expect("valid response")
 }
+
+/// Apache's `DirectorySlash`: 301 redirect `<base>` → `<base>/` so the
+/// browser resolves relative asset paths against the correct directory.
 
 /// GET `/` and `/index.php` — the authenticated SPA shell, or the login page
 /// when the session has no logged-in user. The shell is revalidated via ETag.
@@ -600,7 +617,7 @@ async fn login_flow(
 ) -> Response {
     let login = form.login.as_deref().unwrap_or("").to_string();
     let password = form.password.as_deref().unwrap_or("").to_string();
-    let otp = form
+    let _otp = form
         .otp
         .as_deref()
         .and_then(|s| s.trim().parse::<i64>().ok());

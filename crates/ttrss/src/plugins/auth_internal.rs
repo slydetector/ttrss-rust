@@ -16,7 +16,6 @@
 //! this plugin wraps it in the `Plugin::authenticate` contract.
 
 use crate::auth;
-use crate::core::user;
 use crate::pluginhost::host::{HostCtx, PluginHost};
 use crate::pluginhost::plugin::{About, BoxFuture, MethodOutput, Plugin, PluginError};
 use crate::pluginhost::HOOK_AUTH_USER;

@@ -31,7 +31,6 @@ use crate::session::Sess;
 use crate::time::TzCtx;
 use crate::AppState;
 use crate::pluginhost::host::HostCtx;
-use crate::pluginhost::plugin::Plugin;
 use crate::pluginhost::{HOOK_PREFS_EDIT_FEED, HOOK_PREFS_SAVE_FEED};
 
 // `Feeds::*` virtual-feed pseudo-ids (functions.php).
@@ -1688,7 +1687,7 @@ async fn editsaveops(
         }
     }
 
-    let mut touched: i64 = 0;
+    let touched: i64;
     if !batch {
         let exists = sqlx::query_scalar::<_, i32>(
             "SELECT id FROM ttrss_feeds WHERE id = $1 AND owner_uid = $2",
@@ -1704,7 +1703,7 @@ async fn editsaveops(
             return 0;
         }
         let cat: Option<i32> = (cat_id != 0).then_some(cat_id);
-        sqlx::query(
+        let _ = sqlx::query(
             "UPDATE ttrss_feeds SET
                  title = $1, cat_id = $2, feed_url = $3, site_url = $4,
                  update_interval = $5, purge_interval = $6, auth_login = $7, auth_pass = $8,
