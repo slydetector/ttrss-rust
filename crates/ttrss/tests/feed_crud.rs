@@ -65,19 +65,6 @@ fn test_config() -> Config {
     }
 }
 
-/// Fresh fixtures + a session carrying `uid = 1` (owner of all fixture rows).
-async fn setup(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) -> (AppState, Sess) {
-    let db: Db = common::make_db(pool, options).await.expect("test db");
-    let state = AppState::new(test_config(), db);
-    let mut data = Session::new();
-    data.set("uid", PValue::Int(1));
-    let sess = Sess::new("test-sid".to_string());
-    sess.replace("test-sid".to_string(), data);
-    (state, sess)
-}
 
 async fn setup_from_url(url: &str) -> (AppState, Sess) {
     let db: Db = common::make_db_from_url(url).await.expect("test db");

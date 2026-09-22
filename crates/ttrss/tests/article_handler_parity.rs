@@ -12,28 +12,9 @@
 mod common;
 
 use serde_json::{json, Map, Value};
-use ttrss::core::config::Config;
 use ttrss::core::db::Db;
-use ttrss::core::phpser::Value as PValue;
-use ttrss::core::session::Session;
-use ttrss::session::Sess;
-use ttrss::AppState;
 use test_db::template::with_test_db;
 
-/// A test-only config (the handlers only need `db`/`feed_icon_dir` here).
-
-/// `DbTestCase::setUp`: fresh fixtures + `$_SESSION["uid"] = 1`.
-async fn setup(
-    url: &str,
-) -> (AppState, Sess) {
-    let db: Db = common::make_db_from_url(&url).await.expect("test db");
-    let state = AppState::new(common::test_config(), db);
-    let mut data = Session::new();
-    data.set("uid", PValue::Int(1));
-    let sess = Sess::new("test-sid".to_string());
-    sess.replace("test-sid".to_string(), data);
-    (state, sess)
-}
 
 /// `$_REQUEST` payload as the handler's `extra` map.
 fn request(pairs: &[(&str, Value)]) -> Map<String, Value> {

@@ -16,8 +16,6 @@
 
 mod common;
 
-use sqlx::pool::PoolOptions;
-use sqlx::postgres::PgConnectOptions;
 use ttrss::core::config::Config;
 use ttrss::core::db::Db;
 use ttrss::pluginhost::PluginHost;
@@ -99,7 +97,12 @@ const FEED_C: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 
 /// A test `Config` with short fetch timeouts + the upstream fetch-tuning
 /// defaults (the workhorse only reads the fetch-tuning fields + the key).
-fn test_config() -> Config { common::test_config() }
+fn test_config() -> Config {
+    let mut cfg = Config::for_test();
+    cfg.feed_fetch_timeout = 5;
+    cfg.feed_fetch_no_cache_timeout = 3;
+    cfg
+}
 
 /// Insert a user and return its id.
 async fn create_user(db: &Db, uid: i32, access_level: i32) -> i32 {
@@ -165,15 +168,9 @@ async fn entry_title_count(db: &Db, title: &str) -> i64 {
 // feed-subscriptions, 5 distinct articles — the shared article appears in both
 // Feed A and Feed B with an identical `content_hash`), then assert the
 // aggregate / cross-feed invariants.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_batch_smoke(
-    pool: PoolOptions<sqlx::Postgres>,
-    options: PgConnectOptions,
-) {
+#[tokio::test]
+async fn test_batch_smoke() {
+    let _ = with_test_db(|url| Box::pin(async move {
     let db = common::make_db_from_url(&url).await.expect("test db");
     let cfg = test_config();
     let mock = MockServer::new(vec![
@@ -266,4 +263,6 @@ async fn test_batch_smoke(
         5,
         "expected the cross-feed dedup to collapse 6 items to 5 articles"
     );
+    Ok(())
+    })).await.unwrap();
 }

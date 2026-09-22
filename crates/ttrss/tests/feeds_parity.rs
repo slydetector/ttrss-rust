@@ -18,7 +18,6 @@
 
 mod common;
 
-use ttrss::core::db::Db;
 use ttrss::feeds;
 use test_db::template::with_test_db;
 

@@ -12,8 +12,6 @@ use chrono::{Local, NaiveDate, NaiveDateTime, NaiveTime, TimeZone as _};
 use sqlx::AssertSqlSafe;
 use croner::Cron;
 use std::str::FromStr;
-use sqlx::pool::PoolOptions;
-use sqlx::postgres::PgConnectOptions;
 use ttrss::core::config::Config;
 use ttrss::core::db::Db;
 use test_db::template::with_test_db;
@@ -173,12 +171,9 @@ fn test_is_due_hourly() {
 // purge_orphans
 // ---------------------------------------------------------------------------
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_purge_orphans(pool: PoolOptions<sqlx::Postgres>, options: PgConnectOptions) {
+#[tokio::test]
+async fn test_purge_orphans() {
+    let _ = with_test_db(|url| Box::pin(async move {
     let db = common::make_db_from_url(&url).await.expect("test db");
     let uid = create_user(&db, 400, 0).await;
     let feed_id = create_feed(&db, 400, uid, "http://example.com/f400").await;
@@ -201,18 +196,17 @@ async fn test_purge_orphans(pool: PoolOptions<sqlx::Postgres>, options: PgConnec
         .await
         .expect("count");
     assert_eq!(orphan_left, 0);
+    Ok(())
+    })).await.unwrap();
 }
 
 // ---------------------------------------------------------------------------
 // disable_failed_feeds
 // ---------------------------------------------------------------------------
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_disable_failed_feeds(pool: PoolOptions<sqlx::Postgres>, options: PgConnectOptions) {
+#[tokio::test]
+async fn test_disable_failed_feeds() {
+    let _ = with_test_db(|url| Box::pin(async move {
     let db = common::make_db_from_url(&url).await.expect("test db");
     let cfg = test_config(); // daemon_unsuccessful_days_limit = 30
     let uid = create_user(&db, 401, 0).await;
@@ -257,18 +251,17 @@ async fn test_disable_failed_feeds(pool: PoolOptions<sqlx::Postgres>, options: P
         .await
         .expect("stale interval");
     assert_eq!(stale_interval, 0, "stale feed should be left alone");
+    Ok(())
+    })).await.unwrap();
 }
 
 // ---------------------------------------------------------------------------
 // expire_error_log
 // ---------------------------------------------------------------------------
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_expire_error_log(pool: PoolOptions<sqlx::Postgres>, options: PgConnectOptions) {
+#[tokio::test]
+async fn test_expire_error_log() {
+    let _ = with_test_db(|url| Box::pin(async move {
     let db = common::make_db_from_url(&url).await.expect("test db");
 
     // An old error (should be deleted) and a recent one (should survive).
@@ -300,18 +293,17 @@ async fn test_expire_error_log(pool: PoolOptions<sqlx::Postgres>, options: PgCon
         .await
         .expect("errstr");
     assert_eq!(errstr, "recent");
+    Ok(())
+    })).await.unwrap();
 }
 
 // ---------------------------------------------------------------------------
 // cleanup_feed_icons
 // ---------------------------------------------------------------------------
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_cleanup_feed_icons(pool: PoolOptions<sqlx::Postgres>, options: PgConnectOptions) {
+#[tokio::test]
+async fn test_cleanup_feed_icons() {
+    let _ = with_test_db(|url| Box::pin(async move {
     let db = common::make_db_from_url(&url).await.expect("test db");
     let mut cfg = test_config(); // cache_max_days = 7
     let uid = create_user(&db, 403, 0).await;
@@ -342,18 +334,17 @@ async fn test_cleanup_feed_icons(pool: PoolOptions<sqlx::Postgres>, options: PgC
     assert!(!missing_icon.exists(), "missing feed's icon should be removed");
 
     let _ = std::fs::remove_dir_all(&dir);
+    Ok(())
+    })).await.unwrap();
 }
 
 // ---------------------------------------------------------------------------
 // record_run + run_due_tasks
 // ---------------------------------------------------------------------------
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_record_run_upsert(pool: PoolOptions<sqlx::Postgres>, options: PgConnectOptions) {
+#[tokio::test]
+async fn test_record_run_upsert() {
+    let _ = with_test_db(|url| Box::pin(async move {
     let db = common::make_db_from_url(&url).await.expect("test db");
 
     // Insert.
@@ -388,14 +379,13 @@ async fn test_record_run_upsert(pool: PoolOptions<sqlx::Postgres>, options: PgCo
         .await
         .expect("count");
     assert_eq!(count, 1);
+    Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_run_due_tasks_runs_due_only(pool: PoolOptions<sqlx::Postgres>, options: PgConnectOptions) {
+#[tokio::test]
+async fn test_run_due_tasks_runs_due_only() {
+    let _ = with_test_db(|url| Box::pin(async move {
     let db = common::make_db_from_url(&url).await.expect("test db");
     let cfg = test_config();
 
@@ -466,18 +456,17 @@ async fn test_run_due_tasks_runs_due_only(pool: PoolOptions<sqlx::Postgres>, opt
     .await
     .expect("purge count");
     assert_eq!(purge_count, 1, "the not-due task should not have created a new record");
+    Ok(())
+    })).await.unwrap();
 }
 
 // ---------------------------------------------------------------------------
 // purge_feed (Feeds::_purge)
 // ---------------------------------------------------------------------------
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_purge_feed(pool: PoolOptions<sqlx::Postgres>, options: PgConnectOptions) {
+#[tokio::test]
+async fn test_purge_feed() {
+    let _ = with_test_db(|url| Box::pin(async move {
     let db = common::make_db_from_url(&url).await.expect("test db");
     let cfg = test_config();
     let uid = create_user(&db, 404, 0).await;
@@ -519,14 +508,13 @@ async fn test_purge_feed(pool: PoolOptions<sqlx::Postgres>, options: PgConnectOp
         .await
         .expect("marked left");
     assert_eq!(marked_left, 1);
+    Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_purge_feed_disabled(pool: PoolOptions<sqlx::Postgres>, options: PgConnectOptions) {
+#[tokio::test]
+async fn test_purge_feed_disabled() {
+    let _ = with_test_db(|url| Box::pin(async move {
     let db = common::make_db_from_url(&url).await.expect("test db");
     let cfg = test_config();
     let uid = create_user(&db, 405, 0).await;
@@ -549,4 +537,6 @@ async fn test_purge_feed_disabled(pool: PoolOptions<sqlx::Postgres>, options: Pg
     let deleted = ttrss::feeds::purge_feed(db.pool(), &cfg, feed_id, 0).await;
     assert_eq!(deleted, None, "purging should be disabled (interval 0)");
     assert_eq!(user_entry_count(&db, feed_id).await, 1, "the entry should survive");
+    Ok(())
+    })).await.unwrap();
 }

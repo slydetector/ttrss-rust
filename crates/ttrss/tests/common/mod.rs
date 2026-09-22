@@ -14,6 +14,10 @@
 //! `TIME ZONE 0`, `datestyle = 'ISO, european'`, …) so test connections
 //! behave exactly like the server's and the PHP reference's.
 
+// Every test binary links this module but uses only a subset of the helpers,
+// so dead-code linting per binary is noise by design.
+#![allow(dead_code)]
+
 use sqlx::pool::PoolOptions;
 use sqlx::postgres::{PgConnectOptions, PgConnection, Postgres};
 use sqlx::AssertSqlSafe;

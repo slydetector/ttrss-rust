@@ -11,14 +11,12 @@ mod common;
 
 use serde_json::{json, Map, Value};
 use ttrss::api;
-use ttrss::core::config::Config;
 use ttrss::core::db::Db;
 use ttrss::core::phpser::Value as PValue;
 use ttrss::core::session::Session;
 use ttrss::session::Sess;
 use ttrss::AppState;
 use test_db::template::with_test_db;
-
 
 /// Fixtures + a fresh session carrying `uid = 1` + the per-user API gate.
 async fn setup(
@@ -107,7 +105,7 @@ async fn article_content(state: &AppState, sess: &Sess) -> Option<String> {
 #[tokio::test]
 async fn test_headlines_strips_iframe_without_flag() {
     let _ = with_test_db(|url| Box::pin(async move {
-    let (state, sess) = common::make_state(&url).await;
+    let (state, sess) = setup(&url).await;
     add_iframe_entry(state.db.pool()).await;
 
     let content = headline_content(
@@ -129,7 +127,7 @@ async fn test_headlines_strips_iframe_without_flag() {
 #[tokio::test]
 async fn test_headlines_keeps_hardened_iframe_with_flag() {
     let _ = with_test_db(|url| Box::pin(async move {
-    let (state, sess) = common::make_state(&url).await;
+    let (state, sess) = setup(&url).await;
     add_iframe_entry(state.db.pool()).await;
 
     let content = headline_content(
@@ -157,7 +155,7 @@ async fn test_headlines_keeps_hardened_iframe_with_flag() {
 #[tokio::test]
 async fn test_getarticle_reads_the_session_flag() {
     let _ = with_test_db(|url| Box::pin(async move {
-    let (state, sess) = common::make_state(&url).await;
+    let (state, sess) = setup(&url).await;
     add_iframe_entry(state.db.pool()).await;
 
     // A session that never called getHeadlines: flag unset → stripped.
@@ -203,7 +201,7 @@ async fn test_getarticle_reads_the_session_flag() {
 #[tokio::test]
 async fn test_headlines_score_is_json_string() {
     let _ = with_test_db(|url| Box::pin(async move {
-    let (state, sess) = common::make_state(&url).await;
+    let (state, sess) = setup(&url).await;
     add_iframe_entry(state.db.pool()).await;
 
     let (status, content) = api::before_and_dispatch(

@@ -9,10 +9,6 @@ mod common;
 
 use serde_json::{json, Map, Value};
 use sqlx::Row;
-use ttrss::core::phpser::Value as PValue;
-use ttrss::core::session::Session;
-use ttrss::session::Sess;
-use ttrss::AppState;
 use test_db::template::with_test_db;
 
 type Pool = sqlx::PgPool;
