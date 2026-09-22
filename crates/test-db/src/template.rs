@@ -129,14 +129,22 @@ async fn check_or_build_template(conn: &mut PgConnection, url: &str) -> Result<(
         return Ok(());
     }
 
-    // Template exists — check the hash marker.
-    let stored_hash: Option<String> =
-        sqlx::query_scalar(AssertSqlSafe(format!(
-            "SELECT hash FROM {TEMPLATE_DB}._ttrss_tpl_meta LIMIT 1"
-        )))
-        .fetch_optional(&mut *conn)
-        .await
-        .unwrap_or(None);
+    // Template exists — check the hash marker (must connect to the template DB;
+    // Postgres does not support cross-database queries).
+    let tpl_url = with_db(url, TEMPLATE_DB);
+    let stored_hash = match connect(&tpl_url).await {
+        Ok(mut tpl_conn) => {
+            let h: Option<String> = sqlx::query_scalar(
+                "SELECT hash FROM _ttrss_tpl_meta LIMIT 1",
+            )
+            .fetch_optional(&mut tpl_conn)
+            .await
+            .unwrap_or(None);
+            let _ = tpl_conn.close().await;
+            h
+        }
+        Err(_) => None,
+    };
 
     if stored_hash.as_deref() == Some(expected_hash.as_str()) {
         return Ok(());
