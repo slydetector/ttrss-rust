@@ -29,6 +29,7 @@ fn no_plugins() -> PluginHost {
 }
 
 use common::{Canned, MockServer};
+use test_db::template::with_test_db;
 
 /// Feed A: three entries — the shared article + two unique.
 const FEED_A: &str = r#"<?xml version="1.0" encoding="utf-8"?>
@@ -98,48 +99,7 @@ const FEED_C: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 
 /// A test `Config` with short fetch timeouts + the upstream fetch-tuning
 /// defaults (the workhorse only reads the fetch-tuning fields + the key).
-fn test_config() -> Config {
-    Config {
-        db_host: String::new(),
-        db_port: 0,
-        db_user: String::new(),
-        db_pass: String::new(),
-        db_name: String::new(),
-        db_sslmode: String::new(),
-        db_max_connections: 10,
-        self_url: String::new(),
-        encryption_key: None,
-        single_user_mode: false,
-        forbid_password_changes: false,
-        disable_login_form: false,
-        plugins: String::new(),
-        listen: "127.0.0.1:0".parse().unwrap(),
-        docroot: std::path::PathBuf::new(),
-        feed_icon_dir: std::path::PathBuf::new(),
-        max_favicon_file_size: 0,
-        max_cache_file_size: 64 * 1024 * 1024,
-        force_article_purge: 0,
-        feed_fetch_timeout: 5,
-        feed_fetch_no_cache_timeout: 3,
-        max_conditional_interval: 43200,
-        http_429_throttle_interval: 3600,
-        daemon_unsuccessful_days_limit: 30,
-        fetch_extended_url_filtering: false,
-        daemon_sleep_interval: 60,
-        daemon_max_jobs: 2,
-        daemon_feed_limit: 50,
-        daemon_update_login_limit: 30,
-        cache_max_days: 7,
-        schedule_purge_orphans: String::from("@daily"),
-        schedule_disk_cache_expire_all: String::from("@daily"),
-        schedule_disable_failed_feeds: String::from("@daily"),
-        schedule_cleanup_feed_icons: String::from("@daily"),
-        schedule_log_daemon_update_login_limit_users: String::from("@daily"),
-        schedule_expire_error_log: String::from("@hourly"),
-        schedule_expire_lock_files: String::from("@hourly"),
-        schedule_send_headlines_digests: String::from("@hourly"),
-    }
-}
+fn test_config() -> Config { common::test_config() }
 
 /// Insert a user and return its id.
 async fn create_user(db: &Db, uid: i32, access_level: i32) -> i32 {
@@ -214,7 +174,7 @@ async fn test_batch_smoke(
     pool: PoolOptions<sqlx::Postgres>,
     options: PgConnectOptions,
 ) {
-    let db = common::make_db(pool, options).await.expect("test db");
+    let db = common::make_db_from_url(&url).await.expect("test db");
     let cfg = test_config();
     let mock = MockServer::new(vec![
         Canned {

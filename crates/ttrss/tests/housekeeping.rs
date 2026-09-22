@@ -16,50 +16,10 @@ use sqlx::pool::PoolOptions;
 use sqlx::postgres::PgConnectOptions;
 use ttrss::core::config::Config;
 use ttrss::core::db::Db;
+use test_db::template::with_test_db;
 
 /// A test `Config` with the housekeeping defaults.
-fn test_config() -> Config {
-    Config {
-        db_host: String::new(),
-        db_port: 0,
-        db_user: String::new(),
-        db_pass: String::new(),
-        db_name: String::new(),
-        db_sslmode: String::new(),
-        db_max_connections: 10,
-        self_url: String::new(),
-        encryption_key: None,
-        single_user_mode: false,
-        forbid_password_changes: false,
-        disable_login_form: false,
-        plugins: String::new(),
-        listen: "127.0.0.1:0".parse().unwrap(),
-        docroot: std::path::PathBuf::new(),
-        feed_icon_dir: std::path::PathBuf::new(),
-        max_favicon_file_size: 0,
-        max_cache_file_size: 64 * 1024 * 1024,
-        force_article_purge: 0,
-        feed_fetch_timeout: 5,
-        feed_fetch_no_cache_timeout: 3,
-        max_conditional_interval: 43200,
-        http_429_throttle_interval: 3600,
-        daemon_unsuccessful_days_limit: 30,
-        fetch_extended_url_filtering: false,
-        daemon_sleep_interval: 60,
-        daemon_max_jobs: 2,
-        daemon_feed_limit: 50,
-        daemon_update_login_limit: 30,
-        cache_max_days: 7,
-        schedule_purge_orphans: String::from("@daily"),
-        schedule_disk_cache_expire_all: String::from("@daily"),
-        schedule_disable_failed_feeds: String::from("@daily"),
-        schedule_cleanup_feed_icons: String::from("@daily"),
-        schedule_log_daemon_update_login_limit_users: String::from("@daily"),
-        schedule_expire_error_log: String::from("@hourly"),
-        schedule_expire_lock_files: String::from("@hourly"),
-        schedule_send_headlines_digests: String::from("@hourly"),
-    }
-}
+fn test_config() -> Config { common::test_config() }
 
 /// Insert a user and return its id.
 async fn create_user(db: &Db, uid: i32, access_level: i32) -> i32 {
@@ -219,7 +179,7 @@ fn test_is_due_hourly() {
     "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_purge_orphans(pool: PoolOptions<sqlx::Postgres>, options: PgConnectOptions) {
-    let db = common::make_db(pool, options).await.expect("test db");
+    let db = common::make_db_from_url(&url).await.expect("test db");
     let uid = create_user(&db, 400, 0).await;
     let feed_id = create_feed(&db, 400, uid, "http://example.com/f400").await;
 
@@ -253,7 +213,7 @@ async fn test_purge_orphans(pool: PoolOptions<sqlx::Postgres>, options: PgConnec
     "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_disable_failed_feeds(pool: PoolOptions<sqlx::Postgres>, options: PgConnectOptions) {
-    let db = common::make_db(pool, options).await.expect("test db");
+    let db = common::make_db_from_url(&url).await.expect("test db");
     let cfg = test_config(); // daemon_unsuccessful_days_limit = 30
     let uid = create_user(&db, 401, 0).await;
 
@@ -309,7 +269,7 @@ async fn test_disable_failed_feeds(pool: PoolOptions<sqlx::Postgres>, options: P
     "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_expire_error_log(pool: PoolOptions<sqlx::Postgres>, options: PgConnectOptions) {
-    let db = common::make_db(pool, options).await.expect("test db");
+    let db = common::make_db_from_url(&url).await.expect("test db");
 
     // An old error (should be deleted) and a recent one (should survive).
     sqlx::query(
@@ -352,7 +312,7 @@ async fn test_expire_error_log(pool: PoolOptions<sqlx::Postgres>, options: PgCon
     "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_cleanup_feed_icons(pool: PoolOptions<sqlx::Postgres>, options: PgConnectOptions) {
-    let db = common::make_db(pool, options).await.expect("test db");
+    let db = common::make_db_from_url(&url).await.expect("test db");
     let mut cfg = test_config(); // cache_max_days = 7
     let uid = create_user(&db, 403, 0).await;
 
@@ -394,7 +354,7 @@ async fn test_cleanup_feed_icons(pool: PoolOptions<sqlx::Postgres>, options: PgC
     "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_record_run_upsert(pool: PoolOptions<sqlx::Postgres>, options: PgConnectOptions) {
-    let db = common::make_db(pool, options).await.expect("test db");
+    let db = common::make_db_from_url(&url).await.expect("test db");
 
     // Insert.
     ttrss::scheduler::record_run(db.pool(), "test_task", 3, 0, "@daily")
@@ -436,7 +396,7 @@ async fn test_record_run_upsert(pool: PoolOptions<sqlx::Postgres>, options: PgCo
     "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_run_due_tasks_runs_due_only(pool: PoolOptions<sqlx::Postgres>, options: PgConnectOptions) {
-    let db = common::make_db(pool, options).await.expect("test db");
+    let db = common::make_db_from_url(&url).await.expect("test db");
     let cfg = test_config();
 
     // Register two custom tasks: one due (cron `@hourly`, never run → normalizes
@@ -518,7 +478,7 @@ async fn test_run_due_tasks_runs_due_only(pool: PoolOptions<sqlx::Postgres>, opt
     "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_purge_feed(pool: PoolOptions<sqlx::Postgres>, options: PgConnectOptions) {
-    let db = common::make_db(pool, options).await.expect("test db");
+    let db = common::make_db_from_url(&url).await.expect("test db");
     let cfg = test_config();
     let uid = create_user(&db, 404, 0).await;
     let feed_id = create_feed(&db, 404, uid, "http://example.com/f404").await;
@@ -567,7 +527,7 @@ async fn test_purge_feed(pool: PoolOptions<sqlx::Postgres>, options: PgConnectOp
     "../../test-db/fixtures/seed.sql",
 ))]
 async fn test_purge_feed_disabled(pool: PoolOptions<sqlx::Postgres>, options: PgConnectOptions) {
-    let db = common::make_db(pool, options).await.expect("test db");
+    let db = common::make_db_from_url(&url).await.expect("test db");
     let cfg = test_config();
     let uid = create_user(&db, 405, 0).await;
     // A feed with purge_interval = 0; set the owner's PURGE_OLD_DAYS pref to 0

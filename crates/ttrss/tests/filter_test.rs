@@ -17,56 +17,15 @@ use ttrss::core::phpser::Value as PValue;
 use ttrss::core::session::Session;
 use ttrss::session::Sess;
 use ttrss::AppState;
+use test_db::template::with_test_db;
 
-fn test_config() -> Config {
-    Config {
-        db_host: "127.0.0.1".into(),
-        db_port: 5432,
-        db_user: "postgres".into(),
-        db_pass: "postgres".into(),
-        db_name: "postgres".into(),
-        db_sslmode: "disable".into(),
-        db_max_connections: 10,
-        self_url: "http://127.0.0.1:8280/tt-rss/".into(),
-        encryption_key: None,
-        single_user_mode: false,
-        forbid_password_changes: false,
-        disable_login_form: false,
-        plugins: "auth_internal".into(),
-        listen: "127.0.0.1:8281".parse().unwrap(),
-        docroot: std::path::PathBuf::from("tt-rss"),
-        feed_icon_dir: std::path::PathBuf::from("no-such-test-icon-dir"),
-        max_favicon_file_size: 1024 * 1024,
-        max_cache_file_size: 64 * 1024 * 1024,
-        force_article_purge: 0,
-        feed_fetch_timeout: 45,
-        feed_fetch_no_cache_timeout: 15,
-        max_conditional_interval: 43200,
-        http_429_throttle_interval: 3600,
-        daemon_unsuccessful_days_limit: 30,
-        fetch_extended_url_filtering: true,
-        daemon_sleep_interval: 60,
-        daemon_max_jobs: 2,
-        daemon_feed_limit: 50,
-        daemon_update_login_limit: 30,
-        cache_max_days: 7,
-        schedule_purge_orphans: String::from("@daily"),
-        schedule_disk_cache_expire_all: String::from("@daily"),
-        schedule_disable_failed_feeds: String::from("@daily"),
-        schedule_cleanup_feed_icons: String::from("@daily"),
-        schedule_log_daemon_update_login_limit_users: String::from("@daily"),
-        schedule_expire_error_log: String::from("@hourly"),
-        schedule_expire_lock_files: String::from("@hourly"),
-        schedule_send_headlines_digests: String::from("@hourly"),
-    }
-}
+fn test_config() -> Config { common::test_config() }
 
 /// Fresh fixtures + a session carrying `uid = 1`.
 async fn setup(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
+    url: &str,
 ) -> (AppState, Sess) {
-    let db: Db = common::make_db(pool, options).await.expect("test db");
+    let db: Db = common::make_db_from_url(&url).await.expect("test db");
     let state = AppState::new(test_config(), db);
     let mut data = Session::new();
     data.set("uid", PValue::Int(1));
@@ -181,16 +140,10 @@ async fn do_test(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> V
         .expect("no PHP fatal (empty highlight word)")
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_test_filter_do_title_match(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_test_filter_do_title_match() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let db = &state.db;
 
     add_entry(
@@ -245,18 +198,14 @@ async fn test_test_filter_do_title_match(
         it["rules"][0].as_str().unwrap().trim(),
         "needle on Title in All feeds (inverse)"
     );
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_test_filter_do_feed_scope(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_test_filter_do_feed_scope() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let db = &state.db;
 
     // Feed 1 (cat 1) and feed 4 (cat 2).
@@ -298,18 +247,14 @@ async fn test_test_filter_do_feed_scope(
         .trim(),
         "article on Title in Hacker News (inverse)"
     );
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_test_filter_do_category_scope(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_test_filter_do_category_scope() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let db = &state.db;
 
     add_entry(db, 101, "cat one feed two", "<p>x</p>", "", "", 2).await;
@@ -341,18 +286,14 @@ async fn test_test_filter_do_category_scope(
         items_for(&result, "cat two feed four").is_none(),
         "got {result}"
     );
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_test_filter_do_uncategorized_scope(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_test_filter_do_uncategorized_scope() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let db = &state.db;
 
     // A feed without a category (the fixture feeds all have one).
@@ -392,18 +333,14 @@ async fn test_test_filter_do_uncategorized_scope(
         items_for(&result, "with category entry").is_none(),
         "got {result}"
     );
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_test_filter_do_content_preview(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_test_filter_do_content_preview() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let db = &state.db;
 
     add_entry(
@@ -446,18 +383,14 @@ async fn test_test_filter_do_content_preview(
     );
     // The title is not highlighted for a content rule (no DOM round-trip).
     assert_eq!(it["title"], "Content article");
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_test_filter_do_content_preview_strips_tags(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_test_filter_do_content_preview_strips_tags() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let db = &state.db;
 
     // The rule matches only inside a tag attribute (the href); the
@@ -494,17 +427,13 @@ async fn test_test_filter_do_content_preview_strips_tags(
     assert_eq!(plain(preview), "notes at the site", "preview: {preview}");
     assert!(!preview.contains("highlight"), "preview: {preview}");
     assert!(preview.starts_with("<span>"), "preview: {preview}");
+        Ok(())
+    })).await.unwrap();
 }
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_test_filter_do_match_any_vs_all(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_test_filter_do_match_any_vs_all() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let db = &state.db;
 
     // Title matches `aaa`; author does NOT match `bob`.
@@ -536,18 +465,14 @@ async fn test_test_filter_do_match_any_vs_all(
     )
     .await;
     assert!(items_for(&result, "aaa title").is_none(), "got {result}");
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_test_filter_do_inverse_all_match_empty_items(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_test_filter_do_inverse_all_match_empty_items() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let db = &state.db;
 
     add_entry(db, 101, "boring title", "<p>x</p>", "", "", 1).await;
@@ -573,18 +498,14 @@ async fn test_test_filter_do_inverse_all_match_empty_items(
         count_entries(db, "true").await
     );
     assert_eq!(result["items"].as_array().unwrap().len(), 0);
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_test_filter_do_inverse_no_match_fatal(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_test_filter_do_inverse_no_match_fatal() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let db = &state.db;
 
     add_entry(db, 101, "boring title", "<p>x</p>", "", "", 1).await;
@@ -608,18 +529,14 @@ async fn test_test_filter_do_inverse_no_match_fatal(
     )
     .await;
     assert!(err.is_err(), "expected the PHP-fatal Err");
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_test_filter_do_tag_rule(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_test_filter_do_tag_rule() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let db = &state.db;
 
     add_entry(db, 101, "Tagged article", "<p>x</p>", "", "news,rust", 1).await;
@@ -652,18 +569,14 @@ async fn test_test_filter_do_tag_rule(
         "preview: {preview}"
     );
     assert!(items_for(&result, "Untagged article").is_none());
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_test_filter_do_limit_offset(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_test_filter_do_limit_offset() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let db = &state.db;
 
     for (id, i) in (0..5).enumerate() {
@@ -697,18 +610,14 @@ async fn test_test_filter_do_limit_offset(
     .await;
     assert_eq!(result["pre_filtering_count"], 2, "got {result}");
     assert_eq!(result["items"].as_array().unwrap().len(), 2);
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_test_filter_do_no_rules_no_match(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_test_filter_do_no_rules_no_match() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let db = &state.db;
 
     add_entry(db, 101, "Any article", "<p>x</p>", "", "", 1).await;
@@ -721,18 +630,14 @@ async fn test_test_filter_do_no_rules_no_match(
         count_entries(db, "true").await
     );
     assert_eq!(result["items"].as_array().unwrap().len(), 0);
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_test_filter_do_invalid_rule_json_skipped(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_test_filter_do_invalid_rule_json_skipped() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let db = &state.db;
 
     add_entry(db, 101, "needle article", "<p>x</p>", "", "", 1).await;
@@ -755,27 +660,23 @@ async fn test_test_filter_do_invalid_rule_json_skipped(
         items_for(&result, "needle article").is_some(),
         "got {result}"
     );
+        Ok(())
+    })).await.unwrap();
 }
 
 /// Regression for the PHP `$_REQUEST` `[]` normalization: the filter forms
 /// post `rule[]`/`action[]` fields. Through the real `rpc::handler` (the SPA
 /// request shape), `editSave` must save the rules — before the parse-boundary
 /// fix the handler read the bare `rule` key and silently saved none.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_editsave_rule_bracket_fields(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
+#[tokio::test]
+async fn test_editsave_rule_bracket_fields() {
+    let _ = with_test_db(|url| Box::pin(async move {
     use axum::body::to_bytes;
     use axum::extract::State;
     use axum::http::{header, Method};
     use axum::response::IntoResponse;
 
-    let db: Db = common::make_db(pool, options).await.expect("test db");
+    let db: Db = common::make_db_from_url(&url).await.expect("test db");
     let state = AppState::new(test_config(), db.clone());
 
     let mut data = Session::new();
@@ -833,4 +734,6 @@ async fn test_editsave_rule_bracket_fields(
             .await
             .expect("action count");
     assert_eq!(action_count, 1, "action[] must be saved");
+        Ok(())
+    })).await.unwrap();
 }

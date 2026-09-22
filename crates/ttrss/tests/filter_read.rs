@@ -15,57 +15,16 @@ use ttrss::core::phpser::Value as PValue;
 use ttrss::core::session::Session;
 use ttrss::session::Sess;
 use ttrss::AppState;
+use test_db::template::with_test_db;
 
 /// A test-only config (the handlers only need `db`).
-fn test_config() -> Config {
-    Config {
-        db_host: "127.0.0.1".into(),
-        db_port: 5432,
-        db_user: "postgres".into(),
-        db_pass: "postgres".into(),
-        db_name: "postgres".into(),
-        db_sslmode: "disable".into(),
-        db_max_connections: 10,
-        self_url: "http://127.0.0.1:8280/tt-rss/".into(),
-        encryption_key: None,
-        single_user_mode: false,
-        forbid_password_changes: false,
-        disable_login_form: false,
-        plugins: "auth_internal".into(),
-        listen: "127.0.0.1:8281".parse().unwrap(),
-        docroot: std::path::PathBuf::from("tt-rss"),
-        feed_icon_dir: std::path::PathBuf::from("no-such-test-icon-dir"),
-        max_favicon_file_size: 1024 * 1024,
-        max_cache_file_size: 64 * 1024 * 1024,
-        force_article_purge: 0,
-        feed_fetch_timeout: 45,
-        feed_fetch_no_cache_timeout: 15,
-        max_conditional_interval: 43200,
-        http_429_throttle_interval: 3600,
-        daemon_unsuccessful_days_limit: 30,
-        fetch_extended_url_filtering: true,
-        daemon_sleep_interval: 60,
-        daemon_max_jobs: 2,
-        daemon_feed_limit: 50,
-        daemon_update_login_limit: 30,
-        cache_max_days: 7,
-        schedule_purge_orphans: String::from("@daily"),
-        schedule_disk_cache_expire_all: String::from("@daily"),
-        schedule_disable_failed_feeds: String::from("@daily"),
-        schedule_cleanup_feed_icons: String::from("@daily"),
-        schedule_log_daemon_update_login_limit_users: String::from("@daily"),
-        schedule_expire_error_log: String::from("@hourly"),
-        schedule_expire_lock_files: String::from("@hourly"),
-        schedule_send_headlines_digests: String::from("@hourly"),
-    }
-}
+fn test_config() -> Config { common::test_config() }
 
 /// Fresh fixtures + a session carrying `uid = 1` (owner of the fixture rows).
 async fn setup(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
+    url: &str,
 ) -> (AppState, Sess) {
-    let db: Db = common::make_db(pool, options).await.expect("test db");
+    let db: Db = common::make_db_from_url(&url).await.expect("test db");
     let state = AppState::new(test_config(), db);
     let mut data = Session::new();
     data.set("uid", PValue::Int(1));
@@ -94,16 +53,10 @@ async fn insert_filter(db: &Db, title: &str) -> i32 {
 
 /// `edit` with `id = 0` returns the empty-filter defaults: enabled, no rules /
 /// actions, and the `filter_types` / `action_types` maps (type 5 unsupported).
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql"
-))]
-async fn test_edit_new_filter(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_edit_new_filter() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let Some(json) = ttrss::filters::edit(&state, &sess, &request(&[("id", json!(0))])).await
     else {
         panic!("expected Some for a new filter");
@@ -131,36 +84,28 @@ async fn test_edit_new_filter(
     assert_eq!(json["action_types"]["10"], "Ignore tags");
     assert!(json["plugin_actions"].is_object());
     assert!(json["labels"].is_array());
+        Ok(())
+    })).await.unwrap();
 }
 
 /// `edit` on a missing filter (nonzero id, not owned) returns `None`.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql"
-))]
-async fn test_edit_not_found(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_edit_not_found() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let json = ttrss::filters::edit(&state, &sess, &request(&[("id", json!(999999))])).await;
     assert!(json.is_none(), "missing filter should print nothing");
+        Ok(())
+    })).await.unwrap();
 }
 
 /// `edit` on a filter with rules + actions returns the full prefill: the rule
 /// list (with computed names, feed ids, and `inverse` omitted when false), the
 /// action list (with `action_param_label` and names), and the type maps.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql"
-))]
-async fn test_edit_existing(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_edit_existing() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let db = state.db.pool();
     let fid = insert_filter(&state.db, "My filter").await;
 
@@ -223,20 +168,16 @@ async fn test_edit_existing(
     assert_eq!(actions[0]["name"], "Assign tags: hello, world");
     assert_eq!(actions[1]["action_id"], 6);
     assert_eq!(actions[1]["name"], "Modify score: 5");
+        Ok(())
+    })).await.unwrap();
 }
 
 /// `printRuleName` renders the HTML rule name; a non-object / invalid JSON
 /// yields the PHP's literal error strings.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql"
-))]
-async fn test_print_rule_name(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_print_rule_name() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
 
     let rule = json!({ "reg_exp": "(?i)rust", "filter_type": 1, "feed_id": ["1"] });
     let name = ttrss::filters::print_rule_name(
@@ -263,20 +204,16 @@ async fn test_print_rule_name(
         ttrss::filters::print_rule_name(&state, &sess, &request(&[("rule", json!("{not json"))]))
             .await;
     assert_eq!(name, "malformed rule JSON");
+        Ok(())
+    })).await.unwrap();
 }
 
 /// `printActionName` renders the action name; a missing / non-object param
 /// yields the PHP's literal error strings.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql"
-))]
-async fn test_print_action_name(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_print_action_name() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
 
     let action = json!({ "action_id": 4, "action_param": "hello, world" });
     let name = ttrss::filters::print_action_name(
@@ -302,4 +239,6 @@ async fn test_print_action_name(
         ttrss::filters::print_action_name(&state, &sess, &request(&[("action", json!("42"))]))
             .await;
     assert_eq!(name, "invalid action JSON");
+        Ok(())
+    })).await.unwrap();
 }

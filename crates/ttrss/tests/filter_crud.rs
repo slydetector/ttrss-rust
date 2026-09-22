@@ -16,57 +16,16 @@ use ttrss::core::phpser::Value as PValue;
 use ttrss::core::session::Session;
 use ttrss::session::Sess;
 use ttrss::AppState;
+use test_db::template::with_test_db;
 
 /// A test-only config (the handlers only need `db`).
-fn test_config() -> Config {
-    Config {
-        db_host: "127.0.0.1".into(),
-        db_port: 5432,
-        db_user: "postgres".into(),
-        db_pass: "postgres".into(),
-        db_name: "postgres".into(),
-        db_sslmode: "disable".into(),
-        db_max_connections: 10,
-        self_url: "http://127.0.0.1:8280/tt-rss/".into(),
-        encryption_key: None,
-        single_user_mode: false,
-        forbid_password_changes: false,
-        disable_login_form: false,
-        plugins: "auth_internal".into(),
-        listen: "127.0.0.1:8281".parse().unwrap(),
-        docroot: std::path::PathBuf::from("tt-rss"),
-        feed_icon_dir: std::path::PathBuf::from("no-such-test-icon-dir"),
-        max_favicon_file_size: 1024 * 1024,
-        max_cache_file_size: 64 * 1024 * 1024,
-        force_article_purge: 0,
-        feed_fetch_timeout: 45,
-        feed_fetch_no_cache_timeout: 15,
-        max_conditional_interval: 43200,
-        http_429_throttle_interval: 3600,
-        daemon_unsuccessful_days_limit: 30,
-        fetch_extended_url_filtering: true,
-        daemon_sleep_interval: 60,
-        daemon_max_jobs: 2,
-        daemon_feed_limit: 50,
-        daemon_update_login_limit: 30,
-        cache_max_days: 7,
-        schedule_purge_orphans: String::from("@daily"),
-        schedule_disk_cache_expire_all: String::from("@daily"),
-        schedule_disable_failed_feeds: String::from("@daily"),
-        schedule_cleanup_feed_icons: String::from("@daily"),
-        schedule_log_daemon_update_login_limit_users: String::from("@daily"),
-        schedule_expire_error_log: String::from("@hourly"),
-        schedule_expire_lock_files: String::from("@hourly"),
-        schedule_send_headlines_digests: String::from("@hourly"),
-    }
-}
+fn test_config() -> Config { common::test_config() }
 
 /// Fresh fixtures + a session carrying `uid = 1`.
 async fn setup(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
+    url: &str,
 ) -> (AppState, Sess) {
-    let db: Db = common::make_db(pool, options).await.expect("test db");
+    let db: Db = common::make_db_from_url(&url).await.expect("test db");
     let state = AppState::new(test_config(), db);
     let mut data = Session::new();
     data.set("uid", PValue::Int(1));
@@ -183,15 +142,10 @@ async fn filter_count(db: &Db) -> i64 {
 // ---------------------------------------------------------------------------
 
 /// `Pref_Filters::filtersortreset` — every filter's order is reset to 0.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-))]
-async fn test_filtersortreset(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_filtersortreset() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let db = &state.db;
     let id = insert_filter(db, "F1").await;
     sqlx::query("UPDATE ttrss_filters2 SET order_id = 5 WHERE id = $1")
@@ -205,6 +159,8 @@ async fn test_filtersortreset(
         .expect("reset");
     let row = filter_row(db, id).await.expect("filter");
     assert_eq!(row["order_id"], 0);
+        Ok(())
+    })).await.unwrap();
 }
 
 // ---------------------------------------------------------------------------
@@ -213,15 +169,10 @@ async fn test_filtersortreset(
 
 /// `Pref_Filters::savefilterorder` — applies the reordered filter list from
 /// the `payload` JSON.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-))]
-async fn test_savefilterorder(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_savefilterorder() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let db = &state.db;
     let a = insert_filter(db, "A").await;
     let b = insert_filter(db, "B").await;
@@ -248,6 +199,8 @@ async fn test_savefilterorder(
     assert_eq!(filter_row(db, b).await.unwrap()["order_id"], 0);
     assert_eq!(filter_row(db, c).await.unwrap()["order_id"], 1);
     assert_eq!(filter_row(db, a).await.unwrap()["order_id"], 2);
+        Ok(())
+    })).await.unwrap();
 }
 
 // ---------------------------------------------------------------------------
@@ -256,15 +209,10 @@ async fn test_savefilterorder(
 
 /// `Pref_Filters::remove` — deletes the selected owned filters; rules and
 /// actions cascade. A foreign owner's filter is untouched.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-))]
-async fn test_remove_filters(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_remove_filters() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let db = &state.db;
     let id = insert_filter(db, "F1").await;
     sqlx::query(
@@ -291,6 +239,8 @@ async fn test_remove_filters(
         .await
         .expect("noop");
     assert!(filter_row(db, keep).await.is_some());
+        Ok(())
+    })).await.unwrap();
 }
 
 // ---------------------------------------------------------------------------
@@ -300,15 +250,10 @@ async fn test_remove_filters(
 /// `Pref_Filters::editSave` — updates the owned filter row (title is trimmed,
 /// not tag-stripped) and re-saves its rules/actions. A foreign owner's filter
 /// is untouched.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-))]
-async fn test_edit_save(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_edit_save() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let db = &state.db;
     let id = insert_filter(db, "  Old Title ").await;
     // A pre-existing rule that must be replaced.
@@ -368,6 +313,8 @@ async fn test_edit_save(
     .await
     .expect("save other");
     assert_eq!(filter_row(db, other).await.unwrap()["title"], "Other");
+        Ok(())
+    })).await.unwrap();
 }
 
 // ---------------------------------------------------------------------------
@@ -376,15 +323,10 @@ async fn test_edit_save(
 
 /// `Pref_Filters::add` — creates a filter (default enabled from the checkbox)
 /// with the posted rules.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-))]
-async fn test_add_filter(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_add_filter() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let db = &state.db;
     let before = filter_count(db).await;
 
@@ -422,18 +364,15 @@ async fn test_add_filter(
     let acts = actions(db, id).await;
     assert_eq!(acts.len(), 1);
     assert_eq!(acts[0]["action_id"], 2);
+        Ok(())
+    })).await.unwrap();
 }
 
 /// `Pref_Filters::add` — a score action's `+N` param is stored as the integer.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-))]
-async fn test_add_filter_score_action(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_add_filter_score_action() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let db = &state.db;
     let req = request(&[
         ("title", json!("Score")),
@@ -453,19 +392,16 @@ async fn test_add_filter_score_action(
     assert_eq!(acts.len(), 1);
     assert_eq!(acts[0]["action_id"], 6);
     assert_eq!(acts[0]["action_param"], "5");
+        Ok(())
+    })).await.unwrap();
 }
 
 /// `Pref_Filters::add` — a tag action's param is normalized (lowercased,
 /// de-duplicated, sorted).
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-))]
-async fn test_add_filter_tag_action(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_add_filter_tag_action() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let db = &state.db;
     let req = request(&[
         ("title", json!("Tags")),
@@ -486,6 +422,8 @@ async fn test_add_filter_tag_action(
     assert_eq!(acts[0]["action_id"], 4);
     // normalize_categories: lowercase, dedupe, sort -> "hello, world".
     assert_eq!(acts[0]["action_param"], "hello, world");
+        Ok(())
+    })).await.unwrap();
 }
 
 // ---------------------------------------------------------------------------
@@ -494,15 +432,10 @@ async fn test_add_filter_tag_action(
 
 /// `Pref_Filters::clone` — clones a filter with a `Clone of <title>` name,
 /// copies its rules/actions, and disables it.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-))]
-async fn test_clone_filters(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_clone_filters() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let db = &state.db;
     let src = insert_filter(db, "Source").await;
     sqlx::query("INSERT INTO ttrss_filters2_rules (filter_id, reg_exp, filter_type) VALUES ($1, 'rule1', 1)").bind(src).execute(db.pool()).await.unwrap();
@@ -545,6 +478,8 @@ async fn test_clone_filters(
         .await
         .unwrap();
     assert_ne!(titled, src2);
+        Ok(())
+    })).await.unwrap();
 }
 
 // ---------------------------------------------------------------------------
@@ -553,15 +488,10 @@ async fn test_clone_filters(
 
 /// `Pref_Filters::join` — merges the selected filters into the first (base),
 /// moves their rules/actions, sets match_any_rule, and de-dupes.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-))]
-async fn test_join_filters(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_join_filters() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let db = &state.db;
     let base = insert_filter(db, "Base").await;
     let other = insert_filter(db, "Other").await;
@@ -590,4 +520,6 @@ async fn test_join_filters(
     assert_eq!(rs.len(), 2);
     // Actions merged + deduped: the single shared action (once).
     assert_eq!(actions(db, base).await.len(), 1);
+        Ok(())
+    })).await.unwrap();
 }

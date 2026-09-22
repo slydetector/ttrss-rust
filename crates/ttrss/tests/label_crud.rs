@@ -16,57 +16,16 @@ use ttrss::core::phpser::Value as PValue;
 use ttrss::core::session::Session;
 use ttrss::session::Sess;
 use ttrss::AppState;
+use test_db::template::with_test_db;
 
 /// A test-only config (the handlers only need `db`).
-fn test_config() -> Config {
-    Config {
-        db_host: "127.0.0.1".into(),
-        db_port: 5432,
-        db_user: "postgres".into(),
-        db_pass: "postgres".into(),
-        db_name: "postgres".into(),
-        db_sslmode: "disable".into(),
-        db_max_connections: 10,
-        self_url: "http://127.0.0.1:8280/tt-rss/".into(),
-        encryption_key: None,
-        single_user_mode: false,
-        forbid_password_changes: false,
-        disable_login_form: false,
-        plugins: "auth_internal".into(),
-        listen: "127.0.0.1:8281".parse().unwrap(),
-        docroot: std::path::PathBuf::from("tt-rss"),
-        feed_icon_dir: std::path::PathBuf::from("no-such-test-icon-dir"),
-        max_favicon_file_size: 1024 * 1024,
-        max_cache_file_size: 64 * 1024 * 1024,
-        force_article_purge: 0,
-        feed_fetch_timeout: 45,
-        feed_fetch_no_cache_timeout: 15,
-        max_conditional_interval: 43200,
-        http_429_throttle_interval: 3600,
-        daemon_unsuccessful_days_limit: 30,
-        fetch_extended_url_filtering: true,
-        daemon_sleep_interval: 60,
-        daemon_max_jobs: 2,
-        daemon_feed_limit: 50,
-        daemon_update_login_limit: 30,
-        cache_max_days: 7,
-        schedule_purge_orphans: String::from("@daily"),
-        schedule_disk_cache_expire_all: String::from("@daily"),
-        schedule_disable_failed_feeds: String::from("@daily"),
-        schedule_cleanup_feed_icons: String::from("@daily"),
-        schedule_log_daemon_update_login_limit_users: String::from("@daily"),
-        schedule_expire_error_log: String::from("@hourly"),
-        schedule_expire_lock_files: String::from("@hourly"),
-        schedule_send_headlines_digests: String::from("@hourly"),
-    }
-}
+fn test_config() -> Config { common::test_config() }
 
 /// Fresh fixtures + a session carrying `uid = 1` (owner of all fixture rows).
 async fn setup(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
+    url: &str,
 ) -> (AppState, Sess) {
-    let db: Db = common::make_db(pool, options).await.expect("test db");
+    let db: Db = common::make_db_from_url(&url).await.expect("test db");
     let state = AppState::new(test_config(), db);
     let mut data = Session::new();
     data.set("uid", PValue::Int(1));
@@ -126,16 +85,10 @@ async fn label_action_count(db: &Db, param: &str) -> i64 {
 }
 
 /// `Pref_Labels::edit`: returns the label row as a JSON object.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_edit(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_edit() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
 
     let v = ttrss::labels::edit(&state, &sess, &request(&[("id", json!(1))])).await;
     let v = v.expect("label found");
@@ -155,38 +108,30 @@ async fn test_edit(
             .await
             .is_none()
     );
+        Ok(())
+    })).await.unwrap();
 }
 
 /// `Pref_Labels::edit`: a nonexistent id returns `None` (PHP prints nothing).
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_edit_not_found(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_edit_not_found() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     assert!(
         ttrss::labels::edit(&state, &sess, &request(&[("id", json!(9999))]))
             .await
             .is_none()
     );
+        Ok(())
+    })).await.unwrap();
 }
 
 /// `Pref_Labels::add`: creates the label and returns `Created label <b>..</b>`;
 /// a duplicate caption is not created and returns empty.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_add_label(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_add_label() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let db = &state.db;
 
     let out = ttrss::labels::add_label(&state, &sess, &request(&[("caption", json!("My Label"))]))
@@ -208,19 +153,15 @@ async fn test_add_label(
         .expect("add empty");
     assert_eq!(out, "");
     assert_eq!(ttrss::labels::find_id(db.pool(), "", 1).await, 0);
+        Ok(())
+    })).await.unwrap();
 }
 
 /// `Pref_Labels::add`: `output` set suppresses the message (still creates).
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_add_label_output_suppress(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_add_label_output_suppress() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let db = &state.db;
 
     let out = ttrss::labels::add_label(
@@ -232,20 +173,16 @@ async fn test_add_label_output_suppress(
     .expect("add");
     assert_eq!(out, "");
     assert_eq!(ttrss::labels::find_id(db.pool(), "Quiet Label", 1).await, 3);
+        Ok(())
+    })).await.unwrap();
 }
 
 /// `Pref_Labels::remove`: removes the label, its access key, and clears the
 /// owner's label caches; other labels are unaffected.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_remove_labels(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_remove_labels() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let db = &state.db;
     let pool = db.pool();
 
@@ -287,20 +224,16 @@ async fn test_remove_labels(
     }
     // The other label is unaffected.
     assert!(label_row(db, 2).await.is_some());
+        Ok(())
+    })).await.unwrap();
 }
 
 /// `Pref_Labels::save`: renames the label and rewrites the "Assign label"
 /// filter actions that referenced the old caption.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_save_rename(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_save_rename() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let db = &state.db;
     let pool = db.pool();
 
@@ -333,20 +266,16 @@ async fn test_save_rename(
     // The filter action reference is rewritten (old caption gone, new present).
     assert_eq!(label_action_count(db, "test-label-1").await, 0);
     assert_eq!(label_action_count(db, "Renamed Label").await, 1);
+        Ok(())
+    })).await.unwrap();
 }
 
 /// `Pref_Labels::save`: renaming to a caption another of the owner's labels
 /// already uses is a no-op (returns the old caption).
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_save_collision(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_save_collision() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let db = &state.db;
 
     let out = ttrss::labels::save(
@@ -361,19 +290,15 @@ async fn test_save_collision(
         label_row(db, 1).await.expect("label 1")["caption"],
         "test-label-1"
     );
+        Ok(())
+    })).await.unwrap();
 }
 
 /// `Pref_Labels::save`: a nonexistent label is a no-op (returns empty).
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_save_not_found(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_save_not_found() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let out = ttrss::labels::save(
         &state,
         &sess,
@@ -382,20 +307,16 @@ async fn test_save_not_found(
     .await
     .expect("save");
     assert_eq!(out, "");
+        Ok(())
+    })).await.unwrap();
 }
 
 /// `Pref_Labels::colorset`: `kind = "both"` sets both fg and bg colors and
 /// clears the owner's label caches.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_colorset_both(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_colorset_both() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let db = &state.db;
     let pool = db.pool();
 
@@ -427,20 +348,16 @@ async fn test_colorset_both(
     }
     // The other label is unaffected.
     assert_eq!(label_row(db, 2).await.expect("label 2")["fg_color"], "");
+        Ok(())
+    })).await.unwrap();
 }
 
 /// `Pref_Labels::colorset`: `kind = "fg"` sets only the fg column (from
 /// `color`), leaving bg unchanged.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_colorset_single(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_colorset_single() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let db = &state.db;
 
     ttrss::labels::colorset(
@@ -458,19 +375,15 @@ async fn test_colorset_single(
     let row = label_row(db, 1).await.expect("label 1");
     assert_eq!(row["fg_color"], "#abcdef");
     assert_eq!(row["bg_color"], "");
+        Ok(())
+    })).await.unwrap();
 }
 
 /// `Pref_Labels::colorreset`: resets the selected labels' colors to `''`.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_colorreset(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_colorreset() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let db = &state.db;
     let pool = db.pool();
 
@@ -488,4 +401,6 @@ async fn test_colorreset(
     assert_eq!(row["bg_color"], "");
     // The other label is unaffected.
     assert_eq!(label_row(db, 2).await.expect("label 2")["fg_color"], "");
+        Ok(())
+    })).await.unwrap();
 }
