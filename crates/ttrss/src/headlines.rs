@@ -706,7 +706,7 @@ async fn format_headlines_list(
         }
         line.insert("content".into(), json!(content));
         line.insert("author".into(), json!(author));
-        line.insert("score".into(), json!(score.to_string()));
+        line.insert("score".into(), json!(score));
         line.insert("num_labels".into(), json!(num_labels));
         line.insert("content_preview".into(), json!(content_preview));
         if archived && vfeed_title.is_none() {

@@ -241,3 +241,47 @@ async fn test_getarticle_reads_the_session_flag(
         "kept in getArticle via session flag: {content}"
     );
 }
+
+/// The `score` field in the headlines JSON is a **number** (matching PHP's
+/// `(int)` cast on the `int` column). The frontend MutationObserver reads
+/// `data-score` via `getAttribute` (always a string), so the comparison must
+/// normalize: `String(m.old.score) !== String(m.new.score)` (fixed in
+/// `tt-rss/js/Headlines.js`). Without that normalization, `0 !== "0"` is
+/// `true` under `!==`, causing spurious `setScore(0)` RPCs on any class
+/// mutation (e.g. mark-as-read on scroll).
+#[sqlx::test(fixtures(
+    "../../test-db/fixtures/schema.sql",
+    "../../test-db/fixtures/baseline.sql",
+    "../../test-db/fixtures/seed.sql",
+))]
+async fn test_headlines_score_is_json_number(
+    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
+    options: sqlx::postgres::PgConnectOptions,
+) {
+    let (state, sess) = setup(pool, options).await;
+    add_iframe_entry(state.db.pool()).await;
+
+    let (status, content) = api::before_and_dispatch(
+        &state, &sess, "getheadlines",
+        &request(&[("feed_id", json!("5"))]),
+    )
+    .await;
+    assert_eq!(status, 0);
+
+    let lines = content.as_array().expect("array response");
+    let article = lines
+        .iter()
+        .find(|e| e.get("id").and_then(Value::as_i64) == Some(50))
+        .expect("article 50 present");
+
+    let score = article.get("score").expect("score field present");
+    // Must be a JSON number, not a string — matches PHP PDO `(int)` behavior.
+    assert!(
+        score.is_number(),
+        "score must be a JSON number (PHP parity), got: {score:?}"
+    );
+    // The frontend reads `data-score` via getAttribute → always a string.
+    // Verify that String(number) === String(getAttribute) would hold:
+    assert_eq!(score.as_i64(), Some(0), "default score is 0");
+    assert_eq!(format!("{}", score), "0", "string form matches getAttribute");
+}
