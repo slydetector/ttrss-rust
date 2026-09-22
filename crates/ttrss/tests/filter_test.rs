@@ -10,6 +10,7 @@
 mod common;
 
 use serde_json::{json, Map, Value};
+use sqlx::AssertSqlSafe;
 use ttrss::core::config::Config;
 use ttrss::core::db::Db;
 use ttrss::core::phpser::Value as PValue;
@@ -166,7 +167,7 @@ async fn count_entries(db: &Db, where_clause: &str) -> i64 {
          LEFT JOIN ttrss_feed_categories fc ON fc.id = f.cat_id \
          WHERE ue.owner_uid = 1 AND {where_clause}"
     );
-    sqlx::query_scalar(&sql)
+    sqlx::query_scalar(AssertSqlSafe(sql))
         .fetch_one(db.pool())
         .await
         .expect("entry count")

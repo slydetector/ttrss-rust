@@ -12,6 +12,7 @@ use chrono::{DateTime, Timelike, Utc};
 use chrono_tz::Tz;
 use serde_json::Value;
 use sqlx::Row as _;
+use sqlx::AssertSqlSafe;
 
 use crate::prefs;
 use crate::time::TzCtx;
@@ -55,7 +56,7 @@ pub async fn prepare_headlines_digest(
     let self_url = state.config.self_url_rtrim();
 
     // The headline query (mirrors the PHP SQL; `NOW() - INTERVAL '.. day'`).
-    let lines = sqlx::query(&format!(
+    let lines = sqlx::query(AssertSqlSafe(format!(
         "SELECT ttrss_entries.title,
                 ttrss_feeds.title AS feed_title,
                 COALESCE(ttrss_feed_categories.title, 'Uncategorized') AS cat_title,
@@ -76,7 +77,7 @@ pub async fn prepare_headlines_digest(
            AND score >= $2
          ORDER BY ttrss_feed_categories.title, ttrss_feeds.title, score DESC, ttrss_entries.date_updated DESC
          LIMIT $3"),
-    )
+    ))
     .bind(uid)
     .bind(min_score)
     .bind(limit)

@@ -16,6 +16,7 @@
 
 use sqlx::pool::PoolOptions;
 use sqlx::postgres::{PgConnectOptions, PgConnection, Postgres};
+use sqlx::AssertSqlSafe;
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -49,7 +50,7 @@ pub async fn make_db(pool: PoolOptions<Postgres>, options: PgConnectOptions) -> 
         .before_acquire(|conn: &mut PgConnection, _meta| {
             Box::pin(async move {
                 for stmt in SESSION_SETUP {
-                    sqlx::query(stmt).execute(&mut *conn).await?;
+                    sqlx::query(AssertSqlSafe(*stmt)).execute(&mut *conn).await?;
                 }
                 Ok(true)
             })

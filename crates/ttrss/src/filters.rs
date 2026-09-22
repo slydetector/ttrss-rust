@@ -4,6 +4,7 @@
 use minijinja::Environment;
 use serde_json::{json, Map, Value};
 use sqlx::Row;
+use sqlx::AssertSqlSafe;
 use std::collections::HashMap;
 
 use crate::prefs;
@@ -962,7 +963,7 @@ pub async fn test_filter_do(
         " ORDER BY e.date_entered DESC LIMIT {limit} OFFSET {offset}"
     ));
 
-    let rows = match sqlx::query(&sql).fetch_all(pool).await {
+    let rows = match sqlx::query(AssertSqlSafe(sql)).fetch_all(pool).await {
         Ok(r) => r,
         // A SQL failure (e.g. a negative LIMIT) degrades to an empty result
         // (PHP would 500; the SPA only sends non-negative values).

@@ -10,6 +10,7 @@
 mod common;
 
 use sqlx::pool::PoolOptions;
+use sqlx::AssertSqlSafe;
 use sqlx::postgres::PgConnectOptions;
 use std::sync::Arc;
 use ttrss::core::config::Config;
@@ -88,7 +89,7 @@ async fn create_feed(
         "INSERT INTO ttrss_feeds (id, owner_uid, title, feed_url, update_interval, last_updated) \
          VALUES ($1, $2, $3, $4, $5, {last_updated})"
     );
-    sqlx::query(&sql)
+    sqlx::query(AssertSqlSafe(sql))
         .bind(id)
         .bind(owner_uid)
         .bind(format!("Test Feed {id}"))

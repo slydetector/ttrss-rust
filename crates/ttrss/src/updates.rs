@@ -37,7 +37,7 @@
 use anyhow::{bail, Context, Result};
 use chrono::{NaiveDateTime, Utc};
 use serde_json::{json, Value};
-use sqlx::{PgPool, Row};
+use sqlx::{PgPool, Row, AssertSqlSafe};
 use rand::Rng;
 use std::sync::Arc;
 
@@ -772,7 +772,7 @@ pub(crate) async fn load_filters(
                     (({null_cat_qpart} (cat_id IS NULL AND cat_filter = false) OR cat_id IN ({check_cats_str})) AND \
                     (feed_id IS NULL OR feed_id = $1))) AND filter_id = $2"
         );
-        let rule_rows = sqlx::query(&rule_q)
+        let rule_rows = sqlx::query(AssertSqlSafe(rule_q))
             .bind(feed_id)
             .bind(filter_id)
             .fetch_all(pool)
@@ -1681,7 +1681,7 @@ pub async fn select_due_feeds(pool: &PgPool, cfg: &Config, limit: i32) -> Vec<Du
          AND (f.last_update_started IS NULL OR f.last_update_started < NOW() - INTERVAL '10 minute') \
          ORDER BY f.last_updated NULLS FIRST LIMIT {limit}"
     );
-    let Ok(rows) = sqlx::query(&sql).fetch_all(pool).await else {
+    let Ok(rows) = sqlx::query(AssertSqlSafe(sql)).fetch_all(pool).await else {
         return Vec::new();
     };
     rows.iter()
@@ -1704,7 +1704,7 @@ pub async fn claim_feeds(pool: &PgPool, feeds: &[DueFeed]) {
         "UPDATE ttrss_feeds SET last_update_started = NOW() WHERE id IN ({})",
         qmarks.join(", ")
     );
-    let mut q = sqlx::query(&sql);
+    let mut q = sqlx::query(AssertSqlSafe(sql));
     for feed in feeds {
         q = q.bind(feed.id);
     }

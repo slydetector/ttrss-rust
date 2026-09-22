@@ -19,6 +19,7 @@
 use anyhow::Result;
 use sqlx::pool::PoolOptions;
 use sqlx::postgres::{PgConnectOptions, PgConnection, PgPool};
+use sqlx::AssertSqlSafe;
 use std::str::FromStr;
 
 use crate::core::config::Config;
@@ -78,7 +79,7 @@ impl Db {
             .after_connect(|conn: &mut PgConnection, _meta| {
                 Box::pin(async move {
                     for stmt in SESSION_SETUP {
-                        sqlx::query(stmt).execute(&mut *conn).await?;
+                        sqlx::query(AssertSqlSafe(*stmt)).execute(&mut *conn).await?;
                     }
                     Ok(())
                 })

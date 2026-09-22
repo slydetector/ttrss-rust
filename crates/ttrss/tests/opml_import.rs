@@ -10,6 +10,7 @@
 mod common;
 
 use ttrss::core::config::Config;
+use sqlx::AssertSqlSafe;
 use ttrss::core::db::Db;
 use ttrss::session::Sess;
 use ttrss::AppState;
@@ -76,7 +77,7 @@ fn sess_for(uid: i64) -> Sess {
 }
 
 async fn count(pool: &sqlx::PgPool, sql: &str) -> i64 {
-    sqlx::query_scalar::<_, i64>(sql)
+    sqlx::query_scalar::<_, i64>(AssertSqlSafe(sql))
         .fetch_one(pool)
         .await
         .expect("count query")

@@ -10,6 +10,7 @@
 use crate::core::db::Db;
 use serde_json::{json, Map, Value};
 use sqlx::Row;
+use sqlx::AssertSqlSafe;
 
 use crate::cats::CAT_LABELS;
 use crate::feeds::{
@@ -250,7 +251,7 @@ async fn labels_counters(pool: &sqlx::PgPool, uid: i64, label_ids: Option<&[i64]
                                 GROUP BY ttrss_labels2.id, ttrss_labels2.caption",
                 qmarks.join(",")
             );
-            let mut query = sqlx::query(&q);
+            let mut query = sqlx::query(AssertSqlSafe(q));
             query = query.bind(uid); // u1.owner_uid (ON clause)
             query = query.bind(uid); // ttrss_labels2.owner_uid (WHERE clause)
             for id in ids {
@@ -355,7 +356,7 @@ async fn get_feeds(
                 GROUP BY f.id"
             .into(),
     };
-    let mut query = sqlx::query(&q);
+    let mut query = sqlx::query(AssertSqlSafe(q));
     query = query.bind(uid);
     if let Some(ids) = feed_ids {
         for id in ids {
@@ -448,7 +449,7 @@ async fn get_cats(
                 qmarks.join(","),
                 2 + ids.len()
             );
-            let mut query = sqlx::query(&q);
+            let mut query = sqlx::query(AssertSqlSafe(q));
             query = query.bind(uid);
             for id in ids {
                 query = query.bind(*id);
@@ -603,7 +604,7 @@ async fn feed_counters(
              WHERE {unread_qpart} AND ({match_part}) AND ttrss_user_entries.owner_uid = $1"
         )
     };
-    sqlx::query_scalar::<_, i64>(&sql)
+    sqlx::query_scalar::<_, i64>(AssertSqlSafe(sql))
         .bind(uid)
         .fetch_one(pool)
         .await
@@ -643,12 +644,12 @@ fn php_is_numeric(s: &str) -> bool {
 /// $n_feed == 0` case).
 async fn tag_counters(pool: &sqlx::PgPool, uid: i64, unread_only: bool, tag: &str) -> i64 {
     let unread_qpart = if unread_only { "unread = true" } else { "true" };
-    let n: Option<i64> = sqlx::query_scalar(&format!(
+    let n: Option<i64> = sqlx::query_scalar(AssertSqlSafe(format!(
         "SELECT SUM((SELECT COUNT(int_id)
             FROM ttrss_user_entries,ttrss_entries WHERE int_id = post_int_id
                 AND ref_id = id AND {unread_qpart})) AS count FROM ttrss_tags
             WHERE owner_uid = $1 AND tag_name = $2"
-    ))
+    )))
     .bind(uid)
     .bind(tag)
     .fetch_one(pool)
@@ -885,7 +886,7 @@ async fn cats_of(pool: &sqlx::PgPool, uid: i64, feeds: &[i64], with_parents: boo
             WHERE f.owner_uid = $1 AND f.id IN ({})",
         qmarks.join(",")
     );
-    let mut query = sqlx::query(&q);
+    let mut query = sqlx::query(AssertSqlSafe(q));
     query = query.bind(uid);
     for id in feeds {
         query = query.bind(*id);

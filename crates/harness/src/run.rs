@@ -4,6 +4,7 @@ use anyhow::{anyhow, Context, Result};
 use serde::Serialize;
 use serde_json::json;
 use sqlx::Row;
+use sqlx::AssertSqlSafe;
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::time::Duration;
@@ -152,7 +153,7 @@ async fn capture_db_state(
     let (Some(pool), Some(q)) = (pool, query) else {
         return Ok(None);
     };
-    let rows = sqlx::query(q).fetch_all(pool).await?;
+    let rows = sqlx::query(AssertSqlSafe(q)).fetch_all(pool).await?;
     let mut out = Vec::with_capacity(rows.len());
     for row in &rows {
         let ncols = row.columns().len();

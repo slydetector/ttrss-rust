@@ -20,6 +20,7 @@ use minijinja::Environment;
 use serde::Serialize;
 use serde_json::{json, Map, Value};
 use sqlx::Row;
+use sqlx::AssertSqlSafe;
 
 use crate::cats::{CAT_LABELS, CAT_SPECIAL};
 use crate::controls;
@@ -576,7 +577,7 @@ pub async fn purge_feed(
          AND marked = false AND feed_id = $1 AND {extra} \
          ttrss_entries.date_updated < NOW() - INTERVAL '{purge_interval} days'"
     );
-    let res = sqlx::query(&sql).bind(feed_id).execute(pool).await.ok()?;
+    let res = sqlx::query(AssertSqlSafe(sql)).bind(feed_id).execute(pool).await.ok()?;
     Some(res.rows_affected() as i64)
 }
 
@@ -620,14 +621,14 @@ pub async fn catchup_scope(
 
     if !crate::util::is_numeric(feed_id_or_tag) {
         // tag
-        let _ = sqlx::query(&format!(
+        let _ = sqlx::query(AssertSqlSafe(format!(
             "UPDATE ttrss_user_entries SET unread = false, last_read = NOW()
              WHERE ref_id IN (SELECT id FROM
                  (SELECT DISTINCT ttrss_entries.id FROM ttrss_entries, ttrss_user_entries, ttrss_tags
                   WHERE ref_id = ttrss_entries.id AND post_int_id = int_id AND tag_name = $1
                   AND ttrss_user_entries.owner_uid = $2 AND unread = true
                   AND {date_qpart} AND {search_qpart}) as tmp)"
-        ))
+        )))
         .bind(feed_id_or_tag)
         .bind(owner_uid)
         .execute(pool)
@@ -653,37 +654,37 @@ pub async fn catchup_scope(
                         .join(",")
                 )
             };
-            let _ = sqlx::query(&format!(
+            let _ = sqlx::query(AssertSqlSafe(format!(
                 "UPDATE ttrss_user_entries SET unread = false, last_read = NOW()
                  WHERE ref_id IN (SELECT id FROM
                      (SELECT DISTINCT id FROM ttrss_entries, ttrss_user_entries
                       WHERE ref_id = id AND owner_uid = $1 AND unread = true
                       AND feed_id IN (SELECT id FROM ttrss_feeds WHERE {cat_qpart})
                       AND {date_qpart} AND {search_qpart}) as tmp)"
-            ))
+            )))
             .bind(owner_uid)
             .execute(pool)
             .await;
         } else if feed_id == CAT_LABELS {
-            let _ = sqlx::query(&format!(
+            let _ = sqlx::query(AssertSqlSafe(format!(
                 "UPDATE ttrss_user_entries SET unread = false, last_read = NOW()
                  WHERE (SELECT COUNT(*) FROM ttrss_user_labels2, ttrss_entries
                         WHERE article_id = ref_id AND id = ref_id
                         AND {date_qpart} AND {search_qpart}) > 0
                  AND unread = true AND owner_uid = $1"
-            ))
+            )))
             .bind(owner_uid)
             .execute(pool)
             .await;
         }
     } else if feed_id > 0 {
-        let _ = sqlx::query(&format!(
+        let _ = sqlx::query(AssertSqlSafe(format!(
             "UPDATE ttrss_user_entries SET unread = false, last_read = NOW()
              WHERE ref_id IN (SELECT id FROM
                  (SELECT DISTINCT id FROM ttrss_entries, ttrss_user_entries
                   WHERE ref_id = id AND owner_uid = $1 AND unread = true AND feed_id = $2
                   AND {date_qpart} AND {search_qpart}) as tmp)"
-        ))
+        )))
         .bind(owner_uid)
         .bind(feed_id)
         .execute(pool)
@@ -726,19 +727,19 @@ pub async fn catchup_scope(
             _ => None,
         };
         if let Some(q) = query {
-            let _ = sqlx::query(&q).bind(owner_uid).execute(pool).await;
+            let _ = sqlx::query(AssertSqlSafe(q)).bind(owner_uid).execute(pool).await;
         }
     } else if feed_id < LABEL_BASE_INDEX {
         // label
         let label_id = crate::labels::feed_to_label_id(feed_id);
-        let _ = sqlx::query(&format!(
+        let _ = sqlx::query(AssertSqlSafe(format!(
             "UPDATE ttrss_user_entries SET unread = false, last_read = NOW()
              WHERE ref_id IN (SELECT id FROM
                  (SELECT DISTINCT ttrss_entries.id FROM ttrss_entries, ttrss_user_entries, ttrss_user_labels2
                   WHERE ref_id = id AND label_id = $1 AND ref_id = article_id
                   AND owner_uid = $2 AND unread = true
                   AND {date_qpart} AND {search_qpart}) as tmp)"
-        ))
+        )))
         .bind(label_id)
         .bind(owner_uid)
         .execute(pool)
@@ -1624,7 +1625,7 @@ async fn counters(pool: &sqlx::PgPool, uid: i64, feed_id: i64, fresh_max_age: i6
              WHERE unread = true AND ({match_part}) AND ttrss_user_entries.owner_uid = $1"
         )
     };
-    sqlx::query_scalar::<_, i64>(&sql)
+    sqlx::query_scalar::<_, i64>(AssertSqlSafe(sql))
         .bind(uid)
         .fetch_one(pool)
         .await
@@ -1837,7 +1838,7 @@ async fn run_val(
     feed_ids: &[i32],
     uid: i64,
 ) -> i64 {
-    let mut q = sqlx::query(sql).bind(v);
+    let mut q = sqlx::query(AssertSqlSafe(sql)).bind(v);
     for id in feed_ids {
         q = q.bind(*id);
     }
@@ -1855,7 +1856,7 @@ async fn run_str(
     feed_ids: &[i32],
     uid: i64,
 ) -> i64 {
-    let mut q = sqlx::query(sql).bind(v);
+    let mut q = sqlx::query(AssertSqlSafe(sql)).bind(v);
     for id in feed_ids {
         q = q.bind(*id);
     }
@@ -1873,7 +1874,7 @@ async fn run_bool(
     feed_ids: &[i32],
     uid: i64,
 ) -> i64 {
-    let mut q = sqlx::query(sql).bind(v);
+    let mut q = sqlx::query(AssertSqlSafe(sql)).bind(v);
     for id in feed_ids {
         q = q.bind(*id);
     }
@@ -1891,7 +1892,7 @@ async fn run_opt(
     feed_ids: &[i32],
     uid: i64,
 ) -> i64 {
-    let mut q = sqlx::query(sql).bind(v);
+    let mut q = sqlx::query(AssertSqlSafe(sql)).bind(v);
     for id in feed_ids {
         q = q.bind(*id);
     }

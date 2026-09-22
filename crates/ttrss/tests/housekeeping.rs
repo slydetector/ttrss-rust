@@ -9,6 +9,7 @@
 mod common;
 
 use chrono::{Local, NaiveDate, NaiveDateTime, NaiveTime, TimeZone as _};
+use sqlx::AssertSqlSafe;
 use croner::Cron;
 use std::str::FromStr;
 use sqlx::pool::PoolOptions;
@@ -139,10 +140,10 @@ async fn user_entry_count(db: &Db, feed_id: i32) -> i64 {
 /// Age a `ttrss_entries` row's `date_updated` (and `updated`) by N days.
 async fn age_entry(db: &Db, entry_id: i32, days: i64) {
     sqlx::query(
-        &format!(
+        AssertSqlSafe(format!(
             "UPDATE ttrss_entries SET date_updated = NOW() - INTERVAL '{days} day', \
              updated = NOW() - INTERVAL '{days} day' WHERE id = $1",
-        ),
+        )),
     )
     .bind(entry_id)
     .execute(db.pool())

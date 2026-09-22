@@ -2,6 +2,7 @@
 
 use serde_json::{json, Map, Value};
 use sqlx::Row;
+use sqlx::AssertSqlSafe;
 
 use crate::session::Sess;
 use crate::time::{make_local_datetime, TzCtx};
@@ -111,16 +112,16 @@ async fn log_viewer(state: &AppState, sess: &Sess, page: i64, severity: i64) -> 
         None => "true".to_string(),
     };
 
-    let total: i64 = sqlx::query_scalar(&format!(
+    let total: i64 = sqlx::query_scalar(AssertSqlSafe(format!(
         "SELECT COUNT(id) FROM ttrss_error_log WHERE {where_sql}"
-    ))
+    )))
     .fetch_one(pool)
     .await
     .unwrap_or(0);
     let total_pages = total / LOG_PAGE_LIMIT;
     let offset = LOG_PAGE_LIMIT * page;
 
-    let rows = sqlx::query(&format!(
+    let rows = sqlx::query(AssertSqlSafe(format!(
         "SELECT errno, errstr, filename, lineno, \
                  to_char(created_at, 'YYYY-MM-DD HH24:MI:SS') AS created_at, login, context \
          FROM ttrss_error_log \
@@ -128,7 +129,7 @@ async fn log_viewer(state: &AppState, sess: &Sess, page: i64, severity: i64) -> 
          WHERE {where_sql} \
          ORDER BY ttrss_error_log.id DESC \
          LIMIT {LOG_PAGE_LIMIT} OFFSET {offset}"
-    ))
+    )))
     .fetch_all(pool)
     .await
     .unwrap_or_default();

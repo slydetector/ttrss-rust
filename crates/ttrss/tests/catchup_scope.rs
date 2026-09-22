@@ -14,6 +14,7 @@
 mod common;
 
 use serde_json::{json, Map, Value};
+use sqlx::AssertSqlSafe;
 use ttrss::core::config::Config;
 use ttrss::core::db::Db;
 use ttrss::core::phpser::Value as PValue;
@@ -473,13 +474,13 @@ async fn add_entry(
     date_entered_sql: &str,
     score: Option<i32>,
 ) {
-    sqlx::query(&format!(
+    sqlx::query(AssertSqlSafe(format!(
         "INSERT INTO ttrss_entries (id, title, guid, link, updated, content, \
          content_hash, date_entered, date_updated) VALUES \
          ($1, 'Extra entry', $2, 'https://example.com/x', {date_entered_sql}, '<p>x</p>', \
           'SHA1:extra00000000000000000000000000000000000', \
           {date_entered_sql}, {date_entered_sql})"
-    ))
+    )))
     .bind(id)
     .bind(guid)
     .execute(db.pool())

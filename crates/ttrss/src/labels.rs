@@ -12,6 +12,7 @@ use crate::core::db::Db;
 use minijinja::Environment;
 use serde_json::{json, Map, Value};
 use sqlx::Row;
+use sqlx::AssertSqlSafe;
 
 use crate::session::Sess;
 use crate::util;
@@ -574,7 +575,7 @@ pub async fn colorset(
             let sql = format!(
                 "UPDATE ttrss_labels2 SET {kind}_color = $1 WHERE id = $2 AND owner_uid = $3"
             );
-            sqlx::query(&sql)
+            sqlx::query(AssertSqlSafe(sql))
                 .bind(&color)
                 .bind(id)
                 .bind(uid)

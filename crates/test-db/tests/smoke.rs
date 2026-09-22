@@ -2,13 +2,14 @@
 //! reproduce the PHP integration suite's starting state, applied by sqlx's
 //! `#[sqlx::test]` harness exactly the way the parity suites use them.
 
+use sqlx::AssertSqlSafe;
 #[ctor::ctor(unsafe)]
 fn init_test_pg() {
     test_db::init_database_url();
 }
 
 async fn count(pool: &sqlx::PgPool, table: &str) -> i64 {
-    sqlx::query_scalar(&format!("SELECT count(*) FROM {table}"))
+    sqlx::query_scalar(AssertSqlSafe(format!("SELECT count(*) FROM {table}")))
         .fetch_one(pool)
         .await
         .unwrap()

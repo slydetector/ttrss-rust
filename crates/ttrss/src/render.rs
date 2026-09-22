@@ -65,7 +65,6 @@ pub fn urlencode(s: &str) -> String {
     out
 }
 
-const LOGIN_TEMPLATE: &str = include_str!("../templates/login.html.tpl");
 const OTP_TEMPLATE: &str = include_str!("../templates/otp_challenge.html.tpl");
 const SHELL_TEMPLATE: &str = include_str!("../templates/shell.html.tpl");
 const PREFS_TEMPLATE: &str = include_str!("../templates/prefs.html");

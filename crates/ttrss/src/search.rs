@@ -16,6 +16,7 @@
 
 use regex::Regex;
 use std::sync::LazyLock;
+use sqlx::AssertSqlSafe;
 
 use crate::core::db::Db;
 
@@ -314,7 +315,7 @@ pub async fn dry_run(pool: &sqlx::PgPool, query_part: &str, words: &[String]) ->
         "select {query_part}
 \t\t\t\tFROM ttrss_entries, ttrss_user_entries WHERE id = ref_id limit 1"
     );
-    match sqlx::query(&sql).fetch_all(pool).await {
+    match sqlx::query(AssertSqlSafe(sql)).fetch_all(pool).await {
         Ok(_) => (query_part.to_string(), String::new()),
         Err(_) => (
             "false".to_string(),

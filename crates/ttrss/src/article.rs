@@ -24,6 +24,7 @@ use kuchikiki::{parse_html, NodeRef};
 use serde_json::{json, Map, Value};
 use sha1::Digest as _;
 use sqlx::Row;
+use sqlx::AssertSqlSafe;
 
 use crate::prefs;
 use crate::sanitizer::rewrite_relative;
@@ -96,7 +97,7 @@ pub async fn catchup_by_id(
         in_placeholders(ids),
         ids.len() + 1
     );
-    let _ = bind_ids(sqlx::query(&sql), ids)
+    let _ = bind_ids(sqlx::query(AssertSqlSafe(sql)), ids)
         .bind(uid)
         .execute(pool)
         .await;
@@ -118,7 +119,7 @@ async fn mark_articles_by_id(pool: &sqlx::PgPool, ids: &[i32], cmode: i32, uid: 
         in_placeholders(ids),
         ids.len() + 1
     );
-    let _ = bind_ids(sqlx::query(&sql), ids)
+    let _ = bind_ids(sqlx::query(AssertSqlSafe(sql)), ids)
         .bind(uid)
         .execute(pool)
         .await;
@@ -141,7 +142,7 @@ async fn publish_articles_by_id(pool: &sqlx::PgPool, ids: &[i32], cmode: i32, ui
         in_placeholders(ids),
         ids.len() + 1
     );
-    let _ = bind_ids(sqlx::query(&sql), ids)
+    let _ = bind_ids(sqlx::query(AssertSqlSafe(sql)), ids)
         .bind(uid)
         .execute(pool)
         .await;
@@ -716,7 +717,7 @@ pub async fn labels_of(pool: &sqlx::PgPool, ids: &[i32], uid: i64) -> Vec<i64> {
         in_placeholders(ids),
         ids.len() + 1
     );
-    let rows = bind_ids(sqlx::query(&sql), ids)
+    let rows = bind_ids(sqlx::query(AssertSqlSafe(sql)), ids)
         .bind(uid)
         .fetch_all(pool)
         .await
@@ -759,7 +760,7 @@ pub async fn feeds_of(pool: &sqlx::PgPool, ids: &[i32], uid: i64) -> Vec<i64> {
         in_placeholders(ids),
         ids.len() + 1
     );
-    let rows = bind_ids(sqlx::query(&sql), ids)
+    let rows = bind_ids(sqlx::query(AssertSqlSafe(sql)), ids)
         .bind(uid)
         .fetch_all(pool)
         .await
@@ -878,7 +879,7 @@ pub async fn delete(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -
         in_placeholders(&ids),
         ids.len() + 1
     );
-    let _ = bind_ids(sqlx::query(&sql), &ids)
+    let _ = bind_ids(sqlx::query(AssertSqlSafe(sql)), &ids)
         .bind(uid)
         .execute(state.db.pool())
         .await;
@@ -901,7 +902,7 @@ pub async fn set_score(state: &AppState, sess: &Sess, extra: &Map<String, Value>
         in_placeholders(&ids),
         ids.len() + 2
     );
-    let _ = bind_ids(sqlx::query(&sql), &ids)
+    let _ = bind_ids(sqlx::query(AssertSqlSafe(sql)), &ids)
         .bind(score)
         .bind(uid)
         .execute(state.db.pool())

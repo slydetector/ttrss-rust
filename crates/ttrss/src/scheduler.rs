@@ -18,7 +18,7 @@ use anyhow::{Context, Result};
 use chrono::{Local, NaiveDateTime, TimeZone as _};
 use croner::Cron;
 use std::str::FromStr;
-use sqlx::{PgPool, Row};
+use sqlx::{PgPool, Row, AssertSqlSafe};
 
 use crate::core::config::Config;
 
@@ -181,7 +181,7 @@ pub async fn purge_orphaned_scheduled_tasks(pool: &PgPool, registered: &[&str]) 
          AND last_run < NOW() - INTERVAL '5 weeks'",
         qmarks.join(", ")
     );
-    let mut q = sqlx::query(&sql);
+    let mut q = sqlx::query(AssertSqlSafe(sql));
     for name in registered {
         q = q.bind(name);
     }
@@ -319,7 +319,7 @@ pub async fn disable_failed_feeds(pool: &PgPool, cfg: &Config) -> Result<i64> {
 
     let mut tx = pool.begin().await.context("begin disable_failed_feeds")?;
 
-    let rows = sqlx::query(&format!("SELECT id, title, owner_uid FROM ttrss_feeds WHERE {qpart}"))
+    let rows = sqlx::query(AssertSqlSafe(format!("SELECT id, title, owner_uid FROM ttrss_feeds WHERE {qpart}")))
         .fetch_all(&mut *tx)
         .await
         .context("select failing feeds")?;
@@ -333,9 +333,9 @@ pub async fn disable_failed_feeds(pool: &PgPool, cfg: &Config) -> Result<i64> {
         );
     }
 
-    let res = sqlx::query(&format!(
+    let res = sqlx::query(AssertSqlSafe(format!(
         "UPDATE ttrss_feeds SET update_interval = -1 WHERE {qpart}"
-    ))
+    )))
     .execute(&mut *tx)
     .await
     .context("disable failing feeds")?;
@@ -419,12 +419,12 @@ pub async fn log_daemon_update_login_limit_users(pool: &PgPool, cfg: &Config) ->
     if cfg.single_user_mode || cfg.daemon_update_login_limit <= 0 {
         return Ok(());
     }
-    let rows = sqlx::query(&format!(
+    let rows = sqlx::query(AssertSqlSafe(format!(
         "SELECT login, last_login FROM ttrss_users \
          WHERE access_level NOT IN (-2, -1) \
          AND last_login < NOW() - INTERVAL '{} days'",
         cfg.daemon_update_login_limit
-    ))
+    )))
     .fetch_all(pool)
     .await
     .context("select stale-login users")?;

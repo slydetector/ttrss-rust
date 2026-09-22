@@ -12,6 +12,7 @@
 
 use serde_json::{json, Map, Value};
 use sqlx::Row;
+use sqlx::AssertSqlSafe;
 
 use crate::cats::{CAT_LABELS, CAT_SPECIAL, CAT_UNCATEGORIZED};
 use crate::prefs;
@@ -1509,7 +1510,7 @@ async fn get_headlines(
 \t\t\t\t{start_ts_query_part}{since_id_part}date_entered >= NOW() - INTERVAL '1 hour' AND
 \t\t\t\t{first_id_query_strategy_part} ORDER BY {order_by} LIMIT 1"
             );
-            if let Ok(Some(r)) = sqlx::query(&query).fetch_optional(pool).await {
+            if let Ok(Some(r)) = sqlx::query(AssertSqlSafe(query)).fetch_optional(pool).await {
                 first_id = r.get::<i32, _>(0) as i64;
                 if offset > 0 && first_id != 0 && check_first_id != 0 && first_id != check_first_id
                 {
@@ -1568,7 +1569,7 @@ async fn get_headlines(
 \t\t\t\t{limit_query_part} {offset_query_part}"
         );
 
-        article_rows = sqlx::query(&query)
+        article_rows = sqlx::query(AssertSqlSafe(query))
             .fetch_all(pool)
             .await
             .unwrap_or_default();
@@ -1620,7 +1621,7 @@ async fn get_headlines(
 \t\t\t\t\t\t\t{query_strategy_part} ORDER BY {order_by}
 \t\t\t\t\t\t\t{limit_query_part} {offset_query_part}"
         );
-        article_rows = sqlx::query(&query)
+        article_rows = sqlx::query(AssertSqlSafe(query))
             .fetch_all(pool)
             .await
             .unwrap_or_default();

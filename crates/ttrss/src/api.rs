@@ -20,6 +20,7 @@ use axum::http::{header, StatusCode};
 use axum::response::{IntoResponse, Response};
 use serde_json::{json, Map, Value};
 use sqlx::Row;
+use sqlx::AssertSqlSafe;
 
 use crate::article;
 use crate::auth;
@@ -596,7 +597,7 @@ async fn get_feeds(state: &AppState, uid: Option<i64>, body: &Map<String, Value>
     if offset > 0 {
         q.push_str(&format!(" OFFSET {offset}"));
     }
-    let mut query = sqlx::query(&q);
+    let mut query = sqlx::query(AssertSqlSafe(q));
     query = query.bind(uid);
     if !no_cat_filter {
         query = query.bind(cat_id as i32);
@@ -1465,7 +1466,7 @@ pub async fn update_article(
         qmarks.join(", ")
     );
 
-    let mut q = sqlx::query(&sql);
+    let mut q = sqlx::query(AssertSqlSafe(sql));
     for id in &article_ids {
         q = q.bind(*id);
     }

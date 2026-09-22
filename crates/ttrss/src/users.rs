@@ -8,6 +8,7 @@
 //! is consumed is baked into the templates below.
 
 use sqlx::Row;
+use sqlx::AssertSqlSafe;
 
 use crate::core::user;
 use crate::session::Sess;
@@ -355,10 +356,10 @@ pub async fn edit_save(state: &AppState, _sess: &Sess, extra: &Map<String, Value
         } else {
             ", otp_secret = NULL"
         };
-        let _ = sqlx::query(&format!(
+        let _ = sqlx::query(AssertSqlSafe(format!(
             "UPDATE ttrss_users SET login = $1, access_level = $2, email = $3, \
              otp_enabled = $4{otp_secret_clause} WHERE id = $5"
-        ))
+        )))
         .bind(login.to_lowercase())
         .bind(access_level)
         .bind(email)
