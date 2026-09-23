@@ -261,7 +261,7 @@ async fn login(state: &AppState, sess: &Sess, body: &Map<String, Value>, accept_
         .execute(pool)
         .await;
     let (new_id, data) =
-        auth::build_login_session(uid, &u_login, access_level, &pwd_hash, false, false);
+        auth::build_login_session(uid, &u_login, access_level, &pwd_hash, false, false, "auth_internal");
     sess.replace(new_id.clone(), data);
 
     (

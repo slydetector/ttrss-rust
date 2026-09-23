@@ -391,26 +391,141 @@ Plugins.Psql_Trgm = {
                 return;
             }
 
+            use crate::controls;
+            use crate::core::phpser::{Key, Value as PValue};
+
+            // The stored prefs (PHP: `$this->host->get(…, default)`).
+            let similarity: f64 = host
+                .storage_get(&AfPsqlTrgm, "similarity", PValue::Float(DEFAULT_SIMILARITY))
+                .await
+                .ok()
+                .and_then(|v| match v { PValue::Float(f) => Some(f), _ => None })
+                .unwrap_or(DEFAULT_SIMILARITY);
+            let min_title_length: i32 = host
+                .storage_get(&AfPsqlTrgm, "min_title_length", PValue::Int(DEFAULT_MIN_LENGTH as i64))
+                .await
+                .ok()
+                .and_then(|v| match v { PValue::Int(i) => Some(i as i32), _ => None })
+                .unwrap_or(DEFAULT_MIN_LENGTH);
+            let enable_globally: bool = host
+                .storage_get(&AfPsqlTrgm, "enable_globally", PValue::Bool(false))
+                .await
+                .ok()
+                .and_then(|v| match v { PValue::Bool(b) => Some(b), _ => None })
+                .unwrap_or(false);
+
+            let similarity_val = format!("{similarity}");
+            let min_len_val = format!("{min_title_length}");
+            let similarity_ph = format!("{DEFAULT_SIMILARITY}");
+            let min_len_ph = format!("{DEFAULT_MIN_LENGTH}");
+
+            let form_js = "<script type=\"dojo/method\" event=\"onSubmit\" args=\"evt\">\
+                \n\t\t\t\t\tevt.preventDefault();\
+                \n\t\t\t\t\tif (this.validate()) {\
+                \n\t\t\t\t\t\tNotify.progress('Saving data...', true);\
+                \n\t\t\t\t\t\txhr.post(\"backend.php\", this.getValues(), (reply) => {\
+                \n\t\t\t\t\t\t\tNotify.info(reply);\
+                \n\t\t\t\t\t\t})\
+                \n\t\t\t\t\t}\
+                \n\t\t\t\t</script>";
+            let submit = controls::submit_tag("Save");
+            let enable_cb = controls::checkbox_tag("enable_globally", enable_globally, "", &[]);
+
             host.output.push_str(
                 "<form dojoType=\"dijit.form.Form\">\n",
             );
-            host.output.push_str(
-                "  <fieldset>\n    <label>Minimum similarity:</label>\n    \
-                 <input dojoType=\"dijit.form.NumberSpinner\" placeholder=\"0.75\" \
-                 id='psql_trgm_similarity' required=\"1\" name=\"similarity\" value=\"0.75\">\n  </fieldset>\n",
-            );
-            host.output.push_str(
-                "  <fieldset>\n    <label>Minimum title length:</label>\n    \
-                 <input dojoType=\"dijit.form.NumberSpinner\" placeholder=\"32\" \
-                 required=\"1\" name=\"min_title_length\" value=\"32\">\n  </fieldset>\n",
-            );
-            host.output.push_str(
-                "  <fieldset>\n    <label class='checkbox'>\n      \
-                 <input type=\"checkbox\" name=\"enable_globally\">\
-                 Enable for all feeds.\n    </label>\n  </fieldset>\n",
-            );
-            host.output.push_str("  <hr/>\n  <input type=\"submit\" value=\"Save\">\n");
-            host.output.push_str("</form>\n</div>");
+            host.output.push_str(&format!(
+                "\t{ph}\n",
+                ph = controls::pluginhandler_tags("AfPsqlTrgm", "save")
+            ));
+            host.output.push_str(&format!("\t{js}\n", js = form_js));
+            host.output.push_str(&format!(
+                "\t{notice}\n",
+                notice = controls::format_notice("Enable for specific feeds in the feed editor.")
+            ));
+            host.output.push_str(&format!(
+                "\t<fieldset>\n\t\t<label>Minimum similarity:</label>\n\t\t<input \
+                 dojoType=\"dijit.form.NumberSpinner\" placeholder=\"{similarity_ph}\" \
+                 id='psql_trgm_similarity' required=\"1\" name=\"similarity\" value=\"{similarity_val}\">\n\
+                 \t\t<div dojoType='dijit.Tooltip' connectId='psql_trgm_similarity' position='below'>\
+                 PostgreSQL trigram extension returns string similarity as a floating point \
+                 number (0-1). Setting it too low might produce false positives, zero disables \
+                 checking.</div>\n\t</fieldset>\n"
+            ));
+            host.output.push_str(&format!(
+                "\t<fieldset>\n\t\t<label>Minimum title length:</label>\n\t\t<input \
+                 dojoType=\"dijit.form.NumberSpinner\" placeholder=\"{min_len_ph}\" \
+                 required=\"1\" name=\"min_title_length\" value=\"{min_len_val}\">\n\t</fieldset>\n"
+            ));
+            host.output.push_str(&format!(
+                "\t<fieldset>\n\t\t<label class='checkbox'>\n\t\t\t{cb}\
+                 Enable for all feeds.\n\t\t</label>\n\t</fieldset>\n",
+                cb = enable_cb
+            ));
+            host.output.push_str(&format!("\t<hr/>\n\t{submit}\n"));
+            host.output.push_str("</form>\n");
+
+            // `/* cleanup */`: drop the enabled feeds that no longer exist
+            // for this owner and store the pruned list back.
+            let owner_uid = host.owner_uid.unwrap_or(0) as i64;
+            let enabled_feeds: Vec<i32> = host
+                .storage_get(&AfPsqlTrgm, "enabled_feeds", PValue::Array(vec![]))
+                .await
+                .ok()
+                .and_then(|v| match v {
+                    PValue::Array(arr) => Some(
+                        arr.into_iter()
+                            .filter_map(|(_, val)| match val {
+                                PValue::Int(i) => Some(i as i32),
+                                _ => None,
+                            })
+                            .collect(),
+                    ),
+                    _ => None,
+                })
+                .unwrap_or_default();
+            let mut pruned: Vec<i32> = Vec::new();
+            for fid in &enabled_feeds {
+                let exists: Option<bool> = sqlx::query_scalar(
+                    "SELECT id FROM ttrss_feeds WHERE id = $1 AND owner_uid = $2",
+                )
+                .bind(*fid as i64)
+                .bind(owner_uid)
+                .fetch_optional(pool)
+                .await
+                .ok()
+                .flatten();
+                if exists.is_some() {
+                    pruned.push(*fid);
+                }
+            }
+            if pruned != enabled_feeds {
+                let arr: Vec<(Key, PValue)> = pruned
+                    .iter()
+                    .enumerate()
+                    .map(|(i, f)| (Key::Int(i as i64), PValue::Int(*f as i64)))
+                    .collect();
+                let _ = host
+                    .storage_set(&AfPsqlTrgm, "enabled_feeds", PValue::Array(arr))
+                    .await;
+            }
+
+            if !pruned.is_empty() {
+                let mut items = String::new();
+                for fid in &pruned {
+                    let title = crate::feeds::feed_title(pool, *fid as i64, owner_uid).await;
+                    items.push_str(&format!(
+                        "\t\t\t\t<li>\n\t\t\t\t\t<i class='material-icons'>rss_feed</i>\
+                         \n\t\t\t\t\t<a href='#'\tonclick=\"CommonDialogs.editFeed({fid})\">\
+                         {title}\n\t\t\t\t</a>\n\t\t\t</li>\n"
+                    ));
+                }
+                host.output.push_str(&format!(
+                    "\t<hr/>\n\t<h3>Currently enabled for (click to edit):</h3>\n\
+                     \t<ul class=\"panel panel-scrollable list list-unstyled\">\n{items}\t</ul>\n"
+                ));
+            }
+            host.output.push_str("</div>");
         })
     }
 

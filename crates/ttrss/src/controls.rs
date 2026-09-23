@@ -223,6 +223,9 @@ pub fn pluginhandler_tags(plugin_class: &str, method: &str) -> String {
     [
         hidden_tag("op", "PluginHandler"),
         hidden_tag("plugin", &plugin_class.to_lowercase()),
+        // The `PluginHandler::catchall` backend reads `$_REQUEST["method"]`
+        // (set by `backend.php:5` from the `method` form field) — not
+        // `pmethod` (the public-route param).
         hidden_tag("method", method),
     ]
     .concat()

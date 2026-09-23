@@ -9,6 +9,7 @@
 
 pub mod af_comics;
 pub mod auth_internal;
+pub mod auth_remote;
 pub mod af_psql_trgm;
 pub mod af_youtube_embed;
 pub mod af_zz_vidmute;

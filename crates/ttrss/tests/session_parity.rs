@@ -775,7 +775,7 @@ async fn test_authenticate_regenerates_session_id() {
     };
 
     let (after, sess) =
-        auth::build_login_session(id, &login, access_level, &pwd_hash, false, false);
+        auth::build_login_session(id, &login, access_level, &pwd_hash, false, false, "auth_internal");
 
     assert_ne!(
         after, before,

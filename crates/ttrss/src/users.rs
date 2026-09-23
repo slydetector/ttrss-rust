@@ -146,7 +146,7 @@ pub async fn index(
         "prefUsersToolbar",
     )
     .await;
-    let tabs = crate::pluginhost::dispatch::prefs_chain(
+    let _tabs = crate::pluginhost::dispatch::prefs_chain(
         state,
         sess,
         crate::pluginhost::HOOK_PREFS_TAB,

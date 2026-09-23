@@ -120,6 +120,23 @@ async fn test_prefs_tab() {
     assert!(output.contains("psql_trgm_similarity"));
     assert!(output.contains("min_title_length"));
     assert!(output.contains("enable_globally"));
+    // The full reference form (M7.22 decision-3 fidelity): the
+    // pluginhandler save tags, the dojo onSubmit script, the notice, the
+    // tooltip, the submit button.
+    assert!(output.contains("PluginHandler"), "missing the pluginhandler op tag");
+    assert!(
+        output.contains("name=\"method\""),
+        "missing the method tag"
+    );
+    assert!(
+        output.contains("value=\"save\""),
+        "missing the method=save value"
+    );
+    assert!(output.contains("dojo/method"), "missing the onSubmit script");
+    assert!(output.contains("Enable for specific feeds in the feed editor."));
+    assert!(output.contains("dijit.Tooltip"), "missing the similarity tooltip");
+    assert!(output.contains("value=\"0.75\""), "default similarity value");
+    assert!(output.contains("Save"));
 
     // A different tab produces no output.
     host.output.clear();

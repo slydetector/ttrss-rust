@@ -713,12 +713,26 @@ impl Plugin for AfComics {
                 }
             }
             comics.sort();
-            comics.dedup();
-            let list: String = comics.iter().map(|c| format!("<li>{c}</li>")).collect();
-            host.output
-                .push_str(&format!(
-                    "<div dojoType=\"dijit.layout.AccordionPane\" title=\"af_comics\"><ul>{list}</ul></div>"
-                ));
+            let list: String = comics
+                .iter()
+                .map(|c| format!("<li>{}</li>", crate::util::htmlspecialchars(c)))
+                .collect();
+            let notice_gocomics = crate::controls::format_notice(
+                "To subscribe to GoComics use the comic's regular web page as the                  feed URL (e.g. for the <em>Garfield</em> comic use                  <code>http://www.gocomics.com/garfield</code>).",
+            );
+            let notice_filters = crate::controls::format_notice(
+                "Drop any updated filters into <code>filters.local</code> in plugin                  directory.",
+            );
+            host.output.push_str(&format!(
+                "<div dojoType=\"dijit.layout.AccordionPane\"                  title=\"<i class='material-icons'>photo</i> Feeds supported by af_comics\">\n\
+                 \t<h3>The following comics are currently supported:</h3>\n\
+                 \t<ul class='panel panel-scrollable list list-unstyled'>\n\
+                 {list}\
+                 \t</ul>\n\
+                 \t{notice_gocomics}\n\
+                 \t{notice_filters}\n\
+                 </div>\n",
+            ));
         })
     }
 }

@@ -518,6 +518,14 @@ pub struct HostCtx<'a> {
     /// that *print* (e.g. `hook_prefs_tab`) append here; the caller of the
     /// chain collects/clears it. M7.10 (the prefs page) is the first runner.
     pub output: String,
+    /// The `$_SERVER`-equivalent for the current request (M7.20,
+    /// `auth_remote`): the raw header names/values the auth plugins read
+    /// (proxy `REMOTE_USER`-style names, Basic-auth `PHP_AUTH_USER`, the
+    /// Apache mod_ssl `SSL_CLIENT_*` / `REDIRECT_SSL_CLIENT_*` pair, the
+    /// LemonLDAP `HTTP_USER_NAME`/`AUTHENTICATE_CN` extras). Set by the HTTP
+    /// layer for the public login/logout flows; empty elsewhere.
+    pub fake_login: Option<String>,
+    pub server_env: Vec<(String, String)>,
     /// Auth outcome side-channel (M7.20): the plugin's `authenticate` sets
     /// these when the login fails or OTP is required. The caller reads them
     /// after `run_hooks(HOOK_AUTH_USER)`.
@@ -562,6 +570,21 @@ impl<'a> HostCtx<'a> {
             })
             .collect();
         Self::with_active(host, pool, cfg, active, owner_uid, profile, access_level)
+    }
+
+    /// `Handler_Public`'s login host (PHP `load_all(KIND_SYSTEM, 0, true)`):
+    /// every **system** plugin, none of the per-user ones — the
+    /// `HOOK_AUTH_USER` chain at login time runs over exactly this set.
+    /// (The port's `all_plugins` mirrors the reference's bundled directory
+    /// listing, so "every system plugin" = "every plugin whose
+    /// `about().system` is set".)
+    pub fn system_plugins(host: &'a PluginHost, pool: &'a PgPool, cfg: &'a crate::core::config::Config) -> Self {
+        let active = host
+            .plugins
+            .iter()
+            .map(|p| PluginHost::is_system(p.as_ref()))
+            .collect();
+        Self::with_active(host, pool, cfg, active, None, None, 0)
     }
 
     /// `Cache_Local`'s host: system plugins only (`KIND_SYSTEM`).
@@ -610,6 +633,8 @@ impl<'a> HostCtx<'a> {
             self_url: String::new(),
             cache_dir: PathBuf::new(),
             output: String::new(),
+            server_env: Vec::new(),
+            fake_login: None,
             login_error: None,
             otp_challenge: false,
         }
@@ -631,6 +656,28 @@ impl<'a> HostCtx<'a> {
     pub fn with_cache_dir(mut self, cache_dir: impl Into<PathBuf>) -> Self {
         self.cache_dir = cache_dir.into();
         self
+    }
+
+    /// Set the `$_SERVER`-equivalent (the request's raw header map,
+    /// `auth_remote`'s `authenticate` reads it).
+    #[must_use]
+    pub fn with_server_env(mut self, env: Vec<(String, String)>) -> Self {
+        self.server_env = env;
+        self
+    }
+
+    /// `$_SERVER[$name]` — the first value for that header name. The
+    /// port's `server_env` keys are axum-normalized (lowercase, as sent);
+    /// the lookup is case-insensitive (the PHP reference reads the
+    /// normalized `REMOTE_USER`-style names, which match exactly after
+    /// the normalization).
+    pub fn server(&self, name: &str) -> Option<&str> {
+        let name = name.to_ascii_lowercase();
+        self
+            .server_env
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case(&name))
+            .map(|(_, v)| v.as_str())
     }
 
     /// The shared registry.

@@ -224,7 +224,7 @@
                         <div dojoType="dijit.MenuItem" onclick="App.onActionSelected('qmcHKhelp')">{{ __("Keyboard shortcuts help") }}</div>
 
                         
-                                                    <div dojoType="dijit.MenuItem" onclick="App.onActionSelected('qmcLogout')">{{ __("Logout") }}</div>
+                                                    {% if not hide_logout %}<div dojoType="dijit.MenuItem" onclick="App.onActionSelected('qmcLogout')">{{ __("Logout") }}</div>{% endif %}
                                             </div>
                 </div>
             </div>

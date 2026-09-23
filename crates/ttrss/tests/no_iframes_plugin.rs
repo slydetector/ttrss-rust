@@ -37,6 +37,8 @@ fn test_config() -> Config {
         single_user_mode: false,
         forbid_password_changes: false,
         disable_login_form: false,
+        auth_auto_create: true,
+        auth_remote_post_logout_url: String::new(),
         plugins: "no_iframes".into(),
         listen: "127.0.0.1:8281".parse().unwrap(),
         docroot: std::path::PathBuf::from("tt-rss"),

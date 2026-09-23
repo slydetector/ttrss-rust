@@ -245,6 +245,7 @@ pub fn build_login_session(
     pwd_hash: &str,
     bw_limit: bool,
     safe_mode: bool,
+    auth_module: &str,
 ) -> (String, Session) {
     let now = now_unix();
     let mut data = core_session::Session::new();
@@ -252,7 +253,7 @@ pub fn build_login_session(
     data.set("last_login_update", Value::Int(now));
     data.set("ip_address", Value::Bytes(b"127.0.0.1".to_vec()));
     data.set("csrf_token", Value::Bytes(random_hex(16).into_bytes()));
-    data.set("auth_module", Value::Bytes(b"auth_internal".to_vec()));
+    data.set("auth_module", Value::Bytes(auth_module.as_bytes().to_vec()));
     data.set("name", Value::Bytes(login.as_bytes().to_vec()));
     data.set("access_level", Value::Int(access_level as i64));
     data.set("pwd_hash", Value::Bytes(pwd_hash.as_bytes().to_vec()));

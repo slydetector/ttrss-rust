@@ -94,7 +94,18 @@ async fn test_feeds_tab_plugin_panes() {
         html.contains("Mark similar articles as read (af_psql_trgm)"),
         "missing the af_psql_trgm pane"
     );
-    assert!(html.contains("af_comics"), "missing the af_comics pane");
+    assert!(
+        html.contains("Feeds supported by af_comics"),
+        "missing the af_comics pane title: {html}"
+    );
+    assert!(
+        html.contains("The following comics are currently supported:"),
+        "missing the af_comics header"
+    );
+    assert!(
+        html.contains("Drop any updated filters into <code>filters.local</code>"),
+        "missing the af_comics filters notice"
+    );
     // The section site: share's button in the Sharing pane.
     assert!(
         html.contains("Unshare all articles"),

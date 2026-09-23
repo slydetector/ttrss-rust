@@ -165,6 +165,7 @@ pub fn render_shell(
     main_toolbar_buttons: &str,
     locale: Option<&str>,
     i18n: &std::sync::Arc<crate::i18n::I18nCache>,
+    hide_logout: bool,
 ) -> String {
     let mut env = minijinja::Environment::new();
     let locale = locale.map(|s| s.to_string());
@@ -188,6 +189,7 @@ pub fn render_shell(
             plugin_css => plugin_css,
             plugin_js => plugin_js,
             main_toolbar_buttons => main_toolbar_buttons,
+            hide_logout => hide_logout,
         })
         .unwrap()
 }
@@ -271,6 +273,8 @@ mod tests {
             single_user_mode: false,
             forbid_password_changes: false,
             disable_login_form: false,
+            auth_auto_create: true,
+            auth_remote_post_logout_url: String::new(),
             plugins: "auth_internal".into(),
             listen: "127.0.0.1:8281".parse().unwrap(),
             feed_icon_dir: docroot.join("cache").join("feed-icons"),
@@ -365,14 +369,14 @@ mod tests {
         // Non-empty custom CSS → the inline `<style>` block appears in both the
         // shell and the prefs page (PHP `UserHelper::print_user_stylesheet`).
         let i18n = std::sync::Arc::new(crate::i18n::I18nCache::new(std::path::PathBuf::from("../../tt-rss/locale")));
-        let shell = render_shell("tok", 123, "", &block, "", "", "", None, &i18n);
+        let shell = render_shell("tok", 123, "", &block, "", "", "", None, &i18n, false);
         assert!(shell.contains(&block), "shell missing the user stylesheet block");
         let prefs = render_prefs_page("tok", 123, 3, "", &block, "", "");
         assert!(prefs.contains(&block), "prefs missing the user stylesheet block");
 
         // Empty → no `user_css_style` block is emitted.
         let i18n = std::sync::Arc::new(crate::i18n::I18nCache::new(std::path::PathBuf::from("../../tt-rss/locale")));
-        assert!(!render_shell("tok", 123, "", "", "", "", "", None, &i18n).contains("user_css_style"));
+        assert!(!render_shell("tok", 123, "", "", "", "", "", None, &i18n, false).contains("user_css_style"));
         assert!(!render_prefs_page("tok", 123, 3, "", "", "", "").contains("user_css_style"));
     }
 
@@ -383,12 +387,12 @@ mod tests {
         let css = ".my-plugin { color: red; }";
         let js = "Plugins.MyPlugin = {};";
         let i18n = std::sync::Arc::new(crate::i18n::I18nCache::new(std::path::PathBuf::from("../../tt-rss/locale")));
-        let shell = render_shell("tok", 123, "", "", css, js, "", None, &i18n);
+        let shell = render_shell("tok", 123, "", "", css, js, "", None, &i18n, false);
         assert!(shell.contains(css), "shell missing plugin CSS");
         assert!(shell.contains(js), "shell missing plugin JS");
         // Empty assets → no plugin CSS/JS in the shell.
         let i18n = std::sync::Arc::new(crate::i18n::I18nCache::new(std::path::PathBuf::from("../../tt-rss/locale")));
-        let shell_empty = render_shell("tok", 123, "", "", "", "", "", None, &i18n);
+        let shell_empty = render_shell("tok", 123, "", "", "", "", "", None, &i18n, false);
         assert!(!shell_empty.contains("Plugins."), "empty shell should have no plugin JS");
     }
 
@@ -401,13 +405,13 @@ mod tests {
         let marker_before = "<!-- order 0, default -->";
         let marker_after = "<!-- order 5: alert icons -->";
         let button = "<button id=\"sidebar-toggle-button\" class=\"toggle-sidebar-label\"></button>";
-        let shell = render_shell("tok", 123, "", "", "", "", button, None, &i18n);
+        let shell = render_shell("tok", 123, "", "", "", "", button, None, &i18n, false);
         let before = shell.find(marker_before).expect("order-0 marker present");
         let at = shell.find(button).expect("toolbar button row present");
         let after = shell.find(marker_after).expect("order-5 marker present");
         assert!(before < at && at < after, "button row must sit between the toolbar markers");
         // Empty row → nothing between the markers.
-        let shell_empty = render_shell("tok", 123, "", "", "", "", "", None, &i18n);
+        let shell_empty = render_shell("tok", 123, "", "", "", "", "", None, &i18n, false);
         let b = shell_empty.find(marker_before).expect("order-0 marker present");
         let a = shell_empty.find(marker_after).expect("order-5 marker present");
         assert!(
@@ -438,10 +442,10 @@ mod tests {
     fn shell_translates_strings_for_non_english_locale() {
         let i18n = std::sync::Arc::new(crate::i18n::I18nCache::new(std::path::PathBuf::from("../../tt-rss/locale")));
         // English (no locale): the original string is present.
-        let en = render_shell("tok", 123, "", "", "", "", "", None, &i18n);
+        let en = render_shell("tok", 123, "", "", "", "", "", None, &i18n, false);
         assert!(en.contains("Loading, please wait..."), "English shell should have the original string");
         // German: the string should be translated.
-        let de = render_shell("tok", 123, "", "", "", "", "", Some("de_DE"), &i18n);
+        let de = render_shell("tok", 123, "", "", "", "", "", Some("de_DE"), &i18n, false);
         assert!(!de.contains("Loading, please wait..."), "German shell should not have the English string");
         assert!(de.contains("Ladevorgang, bitte warten..."), "German shell should contain the translated string");
     }

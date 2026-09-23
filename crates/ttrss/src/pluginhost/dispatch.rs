@@ -62,6 +62,19 @@ fn request_map(op: &str, method: &str, csrf: &str, extra: &Map<String, Value>) -
 /// The per-session dispatch context: owner/profile/access from the session,
 /// active set = `TTRSS_PLUGINS` (config) + the owner's `_ENABLED_PLUGINS`
 /// pref (profile-scoped) — the same lists the asset/hooks paths will use.
+/// `Handler_Public`'s login host (PHP's `load_all(KIND_SYSTEM, 0, true)`):
+/// every **system** plugin — the `HOOK_AUTH_USER` chain and the
+/// `HOOK_POST_LOGOUT` chain run over exactly this set (per-user plugins
+/// never participate in auth; the port's `TTRSS_PLUGINS` env var stays
+/// meaningful for the non-auth hooks as in PHP).
+pub(crate) fn login_ctx<'a>(state: &'a AppState) -> HostCtx<'a> {
+    HostCtx::system_plugins(
+        &state.plugins,
+        state.db.pool(),
+        &state.config,
+    )
+}
+
 pub(crate) async fn session_ctx<'a>(state: &'a AppState, sess: &'a Sess) -> HostCtx<'a> {
     let data = sess.data();
     let uid_i64 = data.uid().unwrap_or(0);

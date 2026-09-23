@@ -151,6 +151,9 @@ async fn index(
         accept_language,
         Some(user_lang),
     );
+    let hide_logout = data
+        .get_bool("hide_logout")
+        .unwrap_or(false);
     let html = render::render_shell(
         csrf,
         ts,
@@ -161,6 +164,7 @@ async fn index(
         &main_toolbar_buttons,
         locale.as_deref(),
         &state.i18n,
+        hide_logout,
     );
     let etag = format!("\"{}\"", md5_hex(&html));
     // `send_conditional_html`: 304 when the client's validator matches.
@@ -365,9 +369,21 @@ fn md5_hex(data: &str) -> String {
 async fn public_handler(
     State(state): State<AppState>,
     sess: Extension<session::Sess>,
+    headers: axum::http::HeaderMap,
     query: Query<PublicQuery>,
     form: Form<PublicForm>,
 ) -> Response {
+    // The `$_SERVER`-equivalent (M7.20 `auth_remote`): the raw header
+    // names/values (case as sent) + the Basic-auth decoded user.
+    let server_env: Vec<(String, String)> = headers
+        .iter()
+        .map(|(name, value)| {
+            (
+                name.as_str().to_string(),
+                value.to_str().unwrap_or("").to_string(),
+            )
+        })
+        .collect();
     // `$_REQUEST['op']` merges GET + POST, so `op` may arrive in either.
     let op = query.op.as_deref().or_else(|| form.op.as_deref());
     // `public.php` shortcut: `?op=<plugin>--<pmethod>` is rewritten to
@@ -381,7 +397,13 @@ async fn public_handler(
         None => (op.unwrap_or(""), None),
     };
     match op {
-        "login" => login_flow(&state, sess.0, &query, &form).await,
+        "login" => {
+            let env: Vec<(String, String)> = basic_auth_env(&server_env)
+                .into_iter()
+                .chain(server_env)
+                .collect();
+            login_flow(&state, sess.0, &query, &form, &env).await
+        }
         "logout" => logout_flow(&state, sess.0, &form).await,
         // `Handler_Public::pluginhandler` (M7.3) — the no-account public
         // plugin-method endpoint; the only gate is the plugin's
@@ -654,14 +676,45 @@ async fn logout_flow(state: &AppState, sess: session::Sess, form: &PublicForm) -
         }
         return res;
     }
+    let (u_login, u_id) = {
+        let d = sess.data();
+        (d.get_str("name").unwrap_or("").to_string(), d.uid().unwrap_or(0))
+    };
+    let u_login_captured = u_login.clone();
     let sid = sess.id();
     sess.destroy();
+    // `HOOK_POST_LOGOUT` (PHP `Handler_Public::logout`): the first non-empty
+    // `[0]` (validated) is the redirect target; otherwise the default.
+    let mut redirect_url = String::new();
+    {
+        let mut ctx = crate::pluginhost::dispatch::login_ctx(state);
+        ctx.run_hooks_callback(
+            crate::pluginhost::HOOK_POST_LOGOUT,
+            |plugin, ctx| {
+                let login = u_login_captured.clone();
+                Box::pin(async move { plugin.hook_post_logout(ctx, &login, u_id as i32).await })
+            },
+            |result: &serde_json::Value, _plugin| {
+                if let Some(url) = result.get(0).and_then(|v| v.as_str()) {
+                    if !url.is_empty() && redirect_url.is_empty() {
+                        redirect_url = url.to_string();
+                    }
+                }
+                false
+            },
+        )
+        .await;
+    }
+    let location = if redirect_url.is_empty() {
+        format!("{}/index.php", state.config.self_url_rtrim())
+    } else {
+        crate::urlhelper::validate(&redirect_url, false).unwrap_or_else(|| {
+            format!("{}/index.php", state.config.self_url_rtrim())
+        })
+    };
     let mut res = axum::http::Response::builder()
         .status(StatusCode::FOUND)
-        .header(
-            header::LOCATION,
-            format!("{}/index.php", state.config.self_url_rtrim()),
-        )
+        .header(header::LOCATION, location)
         .header(header::CONTENT_TYPE, "text/html; charset=UTF-8")
         .body(Body::empty())
         .expect("valid response");
@@ -696,12 +749,34 @@ async fn logout_flow(state: &AppState, sess: session::Sess, form: &PublicForm) -
     res
 }
 
-/// `Handler_Public::login` + `UserHelper::authenticate` (web, auth_internal).
+/// The `PHP_AUTH_USER`-equivalent: the decoded Basic-auth username (PHP's
+/// Apache `mod_auth` sets it; the port decodes `Authorization: Basic …`
+/// itself). `None` when absent/malformed.
+fn basic_auth_env(env: &[(String, String)]) -> Vec<(String, String)> {
+    let basic = env
+        .iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case("Authorization"))
+        .and_then(|(_, v)| v.as_str().strip_prefix("Basic "))
+        .and_then(|b| {
+            use base64::Engine;
+            base64::engine::general_purpose::STANDARD
+                .decode(b)
+                .ok()
+                .and_then(|raw| String::from_utf8(raw).ok())
+                .and_then(|s| s.split_once(':').map(|(user, _)| user.to_string()))
+        });
+    basic
+        .map(|u| vec![(String::from("PHP_AUTH_USER"), u)])
+        .unwrap_or_default()
+}
+
+/// `Handler_Public::login` + the `HOOK_AUTH_USER` chain (M7.20).
 async fn login_flow(
     state: &AppState,
     sess: session::Sess,
     query: &PublicQuery,
     form: &PublicForm,
+    server_env: &[(String, String)],
 ) -> Response {
     let login = form.login.as_deref().unwrap_or("").to_string();
     let password = form.password.as_deref().unwrap_or("").to_string();
@@ -716,13 +791,21 @@ async fn login_flow(
     // calling auth::authenticate directly. The first plugin that returns
     // Some(uid) wins; the OTP challenge / failure message are carried on
     // the HostCtx side-channels.
-    let mut ctx = crate::pluginhost::dispatch::session_ctx(state, &sess).await;
+    // M7.20: the auth chain runs over the **system** plugins only (PHP
+    // `load_all(KIND_SYSTEM, 0, true)` — per-user plugins never
+    // participate in authentication).
+    let mut ctx = crate::pluginhost::dispatch::login_ctx(state)
+        .with_server_env(server_env.to_vec());
     let mut uid: Option<i32> = None;
+    let mut auth_module: Option<&str> = None;
     for idx in ctx.hook_order(crate::pluginhost::HOOK_AUTH_USER) {
         let plugin = ctx.host().plugin(idx);
         match plugin.authenticate(&mut ctx, &login, &password, "").await {
             Some(id) => {
                 uid = Some(id);
+                // `$_SESSION["auth_module"] = strtolower($plugin::class)` —
+                // the plugin that succeeded.
+                auth_module = Some(plugin.class_name());
                 break;
             }
             None => {
@@ -756,7 +839,21 @@ async fn login_flow(
                     &pwd_hash,
                     truthy(form.bw_limit.as_deref()),
                     checkbox(form.safe_mode.as_deref()),
+                    auth_module.unwrap_or("auth_internal"),
                 );
+                // `auth_remote`'s fake-login markers (PHP `$_SESSION[
+                // "fake_login"/"fake_password"/"hide_hello"/"hide_logout"]`):
+                // the session payload is JSON, so the extra keys ride along
+                // (the JS reads `fake_login`/`hide_logout` for the login
+                // page's "logged in as …" line + logout-button hiding).
+                let mut data = data;
+                if let Some(fake) = ctx.fake_login {
+                    use crate::core::phpser::Value;
+                    data.set("fake_login", Value::Bytes(fake.into_bytes()));
+                    data.set("fake_password", Value::Bytes(b"******".to_vec()));
+                    data.set("hide_hello", Value::Bool(true));
+                    data.set("hide_logout", Value::Bool(true));
+                }
                 sess.replace(new_id.clone(), data);
                 return login_redirect(&location(return_url, &self_url), &new_id);
             }
