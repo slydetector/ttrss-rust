@@ -134,3 +134,66 @@ async fn test_init_translations_fall_back_to_accept_language() {
         Ok(())
     })).await.unwrap();
 }
+
+/// GET the `view` RPC (Feeds/view) with the given `feed`, using the same
+/// logged-in session as [`init_rpc`]. Returns the decoded body as a string
+/// (the "not found" error string lands in `headlines.content`).
+async fn view_rpc(state: &AppState, feed: &str) -> String {
+    let mut data = Session::new();
+    data.set("uid", PValue::Int(1));
+    data.set("access_level", PValue::Int(100));
+    data.set(
+        "pwd_hash",
+        PValue::Bytes(b"SHA1:5baa61e4c9b93f3f0682250b6cf8331b7ee68fd8".to_vec()),
+    );
+    data.set("auth_module", PValue::Bytes(b"auth_internal".to_vec()));
+    data.set("name", PValue::Bytes(b"admin".to_vec()));
+    data.set("csrf_token", PValue::Bytes(b"tok".to_vec()));
+    ttrss::session::save(&state.db, None, "view-sid", &data)
+        .await
+        .expect("session save");
+    let req = Request::builder()
+        .method(Method::GET)
+        .uri(format!(
+            "/tt-rss/backend.php?op=Feeds&method=view&csrf_token=tok\
+             &clientLocation=http%3A%2F%2F127.0.0.1%3A8280%2Ftt-rss%2Findex.php&feed={feed}"
+        ))
+        .header("cookie", "ttrss_sid=view-sid")
+        .body(Body::empty())
+        .expect("request");
+    let resp = ttrss::http::build_router(state)
+        .with_state(state.clone())
+        .oneshot(req)
+        .await
+        .expect("response");
+    assert_eq!(resp.status(), StatusCode::OK, "view must be 200");
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .expect("read body");
+    String::from_utf8_lossy(&bytes).into_owned()
+}
+
+/// M10.3: the SPA `view` *surface* carries the resolved UI locale. A `de_DE`
+/// user viewing a nonexistent feed gets the German "Feed nicht gefunden."
+/// (the M10.2 `init` tests prove the catalog machinery; this proves the `view`
+/// path is wired to it — the linchpin M10.6's multi-locale e2e builds on).
+#[tokio::test]
+async fn test_view_feed_not_found_translated() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = setup(&url).await;
+    sqlx::query(
+        "INSERT INTO ttrss_user_prefs2 (owner_uid, pref_name, profile, value)
+         VALUES (1, 'USER_LANGUAGE', NULL, 'de_DE')",
+    )
+    .execute(state.db.pool())
+    .await
+    .expect("set USER_LANGUAGE");
+
+    let body = view_rpc(&state, "999999").await;
+    assert!(
+        body.contains("Feed nicht gefunden."),
+        "de_DE user must get the German 'Feed not found.'; got: {body}"
+    );
+        Ok(())
+    })).await.unwrap();
+}

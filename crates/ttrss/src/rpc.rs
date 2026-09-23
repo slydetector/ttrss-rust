@@ -321,9 +321,20 @@ async fn dispatch(
         return DispatchOutput::Json(errors("E_UNAUTHORIZED"));
     }
 
+    // M10.3: resolve the UI locale once (profile-aware `USER_LANGUAGE` pref,
+    // falling back to `Accept-Language`) for the server-rendered surfaces
+    // (the headlines `feed_title`/content and the `hotkeyhelp` descriptions).
+    let locale = {
+        let uid = data.uid().unwrap_or(0);
+        let profile = data.profile().map(|p| p as i32);
+        crate::i18n::resolve_user_locale(state, uid, profile, accept_language).await
+    };
+
     match op {
         "RPC" => match method {
-            "hotkeyhelp" => DispatchOutput::Html(crate::hotkeys::hotkey_help()),
+            "hotkeyhelp" => {
+                DispatchOutput::Html(crate::hotkeys::hotkey_help(locale.as_deref(), &state.i18n))
+            }
             _ => DispatchOutput::Json(rpc_handler(state, sess, method, extra, accept_language).await),
         },
         // `PluginHandler::catchall` (M7.3) — plugin method dispatch. The
@@ -345,7 +356,9 @@ async fn dispatch(
             Err(e) => DispatchOutput::Raw(StatusCode::INTERNAL_SERVER_ERROR, None, e.to_string()),
         },
         "Feeds" => match method {
-            "view" => DispatchOutput::Json(crate::headlines::view(state, sess, extra).await),
+            "view" => {
+                DispatchOutput::Json(crate::headlines::view(state, sess, extra, &locale).await)
+            }
             "search" => DispatchOutput::Json(crate::headlines::search(state, sess, extra).await),
             "updatedebugger" => DispatchOutput::TextHtml(
                 crate::feeds::updatedebugger(state, sess, extra, csrf).await,

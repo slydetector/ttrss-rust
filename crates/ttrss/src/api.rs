@@ -827,6 +827,8 @@ async fn get_headlines(state: &AppState, sess: &Sess, body: &Map<String, Value>)
         skip_first_id_check,
         ..Default::default()
     };
+    // M10.3: machine-facing (English) — `get_headlines_query` resolves no
+    // locale internally; only the interactive `view` path carries a UI locale.
     let q = headlines::get_headlines_query(&state.db, &params).await;
 
     // M7.6: the HOOK_SANITIZE context (no_iframes et al.) — built once for

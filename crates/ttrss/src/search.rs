@@ -310,7 +310,13 @@ pub(crate) fn preprocess(search: &str) -> String {
 /// ttrss_user_entries WHERE id = ref_id limit 1`. Returns the (possibly
 /// replaced) query part plus the "Incorrect search syntax" message when the
 /// fragment is not executable.
-pub async fn dry_run(pool: &sqlx::PgPool, query_part: &str, words: &[String]) -> (String, String) {
+pub async fn dry_run(
+    pool: &sqlx::PgPool,
+    query_part: &str,
+    words: &[String],
+    locale: Option<&str>,
+    i18n: &crate::i18n::I18nCache,
+) -> (String, String) {
     let sql = format!(
         "select {query_part}
 \t\t\t\tFROM ttrss_entries, ttrss_user_entries WHERE id = ref_id limit 1"
@@ -319,7 +325,12 @@ pub async fn dry_run(pool: &sqlx::PgPool, query_part: &str, words: &[String]) ->
         Ok(_) => (query_part.to_string(), String::new()),
         Err(_) => (
             "false".to_string(),
-            format!("Incorrect search syntax: {}.", words.join(" ")),
+            crate::i18n::t_sprintf(
+                locale,
+                i18n,
+                "Incorrect search syntax: %s.",
+                &[&words.join(" ")],
+            ),
         ),
     }
 }

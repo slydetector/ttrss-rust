@@ -140,6 +140,8 @@ async fn generate_feed(state: &AppState, owner_uid: i64, req: &RssRequest<'_>) -
         skip_first_id_check,
     };
 
+    // M10.3: machine-facing (English) — `get_headlines_query` resolves no
+    // locale internally; only the interactive `view` path carries a UI locale.
     let q = get_headlines_query(&state.db, &params).await;
 
     // `Feeds::_get_access_key($feed, false, $owner_uid)` (get-or-create).

@@ -314,6 +314,24 @@ pub fn resolve_request_locale(
     resolve_locale(accept_language, user_language_pref, cache.available_locales())
 }
 
+/// Resolve the user's UI locale for a server-rendered surface (M10.3), the
+/// way the shell and the RPC `init` do (M10.2): the profile-aware
+/// `USER_LANGUAGE` preference, falling back to the request's `Accept-Language`
+/// header, else English (`None`, identity translation). Reads the pref from the
+/// per-process cache (one `SELECT` per (uid, profile), then memory hits).
+pub async fn resolve_user_locale(
+    state: &crate::AppState,
+    uid: i64,
+    profile: Option<i32>,
+    accept_language: Option<&str>,
+) -> Option<String> {
+    let rows =
+        crate::prefs::load_rows_cached(&state.prefs_cache, &state.db, uid, profile).await;
+    let user_lang_pref = crate::prefs::resolve("USER_LANGUAGE", &rows, profile);
+    let user_lang = user_lang_pref.as_str();
+    resolve_request_locale(&state.i18n, accept_language, Some(user_lang))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
