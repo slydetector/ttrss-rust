@@ -425,7 +425,7 @@ async fn dispatch(
             _ => DispatchOutput::Json(unknown_method("Article", method)),
         },
         "Pref_Labels" => match method {
-            "index" => DispatchOutput::Html(labels::index(state, sess, extra)),
+            "index" => DispatchOutput::Html(labels::index(state, sess, extra).await),
             "getlabeltree" => DispatchOutput::Json(
                 labels::get_label_tree(state.db.pool(), data.uid().unwrap_or(0)).await,
             ),

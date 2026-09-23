@@ -184,6 +184,28 @@ pub async fn pluginhandler(
         .await
 }
 
+/// Run one `run_hooks`-style chain (PHP: `run_hooks($hook, ...)` — void, the
+/// hooks *print* into the host's output buffer) and return the drained
+/// buffer — the M7.22 prefs-tab call sites. The PHP `ob_start`/trim special
+/// case (only `prefFeeds`) is the caller's.
+pub(crate) async fn prefs_chain<'a>(
+    state: &'a AppState,
+    sess: &'a Sess,
+    hook: &str,
+    id: &str,
+) -> String {
+    let mut ctx = session_ctx(state, sess).await;
+    ctx
+        .run_hooks(hook, |plugin, host| match hook {
+            crate::pluginhost::HOOK_PREFS_TAB => {
+                plugin.hook_prefs_tab(host, id)
+            }
+            _ => plugin.hook_prefs_tab_section(host, id),
+        })
+        .await;
+    std::mem::take(&mut ctx.output)
+}
+
 /// `Handler_Public::pluginhandler` — the no-account public endpoint.
 /// `plugin_param`/`method` are the raw `$_REQUEST["plugin"]` /
 /// `$_REQUEST["pmethod"]` values (either the direct `op=pluginhandler` form

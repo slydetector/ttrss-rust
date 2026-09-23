@@ -322,6 +322,16 @@ pub async fn index(state: &AppState, sess: &Sess, extra: &Map<String, Value>) ->
     out.push_str("<span class='loading'>Loading, please wait...</span>\n");
     out.push_str("</div>\n");
 
+    // M7.22 item 7 — the `Pref_System::index` plugin chain (PHP site after
+    // the PHP Information pane, before the container closes).
+    out.push_str(&crate::pluginhost::dispatch::prefs_chain(
+        state,
+        sess,
+        crate::pluginhost::HOOK_PREFS_TAB,
+        "prefSystem",
+    )
+    .await);
+
     out.push_str("</div>");
     out
 }

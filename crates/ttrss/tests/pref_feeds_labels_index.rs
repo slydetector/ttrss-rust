@@ -42,7 +42,7 @@ fn normalize(s: &str) -> String {
 async fn test_labels_index_structure() {
     let _ = with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
-    let html = ttrss::labels::index(&state, &sess, &Map::new());
+    let html = ttrss::labels::index(&state, &sess, &Map::new()).await;
     let n = normalize(&html);
 
     // Layout: BorderContainer with a top toolbar pane + a center tree pane.

@@ -383,6 +383,49 @@ pub async fn index(state: &AppState, sess: &Sess, extra: &Map<String, Value>) ->
         Value::String(controls::checkbox_tag("include_settings", true, "1", &[])),
     );
 
+    // M7.22 item 7 — the three plugin chains (PHP `Pref_Feeds::index`):
+    // `HOOK_PREFS_TAB_SECTION` at the OPML and Sharing panes, and
+    // `HOOK_PREFS_TAB` for the tab panes (the `ob_start`/trim special case
+    // — empty output → no Plugins pane).
+    let opml_section = crate::pluginhost::dispatch::prefs_chain(
+        state,
+        sess,
+        crate::pluginhost::HOOK_PREFS_TAB_SECTION,
+        "prefFeedsOPML",
+    )
+    .await;
+    let shared_section = crate::pluginhost::dispatch::prefs_chain(
+        state,
+        sess,
+        crate::pluginhost::HOOK_PREFS_TAB_SECTION,
+        "prefFeedsPublishedGenerated",
+    )
+    .await;
+    let tab_data = crate::pluginhost::dispatch::prefs_chain(
+        state,
+        sess,
+        crate::pluginhost::HOOK_PREFS_TAB,
+        "prefFeeds",
+    )
+    .await
+    .trim()
+    .to_string();
+    let plugins_pane = if tab_data.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "<div dojoType='dijit.layout.ContentPane' \
+             title=\"<i class='material-icons'>extension</i> Plugins\">\
+             <div dojoType='dijit.layout.AccordionContainer' region='center'>\
+             {tab_data}\
+             </div>\
+             </div>"
+        )
+    };
+    ctx.insert("pref_feeds_opml".into(), Value::String(opml_section));
+    ctx.insert("pref_feeds_shared".into(), Value::String(shared_section));
+    ctx.insert("pref_feeds_plugins_pane".into(), Value::String(plugins_pane));
+
     feeds_index_env()
         .get_template("feeds_index")
         .expect("feeds_index template")

@@ -592,6 +592,32 @@ pub async fn index(state: &AppState, sess: &Sess) -> Result<String, sqlx::Error>
     let boolean_prefs_str = util::htmlspecialchars(&listed_boolean_prefs.join(","));
     let hidden_boolean = controls::hidden_tag("boolean_prefs", &boolean_prefs_str);
 
+    // M7.22 item 7 — the `Pref_Prefs::index` plugin chains: the two
+    // `HOOK_PREFS_TAB_SECTION` sites (inside the settings form's center
+    // pane, and inside its bottom region) + the `HOOK_PREFS_TAB` site
+    // after the Plugins pane.
+    let prefs_inside = crate::pluginhost::dispatch::prefs_chain(
+        state,
+        sess,
+        crate::pluginhost::HOOK_PREFS_TAB_SECTION,
+        "prefPrefsPrefsInside",
+    )
+    .await;
+    let prefs_outside = crate::pluginhost::dispatch::prefs_chain(
+        state,
+        sess,
+        crate::pluginhost::HOOK_PREFS_TAB_SECTION,
+        "prefPrefsPrefsOutside",
+    )
+    .await;
+    let prefs_tabs = crate::pluginhost::dispatch::prefs_chain(
+        state,
+        sess,
+        crate::pluginhost::HOOK_PREFS_TAB,
+        "prefPrefs",
+    )
+    .await;
+
     let rendered = index_env()
         .get_template("index")
         .expect("index template")
@@ -602,6 +628,9 @@ pub async fn index(state: &AppState, sess: &Sess) -> Result<String, sqlx::Error>
             "hidden_saveconfig": hidden_saveconfig,
             "hidden_boolean": hidden_boolean,
             "plugins_pane": plugins_pane(state, sess),
+            "pref_prefs_inside": prefs_inside,
+            "pref_prefs_outside": prefs_outside,
+            "pref_prefs_tabs": prefs_tabs,
         }))
         .map_err(sqlx::Error::config)?;
     Ok(rendered)

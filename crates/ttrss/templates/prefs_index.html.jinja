@@ -49,6 +49,7 @@
 					{% endfor %}
 					{% endfor %}
 					{{ hidden_boolean }}
+					{{ pref_prefs_inside }}
 				</div>
 				<div dojoType="dijit.layout.ContentPane" region="bottom">
 					<div dojoType="fox.form.ComboButton" type="submit" class="alt-primary">
@@ -65,6 +66,7 @@
 						<i class='material-icons'>clear</i>
 						Reset to defaults
 					</button>
+					{{ pref_prefs_outside }}
 				</div>
 			</div>
 		</form>
@@ -72,4 +74,5 @@
 	<div dojoType='dijit.layout.AccordionPane' style='padding : 0' title="<i class='material-icons'>extension</i> Plugins">
 		{{ plugins_pane }}
 	</div>
+	{{ pref_prefs_tabs }}
 </div>

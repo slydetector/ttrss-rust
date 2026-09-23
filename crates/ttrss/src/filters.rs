@@ -1150,7 +1150,7 @@ pub async fn test_filter_do(
 /// (toolbar with the search form + the filter tree/store). The trailing
 /// `PluginHost` hook is a no-op (no plugins) and `__()` is the identity, so the
 /// button labels are their literal English text.
-pub async fn index(_state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> String {
+pub async fn index(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> String {
     let filter_search = if let Some(v) = extra.get("search") {
         let s = util::clean_str(v.as_str().unwrap_or(""));
         sess.with_mut(|d| {
@@ -1171,6 +1171,20 @@ pub async fn index(_state: &AppState, sess: &Sess, extra: &Map<String, Value>) -
     ctx.insert(
         "filter_search".into(),
         Value::String(htmlspecialchars(&filter_search)),
+    );
+    // M7.22 item 7 — the `Pref_Filters::index` plugin chain (PHP site after
+    // the tree panes, before the page's closing tag).
+    ctx.insert(
+        "pref_filters_tabs".into(),
+        Value::String(
+            crate::pluginhost::dispatch::prefs_chain(
+                state,
+                sess,
+                crate::pluginhost::HOOK_PREFS_TAB,
+                "prefFilters",
+            )
+            .await,
+        ),
     );
 
     filters_index_env()

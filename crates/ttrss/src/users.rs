@@ -65,7 +65,11 @@ const INDEX_POST: &str = r#"">
 
 						<button dojoType='dijit.form.Button' onclick='Users.resetSelected()'>
 							Reset password						</button>
-
+						"#;
+// M7.22 item 7 — the `HOOK_PREFS_TAB_SECTION` ("prefUsersToolbar") site:
+// PHP prints the chain's output here, inside the toolbar after the
+// "Reset password" button. The placeholder is spliced in `index`.
+const INDEX_POST_SECTION: &str = r#"[__pref_users_toolbar__]
 						
 					</div>
 				</div>
@@ -100,7 +104,7 @@ const INDEX_ROW: &str = r#"<tr data-row-id='@ID@' onclick='Users.edit(@ID@)' tit
 
 const INDEX_FOOTER: &str = r#"</table>
 				</div>
-							</div>"#;
+							#[__pref_users_tabs__]</div>"#;
 
 /// `Pref_Users::index` — the user-management page (toolbar + user list table).
 pub async fn index(
@@ -133,10 +137,28 @@ pub async fn index(
     .await
     .unwrap_or_default();
 
+    // M7.22 item 7 — the `Pref_Users::index` plugin chains: the toolbar
+    // section and the tab (after the table, before the page closes).
+    let toolbar = crate::pluginhost::dispatch::prefs_chain(
+        state,
+        sess,
+        crate::pluginhost::HOOK_PREFS_TAB_SECTION,
+        "prefUsersToolbar",
+    )
+    .await;
+    let tabs = crate::pluginhost::dispatch::prefs_chain(
+        state,
+        sess,
+        crate::pluginhost::HOOK_PREFS_TAB,
+        "prefUsers",
+    )
+    .await;
+
     let mut out = String::new();
     out.push_str(INDEX_PRE);
     out.push_str(&htmlspecialchars(&user_search));
-    out.push_str(INDEX_POST);
+    out.push_str(&INDEX_POST.replace("#[__pref_users_toolbar__]", &toolbar));
+    out.push_str(INDEX_POST_SECTION);
 
     for r in &rows {
         let id: i32 = r.get(0);
