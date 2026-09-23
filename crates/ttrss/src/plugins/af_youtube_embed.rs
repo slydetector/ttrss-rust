@@ -78,17 +78,20 @@ impl Plugin for AfYoutubeEmbed {
 
 /// The reference's embedded-player markup (verbatim, with the video id).
 fn embed_markup(vid_id: &str) -> String {
+    // The reference's markup carries LITERAL TAB indentation (its source
+    // file is tab-indented inside the string) — `\t` escapes would render
+    // as the two-character text `\t` and break byte-parity.
     format!(
         "<div class='embed-responsive'>\n\
-         \t<iframe class='youtube-player'\n\
-         \t\ttype='text/html' width='640' height='385'\n\
-         \t\ttitle='YouTube video player'\n\
-         \t\tsrc=\"https://www.youtube-nocookie.com/embed/{vid_id}\"\n\
-         \t\treferrerpolicy='strict-origin-when-cross-origin'\n\
-         \t\tallow='accelerometer; autoplay; clipboard-write; encrypted-media; fullscreen *; gyroscope; picture-in-picture; web-share'\n\
-         \t\tsandbox='allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox'\n\
-         \t\tframeborder='0'></iframe>\n\
-         \t</div>"
+         \t\t\t\t<iframe class='youtube-player'\n\
+         \t\t\t\t\ttype='text/html' width='640' height='385'\n\
+         \t\t\t\t\ttitle='YouTube video player'\n\
+         \t\t\t\t\tsrc=\"https://www.youtube-nocookie.com/embed/{vid_id}\"\n\
+         \t\t\t\t\treferrerpolicy='strict-origin-when-cross-origin'\n\
+         \t\t\t\t\tallow='accelerometer; autoplay; clipboard-write; encrypted-media; fullscreen *; gyroscope; picture-in-picture; web-share'\n\
+         \t\t\t\t\tsandbox='allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox'\n\
+         \t\t\t\t\tframeborder='0'></iframe>\n\
+         \t\t\t\t</div>"
     )
 }
 

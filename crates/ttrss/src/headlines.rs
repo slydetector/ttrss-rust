@@ -395,30 +395,6 @@ async fn format_headlines_list(
     // `if ($search) $disable_cache = true;`
     let disable_cache = !search.is_empty();
 
-    // Resolve active plugins for the user (system + user prefs) so that
-    // `article_buttons` only emits buttons for enabled plugins (PHP parity:
-    // `hook_article_button` only runs for enabled plugins).
-    let system: Vec<String> = state
-        .config
-        .plugins
-        .split(',')
-        .map(|s| s.trim().to_lowercase())
-        .filter(|s| !s.is_empty())
-        .collect();
-    let enabled_pref =
-        prefs::resolve(prefs::_ENABLED_PLUGINS, rows, profile).as_str().to_string();
-    let user: Vec<String> = enabled_pref
-        .split(',')
-        .map(|s| s.trim().to_lowercase())
-        .filter(|s| !s.is_empty())
-        .collect();
-    let mut active_plugins: Vec<String> = system;
-    for p in user {
-        if !active_plugins.contains(&p) {
-            active_plugins.push(p);
-        }
-    }
-
     let vfeed_group_enabled = prefs::resolve("VFEED_GROUP_BY_FEED", rows, profile).as_bool()
         && !((feed_num
             .map(|f| NEVER_GROUP_FEEDS.contains(&f))
@@ -642,8 +618,10 @@ async fn format_headlines_list(
 
         // `Article::_format_enclosures` (sql_bool_to_bool: NULL → false)
         let enclosures = if num_enclosures > 0 {
+            // M7.22 item 6: the enclosure chains run here (host carries the
+            // active set).
             format_enclosures(
-                pool,
+                &mut pctx,
                 id,
                 always_display_enclosures.unwrap_or(false),
                 &content,
@@ -719,9 +697,14 @@ async fn format_headlines_list(
             line.insert("feed_title".into(), json!(""));
         }
         line.insert("buttons_left".into(), json!(""));
+        // M7.22 item 5 — HOOK_ARTICLE_BUTTON (PHP `Feeds.php:283`): the row
+        // goes through the per-row button chain. PHP's `$line` carries
+        // `uuid` here (it is `unset` after the hooks), so the chain state is
+        // `id` + `uuid` — the only fields the stock hooks read.
+        let buttons_line = json!({ "id": id, "int_id": int_id, "uuid": uuid });
         line.insert(
             "buttons".into(),
-            json!(article_buttons(id, int_id, is_shared, &active_plugins)),
+            json!(article_buttons(&mut pctx, &buttons_line).await),
         );
         line.insert("enclosures".into(), enclosures);
         line.insert(
@@ -759,7 +742,13 @@ async fn format_headlines_list(
             crate::pluginhost::HOOK_RENDER_ARTICLE_CDM,
             &mut line_val,
             |plugin, host, art| {
-                Box::pin(async move { plugin.hook_render_article_cdm(host, art).await })
+                Box::pin(async move {
+                    let result = plugin.hook_render_article_cdm(host, art).await;
+                    // The PHP callback rebinds `$line = $result` (M7.16 bug:
+                    // the fold was missing, so the nsfw rewrite was dropped).
+                    *art = result.clone();
+                    result
+                })
             },
             |_r, _p| false,
         )
@@ -838,35 +827,195 @@ async fn format_headlines_list(
     }
 }
 
-/// The three HOOK_ARTICLE_BUTTON plugins in load order (af_psql_trgm, note,
-/// share). The PHP DOM round-trip normalizes the markup (attribute order
-/// preserved, single quotes become double quotes, `data-plugin-name` appended
-/// last); the result strings below are the oracle's exact output.
-fn article_buttons(id: i32, int_id: i32, is_shared: bool, active: &[String]) -> String {
+/// M7.22 item 5 — `HOOK_ARTICLE_BUTTON` (PHP `Feeds.php:283`): the per-row
+/// button chain. Each plugin's XML is round-tripped through a DOM pass that
+/// appends `data-plugin-name` (the plugin's class name) and normalizes the
+/// markup (attribute order preserved, double quotes); invalid XML is skipped
+/// with a warning, like PHP's `user_error`.
+async fn article_buttons<'h>(host: &mut crate::pluginhost::host::HostCtx<'h>, line: &Value) -> String {
+    // The PHP callback appends EACH plugin's (round-tripped) result — the
+    // `FnMut` stop predicate of `run_hooks_callback` sees every
+    // (result, plugin) pair; it always returns `false` (no short-circuit).
     let mut out = String::new();
-    if active.iter().any(|p| p == "af_psql_trgm") {
-        out.push_str(&format!(
-            "<i style=\"cursor : pointer\" class=\"material-icons\" onclick=\"Plugins.Psql_Trgm.showRelated({id})\" title=\"Show related articles\" data-plugin-name=\"Af_Psql_Trgm\">bookmark_outline</i>"
-        ));
-    }
-    if active.iter().any(|p| p == "note") {
-        out.push_str(&format!(
-            "<i class=\"material-icons\" onclick=\"Plugins.Note.edit({id})\" style=\"cursor : pointer\" title=\"Edit article note\" data-plugin-name=\"Note\">note</i>"
-        ));
-    }
-    if active.iter().any(|p| p == "share") {
-        // `is-shared` class only when the article has a share uuid.
-        let icon_class = if is_shared { "is-shared" } else { "" };
-        out.push_str(&format!(
-            "<i class=\"material-icons icon-share share-icon-{int_id} {icon_class}\" style=\"cursor : pointer\" onclick=\"Plugins.Share.shareArticle({int_id})\" title=\"Share by URL\" data-plugin-name=\"Share\">link</i>"
-        ));
-    }
+    let line = line.clone();
+    host
+        .run_hooks_callback::<String, _, _>(
+            crate::pluginhost::HOOK_ARTICLE_BUTTON,
+            |plugin, host_ctx| {
+                let line = line.clone();
+                Box::pin(async move { plugin.hook_article_button(host_ctx, &line).await })
+            },
+            |result, plugin| {
+                if !result.is_empty() {
+                    match button_xml_roundtrip(result, plugin.class_name()) {
+                        Some(xml) => out.push_str(&xml),
+                        None => tracing::warn!(
+                            plugin = plugin.class_name(),
+                            "plugin: content provided in HOOK_ARTICLE_BUTTON is not valid XML"
+                        ),
+                    }
+                }
+                false
+            },
+        )
+        .await;
     out
 }
 
+/// The PHP DOM pass over a `HOOK_ARTICLE_BUTTON` result (`loadXML`,
+/// `setAttribute('data-plugin-name', …)` on the root, `saveXML(firstChild)`):
+/// a single well-formed root element, attribute order preserved, quotes
+/// normalized to double, `data-plugin-name` appended last. `None` when the
+/// string is not valid XML (PHP: `user_error` + skip).
+fn button_xml_roundtrip(result: &str, class_name: &str) -> Option<String> {
+    let s = result.trim();
+    let tag_end = s.find('>')?;
+    let open = &s[..tag_end + 1];
+    let tag = tag_name(open)?;
+    let self_closed = open.ends_with("/>");
+    let rest = &s[tag_end + 1..];
+    let body = if self_closed {
+        String::new()
+    } else {
+        // The single root's content; `rfind` keeps a nested `</tag>` from
+        // truncating early (stock bodies are plain text).
+        let close = format!("</{tag}>");
+        let end = rest.rfind(&close)?;
+        rest[..end].to_string()
+    };
+    let attrs = parse_attrs(open)?;
+    let mut out = format!("<{tag}");
+    for (k, v) in attrs {
+        out.push_str(&format!(" {}=\"{}\"", k, xml_escape_attr(&v)));
+    }
+    out.push_str(&format!(" data-plugin-name=\"{}\"", class_name));
+    if self_closed {
+        out.push_str("/>");
+    } else {
+        out.push_str(&format!(">{}</{tag}>", xml_escape_body(&body)));
+    }
+    Some(out)
+}
+
+/// `<i ...` → `"i"` — the root tag name of an opening tag.
+fn tag_name(open_tag: &str) -> Option<&str> {
+    let name = open_tag[1..].trim_start();
+    let end = name.find(char::is_whitespace).unwrap_or(name.len());
+    let name = &name[..end];
+    if name.is_empty() {
+        None
+    } else {
+        Some(name)
+    }
+}
+
+/// Attribute pairs of an opening tag, in document order. Quoted values are
+/// unescaped (`&amp;` → `&`), matching a DOM parse; a bare `&` makes the
+/// string invalid XML (PHP `loadXML` fails). Unquoted values (never used by
+/// stock hooks) are taken raw.
+fn parse_attrs(open_tag: &str) -> Option<Vec<(String, String)>> {
+    let inner = open_tag[1..].trim();
+    let inner = inner.strip_suffix('>')?.trim();
+    let inner = if inner.ends_with("/>") {
+        &inner[..inner.len() - 2]
+    } else {
+        inner
+    };
+    // Drop the tag name; no attributes at all is valid (`<i/>`).
+    let Some(space) = inner.find(char::is_whitespace) else {
+        return Some(Vec::new());
+    };
+    let mut out = Vec::new();
+    let mut rest = inner[space..].trim();
+    while !rest.is_empty() {
+        let name_end = rest
+            .find(|c: char| c == '=' || c.is_whitespace())
+            .unwrap_or(rest.len());
+        let name = &rest[..name_end];
+        if name.is_empty() || name.contains(char::is_whitespace) {
+            return None;
+        }
+        rest = &rest[name_end..];
+        if let Some(stripped) = rest.strip_prefix('=') {
+            let stripped = stripped.trim_start();
+            let (v, consumed) = if let Some(v) = stripped.strip_prefix('"') {
+                let end = v.find('"')?;
+                (unescape_xml(&v[..end])?, end + 2)
+            } else if let Some(v) = stripped.strip_prefix('\'') {
+                let end = v.find('\'')?;
+                (unescape_xml(&v[..end])?, end + 2)
+            } else {
+                let end = stripped
+                    .find(|c: char| c.is_whitespace() || c == '>')
+                    .unwrap_or(stripped.len());
+                (stripped[..end].to_string(), end)
+            };
+            out.push((name.to_string(), v));
+            rest = stripped[consumed..].trim_start();
+        } else {
+            // attribute without a value (XML `name` form)
+            out.push((name.to_string(), name.to_string()));
+            rest = rest.trim_start();
+        }
+    }
+    Some(out)
+}
+
+/// Unescape the XML entity set. `None` when a bare `&` does not start a
+/// well-formed entity (invalid XML).
+fn unescape_xml(s: &str) -> Option<String> {
+    let mut out = String::with_capacity(s.len());
+    for (i, c) in s.char_indices() {
+        if c != '&' {
+            out.push(c);
+            continue;
+        }
+        let end = s[i..].find(';')?;
+        let ent = &s[i..=i + end];
+        match ent {
+            "&amp;" => out.push('&'),
+            "&lt;" => out.push('<'),
+            "&gt;" => out.push('>'),
+            "&quot;" => out.push('"'),
+            "&apos;" => out.push('\''),
+            _ => {
+                // Numeric (`&#65;` / `&#x41;`) entities: `loadXML` accepts
+                // them. Unknown *named* entities are invalid — but stock
+                // output never carries either, so accept the numeric shapes
+                // and reject anything else.
+                let payload = ent.get(1..end)?.as_bytes();
+                let numeric = payload.first().is_some_and(|&b| b == b'#')
+                    && payload.iter().skip(1).all(|b| b.is_ascii_alphanumeric());
+                if !numeric {
+                    return None;
+                }
+                out.push_str(ent);
+            }
+        }
+    }
+    Some(out)
+}
+
+/// PHP `saveXML` escaping for attribute values.
+fn xml_escape_attr(s: &str) -> String {
+    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
+}
+
+/// PHP `saveXML` escaping for text content (character data).
+fn xml_escape_body(s: &str) -> String {
+    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+}
+
 /// `Article::_format_enclosures`.
-async fn format_enclosures(
-    pool: &sqlx::PgPool,
+///
+/// M7.22 item 6 — the three enclosure chains (PHP `Article.php:308`):
+/// `HOOK_FORMAT_ENCLOSURES` may replace the whole rendering (`[formatted,
+/// entries]` or a plain string; a non-empty `formatted` short-circuits the
+/// rest), and per enclosure `HOOK_RENDER_ENCLOSURE` (af_youtube_embed) may
+/// supply the inline HTML while `HOOK_ENCLOSURE_ENTRY` (cache_starred_images)
+/// rewrites the entry map.
+async fn format_enclosures<'h>(
+    host: &mut crate::pluginhost::host::HostCtx<'h>,
     id: i32,
     always_display_enclosures: bool,
     article_content: &str,
@@ -879,38 +1028,136 @@ async fn format_enclosures(
          FROM ttrss_enclosures WHERE post_id = $1",
     )
     .bind(id)
-    .fetch_all(pool)
+    .fetch_all(host.pool)
     .await
     .unwrap_or_default();
+
+    // The raw rows (PHP adds `filename` later, per enclosure).
+    let mut enclosures: Vec<Value> = encs
+        .iter()
+        .map(|r| {
+            json!({
+                "id": r.get::<i32, _>(0),
+                "content_url": r.get::<String, _>(1),
+                "content_type": r.get::<String, _>(2),
+                "title": r.get::<String, _>(3),
+                "duration": r.get::<String, _>(4),
+                "width": r.get::<i32, _>(5),
+                "height": r.get::<i32, _>(6),
+                "post_id": r.get::<i32, _>(7),
+            })
+        })
+        .collect();
+
+    // HOOK_FORMAT_ENCLOSURES — whole-set override.
+    let mut state = (
+        String::new(),
+        Value::Array(enclosures.clone()),
+        id,
+        always_display_enclosures,
+        article_content.to_string(),
+        hide_images,
+    );
+    let mut override_result: Option<Value> = None;
+    host
+        .chain_hooks_callback::<(String, Value, i32, bool, String, bool), Value, _, _>(
+            crate::pluginhost::HOOK_FORMAT_ENCLOSURES,
+            &mut state,
+            |plugin, host, st| {
+                Box::pin(async move {
+                    plugin
+                        .hook_format_enclosures(host, &st.0, &st.1, st.2, st.3, &st.4, st.5)
+                        .await
+                })
+            },
+            |r, _| {
+                override_result = Some(r.clone());
+                false
+            },
+        )
+        .await;
+    if let Some(res) = override_result {
+        match res.as_array().filter(|a| a.len() == 2) {
+            Some(a) => {
+                let formatted = a[0].as_str().unwrap_or("").to_string();
+                enclosures = a[1].as_array().cloned().unwrap_or_default();
+                if !formatted.is_empty() {
+                    return json!({ "formatted": formatted, "entries": [] });
+                }
+            }
+            None => {
+                if res.as_str().is_some_and(|s| !s.is_empty()) {
+                    return json!({ "formatted": res, "entries": [] });
+                }
+            }
+        }
+    }
 
     let can_inline =
         !bw_limit && !strip_images && (always_display_enclosures || !contains_img(article_content));
     let inline_text_only = hide_images && can_inline;
 
-    let mut entries: Vec<Value> = Vec::new();
     let mut formatted = String::new();
-    for r in &encs {
-        let content_url: String = r.get(1);
-        let vid = url_to_youtube_vid(&content_url);
-        if let Some(vid) = vid {
-            // HOOK_RENDER_ENCLOSURE (af_youtube_embed)
-            formatted.push_str(&format!(
-                "<div class=\"embed-responsive\"><iframe class=\"youtube-player\" type=\"text/html\" width=\"640\" height=\"385\" title=\"YouTube video player\" src=\"https://www.youtube-nocookie.com/embed/{vid}\" referrerpolicy=\"strict-origin-when-cross-origin\" allow=\"accelerometer; autoplay; clipboard-write; encrypted-media; fullscreen *; gyroscope; picture-in-picture; web-share\" sandbox=\"allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox\" frameborder=\"0\"></iframe></div>"
-            ));
-            continue;
+    let mut entries: Vec<Value> = Vec::new();
+    let mut rv: Map<String, Value> = Map::new();
+    rv.insert("formatted".into(), json!(formatted));
+    rv.insert("entries".into(), json!(entries));
+    rv.insert("can_inline".into(), json!(can_inline));
+    rv.insert("inline_text_only".into(), json!(inline_text_only));
+
+    for mut enc in enclosures {
+        // PHP adds `filename` before the per-enclosure chains.
+        let filename = enc
+            .get("content_url")
+            .and_then(Value::as_str)
+            .map(basename)
+            .unwrap_or_default();
+        enc["filename"] = json!(filename);
+
+        // HOOK_RENDER_ENCLOSURE — per-enclosure inline HTML (af_youtube_embed).
+        let mut render_state = (enc.clone(), id, Value::Object(rv.clone()));
+        let mut rendered: Option<String> = None;
+        host
+            .chain_hooks_callback::<(Value, i32, Value), String, _, _>(
+                crate::pluginhost::HOOK_RENDER_ENCLOSURE,
+                &mut render_state,
+                |plugin, host, st| {
+                    Box::pin(async move {
+                        plugin.hook_render_enclosure(host, &st.0, st.1, &st.2).await
+                    })
+                },
+                |r, _| {
+                    rendered = Some(r.clone());
+                    false
+                },
+            )
+            .await;
+        let rendered = rendered.unwrap_or_default();
+        if !rendered.is_empty() {
+            formatted.push_str(&rendered);
+        } else {
+            // HOOK_ENCLOSURE_ENTRY — entry-map rewrite (cache_starred_images).
+            let mut entry_state = (enc.clone(), id, Value::Object(rv.clone()));
+            let mut rewritten: Option<Value> = None;
+            host
+                .chain_hooks_callback::<(Value, i32, Value), Value, _, _>(
+                    crate::pluginhost::HOOK_ENCLOSURE_ENTRY,
+                    &mut entry_state,
+                    |plugin, host, st| {
+                        Box::pin(async move {
+                            plugin.hook_enclosure_entry(host, &mut st.0, st.1, &st.2).await
+                        })
+                    },
+                    |r, _| {
+                        rewritten = Some(r.clone());
+                        false
+                    },
+                )
+                .await;
+            entries.push(rewritten.unwrap_or_else(|| enc.clone()));
         }
-        let filename = basename(&content_url);
-        entries.push(json!({
-            "id": r.get::<i32, _>(0),
-            "content_url": content_url,
-            "content_type": r.get::<String, _>(2),
-            "title": r.get::<String, _>(3),
-            "duration": r.get::<String, _>(4),
-            "width": r.get::<i32, _>(5),
-            "height": r.get::<i32, _>(6),
-            "post_id": r.get::<i32, _>(7),
-            "filename": filename,
-        }));
+        rv.insert("formatted".into(), json!(formatted));
+        rv.insert("entries".into(), json!(entries));
     }
 
     json!({
@@ -1727,31 +1974,112 @@ mod tests {
         assert_eq!(basename("https://x.com/a/b.jpg"), "b.jpg");
         assert_eq!(basename(""), "");
     }
-}
+    // The reference plugins' RAW hook output (single quotes as in the
+    // PHP source) and the exact DOM-round-tripped oracle strings (double
+    // quotes, `data-plugin-name` appended) the chain must produce.
+    fn trgm_raw(id: i64) -> String {
+        format!(
+            "<i style=\"cursor : pointer\" class='material-icons' \
+             onclick=\"Plugins.Psql_Trgm.showRelated({id})\" \
+             title=\"Show related articles\">bookmark_outline</i>"
+        )
+    }
+    fn note_raw(id: i64) -> String {
+        format!(
+            "<i class='material-icons' onclick=\"Plugins.Note.edit({id})\" \
+             style='cursor : pointer' title=\"Edit article note\">note</i>"
+        )
+    }
+    fn share_raw(int_id: i64, shared: bool) -> String {
+        let icon_class = if shared { "is-shared" } else { "" };
+        format!(
+            "<i class='material-icons icon-share share-icon-{int_id} {icon_class}' \
+             style='cursor : pointer' onclick=\"Plugins.Share.shareArticle({int_id})\" \
+             title=\"Share by URL\">link</i>"
+        )
+    }
 
     #[test]
-    fn article_buttons_only_for_active_plugins() {
-        // No plugins active → no buttons.
-        let out = article_buttons(1, 100, false, &[]);
-        assert_eq!(out, "", "no plugins → empty");
-
-        // Only note active → only note button.
-        let out = article_buttons(1, 100, false, &["note".into()]);
-        assert!(out.contains("Plugins.Note.edit"));
-        assert!(!out.contains("Psql_Trgm"));
-        assert!(!out.contains("Share.shareArticle"));
-
-        // Only share active → only share button.
-        let out = article_buttons(1, 100, true, &["share".into()]);
-        assert!(out.contains("Plugins.Share.shareArticle"));
-        assert!(out.contains("is-shared"));
-        assert!(!out.contains("Psql_Trgm"));
-        assert!(!out.contains("Note.edit"));
-
-        // All three active → all buttons.
-        let out = article_buttons(2, 200, false, &["af_psql_trgm".into(), "note".into(), "share".into()]);
-        assert!(out.contains("Plugins.Psql_Trgm.showRelated(2)"));
-        assert!(out.contains("Plugins.Note.edit(2)"));
-        assert!(out.contains("Plugins.Share.shareArticle(200)"));
-        assert!(!out.contains("is-shared"));
+    fn article_button_roundtrip_matches_oracle() {
+        // af_psql_trgm
+        assert_eq!(
+            button_xml_roundtrip(&trgm_raw(1), "Af_Psql_Trgm"),
+            Some(
+                "<i style=\"cursor : pointer\" class=\"material-icons\" onclick=\"Plugins.Psql_Trgm.showRelated(1)\" title=\"Show related articles\" data-plugin-name=\"Af_Psql_Trgm\">bookmark_outline</i>"
+                    .to_string()
+            )
+        );
+        // note
+        assert_eq!(
+            button_xml_roundtrip(&note_raw(1), "Note"),
+            Some(
+                "<i class=\"material-icons\" onclick=\"Plugins.Note.edit(1)\" style=\"cursor : pointer\" title=\"Edit article note\" data-plugin-name=\"Note\">note</i>"
+                    .to_string()
+            )
+        );
+        // share, unshared (note the space before the empty icon class)
+        assert_eq!(
+            button_xml_roundtrip(&share_raw(100, false), "Share"),
+            Some(
+                "<i class=\"material-icons icon-share share-icon-100 \" style=\"cursor : pointer\" onclick=\"Plugins.Share.shareArticle(100)\" title=\"Share by URL\" data-plugin-name=\"Share\">link</i>"
+                    .to_string()
+            )
+        );
+        // share, shared
+        assert_eq!(
+            button_xml_roundtrip(&share_raw(100, true), "Share"),
+            Some(
+                "<i class=\"material-icons icon-share share-icon-100 is-shared\" style=\"cursor : pointer\" onclick=\"Plugins.Share.shareArticle(100)\" title=\"Share by URL\" data-plugin-name=\"Share\">link</i>"
+                    .to_string()
+            )
+        );
+        // not valid XML → skipped (PHP user_error)
+        assert_eq!(button_xml_roundtrip("<i><b></i>", "X"), None);
+        assert_eq!(button_xml_roundtrip("", "X"), None);
     }
+
+    #[tokio::test]
+    async fn article_buttons_chain_matches_oracle() {
+        use crate::pluginhost::host::HostCtx;
+        let host = crate::pluginhost::PluginHost::startup(&crate::pluginhost::all_plugins());
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgres://ttrss:ttrss@localhost/ttrss_test")
+            .unwrap();
+        let test_cfg = crate::core::config::Config::for_test();
+        let mut ctx = HostCtx::for_user(
+            &host,
+            &pool,
+            &test_cfg,
+            Some(1),
+            None,
+            0,
+            &[],
+            &["af_psql_trgm", "note", "share"],
+        );
+        // No active plugins → no buttons.
+        let mut empty = HostCtx::for_user(&host, &pool, &test_cfg, Some(1), None, 0, &[], &[]);
+        let line = serde_json::json!({ "id": 1, "uuid": "" });
+        assert_eq!(article_buttons(&mut empty, &line).await, "");
+
+        let line = serde_json::json!({ "id": 2, "int_id": 2, "uuid": "" });
+        let out = article_buttons(&mut ctx, &line).await;
+        // Byte parity: the concatenation of the three round-tripped oracle
+        // strings, in load order (trgm, note, share).
+        let expected = button_xml_roundtrip(&trgm_raw(2), "Af_Psql_Trgm").unwrap()
+            + &button_xml_roundtrip(&note_raw(2), "Note").unwrap()
+            + &button_xml_roundtrip(&share_raw(2, false), "Share").unwrap();
+        assert_eq!(out, expected);
+        // plugin order: trgm, note, share (load order)
+        let i_trgm = out.find("Psql_Trgm").unwrap();
+        let i_note = out.find("Note.edit").unwrap();
+        let i_share = out.find("Share.shareArticle").unwrap();
+        assert!(i_trgm < i_note && i_note < i_share);
+
+        // shared article → is-shared class
+        let line = serde_json::json!({ "id": 3, "int_id": 3, "uuid": "abc" });
+        let out = article_buttons(&mut ctx, &line).await;
+        assert!(out.contains("share-icon-3 is-shared"));
+    }
+
+
+}

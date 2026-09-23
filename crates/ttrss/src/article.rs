@@ -15,10 +15,7 @@ use axum::http::StatusCode;
 use std::collections::HashSet;
 use std::sync::OnceLock;
 
-use crate::core::db::Db;
-use crate::core::phpser::Value as PValue;
-use crate::core::session::Session;
-use crate::util::{basename, param_int_array, scalar_str};
+use crate::util::{param_int_array, scalar_str};
 use kuchikiki::traits::TendrilSink;
 use kuchikiki::{parse_html, NodeRef};
 use serde_json::{json, Map, Value};
@@ -26,7 +23,6 @@ use sha1::Digest as _;
 use sqlx::Row;
 use sqlx::AssertSqlSafe;
 
-use crate::prefs;
 use crate::sanitizer::rewrite_relative;
 use crate::session::Sess;
 use crate::AppState;
@@ -316,16 +312,67 @@ pub async fn get_enclosures(pool: &sqlx::PgPool, id: i32) -> Vec<Map<String, Val
 /// otherwise the first `image/*` enclosure is used. URLs are rewritten
 /// against `site_url`; a multi-image article is kind `ARTICLE_KIND_ALBUM`.
 ///
-/// PHP additionally runs the `HOOK_ARTICLE_IMAGE` plugin chain (no-op with
-/// no plugins) and wraps cached URLs via `DiskCache` (no disk cache here).
-pub fn get_image(
+/// M7.22 item 4: the `HOOK_ARTICLE_IMAGE` chain runs first (PHP
+/// `Article.php:571`) — each plugin returns `[image, stream, content]`;
+/// the chain stops at the first non-empty image ("first hard match"), and
+/// the plugins receive the original arguments (PHP's fixed `$args`). The
+/// fallback parse uses the last plugin's content (nsfw returns `"nsfw"` on
+/// a match — the parse is skipped anyway once an image is set).
+pub async fn get_image(
+    host: &mut crate::pluginhost::host::HostCtx<'_>,
     enclosures: &[Map<String, Value>],
     content: &str,
     site_url: &str,
+    article: &Value,
 ) -> (String, String, i32) {
     let mut article_image = String::new();
     let mut article_stream = String::new();
     let mut article_kind = 0;
+    let mut content = content.to_string();
+
+    {
+        let enc_val: Value = enclosures.iter().cloned().map(Value::Object).collect();
+        // (enclosures, content, site_url, article, last plugin result)
+        let mut state = (
+            enc_val,
+            content.clone(),
+            site_url.to_string(),
+            article.clone(),
+            Value::Null,
+        );
+        host
+            .chain_hooks_callback(
+                crate::pluginhost::HOOK_ARTICLE_IMAGE,
+                &mut state,
+                |plugin, host, st| {
+                    Box::pin(async move {
+                        let r = plugin
+                            .hook_article_image(host, &st.0, &st.1, &st.2, &st.3)
+                            .await;
+                        st.4 = r.clone();
+                        r
+                    })
+                },
+                // PHP: `return !empty($article_image)` — first hard match.
+                |r, _| r.get(0).and_then(Value::as_str).is_some_and(|s| !s.is_empty()),
+            )
+            .await;
+        if let Some(triple) = state.4.as_array() {
+            article_image = triple
+                .get(0)
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            article_stream = triple
+                .get(1)
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            if let Some(c) = triple.get(2).and_then(Value::as_str) {
+                content = c.to_string();
+            }
+        }
+    }
 
     if article_image.is_empty() && article_stream.is_empty() {
         // PHP: `mb_substr($content, 0, 131070)` before `loadHTML`.
@@ -631,78 +678,6 @@ pub async fn create_published_article(
 
     let _ = tx.commit().await;
     rc
-}
-
-/// `Article::_format_enclosures` result: the `formatted` / `entries` pair
-/// plus the `can_inline` / `inline_text_only` flags.
-#[derive(Clone, Debug, PartialEq)]
-pub struct FormattedEnclosures {
-    pub formatted: String,
-    pub entries: Vec<Map<String, Value>>,
-    pub can_inline: bool,
-    pub inline_text_only: bool,
-}
-
-/// `Article::_format_enclosures`: fetch the article's enclosures and compute
-/// the inline-display flags. The PHP `HOOK_FORMAT_ENCLOSURES` /
-/// `HOOK_RENDER_ENCLOSURE` / `HOOK_ENCLOSURE_ENTRY` plugin chains are no-ops
-/// with no plugins, so `formatted` stays empty and every enclosure lands in
-/// `entries` (with `filename` = `basename(content_url)` added).
-pub async fn format_enclosures(
-    db: &Db,
-    sess: &Session,
-    id: i32,
-    always_display_enclosures: bool,
-    article_content: &str,
-    hide_images: bool,
-) -> FormattedEnclosures {
-    let pool = db.pool();
-    let enclosures = get_enclosures(pool, id).await;
-
-    // $rv['can_inline'] = isset($_SESSION["uid"]) && empty($_SESSION["bw_limit"])
-    //   && !Prefs::get(Prefs::STRIP_IMAGES, $_SESSION["uid"], $_SESSION["profile"] ?? null)
-    //   && ($always_display_enclosures || !preg_match("/<img/i", $article_content));
-    let uid = sess.get_int("uid");
-    let strip_images = if let Some(uid) = uid {
-        let profile = sess.get_int("profile").map(|p| p as i32);
-        let rows = prefs::load_rows(db, uid, profile).await;
-        prefs::resolve(prefs::STRIP_IMAGES, &rows, profile).as_bool()
-    } else {
-        false
-    };
-    let can_inline = uid.is_some()
-        && php_empty(sess.get("bw_limit"))
-        && !strip_images
-        && (always_display_enclosures || !article_content.to_ascii_lowercase().contains("<img"));
-    let inline_text_only = hide_images && can_inline;
-
-    let mut entries: Vec<Map<String, Value>> = Vec::new();
-    for enc in &enclosures {
-        let mut enc = enc.clone();
-        if let Some(url) = enc.get("content_url").and_then(Value::as_str) {
-            enc.insert("filename".into(), Value::String(basename(url)));
-        }
-        entries.push(enc);
-    }
-
-    FormattedEnclosures {
-        formatted: String::new(),
-        entries,
-        can_inline,
-        inline_text_only,
-    }
-}
-
-/// PHP `empty()` on a session value (absent counts as empty).
-fn php_empty(v: Option<&PValue>) -> bool {
-    match v {
-        None | Some(PValue::Null) => true,
-        Some(PValue::Bool(b)) => !b,
-        Some(PValue::Int(i)) => *i == 0,
-        Some(PValue::Float(f)) => *f == 0.0,
-        Some(PValue::Bytes(b)) => b.is_empty(),
-        Some(PValue::Array(a)) => a.is_empty(),
-    }
 }
 
 /// `Article::_labels_of`: unique label ids present in the articles' `label_cache`.

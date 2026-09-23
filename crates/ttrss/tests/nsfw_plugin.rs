@@ -335,3 +335,106 @@ async fn test_disabled_plugin_unknown() {
         Ok(())
     })).await.unwrap();
 }
+
+// M7.22 item 4 — HOOK_ARTICLE_IMAGE runs inside `article::get_image` (PHP
+// `Article.php:571`): a matching article gets the placeholder as its
+// representative image; a non-matching one falls through to the DOM parse.
+#[tokio::test]
+async fn test_get_image_runs_article_image_chain() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = setup(&url).await;
+    {
+        let mut c = ctx(&state);
+        let plugin = c.get_plugin("nsfw").expect("nsfw active");
+        c.storage_set(plugin, "tags", PValue::Bytes(b"nsfw".to_vec()))
+            .await
+            .unwrap();
+    }
+    let content = "<img src='https://example.com/real.png'>";
+    let matching = json!({ "id": 1, "tags": ["nsfw"] });
+    let mut c = ctx(&state).with_self_url("http://127.0.0.1:8280/tt-rss");
+    let (image, stream, kind) =
+        ttrss::article::get_image(&mut c, &[], content, "https://example.com", &matching).await;
+    assert_eq!(
+        image,
+        "http://127.0.0.1:8280/tt-rss/plugins/nsfw/nsfw.png",
+        "chain should short-circuit the DOM parse"
+    );
+    assert_eq!(stream, "");
+    assert_eq!(kind, 0, "plugin-provided image keeps kind 0 (PHP)");
+
+    let non_matching = json!({ "id": 1, "tags": ["other"] });
+    let (image, _stream, _kind) =
+        ttrss::article::get_image(&mut c, &[], content, "https://example.com", &non_matching).await;
+    assert!(image.contains("example.com/real.png"), "image was: {image}");
+        Ok(())
+    })).await.unwrap();
+}
+
+// M7.22 item 3 (seam) — the `HOOK_RENDER_ARTICLE` family runs through the
+// `Feeds::view` (CDM) chain: an nsfw-tagged article's content is wrapped in
+// the `<details>` toggle in the getHeadlines response. This also pins the
+// missing-fold fix (M7.16): before it, the plugin's rewritten article was
+// discarded by the chain runner.
+#[tokio::test]
+async fn test_cdm_view_runs_render_article_chain() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = setup(&url).await;
+    {
+        let mut c = ctx(&state);
+        let plugin = c.get_plugin("nsfw").expect("nsfw active");
+        c.storage_set(plugin, "tags", PValue::Bytes(b"nsfw".to_vec()))
+            .await
+            .unwrap();
+        // Tag article 1 (owner 1; its user entry has int_id 1 in the seed).
+        // The tag_cache shadows ttrss_tags in `_get_tags` (PHP parity), so
+        // the cache is updated too.
+        sqlx::query("INSERT INTO ttrss_tags (tag_name, owner_uid, post_int_id) VALUES ('nsfw', 1, 1)")
+            .execute(state.db.pool())
+            .await
+            .unwrap();
+        sqlx::query("UPDATE ttrss_user_entries SET tag_cache = 'rust,nsfw' WHERE ref_id = 1 AND owner_uid = 1")
+            .execute(state.db.pool())
+            .await
+            .unwrap();
+    }
+
+    fn sess() -> Sess {
+        let mut d = Session::new();
+        d.set("uid", PValue::Int(1));
+        d.set("access_level", PValue::Int(100));
+        d.set("pwd_hash", PValue::Bytes(b"SHA1:5baa61e4c9b93f3f0682250b6cf8331b7ee68fd8".to_vec()));
+        d.set("auth_module", PValue::Bytes(b"auth_internal".to_vec()));
+        d.set("name", PValue::Bytes(b"admin".to_vec()));
+        d.set("csrf_token", PValue::Bytes(b"tok".to_vec()));
+        let s = Sess::new("nsfw-view".into());
+        s.replace("nsfw-view".into(), d);
+        s
+    }
+    let req = axum::http::Request::builder()
+        .method(axum::http::Method::POST)
+        .uri("/backend.php")
+        .header(axum::http::header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+        .body(axum::body::Body::from(
+            "op=Feeds&method=view&feed=1&csrf_token=tok".to_string(),
+        ))
+        .unwrap();
+    let res = ttrss::rpc::handler(
+        axum::extract::State(state.clone()),
+        axum::extract::Extension(sess()),
+        req,
+    )
+    .await;
+    let bytes = axum::body::to_bytes(res.into_body(), 10 * 1024 * 1024).await.unwrap();
+    let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    let content = v
+        .pointer("/headlines/content/0/content")
+        .and_then(|c| c.as_str())
+        .unwrap_or("");
+    assert!(
+        content.contains("<details class='nsfw'>"),
+        "CDM content should carry the nsfw toggle: {content}"
+    );
+        Ok(())
+    })).await.unwrap();
+}

@@ -199,11 +199,32 @@ pub async fn public_dispatch(
     // path, the name is basename'd (a `plugin` of `../x` cannot escape).
     let name = basename(&crate::util::clean_str(plugin_param));
     let method = crate::util::clean_str(method);
-    // PHP: `new PluginHost; load($name, KIND_ALL, 0)` — a fresh host with
-    // only the named plugin (if registered at all).
-    let mut ctx = HostCtx::single(&state.plugins, state.db.pool(), &state.config, &name)
-        .with_self_url(state.config.self_url.clone())
-        .with_cache_dir(state.config.base_cache_dir());
+    // PHP dispatch host: `new PluginHost; load($name, KIND_ALL, 0)` — the
+    // named plugin must be loadable for the method call. But plugin methods
+    // that run chains (e.g. share's public `get` → `HOOK_RENDER_ARTICLE`)
+    // target `PluginHost::getInstance()` — the global instance, which on an
+    // unauthenticated public request holds the SYSTEM plugins
+    // (`init_plugins`, `functions.php:424`). Model that with the system
+    // list ∪ the named plugin as the active set.
+    let system: Vec<&str> = state
+        .config
+        .plugins
+        .split(',')
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .collect();
+    let mut ctx = HostCtx::for_user(
+        &state.plugins,
+        state.db.pool(),
+        &state.config,
+        Some(0),
+        None,
+        0,
+        &system,
+        &[name.as_str()],
+    )
+    .with_self_url(state.config.self_url.clone())
+    .with_cache_dir(state.config.base_cache_dir());
     let Some(plugin) = ctx.get_plugin(&name) else {
         let mut params = Map::new();
         params.insert("plugin".into(), Value::String(name));

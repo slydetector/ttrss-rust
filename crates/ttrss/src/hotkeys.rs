@@ -73,15 +73,51 @@ const HOTKEYS: &[(&str, &str)] = &[
 ];
 
 /// `RPC::get_hotkeys_map` — `[prefixes, {sequence: action}]`.
-pub fn hotkeys_map() -> (Vec<String>, Map<String, Value>) {
+///
+/// M7.22 item 2: the `HOOK_HOTKEY_MAP` chain (PHP `RPC.php:629`) runs over
+/// the base map **before** the prefixes are computed, so plugins can add or
+/// redefine keys (hotkeys_swap_jk, hotkeys_noscroll).
+pub async fn hotkeys_map(host: &mut crate::pluginhost::host::HostCtx<'_>) -> (Vec<String>, Map<String, Value>) {
     let mut map: Map<String, Value> = Map::new();
-    let mut prefixes: Vec<String> = Vec::new();
     for (seq, action) in HOTKEYS {
         map.insert((*seq).to_string(), Value::from((*action).to_string()));
+    }
+    let mut map_val = Value::Object(map);
+    host
+        .chain_hooks_callback(
+            crate::pluginhost::HOOK_HOTKEY_MAP,
+            &mut map_val,
+            |plugin, host, hk| {
+                Box::pin(async move {
+                    let result = plugin.hook_hotkey_map(host, hk).await;
+                    // The PHP callback rebinds `$hotkeys = $result`.
+                    *hk = result.clone();
+                    result
+                })
+            },
+            |_, _| false,
+        )
+        .await;
+    let map = map_val.as_object().cloned().unwrap_or_default();
+
+    // Prefixes: the base sequences in table order (a plugin redefining a base
+    // key keeps its slot), then any plugin-added sequences.
+    let mut prefixes: Vec<String> = Vec::new();
+    let add_prefix = |seq: &str, prefixes: &mut Vec<String>| {
         if let Some(first) = seq.split(' ').next() {
             if seq.contains(' ') && !prefixes.iter().any(|p| p == first) {
                 prefixes.push(first.to_string());
             }
+        }
+    };
+    for (seq, _) in HOTKEYS {
+        if map.contains_key(*seq) {
+            add_prefix(seq, &mut prefixes);
+        }
+    }
+    for seq in map.keys() {
+        if !HOTKEYS.iter().any(|(k, _)| k == seq) {
+            add_prefix(seq, &mut prefixes);
         }
     }
     (prefixes, map)
@@ -257,4 +293,67 @@ pub fn hotkey_help() -> String {
         "\n</ul>\n<footer class='text-center'>\n<button dojoType=\"dijit.form.Button\" class=\"alt-primary\" type=\"submit\">Close this window</button></footer>",
     );
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::pluginhost::host::HostCtx;
+    use serde_json::json;
+
+    /// M7.22 item 2: the HOOK_HOTKEY_MAP chain seam — the base map +
+    /// hotkeys_swap_jk / hotkeys_noscroll, and the prefix order (base-table
+    /// order preserved).
+    #[tokio::test]
+    async fn hotkeys_map_runs_hook_chain() {
+        let host =
+            crate::pluginhost::PluginHost::startup(&crate::pluginhost::all_plugins());
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgres://ttrss:ttrss@localhost/ttrss_test")
+            .unwrap();
+        let test_cfg = crate::core::config::Config::for_test();
+
+        // No plugins: base map, prefix order from the table (c, a, f, g).
+        let mut ctx = HostCtx::for_user(&host, &pool, &test_cfg, Some(1), None, 0, &[], &[]);
+        let (prefixes, map) = crate::hotkeys::hotkeys_map(&mut ctx).await;
+        assert_eq!(prefixes, vec!["c", "a", "f", "g"]);
+        assert_eq!(map["s"], json!("toggle_mark"));
+        // The base already maps j/k (the pre-vi assignment); swap_jk flips it.
+        assert_eq!(map["j"], json!("prev_feed"));
+        assert_eq!(map["k"], json!("next_feed"));
+
+        // hotkeys_swap_jk: j/k (re)defined to the vi pairs.
+        let mut ctx = HostCtx::for_user(
+            &host,
+            &pool,
+            &test_cfg,
+            Some(1),
+            None,
+            0,
+            &[],
+            &["hotkeys_swap_jk"],
+        );
+        let (prefixes, map) = crate::hotkeys::hotkeys_map(&mut ctx).await;
+        assert_eq!(map["j"], json!("next_feed"));
+        assert_eq!(map["J"], json!("next_unread_feed"));
+        assert_eq!(map["k"], json!("prev_feed"));
+        assert_eq!(map["K"], json!("prev_unread_feed"));
+        assert_eq!(prefixes, vec!["c", "a", "f", "g"], "prefix order unchanged");
+
+        // hotkeys_noscroll: arrows + n/p remapped to the noscroll actions.
+        let mut ctx = HostCtx::for_user(
+            &host,
+            &pool,
+            &test_cfg,
+            Some(1),
+            None,
+            0,
+            &[],
+            &["hotkeys_noscroll"],
+        );
+        let (prefixes, map) = crate::hotkeys::hotkeys_map(&mut ctx).await;
+        assert_eq!(map["(40)|Down"], json!("next_article_noscroll"));
+        assert_eq!(map["n"], json!("next_article_noscroll"));
+        assert_eq!(map["p"], json!("prev_article_noscroll"));
+        assert_eq!(prefixes, vec!["c", "a", "f", "g"]);
+    }
 }

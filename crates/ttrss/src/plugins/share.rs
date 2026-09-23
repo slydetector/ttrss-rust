@@ -74,15 +74,16 @@ impl Plugin for Share {
         _host: &'a mut HostCtx<'h>,
         line: &'a Value,
     ) -> BoxFuture<'a, String> {
-        let id = line["id"].as_i64().unwrap_or(0);
+        // PHP uses `int_id` (not `id`) for the icon suffix and the onclick
+        // argument, and keeps the space before an empty `$icon_class`.
+        let int_id = line["int_id"].as_i64().unwrap_or(0);
         let is_shared = line["uuid"].as_str().is_some_and(|u| !u.is_empty());
         Box::pin(async move {
+            let icon_class = if is_shared { "is-shared" } else { "" };
             format!(
-                "<i class='material-icons icon-share share-icon-{}{}' \
-                 style='cursor : pointer' onclick=\"Plugins.Share.shareArticle({id})\" \
-                 title=\"Share by URL\">link</i>",
-                id,
-                if is_shared { " is-shared" } else { "" }
+                "<i class='material-icons icon-share share-icon-{int_id} {icon_class}' \
+                 style='cursor : pointer' onclick=\"Plugins.Share.shareArticle({int_id})\" \
+                 title=\"Share by URL\">link</i>"
             )
         })
     }
@@ -329,9 +330,50 @@ async fn format_article(host: &mut HostCtx<'_>, id: i32, owner_uid: i32) -> Resu
         Some(host),
     ).await;
 
+    // M7.22 item 3 — the `HOOK_RENDER_ARTICLE` chain (PHP `share/init.php:149`):
+    // the public shared-article page runs the per-article render hooks (nsfw
+    // wraps the content in a toggle). The article map is the row the PHP
+    // `$line` carries for this route: the selected fields + `tags`.
+    let tags = crate::article::get_tags(host.pool, owner_uid as i64, id, Some(owner_uid as i64), None).await;
+    let mut article = serde_json::Map::new();
+    article.insert("id".into(), serde_json::json!(id));
+    article.insert("title".into(), serde_json::json!(title.clone()));
+    article.insert("link".into(), serde_json::json!(link.clone()));
+    article.insert("lang".into(), serde_json::json!(lang.clone()));
+    article.insert("site_url".into(), serde_json::json!(site_url.clone()));
+    article.insert(
+        "content".into(),
+        serde_json::Value::String(sanitized.clone()),
+    );
+    article.insert(
+        "tags".into(),
+        serde_json::Value::Array(tags.into_iter().map(serde_json::Value::String).collect()),
+    );
+    let mut article_val = serde_json::Value::Object(article);
+    host
+        .chain_hooks_callback(
+            crate::pluginhost::HOOK_RENDER_ARTICLE,
+            &mut article_val,
+            |plugin, host, art| {
+                Box::pin(async move {
+                    let result = plugin.hook_render_article(host, art).await;
+                    // The PHP callback rebinds `$line = $result`.
+                    *art = result.clone();
+                    result
+                })
+            },
+            |_r, _p| false,
+        )
+        .await;
+    let content_out = article_val
+        .get("content")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("")
+        .to_string();
+
     let enclosures = crate::article::get_enclosures(host.pool, id).await;
     let (og_image, _og_stream, _og_kind) =
-        crate::article::get_image(&enclosures, &sanitized, site_url.as_deref().unwrap_or(""));
+        crate::article::get_image(host, &enclosures, &content_out, site_url.as_deref().unwrap_or(""), &article_val).await;
     let og_image = if og_image.is_empty() {
         format!("{}/images/favicon-512px.png", host.self_url)
     } else {
@@ -383,12 +425,11 @@ async fn format_article(host: &mut HostCtx<'_>, id: i32, owner_uid: i32) -> Resu
          <div class='row'>\n{header}\n</div>\n\
          <div class='row'>\n<div>{author}</div>\n<div>{updated}</div>\n</div>\n\
          </div>\n\
-         <div class='content' lang=\"{lang}\">{sanitized}</div>\n\
+         <div class='content' lang=\"{lang}\">{content_out}</div>\n\
          </div>\n</div>\n</body>\n</html>",
         lang = lang.unwrap_or_else(|| String::from("en")),
         author = author,
         updated = updated,
-        sanitized = sanitized,
     ))
 }
 

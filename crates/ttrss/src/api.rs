@@ -1034,8 +1034,16 @@ async fn api_headline_row(
 
         // `Article::_get_image` (the UNSANITIZED content): the article's
         // representative image / stream / kind, used by clients for thumbnails.
+        // M7.22 item 4: the HOOK_ARTICLE_IMAGE chain runs inside (nsfw swaps
+        // the representative image for its placeholder). The article map
+        // carries the fields the stock hooks read (`id`, `tags`) — the PHP
+        // `$headline` is the full row, but no stock hook reads beyond these.
+        let article = json!({
+            "id": id,
+            "tags": m.get("tags").cloned().unwrap_or(Value::Array(Vec::new())),
+        });
         let (flavor_image, flavor_stream, flavor_kind) =
-            article::get_image(&enclosures, &content, &site_url);
+            article::get_image(pctx, &enclosures, &content, &site_url, &article).await;
         m.insert("flavor_image".into(), Value::from(flavor_image));
         m.insert("flavor_stream".into(), Value::from(flavor_stream));
         if flavor_kind != 0 {

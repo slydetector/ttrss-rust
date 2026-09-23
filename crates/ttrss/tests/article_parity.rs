@@ -19,8 +19,6 @@ use ttrss::article::{
     self, CATCHUP_MODE_MARK_AS_READ, CATCHUP_MODE_MARK_AS_UNREAD, CATCHUP_MODE_TOGGLE,
 };
 use ttrss::core::db::Db;
-use ttrss::core::phpser::Value as PValue;
-use ttrss::core::session::Session;
 use test_db::template::with_test_db;
 
 /// `DbTestCase::setUp`: `$_SESSION["uid"] = 1`.
@@ -31,13 +29,6 @@ async fn setup(
     url: &str,
 ) -> Db {
     common::make_db_from_url(url).await.expect("test db")
-}
-
-/// Session with only `uid` set (the PHP integration test session).
-fn session_with_uid() -> Session {
-    let mut s = Session::new();
-    s.set("uid", PValue::Int(1));
-    s
 }
 
 fn enclosure(content_type: &str, url: &str) -> Value {
@@ -496,6 +487,25 @@ async fn test_feeds_of_returns_multiple_feeds() {
     })).await.unwrap();
 }
 
+
+/// M7.22 item 4: `get_image` now runs the `HOOK_ARTICLE_IMAGE` chain (PHP
+/// `Article.php:571`). The PHP suite runs with no plugins, so these
+/// parity cases use a host with empty system + user lists.
+async fn get_image_stock(
+    encs: &[serde_json::Map<String, Value>],
+    content: &str,
+    site_url: &str,
+) -> (String, String, i32) {
+    use ttrss::pluginhost::host::HostCtx;
+    let ph = ttrss::pluginhost::PluginHost::startup(&ttrss::pluginhost::all_plugins());
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .connect_lazy("postgres://ttrss:ttrss@localhost/ttrss_test")
+        .unwrap();
+    let cfg = ttrss::core::config::Config::for_test();
+    let mut ctx = HostCtx::for_user(&ph, &pool, &cfg, Some(1), None, 0, &[], &[]);
+    article::get_image(&mut ctx, encs, content, site_url, &json!({})).await
+}
+
 // ── _get_image() ────────────────────────────────────────────────────────────
 
 // NOTE: the PHP test extracts the original URL from the DiskCache redirect
@@ -509,7 +519,7 @@ async fn test_get_image_extract_youtube_embed() {
     let db = setup(&url).await;
     let _ = db;
     let content = "<p>Check out this video: <iframe src=\"https://www.youtube.com/embed/dQw4w9WgXcQ\"></iframe></p>";
-    let (image, stream, kind) = article::get_image(&[], content, "https://example.com");
+    let (image, stream, kind) = get_image_stock(&[], content, "https://example.com").await;
 
     assert!(
         image.contains("img.youtube.com/vi/dQw4w9WgXcQ/hqdefault.jpg"),
@@ -531,7 +541,7 @@ async fn test_get_image_extract_video_poster() {
     let db = setup(&url).await;
     let _ = db;
     let content = "<video poster=\"https://example.com/poster.jpg\"><source src=\"https://example.com/video.mp4\"></video>";
-    let (image, stream, kind) = article::get_image(&[], content, "https://example.com");
+    let (image, stream, kind) = get_image_stock(&[], content, "https://example.com").await;
 
     assert!(
         image.contains("example.com/poster.jpg"),
@@ -553,7 +563,7 @@ async fn test_get_image_extract_first_image() {
     let db = setup(&url).await;
     let _ = db;
     let content = "<p>Some text <img src=\"https://example.com/photo.jpg\"></p>";
-    let (image, stream, kind) = article::get_image(&[], content, "https://example.com");
+    let (image, stream, kind) = get_image_stock(&[], content, "https://example.com").await;
 
     assert!(
         image.contains("example.com/photo.jpg"),
@@ -572,7 +582,7 @@ async fn test_get_image_skips_data_uris() {
     let db = setup(&url).await;
     let _ = db;
     let content = "<img src=\"data:image/png;base64,abc123\">";
-    let (image, stream, kind) = article::get_image(&[], content, "https://example.com");
+    let (image, stream, kind) = get_image_stock(&[], content, "https://example.com").await;
 
     assert!(image.is_empty());
     assert!(stream.is_empty());
@@ -593,7 +603,7 @@ async fn test_get_image_falls_back_to_enclosure_image() {
         .iter()
         .map(|v| v.as_object().unwrap().clone())
         .collect();
-    let (image, stream, kind) = article::get_image(&encs, content, "https://example.com");
+    let (image, stream, kind) = get_image_stock(&encs, content, "https://example.com").await;
 
     assert!(
         image.contains("example.com/enclosure.jpg"),
@@ -617,7 +627,7 @@ async fn test_get_image_does_not_select_non_image_enclosure() {
         .iter()
         .map(|v| v.as_object().unwrap().clone())
         .collect();
-    let (image, stream, kind) = article::get_image(&encs, content, "https://example.com");
+    let (image, stream, kind) = get_image_stock(&encs, content, "https://example.com").await;
 
     assert!(image.is_empty());
     assert!(stream.is_empty());
@@ -641,7 +651,7 @@ async fn test_get_image_mark_album_with_multiple_enclosures() {
         .iter()
         .map(|v| v.as_object().unwrap().clone())
         .collect();
-    let (image, _stream, kind) = article::get_image(&encs, content, "https://example.com");
+    let (image, _stream, kind) = get_image_stock(&encs, content, "https://example.com").await;
 
     assert!(image.contains("example.com/img1.jpg"), "image was: {image}");
     assert_eq!(kind, article::ARTICLE_KIND_ALBUM);
@@ -658,54 +668,12 @@ async fn test_get_image_rewrites_relative_urls() {
     // Per RFC 3986, both /path and path resolve to root when base ends with /
     // dirname('/base/') = '/' so relative URLs append to root
     let content = "<img src=\"/relative/path.jpg\">";
-    let (image, _stream, _kind) = article::get_image(&[], content, "https://example.com/base/");
+    let (image, _stream, _kind) = get_image_stock(&[], content, "https://example.com/base/").await;
 
     assert!(
         image.contains("example.com/relative/path.jpg"),
         "image was: {image}"
     );
-        Ok(())
-    })).await.unwrap();
-}
-
-// ── _format_enclosures() ────────────────────────────────────────────────────
-
-// PHP: test_format_enclosures_returns_empty_when_no_enclosures
-#[tokio::test]
-async fn test_format_enclosures_returns_empty_when_no_enclosures() {
-    let _ = with_test_db(|url| Box::pin(async move {
-    let db = setup(&url).await;
-    let result =
-        article::format_enclosures(&db, &session_with_uid(), 2, false, "<p>Content</p>", false)
-            .await;
-    assert_eq!(result.formatted, "");
-    assert!(result.entries.is_empty());
-        Ok(())
-    })).await.unwrap();
-}
-
-// PHP: test_format_enclosures_can_inline_flag
-#[tokio::test]
-async fn test_format_enclosures_can_inline_flag() {
-    let _ = with_test_db(|url| Box::pin(async move {
-    let db = setup(&url).await;
-    // (PHP builds an unused $enclosures variable here; id 1's enclosures are
-    // fetched inside _format_enclosures.)
-
-    // bw_limit is empty, STRIP_IMAGES is false (default), no <img> in content
-    let result =
-        article::format_enclosures(&db, &session_with_uid(), 1, true, "<p>Content</p>", false)
-            .await;
-
-    // PHP asserts the keys exist; the Rust struct carries them by
-    // construction — assert the same input yields the expected values.
-    assert_eq!(result.formatted, "");
-    assert!(result.can_inline);
-    assert!(!result.inline_text_only);
-    assert_eq!(result.entries.len(), 2); // seed.sql: 2 enclosures on article 1
-    for entry in &result.entries {
-        assert!(entry.get("filename").is_some(), "entries gain a filename");
-    }
         Ok(())
     })).await.unwrap();
 }

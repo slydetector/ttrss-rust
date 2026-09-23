@@ -855,7 +855,10 @@ async fn make_init_params(state: &AppState, sess: &Sess, uid: i64, profile: Opti
         String::new()
     };
 
-    let (prefixes, hotkeys) = crate::hotkeys::hotkeys_map();
+    // M7.22 item 2: the hotkey map goes through the HOOK_HOTKEY_MAP chain
+    // (hotkeys_swap_jk / hotkeys_noscroll) before the prefixes are computed.
+    let mut pctx = crate::pluginhost::dispatch::session_ctx(state, sess).await;
+    let (prefixes, hotkeys) = crate::hotkeys::hotkeys_map(&mut pctx).await;
 
     let mut out = Map::new();
     out.insert(

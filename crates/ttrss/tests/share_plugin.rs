@@ -301,3 +301,90 @@ async fn test_get_public_route_404() {
         Ok(())
     })).await.unwrap();
 }
+
+// M7.22 item 3 — the public `get` route runs `HOOK_RENDER_ARTICLE` (PHP
+// `share/init.php:149`) against the GLOBAL host (`getInstance()`): on an
+// unauthenticated public request that is the SYSTEM plugin set
+// (`init_plugins`, `functions.php:424`). The dispatch ctx models that as
+// system ∪ {named}. Two faithful pins:
+//
+// - the route's host actually iterates nsfw for `HOOK_RENDER_ARTICLE`
+//   (the seam — before the fix the host held only `share`);
+// - the page is unwrapped: plugin storage is owner-scoped and the route is
+//   owner-0 (the unwritable/read-less system scope), so the nsfw tag list
+//   is empty — exactly the reference's anonymous-page behavior.
+#[tokio::test]
+async fn test_get_public_route_render_chain_seam() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = setup(&url, "share,nsfw").await;
+    {
+        let mut c = ttrss::pluginhost::host::HostCtx::for_user(
+            &state.plugins,
+            state.db.pool(),
+            &state.config,
+            Some(1),
+            None,
+            0,
+            &["share", "nsfw"],
+            &[],
+        );
+        let plugin = c.get_plugin("nsfw").expect("nsfw active");
+        c.storage_set(plugin, "tags", PValue::Bytes(b"nsfw".to_vec()))
+            .await
+            .unwrap();
+        // Tag article 1 (its user entry has int_id 1 in the seed).
+        sqlx::query("INSERT INTO ttrss_tags (tag_name, owner_uid, post_int_id) VALUES ('nsfw', 1, 1)")
+            .execute(state.db.pool())
+            .await
+            .unwrap();
+    }
+
+    // The seam: the route's host (system ∪ {share}, owner 0) iterates nsfw
+    // for the render hook — the pre-fix single-plugin host iterated none.
+    let system: Vec<&str> = state
+        .config
+        .plugins
+        .split(',')
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .collect();
+    let route_ctx = ttrss::pluginhost::host::HostCtx::for_user(
+        &state.plugins,
+        state.db.pool(),
+        &state.config,
+        Some(0),
+        None,
+        0,
+        &system,
+        &["share"],
+    );
+    let old_model = ttrss::pluginhost::host::HostCtx::single(
+        &state.plugins,
+        state.db.pool(),
+        &state.config,
+        "share",
+    );
+    assert!(
+        old_model.hook_order("hook_render_article").is_empty(),
+        "single-plugin host has no render-article plugins (the pre-fix model)"
+    );
+    assert!(
+        !route_ctx.hook_order("hook_render_article").is_empty(),
+        "route host (system + named) must iterate the render hook"
+    );
+
+    // The page: owner-0 storage is empty → no tags match → no toggle.
+    let v = public_dispatch(&state, "share", "get", &json!({"key": "uuid-hn-001"}))
+        .await
+        .unwrap();
+    let MethodOutput::Response { status, body, .. } = v else {
+        panic!("expected a Response, got {v:?}");
+    };
+    assert_eq!(status, 200, "body: {body}");
+    assert!(
+        !body.contains("<details class='nsfw'>"),
+        "anonymous owner-0 route must NOT see owner-1 nsfw tags; body: {body}"
+    );
+        Ok(())
+    })).await.unwrap();
+}
