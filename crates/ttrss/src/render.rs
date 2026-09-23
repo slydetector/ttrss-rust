@@ -187,10 +187,11 @@ pub fn render_shell(
         })
         .unwrap()
 }
-/// Render the preferences SPA page (`prefs.php`). The skeleton is fixed for the
-/// golden dataset (no custom theme, empty plugin prefs CSS, the `share`
-/// plugin's prefs JS baked in); the per-session dynamic values are the CSRF
-/// token and the scripts cache-bust, and the Users/System tabs are admin-only.
+/// Render the preferences SPA page (`prefs.php`). The per-session dynamic
+/// values are the CSRF token, the scripts cache-bust, the active plugins'
+/// prefs assets (PHP `prefs.php`: `get_prefs_css()` in the `<style>` block,
+/// each `get_prefs_js()` in a named try/catch), and the Users/System tabs
+/// (admin-only).
 pub fn render_prefs_page(
     csrf_token: &str,
     scripts_ts: i64,
@@ -198,12 +199,14 @@ pub fn render_prefs_page(
     theme_css_link: &str,
     user_css_style: &str,
     plugin_js: &str,
+    plugin_css: &str,
 ) -> String {
     let mut html = PREFS_TEMPLATE
         .replace("@CSRF@", csrf_token)
         .replace("@CACHEBUST@", &scripts_ts.to_string())
         .replace("__THEME_CSS_LINK__", theme_css_link)
         .replace("__USER_CSS_STYLE__", user_css_style)
+        .replace("__PREFS_PLUGIN_CSS__", plugin_css)
         .replace("__PREFS_PLUGIN_JS__", plugin_js);
     if access_level < crate::core::user::ACCESS_LEVEL_ADMIN as i64 {
         html = html.replace(PREFS_ADMIN_TABS, PREFS_NONADMIN_CLOSE);
@@ -360,13 +363,13 @@ mod tests {
         let i18n = std::sync::Arc::new(crate::i18n::I18nCache::new(std::path::PathBuf::from("../../tt-rss/locale")));
         let shell = render_shell("tok", 123, "", &block, "", "", None, &i18n);
         assert!(shell.contains(&block), "shell missing the user stylesheet block");
-        let prefs = render_prefs_page("tok", 123, 3, "", &block, "");
+        let prefs = render_prefs_page("tok", 123, 3, "", &block, "", "");
         assert!(prefs.contains(&block), "prefs missing the user stylesheet block");
 
         // Empty → no `user_css_style` block is emitted.
         let i18n = std::sync::Arc::new(crate::i18n::I18nCache::new(std::path::PathBuf::from("../../tt-rss/locale")));
         assert!(!render_shell("tok", 123, "", "", "", "", None, &i18n).contains("user_css_style"));
-        assert!(!render_prefs_page("tok", 123, 3, "", "", "").contains("user_css_style"));
+        assert!(!render_prefs_page("tok", 123, 3, "", "", "", "").contains("user_css_style"));
     }
 
     /// Plugin CSS/JS appear in the shell when provided, and are absent when
@@ -383,6 +386,24 @@ mod tests {
         let i18n = std::sync::Arc::new(crate::i18n::I18nCache::new(std::path::PathBuf::from("../../tt-rss/locale")));
         let shell_empty = render_shell("tok", 123, "", "", "", "", None, &i18n);
         assert!(!shell_empty.contains("Plugins."), "empty shell should have no plugin JS");
+    }
+
+    /// The prefs page takes the active plugins' *prefs* assets (`get_prefs_css`/
+    /// `get_prefs_js` — PHP `prefs.php`), not their shell assets
+    /// (`get_css`/`get_js`). Regression: the port once fed `share`'s shell JS
+    /// (with `shareArticle`) into the prefs page instead of its prefs JS
+    /// (`clearKeys`).
+    #[test]
+    fn prefs_receives_prefs_assets_not_shell_assets() {
+        let prefs_js = "<script type=\"text/javascript\">\n\t\ttry {\n\t\t\t\tdocument.getElementById('share-clear-keys').onclick = SharePlugin.clearKeys;\n\t\t} catch (e) {\n\t\t\t\t\tconsole.warn('failed to initialize plugin JS: share', e);\n\t\t}\n\t</script>";
+        let prefs_css = "#share-plugin { background: #eee; }";
+        let prefs = render_prefs_page("tok", 123, 3, "", "", prefs_js, prefs_css);
+        assert!(prefs.contains("clearKeys"), "prefs page missing the share prefs JS");
+        assert!(!prefs.contains("shareArticle"), "prefs page must not receive the shell JS");
+        assert!(prefs.contains(prefs_css), "prefs page missing the prefs CSS");
+        // Empty → no `<script>` block and an empty `<style>` slot.
+        let empty = render_prefs_page("tok", 123, 3, "", "", "", "");
+        assert!(!empty.contains("failed to initialize plugin JS"), "no plugin JS expected");
     }
 
     #[test]

@@ -132,7 +132,7 @@ async fn index(
     let theme_link = theme_css_link(&state, &data).await;
     let user_css = user_css_style(&state, &data).await;
     let active_plugins = resolve_active_plugins(&state, &data).await;
-    let (plugin_css, plugin_js) = plugin_assets(&state, &active_plugins);
+    let (plugin_css, plugin_js) = plugin_assets(&state.plugins, &active_plugins);
     // M10.2: resolve locale for shell translations.
     let accept_language: Option<&str> = headers
         .get(header::ACCEPT_LANGUAGE)
@@ -199,13 +199,15 @@ async fn prefs_page(
     let theme_link = theme_css_link(&state, &data).await;
     let user_css = user_css_style(&state, &data).await;
     let active_plugins = resolve_active_plugins(&state, &data).await;
-    let (_, plugin_js) = plugin_assets(&state, &active_plugins);
-    let prefs_plugin_js = if plugin_js.is_empty() {
+    // PHP `prefs.php` loops `get_prefs_css()`/`get_prefs_js()` — a different
+    // pair than the shell's `get_css()`/`get_js()`.
+    let (prefs_css, prefs_js) = prefs_plugin_assets(&state.plugins, &active_plugins);
+    let prefs_plugin_js = if prefs_js.is_empty() {
         String::new()
     } else {
-        format!("<script type=\"text/javascript\">\ntry {{\n\t\t\t\t\t/* global __, Plugins, Notify, xhr, App */\n\n{plugin_js}\n\n\t\t\t\t}} catch (e) {{\n\t\t\t\t\tconsole.warn('failed to initialize plugin JS', e);\n\t\t\t\t}}\t</script>")
+        format!("<script type=\"text/javascript\">\n\t\t{prefs_js}\n\t</script>")
     };
-    let html = render::render_prefs_page(csrf, ts, access_level, &theme_link, &user_css, &prefs_plugin_js);
+    let html = render::render_prefs_page(csrf, ts, access_level, &theme_link, &user_css, &prefs_plugin_js, &prefs_css);
     let etag = format!("W/\"{}\"", md5_hex(&html));
     axum::http::Response::builder()
         .status(StatusCode::OK)
@@ -250,18 +252,24 @@ async fn resolve_active_plugins(state: &AppState, data: &core_session::Session) 
 }
 
 /// Generate the active plugins' CSS and JS for the shell (the PHP's
-/// `index.php` `foreach get_plugins(): get_css()/get_js()` loops).
-/// Pure registry lookup — no DB access.
-fn plugin_assets(state: &AppState, active: &[String]) -> (String, String) {
+/// Concatenate the `active` plugins' assets for one page: `css` joined into a
+/// single block, each `js` wrapped in PHP's named try/catch. Pure registry
+/// lookup — no DB access.
+fn plugin_assets_for(
+    host: &crate::pluginhost::PluginHost,
+    active: &[String],
+    css: impl Fn(&dyn crate::pluginhost::Plugin) -> String,
+    js: impl Fn(&dyn crate::pluginhost::Plugin) -> String,
+) -> (String, String) {
     let mut css_parts: Vec<String> = Vec::new();
     let mut js_parts: Vec<String> = Vec::new();
     for name in active {
-        if let Some(plugin) = state.plugins.get_plugin(name) {
-            let css = plugin.get_css();
+        if let Some(plugin) = host.get_plugin(name) {
+            let css = css(plugin);
             if !css.is_empty() {
                 css_parts.push(css);
             }
-            let js = plugin.get_js();
+            let js = js(plugin);
             if !js.is_empty() {
                 js_parts.push(format!(
                     "try {{\n\t\t\t\t{js}\n\t\t\t}} catch (e) {{\n\t\t\t\t\tconsole.warn('failed to initialize plugin JS: {name}', e);\n\t\t\t}}"
@@ -270,6 +278,17 @@ fn plugin_assets(state: &AppState, active: &[String]) -> (String, String) {
         }
     }
     (css_parts.join(""), js_parts.join(""))
+}
+
+/// The shell page's plugin assets (PHP `index.php` loop): `get_css`/`get_js`.
+fn plugin_assets(host: &crate::pluginhost::PluginHost, active: &[String]) -> (String, String) {
+    plugin_assets_for(host, active, |p| p.get_css(), |p| p.get_js())
+}
+
+/// The prefs page's plugin assets (PHP `prefs.php` loop): `get_prefs_css`/
+/// `get_prefs_js` — a different pair than the shell's.
+fn prefs_plugin_assets(host: &crate::pluginhost::PluginHost, active: &[String]) -> (String, String) {
+    plugin_assets_for(host, active, |p| p.get_prefs_css(), |p| p.get_prefs_js())
 }
 
 async fn theme_css_link(state: &AppState, data: &core_session::Session) -> String {
@@ -948,4 +967,30 @@ mod tests {
     // REVISIT (parked): implements_interface (4 cases) — PHP
     // `class_implements()` reflection with no Rust consumer in the port yet.
     // Revisit if a plugin/handler type-check surface is actually needed.
+
+    /// PHP `index.php` vs `prefs.php`: the shell page takes the active
+    /// plugins' `get_css`/`get_js`, the prefs page their `get_prefs_css`/
+    /// `get_prefs_js`. With `share` active, the two pairs are disjoint:
+    /// `share.js` has `shareArticle`, `share_prefs.js` has `clearKeys`.
+    /// Regression: the port once fed the shell pair to the prefs page.
+    #[test]
+    fn page_assets_use_their_own_plugin_pair() {
+        let host = crate::pluginhost::PluginHost::startup(&[
+            || Box::new(crate::plugins::share::Share) as Box<dyn crate::pluginhost::Plugin>,
+        ]);
+        let active = vec!["share".to_string()];
+
+        let (shell_css, shell_js) = plugin_assets(&host, &active);
+        assert!(shell_js.contains("shareArticle"), "shell must get share.js");
+        assert!(!shell_js.contains("clearKeys"), "prefs JS must not leak into the shell");
+
+        let (prefs_css, prefs_js) = prefs_plugin_assets(&host, &active);
+        assert!(prefs_js.contains("clearKeys"), "prefs must get share_prefs.js");
+        assert!(!prefs_js.contains("shareArticle"), "shell JS must not leak into the prefs page");
+
+        // `share.css` exists, `share_prefs.css` does not — the shell gets the
+        // CSS, the prefs page correctly gets none.
+        assert!(!shell_css.is_empty(), "share.css expected in the shell");
+        assert!(prefs_css.is_empty(), "share has no share_prefs.css");
+    }
 }
