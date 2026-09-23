@@ -31,7 +31,6 @@ use crate::prefs;
 use crate::session::Sess;
 use crate::time::TzCtx;
 use crate::AppState;
-use crate::pluginhost::host::HostCtx;
 use crate::pluginhost::{HOOK_PREFS_EDIT_FEED, HOOK_PREFS_SAVE_FEED};
 
 // `Feeds::*` virtual-feed pseudo-ids (functions.php).
@@ -1644,6 +1643,7 @@ async fn counters(pool: &sqlx::PgPool, uid: i64, feed_id: i64, fresh_max_age: i6
 /// save. Single: 0 or 1; batch: total rows touched.
 async fn editsaveops(
     state: &AppState,
+    sess: &Sess,
     uid: i64,
     profile: Option<i32>,
     extra: &Map<String, Value>,
@@ -1734,18 +1734,11 @@ async fn editsaveops(
         touched = 1;
         // M7.15 — the HOOK_PREFS_SAVE_FEED chain (the per-feed plugin save,
         // e.g. the af_psql_trgm enable/disable). PHP: run_hooks(HOOK_PREFS_SAVE_FEED,
-        // $feed_id) after the feed is saved.
+        // $feed_id) after the feed is saved. M7.22 item 9: dispatch over the
+        // *active* plugin set (`session_ctx`) — this chain was once built with
+        // `&[], &[]`, iterating zero plugins.
         {
-            let mut host_ctx = HostCtx::for_user(
-                &state.plugins,
-                pool,
-                &state.config,
-                Some(uid as i32),
-                profile,
-                0,
-                &[],
-                &[],
-            );
+            let mut host_ctx = crate::pluginhost::dispatch::session_ctx(state, sess).await;
             host_ctx.run_hooks(HOOK_PREFS_SAVE_FEED, |plugin, host| {
                 Box::pin(async move { plugin.hook_prefs_save_feed(host, feed_id, &Value::Object(extra.clone())).await; })
             })
@@ -1908,6 +1901,7 @@ pub async fn edit_save(state: &AppState, sess: &Sess, extra: &Map<String, Value>
     let data = sess.data();
     let _ = editsaveops(
         state,
+        sess,
         data.uid().unwrap_or(0),
         data.profile().map(|p| p as i32),
         extra,
@@ -1922,6 +1916,7 @@ pub async fn batch_edit_save(state: &AppState, sess: &Sess, extra: &Map<String, 
     let data = sess.data();
     let _ = editsaveops(
         state,
+        sess,
         data.uid().unwrap_or(0),
         data.profile().map(|p| p as i32),
         extra,
@@ -2807,17 +2802,10 @@ pub async fn editfeed(state: &AppState, sess: &Sess, extra: &Map<String, Value>)
 
     // M7.15 — the HOOK_PREFS_EDIT_FEED chain (the per-feed plugin UI, e.g.
     // the af_psql_trgm checkbox). PHP: ob_start(); run_hooks(...); $plugin_data =
-    // trim(ob_get_contents()); ob_end_clean();
-    let mut host_ctx = HostCtx::for_user(
-        &state.plugins,
-        pool,
-        &state.config,
-        Some(uid as i32),
-        profile,
-        sess.data().access_level().unwrap_or(0) as i32,
-        &[],
-        &[],
-    );
+    // trim(ob_get_contents()); ob_end_clean(). M7.22 item 9: dispatch over the
+    // *active* plugin set (`session_ctx`) — this chain was once built with
+    // `&[], &[]`, iterating zero plugins.
+    let mut host_ctx = crate::pluginhost::dispatch::session_ctx(state, sess).await;
     host_ctx.run_hooks(HOOK_PREFS_EDIT_FEED, |plugin, host| {
         Box::pin(async move { plugin.hook_prefs_edit_feed(host, feed_id as i32).await; })
     })

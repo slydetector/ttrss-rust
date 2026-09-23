@@ -240,3 +240,53 @@ async fn test_showrelated_missing() {
         Ok(())
     })).await.unwrap();
 }
+
+// ── M7.22 item 9 — the feed-edit payload composition seam ──────────────────
+
+/// A session carrying `uid = 1` (owner of the fixture feeds).
+fn sess(uid: i32) -> ttrss::session::Sess {
+    use ttrss::core::phpser::Value as PValue;
+    use ttrss::core::session::Session;
+    let mut data = Session::new();
+    data.set("uid", PValue::Int(uid as i64));
+    let s = ttrss::session::Sess::new("test-sid".to_string());
+    s.replace("test-sid".to_string(), data);
+    s
+}
+
+/// Active plugin (system level) → the feed-edit payload's `plugin_data`
+/// carries the per-feed similarity checkbox. Regression: the
+/// `HOOK_PREFS_EDIT_FEED` chain was once built with `&[], &[]` (zero active
+/// plugins), so this was always empty.
+#[tokio::test]
+async fn test_editfeed_payload_carries_trgm_checkbox_when_active() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = setup(&url, "af_psql_trgm").await;
+    let extra: serde_json::Map<String, serde_json::Value> =
+        serde_json::json!({ "id": 1 }).as_object().unwrap().clone();
+
+    let v = ttrss::feeds::editfeed(&state, &sess(1), &extra).await;
+    let plugin_data = v["plugin_data"].as_str().unwrap_or("");
+    assert!(
+        plugin_data.contains("trgm_similarity_enabled"),
+        "plugin_data must carry the per-feed checkbox: {plugin_data}"
+    );
+    assert!(plugin_data.contains("Similarity (af_psql_trgm)"));
+        Ok(())
+    })).await.unwrap();
+}
+
+/// No active plugin → `plugin_data` is empty (the stock-set-minus-trgm
+/// baseline).
+#[tokio::test]
+async fn test_editfeed_payload_plugin_data_empty_when_inactive() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = setup(&url, "").await;
+    let extra: serde_json::Map<String, serde_json::Value> =
+        serde_json::json!({ "id": 1 }).as_object().unwrap().clone();
+
+    let v = ttrss::feeds::editfeed(&state, &sess(1), &extra).await;
+    assert_eq!(v["plugin_data"].as_str().unwrap_or(""), "");
+        Ok(())
+    })).await.unwrap();
+}
