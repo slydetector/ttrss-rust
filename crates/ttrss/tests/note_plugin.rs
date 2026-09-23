@@ -13,6 +13,8 @@
 
 mod common;
 
+use test_db::template::with_test_db;
+
 use serde_json::{json, Map, Value};
 use ttrss::core::config::Config;
 use ttrss::core::db::Db;
@@ -67,12 +69,8 @@ fn test_config(plugins: &str) -> Config {
     }
 }
 
-async fn setup(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-    plugins: &str,
-) -> AppState {
-    let db: Db = common::make_db(pool, options).await.expect("test db");
+async fn setup(url: &str, plugins: &str) -> AppState {
+    let db: Db = common::make_db_from_url(url).await.expect("test db");
     AppState::new(test_config(plugins), db)
 }
 
@@ -121,16 +119,10 @@ fn json_of(v: &MethodOutput) -> &Value {
 
 // Save + load: `setnote` writes the note (tags stripped, as `clean()`), and
 // `edit` returns the dialog body with the note in the textarea.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql"
-))]
-async fn test_setnote_then_edit(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let state = setup(pool, options, "note").await;
+#[tokio::test]
+async fn test_setnote_then_edit() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = setup(&url, "note").await;
     let sess = session(1);
 
     let v = pluginhandler(&state, &sess, "tok", "setnote", &req("1", Some("hello note"))).await.unwrap();
@@ -155,57 +147,45 @@ async fn test_setnote_then_edit(
     assert!(html.contains("<footer class='text-center'>"), "{html}");
     assert!(html.contains(">Save</button>"), "{html}");
     assert!(html.contains(">Cancel</button>"), "{html}");
+        Ok(())
+    })).await.unwrap();
 }
 
 // `clean()` strips tags from the stored note (PHP's `clean($_REQUEST["note"])`).
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql"
-))]
-async fn test_setnote_strips_tags(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let state = setup(pool, options, "note").await;
+#[tokio::test]
+async fn test_setnote_strips_tags() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = setup(&url, "note").await;
     let sess = session(1);
 
     let v = pluginhandler(&state, &sess, "tok", "setnote", &req("1", Some("a<b>c"))).await.unwrap();
     assert_eq!(json_of(&v)["note"], "ac");
+        Ok(())
+    })).await.unwrap();
 }
 
 // `edit` for an article without a `ttrss_user_entries` row: footer only, no
 // textarea (the row appears when the article is first read).
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql"
-))]
-async fn test_edit_no_row_footer_only(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let state = setup(pool, options, "note").await;
+#[tokio::test]
+async fn test_edit_no_row_footer_only() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = setup(&url, "note").await;
     let sess = session(1);
 
     let v = pluginhandler(&state, &sess, "tok", "edit", &req("9999", None)).await.unwrap();
     let html = raw(&v);
     assert!(!html.contains("<textarea"), "{html}");
     assert!(html.contains("<footer class='text-center'>"), "{html}");
+        Ok(())
+    })).await.unwrap();
 }
 
 // `setnote` for an article without a row is a no-op (PHP's `UPDATE` without
 // `INSERT`) — a later `edit` still sees no textarea.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql"
-))]
-async fn test_setnote_no_row_noop(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let state = setup(pool, options, "note").await;
+#[tokio::test]
+async fn test_setnote_no_row_noop() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = setup(&url, "note").await;
     let sess = session(1);
 
     let v = pluginhandler(&state, &sess, "tok", "setnote", &req("9999", Some("x"))).await.unwrap();
@@ -213,20 +193,16 @@ async fn test_setnote_no_row_noop(
 
     let v = pluginhandler(&state, &sess, "tok", "edit", &req("9999", None)).await.unwrap();
     assert!(!raw(&v).contains("<textarea"));
+        Ok(())
+    })).await.unwrap();
 }
 
 // Owner scoping: a note is per (article, owner). Owner 1's `setnote`/`edit`
 // cannot see or touch owner 2's row.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql"
-))]
-async fn test_owner_scoping(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let state = setup(pool, options, "note").await;
+#[tokio::test]
+async fn test_owner_scoping() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = setup(&url, "note").await;
 
     // A self-contained fixture: owner 2 + an entry no one else reads (the
     // seed gives owner 1 a row for every seeded article).
@@ -271,20 +247,16 @@ async fn test_owner_scoping(
     // Owner 1 still sees no row of their own.
     let v = pluginhandler(&state, &sess1, "tok", "edit", &req(&ref_id.to_string(), None)).await.unwrap();
     assert!(!raw(&v).contains("<textarea"));
+        Ok(())
+    })).await.unwrap();
 }
 
 // Per-article scoping: a note on entry 1 does not leak into entry 2's dialog
 // (entry 2's row exists with an empty note → the textarea renders empty).
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql"
-))]
-async fn test_per_article_scoping(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let state = setup(pool, options, "note").await;
+#[tokio::test]
+async fn test_per_article_scoping() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = setup(&url, "note").await;
     let sess = session(1);
 
     let v = pluginhandler(&state, &sess, "tok", "setnote", &req("1", Some("entry one"))).await.unwrap();
@@ -297,56 +269,44 @@ async fn test_per_article_scoping(
 
     let v = pluginhandler(&state, &sess, "tok", "edit", &req("1", None)).await.unwrap();
     assert!(raw(&v).contains("name='note'>entry one</textarea>"));
+        Ok(())
+    })).await.unwrap();
 }
 
 // The plugin-level CSRF gate: `note` does not `csrf_ignore`, so a bad token
 // is rejected even for an existing method.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql"
-))]
-async fn test_csrf_fail(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let state = setup(pool, options, "note").await;
+#[tokio::test]
+async fn test_csrf_fail() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = setup(&url, "note").await;
     let sess = session(1);
 
     let v = pluginhandler(&state, &sess, "WRONG", "setnote", &req("1", Some("x"))).await.unwrap();
     assert_eq!(code(json_of(&v)), "E_UNAUTHORIZED");
+        Ok(())
+    })).await.unwrap();
 }
 
 // Active-set gating: a registered but system-disabled plugin is an unknown
 // plugin (PHP's per-request host only loads the enabled set).
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql"
-))]
-async fn test_inactive_plugin_unknown(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let state = setup(pool, options, "auth_internal").await; // `note` not enabled
+#[tokio::test]
+async fn test_inactive_plugin_unknown() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = setup(&url, "auth_internal").await; // `note` not enabled
     let sess = session(1);
 
     let v = pluginhandler(&state, &sess, "tok", "edit", &req("1", None)).await.unwrap();
     assert_eq!(code(json_of(&v)), "E_UNKNOWN_PLUGIN");
+        Ok(())
+    })).await.unwrap();
 }
 
 // The button row (`hook_article_button`): the exact markup the article list
 // gets from the hook (attribute order + visible text as PHP's literal).
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql"
-))]
-async fn test_button_row(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let state = setup(pool, options, "note").await;
+#[tokio::test]
+async fn test_button_row() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = setup(&url, "note").await;
     let plugin = state.plugins.get_plugin("note").expect("note registered");
     let mut ctx = HostCtx::empty(&state.plugins, state.db.pool(), &state.config);
 
@@ -358,19 +318,15 @@ async fn test_button_row(
         "<i class='material-icons' onclick=\"Plugins.Note.edit(42)\" \
          style='cursor : pointer' title=\"Edit article note\">note</i>"
     );
+        Ok(())
+    })).await.unwrap();
 }
 
 // `method_exists` parity: case-insensitive, exactly the two methods.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql"
-))]
-async fn test_method_exists(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let state = setup(pool, options, "note").await;
+#[tokio::test]
+async fn test_method_exists() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = setup(&url, "note").await;
     let plugin = state.plugins.get_plugin("note").expect("note registered");
 
     for m in ["edit", "setnote", "EDIT", "SetNote"] {
@@ -385,6 +341,8 @@ async fn test_method_exists(
     let _ = state.plugins.get_plugin("NOTE").expect("case-insensitive");
     let _ = state.plugins.get_plugin("note");
     let _ = state.plugins.get_plugin("nonexistent");
+        Ok(())
+    })).await.unwrap();
 }
 
 // The registry `about()` metadata (the plugin list surface, M4).

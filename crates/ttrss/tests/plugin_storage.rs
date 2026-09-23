@@ -9,6 +9,8 @@
 
 mod common;
 
+use test_db::template::with_test_db;
+
 use ttrss::core::phpser::{self, Key, Value as PValue};
 use ttrss::pluginhost::host::HostCtx;
 use ttrss::pluginhost::plugin::{About, Plugin};
@@ -42,13 +44,10 @@ fn int(k: i64, v: PValue) -> (Key, PValue) {
     (Key::Int(k), v)
 }
 
-/// The versioned test DB (fresh `_sqlx_test_N` per test), as a pool the
+/// The versioned test DB (fresh template DB per test), as a pool the
 /// storage methods can borrow.
-async fn setup_pool(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) -> sqlx::PgPool {
-    let db = common::make_db(pool, options).await.expect("test db");
+async fn setup_pool(url: &str) -> sqlx::PgPool {
+    let db = common::make_db_from_url(url).await.expect("test db");
     db.pool().clone()
 }
 
@@ -59,17 +58,11 @@ async fn seed_owner(pool: &sqlx::PgPool, login: &str) -> i32 {
     test_db::seed_user(pool, login, &hash, &salt, 3).await.expect("seed user")
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_set_and_get(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
+#[tokio::test]
+async fn test_set_and_get() {
+    let _ = with_test_db(|url| Box::pin(async move {
     // PHP: test_set_and_get
-    let pool = setup_pool(pool, options).await;
+    let pool = setup_pool(&url).await;
     let uid = seed_owner(&pool, "alice").await;
     let host = PluginHost::new();
     let test_cfg = ttrss::core::config::Config::for_test();
@@ -82,19 +75,15 @@ async fn test_set_and_get(
         ctx.storage_get(&p, "key1", PValue::Bool(false)).await.unwrap(),
         s(b"value1")
     );
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_returns_default_when_missing(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
+#[tokio::test]
+async fn test_get_returns_default_when_missing() {
+    let _ = with_test_db(|url| Box::pin(async move {
     // PHP: test_get_returns_default_when_missing
-    let pool = setup_pool(pool, options).await;
+    let pool = setup_pool(&url).await;
     let uid = seed_owner(&pool, "alice").await;
     let host = PluginHost::new();
     let test_cfg = ttrss::core::config::Config::for_test();
@@ -109,19 +98,15 @@ async fn test_get_returns_default_when_missing(
         ctx.storage_get(&p, "missing_key", s(b"default")).await.unwrap(),
         s(b"default")
     );
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_set_array(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
+#[tokio::test]
+async fn test_set_array() {
+    let _ = with_test_db(|url| Box::pin(async move {
     // PHP: test_set_array
-    let pool = setup_pool(pool, options).await;
+    let pool = setup_pool(&url).await;
     let uid = seed_owner(&pool, "alice").await;
     let host = PluginHost::new();
     let test_cfg = ttrss::core::config::Config::for_test();
@@ -142,19 +127,15 @@ async fn test_set_array(
     assert_eq!(ctx.storage_get(&p, "a", PValue::Bool(false)).await.unwrap(), PValue::Int(1));
     assert_eq!(ctx.storage_get(&p, "b", PValue::Bool(false)).await.unwrap(), PValue::Int(2));
     assert_eq!(ctx.storage_get(&p, "c", PValue::Bool(false)).await.unwrap(), PValue::Int(3));
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_array(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
+#[tokio::test]
+async fn test_get_array() {
+    let _ = with_test_db(|url| Box::pin(async move {
     // PHP: test_get_array
-    let pool = setup_pool(pool, options).await;
+    let pool = setup_pool(&url).await;
     let uid = seed_owner(&pool, "alice").await;
     let host = PluginHost::new();
     let test_cfg = ttrss::core::config::Config::for_test();
@@ -180,19 +161,15 @@ async fn test_get_array(
             .unwrap(),
         PValue::Array(vec![bytes("default", PValue::Int(0))])
     );
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_all(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
+#[tokio::test]
+async fn test_get_all() {
+    let _ = with_test_db(|url| Box::pin(async move {
     // PHP: test_get_all
-    let pool = setup_pool(pool, options).await;
+    let pool = setup_pool(&url).await;
     let uid = seed_owner(&pool, "alice").await;
     let host = PluginHost::new();
     let test_cfg = ttrss::core::config::Config::for_test();
@@ -205,19 +182,15 @@ async fn test_get_all(
     let all = ctx.storage_get_all(&p);
     assert_eq!(all.get("k1"), Some(&s(b"v1")));
     assert_eq!(all.get("k2"), Some(&s(b"v2")));
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_clear_data_removes_from_db(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
+#[tokio::test]
+async fn test_clear_data_removes_from_db() {
+    let _ = with_test_db(|url| Box::pin(async move {
     // PHP: test_clear_data_removes_from_db
-    let pool = setup_pool(pool, options).await;
+    let pool = setup_pool(&url).await;
     let uid = seed_owner(&pool, "alice").await;
     let host = PluginHost::new();
     let test_cfg = ttrss::core::config::Config::for_test();
@@ -241,21 +214,17 @@ async fn test_clear_data_removes_from_db(
             .await
             .unwrap();
     assert_eq!(count, 0);
+        Ok(())
+    })).await.unwrap();
 }
 
 // ── Rust-only: scoping and interop ─────────────────────────────────────────
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_owner_isolation(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
+#[tokio::test]
+async fn test_owner_isolation() {
+    let _ = with_test_db(|url| Box::pin(async move {
     // (uid, class-name) keying: two owners, same plugin class.
-    let pool = setup_pool(pool, options).await;
+    let pool = setup_pool(&url).await;
     let uid1 = seed_owner(&pool, "alice").await;
     let uid2 = seed_owner(&pool, "bob").await;
     let host = PluginHost::new();
@@ -283,18 +252,14 @@ async fn test_owner_isolation(
         ctx1.storage_get(&p, "shared_key", PValue::Bool(false)).await.unwrap(),
         s(b"alice-value")
     );
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_profile_scoping(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let pool = setup_pool(pool, options).await;
+#[tokio::test]
+async fn test_profile_scoping() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let pool = setup_pool(&url).await;
     let uid = seed_owner(&pool, "alice").await;
     let host = PluginHost::new();
     let test_cfg = ttrss::core::config::Config::for_test();
@@ -363,21 +328,17 @@ async fn test_profile_scoping(
         fresh.storage_get(&p, "pref", PValue::Bool(false)).await.unwrap(),
         PValue::Bool(false)
     );
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_php_written_row_decode(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
+#[tokio::test]
+async fn test_php_written_row_decode() {
+    let _ = with_test_db(|url| Box::pin(async move {
     // Interop, read side: a row written with PHP's exact `serialize()` bytes
     // must decode through the storage API (byte-exact decode of PHP-written
     // fixture rows).
-    let pool = setup_pool(pool, options).await;
+    let pool = setup_pool(&url).await;
     let uid = seed_owner(&pool, "alice").await;
 
     // PHP: serialize(['id' => 7, 'tags' => ['rss', 'xml'], 'enabled' => true])
@@ -407,6 +368,8 @@ async fn test_php_written_row_decode(
             .unwrap(),
         PValue::Array(vec![int(0, s(b"rss")), int(1, s(b"xml"))])
     );
+        Ok(())
+    })).await.unwrap();
 }
 
 struct PhpPlugin;
@@ -423,15 +386,8 @@ impl Plugin for PhpPlugin {
     fn init(&self, _host: &mut PluginHost) {}
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_encode_matches_php_bytes(
-    _pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    _options: sqlx::postgres::PgConnectOptions,
-) {
+#[tokio::test]
+async fn test_encode_matches_php_bytes() {
     // Interop, write side: the `content` this port serializes must be
     // byte-identical to PHP's `serialize()` output (so PHP's `unserialize()`
     // reads the row unchanged).
@@ -443,18 +399,12 @@ async fn test_encode_matches_php_bytes(
     assert_eq!(phpser::serialize(&v), php_bytes.to_vec());
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_all_without_load(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
+#[tokio::test]
+async fn test_get_all_without_load() {
+    let _ = with_test_db(|url| Box::pin(async move {
     // PHP's quirk: `get_all` returns the in-memory map without `load_data()` —
     // a fresh context (no prior get) sees an empty map even with a row.
-    let pool = setup_pool(pool, options).await;
+    let pool = setup_pool(&url).await;
     let uid = seed_owner(&pool, "alice").await;
 
     sqlx::query("INSERT INTO ttrss_plugin_storage (name, owner_uid, content) \
@@ -471,4 +421,6 @@ async fn test_get_all_without_load(
     let p = PhpPlugin;
     let ctx = HostCtx::for_user(&host, &pool, &test_cfg, Some(uid), None, 0, &[], &[]);
     assert_eq!(ctx.storage_get_all(&p), PValue::Array(Vec::new()));
+        Ok(())
+    })).await.unwrap();
 }

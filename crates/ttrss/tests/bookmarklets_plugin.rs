@@ -3,6 +3,8 @@
 
 mod common;
 
+use test_db::template::with_test_db;
+
 use serde_json::json;
 use ttrss::core::config::Config;
 use ttrss::core::db::Db;
@@ -54,12 +56,8 @@ fn test_config(plugins: &str) -> Config {
     }
 }
 
-async fn setup(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-    plugins: &str,
-) -> AppState {
-    let db: Db = common::make_db(pool, options).await.expect("test db");
+async fn setup(url: &str, plugins: &str) -> AppState {
+    let db: Db = common::make_db_from_url(url).await.expect("test db");
     AppState::new(test_config(plugins), db)
 }
 
@@ -95,16 +93,10 @@ async fn published_count(pool: &sqlx::PgPool, owner: i32) -> i64 {
 
 // `hook_prefs_tab("prefFeeds")` renders the AccordionPane with the two
 // bookmarklet links + the "More info…" button.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql"
-))]
-async fn test_prefs_tab(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let state = setup(pool, options, "bookmarklets").await;
+#[tokio::test]
+async fn test_prefs_tab() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = setup(&url, "bookmarklets").await;
     let plugin = state.plugins.get_plugin("bookmarklets").expect("bookmarklets registered");
     let mut c = ctx(&state);
 
@@ -134,38 +126,30 @@ async fn test_prefs_tab(
         html.contains("tt-rss.org/docs/Share-Anything.html"),
         "{html}"
     );
+        Ok(())
+    })).await.unwrap();
 }
 
 // `hook_prefs_tab` on a non-`prefFeeds` tab prints nothing.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql"
-))]
-async fn test_prefs_tab_other_tab(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let state = setup(pool, options, "bookmarklets").await;
+#[tokio::test]
+async fn test_prefs_tab_other_tab() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = setup(&url, "bookmarklets").await;
     let plugin = state.plugins.get_plugin("bookmarklets").expect("bookmarklets registered");
     let mut c = ctx(&state);
 
     plugin.hook_prefs_tab(&mut c, "prefGeneral").await;
     assert_eq!(c.output, "");
+        Ok(())
+    })).await.unwrap();
 }
 
 // `sharepopup` (no action, logged in) → the form with the pre-filled
 // title + URL.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql"
-))]
-async fn test_sharepopup_form(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let state = setup(pool, options, "bookmarklets").await;
+#[tokio::test]
+async fn test_sharepopup_form() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = setup(&url, "bookmarklets").await;
 
     let plugin = state.plugins.get_plugin("bookmarklets").expect("bookmarklets registered");
     let mut c = ctx(&state);
@@ -186,20 +170,16 @@ async fn test_sharepopup_form(
     assert!(body.contains("name='title' value='My Page'"), "{body}");
     assert!(body.contains("name='url' value='http://example.com/'"), "{body}");
     assert!(body.contains("name='action' value='share'"), "{body}");
+        Ok(())
+    })).await.unwrap();
 }
 
 // `sharepopup` (action=share, logged in) → creates a published article +
 // returns the `window.close()` script.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql"
-))]
-async fn test_sharepopup_share(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let state = setup(pool, options, "bookmarklets").await;
+#[tokio::test]
+async fn test_sharepopup_share() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = setup(&url, "bookmarklets").await;
 
     let before = published_count(state.db.pool(), 1).await;
 
@@ -228,19 +208,15 @@ async fn test_sharepopup_share(
 
     let after = published_count(state.db.pool(), 1).await;
     assert!(after > before, "published article count should increase");
+        Ok(())
+    })).await.unwrap();
 }
 
 // `sharepopup` (unauthenticated) → the login form.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql"
-))]
-async fn test_sharepopup_not_logged_in(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let state = setup(pool, options, "bookmarklets").await;
+#[tokio::test]
+async fn test_sharepopup_not_logged_in() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = setup(&url, "bookmarklets").await;
 
     // The public dispatch uses owner 0 (unauthenticated) — but the
     // `sharepopup` method checks `uid == 0` for the login form.
@@ -261,19 +237,15 @@ async fn test_sharepopup_not_logged_in(
     assert!(body.contains("Not logged in"), "{body}");
     assert!(body.contains("name=\"login\""), "{body}");
     assert!(body.contains("name=\"password\""), "{body}");
+        Ok(())
+    })).await.unwrap();
 }
 
 // `subscribe` (no feed_url, logged in) → the form.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql"
-))]
-async fn test_subscribe_form(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let state = setup(pool, options, "bookmarklets").await;
+#[tokio::test]
+async fn test_subscribe_form() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = setup(&url, "bookmarklets").await;
 
     let plugin = state.plugins.get_plugin("bookmarklets").expect("bookmarklets registered");
     let mut c = ctx(&state);
@@ -289,19 +261,15 @@ async fn test_subscribe_form(
     assert!(body.contains("Subscribe to feed..."), "{body}");
     assert!(body.contains("name=\"feed_url\""), "{body}");
     assert!(body.contains("name=\"csrf_token\" value=\"tok\""), "{body}");
+        Ok(())
+    })).await.unwrap();
 }
 
 // `subscribe` (unauthenticated) → the login form.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql"
-))]
-async fn test_subscribe_not_logged_in(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let state = setup(pool, options, "bookmarklets").await;
+#[tokio::test]
+async fn test_subscribe_not_logged_in() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = setup(&url, "bookmarklets").await;
 
     let v = public_dispatch(&state, "bookmarklets", "subscribe", &json!({})).await.unwrap();
     let MethodOutput::Response { status, body, .. } = v else {
@@ -310,4 +278,6 @@ async fn test_subscribe_not_logged_in(
     assert_eq!(status, 200, "body: {body}");
     assert!(body.contains("Not logged in"), "{body}");
     assert!(body.contains("name=\"login\""), "{body}");
+        Ok(())
+    })).await.unwrap();
 }

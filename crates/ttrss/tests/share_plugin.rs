@@ -12,6 +12,8 @@
 
 mod common;
 
+use test_db::template::with_test_db;
+
 use serde_json::{json, Map, Value};
 use ttrss::core::config::Config;
 use ttrss::core::db::Db;
@@ -65,12 +67,8 @@ fn test_config(plugins: &str) -> Config {
     }
 }
 
-async fn setup(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-    plugins: &str,
-) -> AppState {
-    let db: Db = common::make_db(pool, options).await.expect("test db");
+async fn setup(url: &str, plugins: &str) -> AppState {
+    let db: Db = common::make_db_from_url(url).await.expect("test db");
     AppState::new(test_config(plugins), db)
 }
 
@@ -136,16 +134,10 @@ async fn shared_count(pool: &sqlx::PgPool, owner: i32) -> i64 {
 
 // `newkey` mints a fresh uuid for the article (overwriting the seed's key) and
 // echoes `{"link": …}`.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql"
-))]
-async fn test_newkey_mints_key(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let state = setup(pool.clone(), options, "share").await;
+#[tokio::test]
+async fn test_newkey_mints_key() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = setup(&url, "share").await;
     let sess = session(1);
     let before = stored_uuid(&state.db.pool(), 1, 1).await;
 
@@ -156,57 +148,45 @@ async fn test_newkey_mints_key(
     assert_ne!(new_key, before, "newkey should overwrite the seed key");
 
     assert_eq!(stored_uuid(&state.db.pool(), 1, 1).await, new_key);
+        Ok(())
+    })).await.unwrap();
 }
 
 // `unshare` clears the article's uuid + echoes the message.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql"
-))]
-async fn test_unshare_clears_key(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let state = setup(pool, options, "share").await;
+#[tokio::test]
+async fn test_unshare_clears_key() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = setup(&url, "share").await;
     let sess = session(1);
 
     let v = pluginhandler(&state, &sess, "tok", "unshare", &req(Some("1"))).await.unwrap();
     assert_eq!(raw(&v), "Article unshared");
     assert_eq!(stored_uuid(&state.db.pool(), 1, 1).await, "");
+        Ok(())
+    })).await.unwrap();
 }
 
 // `clearArticleKeys` blanks every one of the owner's article keys.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql"
-))]
-async fn test_clear_article_keys(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let state = setup(pool, options, "share").await;
+#[tokio::test]
+async fn test_clear_article_keys() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = setup(&url, "share").await;
     let sess = session(1);
     assert!(shared_count(&state.db.pool(), 1).await > 0, "seed should pre-share");
 
     let v = pluginhandler(&state, &sess, "tok", "cleararticlekeys", &req(None)).await.unwrap();
     assert_eq!(raw(&v), "Shared URLs cleared.");
     assert_eq!(shared_count(&state.db.pool(), 1).await, 0);
+        Ok(())
+    })).await.unwrap();
 }
 
 // `shareDialog` reuses a stored key (the seed's `uuid-hn-001` for article 1)
 // without minting a new one.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql"
-))]
-async fn test_share_dialog_reuses_key(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let state = setup(pool, options, "share").await;
+#[tokio::test]
+async fn test_share_dialog_reuses_key() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = setup(&url, "share").await;
     let sess = session(1);
 
     let v = pluginhandler(&state, &sess, "tok", "sharedialog", &req(Some("1"))).await.unwrap();
@@ -219,19 +199,15 @@ async fn test_share_dialog_reuses_key(
     assert!(html.contains("Close this window"), "{html}");
     // Reusing does not change the stored key.
     assert_eq!(stored_uuid(&state.db.pool(), 1, 1).await, "uuid-hn-001");
+        Ok(())
+    })).await.unwrap();
 }
 
 // `shareDialog` on an article whose key was cleared mints a fresh one.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql"
-))]
-async fn test_share_dialog_mints_when_empty(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let state = setup(pool, options, "share").await;
+#[tokio::test]
+async fn test_share_dialog_mints_when_empty() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = setup(&url, "share").await;
     let sess = session(1);
 
     // Clear the seed key first.
@@ -244,39 +220,31 @@ async fn test_share_dialog_mints_when_empty(
     let new_key = stored_uuid(&state.db.pool(), 1, 1).await;
     assert!(!new_key.is_empty() && new_key != "uuid-hn-001");
     assert!(html.contains(&format!("key={new_key}")), "{html}");
+        Ok(())
+    })).await.unwrap();
 }
 
 // `shareDialog` for an article with no `ttrss_user_entries` row (owner 1 has no
 // article 9999) → "Article not found.", no key minted.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql"
-))]
-async fn test_share_dialog_no_row(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let state = setup(pool, options, "share").await;
+#[tokio::test]
+async fn test_share_dialog_no_row() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = setup(&url, "share").await;
     let sess = session(1);
 
     let v = pluginhandler(&state, &sess, "tok", "sharedialog", &req(Some("9999"))).await.unwrap();
     let html = raw(&v);
     assert!(html.contains("Article not found."), "{html}");
+        Ok(())
+    })).await.unwrap();
 }
 
 // Owner scoping: owner 2 has no article 1, so neither its `unshare` clears
 // owner 1's key nor its `shareDialog` can read it.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql"
-))]
-async fn test_owner_scoping(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let state = setup(pool, options, "share").await;
+#[tokio::test]
+async fn test_owner_scoping() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = setup(&url, "share").await;
     let owner2 = session(2);
 
     // owner 2's unshare on owner 1's article is a no-op (no row for owner 2).
@@ -292,19 +260,15 @@ async fn test_owner_scoping(
         .await
         .unwrap();
     assert!(raw(&v).contains("Article not found."), "{}", raw(&v));
+        Ok(())
+    })).await.unwrap();
 }
 
 // `get` public route: a valid key serves the article page (200, text/html).
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql"
-))]
-async fn test_get_public_route(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let state = setup(pool, options, "share").await;
+#[tokio::test]
+async fn test_get_public_route() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = setup(&url, "share").await;
 
     // The seed pre-sets uuid-hn-001 on article 1 (owner 1).
     let v = public_dispatch(&state, "share", "get", &json!({"key": "uuid-hn-001"}))
@@ -316,19 +280,15 @@ async fn test_get_public_route(
     assert_eq!(status, 200, "body: {body}");
     assert!(content_type.starts_with("text/html"), "content_type: {content_type}");
     assert!(body.contains("<!DOCTYPE html>"), "body: {body}");
+        Ok(())
+    })).await.unwrap();
 }
 
 // `get` public route: an unknown key → 404 "Article not found."
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql"
-))]
-async fn test_get_public_route_404(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let state = setup(pool, options, "share").await;
+#[tokio::test]
+async fn test_get_public_route_404() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = setup(&url, "share").await;
 
     let v = public_dispatch(&state, "share", "get", &json!({"key": "nonexistent"}))
         .await
@@ -338,4 +298,6 @@ async fn test_get_public_route_404(
     };
     assert_eq!(status, 404, "body: {body}");
     assert_eq!(body, "Article not found.");
+        Ok(())
+    })).await.unwrap();
 }

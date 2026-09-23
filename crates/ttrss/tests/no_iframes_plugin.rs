@@ -12,6 +12,8 @@
 
 mod common;
 
+use test_db::template::with_test_db;
+
 use ttrss::core::config::Config;
 use ttrss::core::db::Db;
 use ttrss::core::session::Session;
@@ -64,8 +66,8 @@ fn test_config() -> Config {
     }
 }
 
-async fn setup(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options: sqlx::postgres::PgConnectOptions) -> AppState {
-    let db: Db = common::make_db(pool, options).await.expect("test db");
+async fn setup(url: &str) -> AppState {
+    let db: Db = common::make_db_from_url(url).await.expect("test db");
     AppState::new(test_config(), db)
 }
 
@@ -108,16 +110,10 @@ async fn pipeline(
     .await
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql"
-))]
-async fn test_pipeline_removes_iframes(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let state = setup(pool, options).await;
+#[tokio::test]
+async fn test_pipeline_removes_iframes() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = setup(&url).await;
     let _sess = session();
 
     // no_iframes active (system list).
@@ -135,18 +131,14 @@ async fn test_pipeline_removes_iframes(
     assert!(out.contains("a"), "{out}");
     assert!(out.contains("b"), "{out}");
     assert!(out.contains("c"), "{out}");
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql"
-))]
-async fn test_pipeline_noop_when_inactive(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let state = setup(pool, options).await;
+#[tokio::test]
+async fn test_pipeline_noop_when_inactive() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = setup(&url).await;
     let _sess = session();
 
     // Registered (it is in the registry) but not active for this owner:
@@ -156,18 +148,14 @@ async fn test_pipeline_noop_when_inactive(
     assert!(out.contains("<iframe"), "iframe was removed without the plugin: {out}");
     assert!(out.contains("allow-scripts"), "core sandbox missing: {out}");
     assert!(out.contains("a"), "{out}");
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql"
-))]
-async fn test_user_enabled(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let state = setup(pool, options).await;
+#[tokio::test]
+async fn test_user_enabled() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = setup(&url).await;
     let _sess = session();
 
     // no_iframes is not a system plugin: the user-enabled list activates it
@@ -180,4 +168,6 @@ async fn test_user_enabled(
     )
     .await;
     assert!(!out.contains("<iframe"), "iframes survived: {out}");
+        Ok(())
+    })).await.unwrap();
 }

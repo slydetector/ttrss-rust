@@ -2,17 +2,18 @@
 //! program in `docs/plan.md`, rows 8–14).
 //!
 //! The `#[ctor]` function (which runs before the test harness's `main`)
-//! starts/attaches to the dedicated test Postgres and exports `DATABASE_URL`;
-//! sqlx's `#[sqlx::test]` harness then creates a fresh `_sqlx_test_N`
-//! database per test, applies the fixture files listed on each test (the
-//! frozen reference's base schema + baseline + the PHP integration suite's
-//! `seed.sql`) in order, injects the pool options, and drops the database
-//! when the test succeeds.
+//! starts/attaches to the dedicated test Postgres, exports `DATABASE_URL`,
+//! and ensures the versioned template database
+//! ([`test_db::template::ensure_template`]). Each test then calls
+//! [`test_db::template::with_test_db`], which clones a fresh versioned copy
+//! of the template (schema + baseline + `seed.sql` already applied) per
+//! test and drops it when the test finishes.
 //!
-//! [`make_db`] wraps the injected options in a core [`Db`] with the server's
-//! exact per-connection session setup (`ttrss::core::db::SESSION_SETUP`:
-//! `TIME ZONE 0`, `datestyle = 'ISO, european'`, …) so test connections
-//! behave exactly like the server's and the PHP reference's.
+//! [`make_db_from_url`] wraps the clone's URL in a core [`Db`] with the
+//! server's exact per-connection session setup
+//! (`ttrss::core::db::SESSION_SETUP`: `TIME ZONE 0`,
+//! `datestyle = 'ISO, european'`, …) so test connections behave exactly
+//! like the server's and the PHP reference's.
 
 // Every test binary links this module but uses only a subset of the helpers,
 // so dead-code linting per binary is noise by design.
@@ -41,39 +42,9 @@ fn init_test_pg() {
         .unwrap_or_else(|e| panic!("ctor: template setup failed: {e}"));
 }
 
-/// Wrap the pool options injected by `#[sqlx::test]` in a core [`Db`],
-/// applying the PHP per-connection session setup to every acquired
-/// connection.
-pub async fn make_db(pool: PoolOptions<Postgres>, options: PgConnectOptions) -> anyhow::Result<Db> {
-    // sqlx 0.7 keeps a per-connection statement cache keyed by SQL text
-    // (default capacity 100): re-Parsing the same text with different
-    // parameter type OIDs silently reuses the old prepared statement and
-    // produces wire-protocol errors (08P01), so disable it — parity tests
-    // (and the PHP port's `int`/`numeric-string` parameter mix) bind the
-    // same query shapes with different Rust integer widths.
-    let options = options.statement_cache_capacity(0);
-
-    let pool = pool
-        // The harness default is 30s; under full-suite load (many test
-        // binaries creating/fixture-loading databases concurrently on one
-        // test Postgres) connection establishment + the SESSION_SETUP hook
-        // can exceed that, so allow a much longer acquire window.
-        .acquire_timeout(Duration::from_secs(120))
-        .before_acquire(|conn: &mut PgConnection, _meta| {
-            Box::pin(async move {
-                for stmt in SESSION_SETUP {
-                    sqlx::query(AssertSqlSafe(*stmt)).execute(&mut *conn).await?;
-                }
-                Ok(true)
-            })
-        })
-        .connect_with(options)
-        .await?;
-    Ok(Db::from_pool(pool))
-}
 /// Create a [`Db`] from a database URL (for use with [`test_db::with_test_db`]).
 ///
-/// Applies the same session setup as [`make_db`] (statement cache disabled,
+/// Applies the PHP per-connection session setup (statement cache disabled,
 /// `SESSION_SETUP` on every connection).
 pub async fn make_db_from_url(url: &str) -> anyhow::Result<Db> {
     use url::Url;

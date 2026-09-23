@@ -2,6 +2,8 @@
 
 mod common;
 
+use test_db::template::with_test_db;
+
 use ttrss::core::config::Config;
 use ttrss::core::db::Db;
 use ttrss::pluginhost::host::HostCtx;
@@ -15,12 +17,8 @@ fn test_config(plugins: &str) -> Config {
     cfg
 }
 
-async fn setup(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-    plugins: &str,
-) -> AppState {
-    let db: Db = common::make_db(pool, options).await.expect("test db");
+async fn setup(url: &str, plugins: &str) -> AppState {
+    let db: Db = common::make_db_from_url(url).await.expect("test db");
     AppState::new(test_config(plugins), db)
 }
 
@@ -38,16 +36,10 @@ fn ctx(state: &AppState) -> HostCtx<'_> {
 }
 
 // `hook_main_toolbar_button` renders the toggle button.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql"
-))]
-async fn test_toolbar_button(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let state = setup(pool, options, "toggle_sidebar").await;
+#[tokio::test]
+async fn test_toolbar_button() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = setup(&url, "toggle_sidebar").await;
     let mut host = ctx(&state);
     let plugin = ToggleSidebar;
 
@@ -58,19 +50,15 @@ async fn test_toolbar_button(
     assert!(output.contains("Plugins.Toggle_Sidebar.toggle"));
     assert!(output.contains("chevron_left"));
     assert!(output.contains("toggle-sidebar-label"));
+        Ok(())
+    })).await.unwrap();
 }
 
 // `get_js` returns the toggle JS.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql"
-))]
-async fn test_get_js(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    setup(pool, options, "toggle_sidebar").await;
+#[tokio::test]
+async fn test_get_js() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    setup(&url, "toggle_sidebar").await;
     let plugin = ToggleSidebar;
 
     let js = plugin.get_js();
@@ -78,4 +66,6 @@ async fn test_get_js(
     assert!(js.contains("Feeds.toggle"));
     assert!(js.contains("chevron_left"));
     assert!(js.contains("chevron_right"));
+        Ok(())
+    })).await.unwrap();
 }

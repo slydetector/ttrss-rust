@@ -2,6 +2,8 @@
 
 mod common;
 
+use test_db::template::with_test_db;
+
 use serde_json::json;
 use ttrss::core::config::Config;
 use ttrss::core::db::Db;
@@ -16,12 +18,8 @@ fn test_config(plugins: &str) -> Config {
     cfg
 }
 
-async fn setup(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-    plugins: &str,
-) -> AppState {
-    let db: Db = common::make_db(pool, options).await.expect("test db");
+async fn setup(url: &str, plugins: &str) -> AppState {
+    let db: Db = common::make_db_from_url(url).await.expect("test db");
     AppState::new(test_config(plugins), db)
 }
 
@@ -76,35 +74,25 @@ async fn insert_entry(pool: &sqlx::PgPool, feed_id: i32, guid: &str, title: &str
 }
 
 // `save` returns the "Data saved" message.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql"
-))]
-async fn test_save(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    setup(pool, options, "af_psql_trgm").await;
+#[tokio::test]
+async fn test_save() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    setup(&url, "af_psql_trgm").await;
 
     let msg = AfPsqlTrgm::save(0.85, 32, true);
     assert_eq!(msg, "Data saved (0.85, on)");
 
     let msg = AfPsqlTrgm::save(-0.1, -5, false);
     assert_eq!(msg, "Data saved (0.00, off)");
+        Ok(())
+    })).await.unwrap();
 }
 
 // `hook_article_button` renders the `bookmark_outline` icon.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql"
-))]
-async fn test_article_button(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let state = setup(pool, options, "af_psql_trgm").await;
+#[tokio::test]
+async fn test_article_button() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = setup(&url, "af_psql_trgm").await;
     let mut host = ctx(&state);
     let plugin = AfPsqlTrgm;
 
@@ -112,19 +100,15 @@ async fn test_article_button(
     let html = plugin.hook_article_button(&mut host, &line).await;
     assert!(html.contains("bookmark_outline"));
     assert!(html.contains("showRelated(42)"));
+        Ok(())
+    })).await.unwrap();
 }
 
 // `hook_prefs_tab("prefFeeds")` renders the AccordionPane with the form fields.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql"
-))]
-async fn test_prefs_tab(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let state = setup(pool, options, "af_psql_trgm").await;
+#[tokio::test]
+async fn test_prefs_tab() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = setup(&url, "af_psql_trgm").await;
     let mut host = ctx(&state);
     let plugin = AfPsqlTrgm;
 
@@ -141,19 +125,15 @@ async fn test_prefs_tab(
     host.output.clear();
     plugin.hook_prefs_tab(&mut host, "otherTab").await;
     assert!(host.output.is_empty());
+        Ok(())
+    })).await.unwrap();
 }
 
 // The filter returns false when the feed is not enabled.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql"
-))]
-async fn test_filter_not_enabled(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let state = setup(pool, options, "af_psql_trgm").await;
+#[tokio::test]
+async fn test_filter_not_enabled() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = setup(&url, "af_psql_trgm").await;
     let pool = state.db.pool();
 
     let result = AfPsqlTrgm::filter(
@@ -169,19 +149,15 @@ async fn test_filter_not_enabled(
     )
     .await;
     assert!(!result);
+        Ok(())
+    })).await.unwrap();
 }
 
 // The filter returns false when the title is too short.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql"
-))]
-async fn test_filter_too_short(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let state = setup(pool, options, "af_psql_trgm").await;
+#[tokio::test]
+async fn test_filter_too_short() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = setup(&url, "af_psql_trgm").await;
     let pool = state.db.pool();
 
     let result = AfPsqlTrgm::filter(
@@ -197,19 +173,15 @@ async fn test_filter_too_short(
     )
     .await;
     assert!(!result);
+        Ok(())
+    })).await.unwrap();
 }
 
 // A similar article (≥ threshold) is caught by the filter.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql"
-))]
-async fn test_filter_similar(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let state = setup(pool, options, "af_psql_trgm").await;
+#[tokio::test]
+async fn test_filter_similar() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = setup(&url, "af_psql_trgm").await;
     let pool = state.db.pool();
 
     let feed_id = insert_feed(pool).await;
@@ -232,19 +204,15 @@ async fn test_filter_similar(
     )
     .await;
     assert!(result, "expected the similar article to be caught");
+        Ok(())
+    })).await.unwrap();
 }
 
 // `showrelated` returns the related-articles HTML.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql"
-))]
-async fn test_showrelated(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let state = setup(pool, options, "af_psql_trgm").await;
+#[tokio::test]
+async fn test_showrelated() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = setup(&url, "af_psql_trgm").await;
     let pool = state.db.pool();
 
     let feed_id = insert_feed(pool).await;
@@ -256,21 +224,19 @@ async fn test_showrelated(
     assert!(html.contains("panel-scrollable"));
     assert!(html.contains("Close this window"));
     assert!(html.contains("leaps over the lazy dog"));
+        Ok(())
+    })).await.unwrap();
 }
 
 // `showrelated` for a missing article returns an empty string.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql"
-))]
-async fn test_showrelated_missing(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let state = setup(pool, options, "af_psql_trgm").await;
+#[tokio::test]
+async fn test_showrelated_missing() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = setup(&url, "af_psql_trgm").await;
     let pool = state.db.pool();
 
     let html = AfPsqlTrgm::showrelated(pool, 1, 999999).await.unwrap();
     assert!(html.is_empty());
+        Ok(())
+    })).await.unwrap();
 }

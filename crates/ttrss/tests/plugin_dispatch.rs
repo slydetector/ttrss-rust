@@ -11,6 +11,8 @@
 
 mod common;
 
+use test_db::template::with_test_db;
+
 use std::sync::Arc;
 
 use serde_json::{json, Map, Value};
@@ -127,13 +129,8 @@ fn test_config() -> Config {
 
 /// A registry holding only the double (production's list is empty until
 /// M7.4+), a `Sess` with `uid = 1` + the given CSRF token (as login would).
-async fn setup(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-    plugin: DispatchPlugin,
-    csrf: &str,
-) -> (AppState, Sess) {
-    let db: Db = common::make_db(pool, options).await.expect("test db");
+async fn setup(url: &str, plugin: DispatchPlugin, csrf: &str) -> (AppState, Sess) {
+    let db: Db = common::make_db_from_url(url).await.expect("test db");
     let mut state = AppState::new(test_config(), db);
     let mut host = PluginHost::new();
     host.register(Box::new(plugin));
@@ -169,21 +166,15 @@ fn code(v: &Value) -> &str {
 // ── protected path (`op=PluginHandler`) ─────────────────────────────────────
 
 // Dispatch: valid CSRF, existing method → invoked, request map as params.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql"
-))]
-async fn test_protected_dispatch(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
+#[tokio::test]
+async fn test_protected_dispatch() {
+    let _ = with_test_db(|url| Box::pin(async move {
     let plugin = DispatchPlugin {
         public: true,
         csrf_ignore: false,
         methods: vec!["getnote", "setnote"],
     };
-    let (state, sess) = setup(pool, options, plugin, "tok123").await;
+    let (state, sess) = setup(&url, plugin, "tok123").await;
 
     let v = ttrss::pluginhost::dispatch::pluginhandler(
         &state,
@@ -207,24 +198,20 @@ async fn test_protected_dispatch(
     assert_eq!(v["params"]["csrf_token"], "tok123");
     assert_eq!(v["params"]["plugin"], "dispatchtest");
     assert_eq!(v["params"]["id"], 7);
+        Ok(())
+    })).await.unwrap();
 }
 
 // Unknown plugin → `E_UNKNOWN_PLUGIN` (before any method/CSRF check).
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql"
-))]
-async fn test_protected_unknown_plugin(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
+#[tokio::test]
+async fn test_protected_unknown_plugin() {
+    let _ = with_test_db(|url| Box::pin(async move {
     let plugin = DispatchPlugin {
         public: true,
         csrf_ignore: false,
         methods: vec!["getnote"],
     };
-    let (state, sess) = setup(pool, options, plugin, "tok123").await;
+    let (state, sess) = setup(&url, plugin, "tok123").await;
 
     let v = ttrss::pluginhost::dispatch::pluginhandler(
         &state,
@@ -237,25 +224,21 @@ async fn test_protected_unknown_plugin(
     .expect("no plugin error");
     let v = json_out(&v);
     assert_eq!(code(v), "E_UNKNOWN_PLUGIN");
+        Ok(())
+    })).await.unwrap();
 }
 
 // Unknown method → `E_UNKNOWN_METHOD` — and it takes precedence over the
 // CSRF gate (the PHP checks `method_exists` before `validate_csrf`).
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql"
-))]
-async fn test_protected_unknown_method_beats_csrf(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
+#[tokio::test]
+async fn test_protected_unknown_method_beats_csrf() {
+    let _ = with_test_db(|url| Box::pin(async move {
     let plugin = DispatchPlugin {
         public: true,
         csrf_ignore: false,
         methods: vec!["getnote"],
     };
-    let (state, sess) = setup(pool, options, plugin, "tok123").await;
+    let (state, sess) = setup(&url, plugin, "tok123").await;
 
     // Bad token + unknown method → unknown method wins.
     let v = ttrss::pluginhost::dispatch::pluginhandler(
@@ -269,24 +252,20 @@ async fn test_protected_unknown_method_beats_csrf(
     .expect("no plugin error");
     let v = json_out(&v);
     assert_eq!(code(v), "E_UNKNOWN_METHOD");
+        Ok(())
+    })).await.unwrap();
 }
 
 // CSRF fail: bad token, method exists, no `csrf_ignore` → `E_UNAUTHORIZED`.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql"
-))]
-async fn test_protected_csrf_fail(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
+#[tokio::test]
+async fn test_protected_csrf_fail() {
+    let _ = with_test_db(|url| Box::pin(async move {
     let plugin = DispatchPlugin {
         public: true,
         csrf_ignore: false,
         methods: vec!["getnote"],
     };
-    let (state, sess) = setup(pool, options, plugin, "tok123").await;
+    let (state, sess) = setup(&url, plugin, "tok123").await;
 
     let v = ttrss::pluginhost::dispatch::pluginhandler(
         &state,
@@ -299,25 +278,21 @@ async fn test_protected_csrf_fail(
     .expect("no plugin error");
     let v = json_out(&v);
     assert_eq!(code(v), "E_UNAUTHORIZED");
+        Ok(())
+    })).await.unwrap();
 }
 
 // `csrf_ignore` bypass: bad token, but the plugin exempts the method →
 // invoked.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql"
-))]
-async fn test_protected_csrf_ignore_bypass(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
+#[tokio::test]
+async fn test_protected_csrf_ignore_bypass() {
+    let _ = with_test_db(|url| Box::pin(async move {
     let plugin = DispatchPlugin {
         public: true,
         csrf_ignore: true,
         methods: vec!["getnote"],
     };
-    let (state, sess) = setup(pool, options, plugin, "tok123").await;
+    let (state, sess) = setup(&url, plugin, "tok123").await;
 
     let v = ttrss::pluginhost::dispatch::pluginhandler(
         &state,
@@ -330,24 +305,20 @@ async fn test_protected_csrf_ignore_bypass(
     .expect("no plugin error");
     let v = json_out(&v);
     assert_eq!(v["method"], "getnote");
+        Ok(())
+    })).await.unwrap();
 }
 
 // `clean()` on the plugin name: tags stripped + trimmed (PHP `clean()`).
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql"
-))]
-async fn test_protected_name_cleaned(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
+#[tokio::test]
+async fn test_protected_name_cleaned() {
+    let _ = with_test_db(|url| Box::pin(async move {
     let plugin = DispatchPlugin {
         public: true,
         csrf_ignore: false,
         methods: vec!["getnote"],
     };
-    let (state, sess) = setup(pool, options, plugin, "tok123").await;
+    let (state, sess) = setup(&url, plugin, "tok123").await;
 
     let v = ttrss::pluginhost::dispatch::pluginhandler(
         &state,
@@ -360,27 +331,23 @@ async fn test_protected_name_cleaned(
     .expect("no plugin error");
     let v = json_out(&v);
     assert_eq!(v["plugin"], "dispatchtest");
+        Ok(())
+    })).await.unwrap();
 }
 
 // ── public path (`op=pluginhandler`) ────────────────────────────────────────
 
 // `is_public_method` gating: the method exists but the plugin marks it
 // non-public → `E_UNAUTHORIZED`.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql"
-))]
-async fn test_public_private_method_rejected(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
+#[tokio::test]
+async fn test_public_private_method_rejected() {
+    let _ = with_test_db(|url| Box::pin(async move {
     let plugin = DispatchPlugin {
         public: false,
         csrf_ignore: false,
         methods: vec!["getnote"],
     };
-    let (state, _sess) = setup(pool, options, plugin, "irrelevant").await;
+    let (state, _sess) = setup(&url, plugin, "irrelevant").await;
 
     let v = ttrss::pluginhost::dispatch::public_dispatch(
         &state,
@@ -392,25 +359,21 @@ async fn test_public_private_method_rejected(
     .expect("no plugin error");
     let v = json_out(&v);
     assert_eq!(code(v), "E_UNAUTHORIZED");
+        Ok(())
+    })).await.unwrap();
 }
 
 // Public dispatch: `is_public_method` true → invoked with owner 0 (PHP's
 // `load($name, KIND_ALL, 0)` — no user context on this path).
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql"
-))]
-async fn test_public_dispatch(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
+#[tokio::test]
+async fn test_public_dispatch() {
+    let _ = with_test_db(|url| Box::pin(async move {
     let plugin = DispatchPlugin {
         public: true,
         csrf_ignore: false,
         methods: vec!["showarticle"],
     };
-    let (state, _sess) = setup(pool, options, plugin, "irrelevant").await;
+    let (state, _sess) = setup(&url, plugin, "irrelevant").await;
 
     let v = ttrss::pluginhost::dispatch::public_dispatch(
         &state,
@@ -425,25 +388,21 @@ async fn test_public_dispatch(
     assert_eq!(v["method"], "showarticle");
     assert_eq!(v["owner_uid"], 0);
     assert_eq!(v["params"]["key"], "abc123");
+        Ok(())
+    })).await.unwrap();
 }
 
 // Unknown plugin → `E_UNKNOWN_PLUGIN` with the plugin name in the envelope
 // (the public path passes `['plugin' => $name]`, the protected one does not).
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql"
-))]
-async fn test_public_unknown_plugin(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
+#[tokio::test]
+async fn test_public_unknown_plugin() {
+    let _ = with_test_db(|url| Box::pin(async move {
     let plugin = DispatchPlugin {
         public: true,
         csrf_ignore: false,
         methods: vec!["showarticle"],
     };
-    let (state, _sess) = setup(pool, options, plugin, "irrelevant").await;
+    let (state, _sess) = setup(&url, plugin, "irrelevant").await;
 
     let v = ttrss::pluginhost::dispatch::public_dispatch(
         &state,
@@ -456,24 +415,20 @@ async fn test_public_unknown_plugin(
     let v = json_out(&v);
     assert_eq!(code(v), "E_UNKNOWN_PLUGIN");
     assert_eq!(v["error"]["params"][0]["plugin"], "no_such_plugin");
+        Ok(())
+    })).await.unwrap();
 }
 
 // Unknown method → `E_UNKNOWN_METHOD` (checked before `is_public_method`).
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql"
-))]
-async fn test_public_unknown_method(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
+#[tokio::test]
+async fn test_public_unknown_method() {
+    let _ = with_test_db(|url| Box::pin(async move {
     let plugin = DispatchPlugin {
         public: true,
         csrf_ignore: false,
         methods: vec!["showarticle"],
     };
-    let (state, _sess) = setup(pool, options, plugin, "irrelevant").await;
+    let (state, _sess) = setup(&url, plugin, "irrelevant").await;
 
     let v = ttrss::pluginhost::dispatch::public_dispatch(
         &state,
@@ -485,25 +440,21 @@ async fn test_public_unknown_method(
     .expect("no plugin error");
     let v = json_out(&v);
     assert_eq!(code(v), "E_UNKNOWN_METHOD");
+        Ok(())
+    })).await.unwrap();
 }
 
 // `basename(clean(...))` on the plugin name: a path-like `plugin` param
 // resolves to its last component (PHP `basename()`).
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql"
-))]
-async fn test_public_name_basename(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
+#[tokio::test]
+async fn test_public_name_basename() {
+    let _ = with_test_db(|url| Box::pin(async move {
     let plugin = DispatchPlugin {
         public: true,
         csrf_ignore: false,
         methods: vec!["showarticle"],
     };
-    let (state, _sess) = setup(pool, options, plugin, "irrelevant").await;
+    let (state, _sess) = setup(&url, plugin, "irrelevant").await;
 
     let v = ttrss::pluginhost::dispatch::public_dispatch(
         &state,
@@ -515,26 +466,22 @@ async fn test_public_name_basename(
     .expect("no plugin error");
     let v = json_out(&v);
     assert_eq!(v["plugin"], "dispatchtest");
+        Ok(())
+    })).await.unwrap();
 }
 
 // A method that prints raw HTML (PHP's plain `print`) comes back as
 // `MethodOutput::Raw` — the response body is the printed text, not a JSON
 // envelope.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql"
-))]
-async fn test_protected_raw_output(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
+#[tokio::test]
+async fn test_protected_raw_output() {
+    let _ = with_test_db(|url| Box::pin(async move {
     let plugin = DispatchPlugin {
         public: true,
         csrf_ignore: true,
         methods: vec!["raw"],
     };
-    let (state, sess) = setup(pool, options, plugin, "tok123").await;
+    let (state, sess) = setup(&url, plugin, "tok123").await;
 
     let v = ttrss::pluginhost::dispatch::pluginhandler(
         &state,
@@ -550,4 +497,6 @@ async fn test_protected_raw_output(
         MethodOutput::Json(j) => panic!("expected Raw, got JSON: {j}"),
         MethodOutput::Response { .. } => panic!("expected Raw, got a response"),
     }
+        Ok(())
+    })).await.unwrap();
 }

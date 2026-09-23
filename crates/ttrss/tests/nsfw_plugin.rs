@@ -10,6 +10,8 @@
 
 mod common;
 
+use test_db::template::with_test_db;
+
 use serde_json::{json, Map, Value};
 use ttrss::core::config::Config;
 use ttrss::core::db::Db;
@@ -64,8 +66,8 @@ fn test_config() -> Config {
     }
 }
 
-async fn setup(pool: sqlx::pool::PoolOptions<sqlx::Postgres>, options: sqlx::postgres::PgConnectOptions) -> AppState {
-    let db: Db = common::make_db(pool, options).await.expect("test db");
+async fn setup(url: &str) -> AppState {
+    let db: Db = common::make_db_from_url(url).await.expect("test db");
     AppState::new(test_config(), db)
 }
 
@@ -119,16 +121,10 @@ async fn stored_tags(ctx: &mut HostCtx<'_>) -> String {
         .to_string()
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql"
-))]
-async fn test_save_roundtrip(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let state = setup(pool, options).await;
+#[tokio::test]
+async fn test_save_roundtrip() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = setup(&url).await;
     let sess = session();
 
     let v = pluginhandler(
@@ -145,18 +141,14 @@ async fn test_save_roundtrip(
     // `save` normalizes (trim, lowercase, de-dup, sort) and stores.
     let mut c = ctx(&state);
     assert_eq!(stored_tags(&mut c).await, "a, b");
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql"
-))]
-async fn test_render_wrap(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let state = setup(pool, options).await;
+#[tokio::test]
+async fn test_render_wrap() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = setup(&url).await;
 
     // Seed the stored tag list directly (as `save` would).
     {
@@ -187,18 +179,14 @@ async fn test_render_wrap(
     let mut article3 = json!({ "content": "<p>x</p>" });
     let out = plugin.hook_render_article(&mut c, &mut article3).await;
     assert_eq!(out["content"], "<p>x</p>");
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql"
-))]
-async fn test_render_api_fallback(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let state = setup(pool, options).await;
+#[tokio::test]
+async fn test_render_api_fallback() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = setup(&url).await;
     {
         let mut c = ctx(&state);
         let plugin = c.get_plugin("nsfw").expect("nsfw active");
@@ -229,18 +217,14 @@ async fn test_render_api_fallback(
         out["content"],
         "<details class='nsfw'><summary>Not safe for work (click to toggle)</summary><a>art</a></details>"
     );
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql"
-))]
-async fn test_image_hook(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let state = setup(pool, options).await;
+#[tokio::test]
+async fn test_image_hook() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = setup(&url).await;
     {
         let mut c = ctx(&state);
         let plugin = c.get_plugin("nsfw").expect("nsfw active");
@@ -268,18 +252,14 @@ async fn test_image_hook(
         .hook_article_image(&mut c, &json!([]), "<img src='real.png'>", "http://site/", &non_matching)
         .await;
     assert_eq!(v, json!(["", "", "<img src='real.png'>"]));
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql"
-))]
-async fn test_prefs_tab(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let state = setup(pool, options).await;
+#[tokio::test]
+async fn test_prefs_tab() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = setup(&url).await;
     {
         let mut c = ctx(&state);
         let plugin = c.get_plugin("nsfw").expect("nsfw active");
@@ -310,18 +290,14 @@ async fn test_prefs_tab(
     assert!(html.contains("name='tags'>a, b</textarea>"), "{html}");
     // The Save button.
     assert!(html.contains(">Save</button>"), "{html}");
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql"
-))]
-async fn test_csrf_gate(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let state = setup(pool, options).await;
+#[tokio::test]
+async fn test_csrf_gate() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let state = setup(&url).await;
     let sess = session();
 
     // `save` is not `csrf_ignore`d.
@@ -335,20 +311,16 @@ async fn test_csrf_gate(
     .await
     .unwrap();
     assert_eq!(code(&v), "E_UNAUTHORIZED");
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql"
-))]
-async fn test_disabled_plugin_unknown(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
+#[tokio::test]
+async fn test_disabled_plugin_unknown() {
+    let _ = with_test_db(|url| Box::pin(async move {
     // A registered but system-disabled plugin is an unknown plugin on the
     // protected path (M7.3's active-aware `get_plugin`).
-    let state = setup(pool, options).await;
+    let state = setup(&url).await;
     let sess = session();
     let v = pluginhandler(
         &state,
@@ -360,4 +332,6 @@ async fn test_disabled_plugin_unknown(
     .await
     .unwrap();
     assert_eq!(code(&v), "E_UNKNOWN_PLUGIN");
+        Ok(())
+    })).await.unwrap();
 }

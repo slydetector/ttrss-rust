@@ -9,6 +9,8 @@
 
 mod common;
 
+use test_db::template::with_test_db;
+
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -70,12 +72,8 @@ fn test_config() -> Config {
     }
 }
 
-async fn setup(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-    base: PathBuf,
-) -> AppState {
-    let db: Db = common::make_db(pool, options).await.expect("test db");
+async fn setup(url: &str, base: PathBuf) -> AppState {
+    let db: Db = common::make_db_from_url(url).await.expect("test db");
     let mut config = test_config();
     // `base_cache_dir()` is `feed_icon_dir.parent()` → the temp base.
     config.feed_icon_dir = base.join("feed-icons");
@@ -146,19 +144,13 @@ async fn seed_starred_article(
     article_id
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql"
-))]
-async fn test_task_caches_starred_media(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
+#[tokio::test]
+async fn test_task_caches_starred_media() {
+    let _ = with_test_db(|url| Box::pin(async move {
     use common::{Canned, MockServer};
 
     let base = cache_base();
-    let state = setup(pool, options, base.clone()).await;
+    let state = setup(&url, base.clone()).await;
 
     // A media file served over loopback.
     let body: Vec<u8> = b"fake-png-bytes-0123456789".to_vec();
@@ -201,19 +193,15 @@ async fn test_task_caches_starred_media(
         .find(|p| p.file_name().unwrap().to_string_lossy().starts_with(&format!("{article_id}-")))
         .unwrap_or_else(|| panic!("no cached media file for {article_id} in {media_dir:?}"));
     assert_eq!(std::fs::read(&cached).unwrap(), body);
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql"
-))]
-async fn test_attempt_cap(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
+#[tokio::test]
+async fn test_attempt_cap() {
+    let _ = with_test_db(|url| Box::pin(async move {
     let base = cache_base();
-    let state = setup(pool, options, base.clone()).await;
+    let state = setup(&url, base.clone()).await;
 
     // An unreachable media URL (a closed loopback port → the fetch fails fast)
     // so `cache_article_images` keeps retrying, capped at 5 attempts.
@@ -239,19 +227,15 @@ async fn test_attempt_cap(
 
     // …and the article is NOT marked done (the media never cached).
     assert_eq!(plugin_data(state.db.pool(), article_id).await, Some(String::new()));
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql"
-))]
-async fn test_expire_removes_orphaned_media(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
+#[tokio::test]
+async fn test_expire_removes_orphaned_media() {
+    let _ = with_test_db(|url| Box::pin(async move {
     let base = cache_base();
-    let state = setup(pool, options, base.clone()).await;
+    let state = setup(&url, base.clone()).await;
 
     // A cache file (and status file) for an article that does not exist.
     let media_dir = base.join("starred-images");
@@ -268,4 +252,6 @@ async fn test_expire_removes_orphaned_media(
     // Both orphaned files are gone (their article does not exist).
     assert!(!orphan.exists());
     assert!(!orphan_status.exists());
+        Ok(())
+    })).await.unwrap();
 }
