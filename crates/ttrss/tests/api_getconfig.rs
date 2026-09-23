@@ -60,7 +60,7 @@ async fn enable_api(db: &Db) {
 
 async fn getconfig(state: &AppState, sess: &Sess) -> Value {
     let (status, content) =
-        api::before_and_dispatch(state, sess, "getconfig", &request(&[])).await;
+        api::before_and_dispatch(state, sess, "getconfig", &request(&[]), None).await;
     assert_eq!(status, 0, "getconfig must succeed: {content}");
     content
 }

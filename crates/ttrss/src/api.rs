@@ -61,6 +61,15 @@ pub async fn handler(state: State<AppState>, sess: Extension<Sess>, req: Request
     if !content_type_is_json(ct) {
         return envelope(-1, STATUS_ERR, json!({ "error": E_INCORRECT_USAGE })).into_response();
     }
+    // The request's `Accept-Language` (M10.3): threaded to the handlers that
+    // render user-facing strings so they resolve the UI locale like PHP
+    // (`startup_gettext` — the user's `USER_LANGUAGE` pref wins, else the
+    // header, else English).
+    let accept_language: Option<String> = req
+        .headers()
+        .get(header::ACCEPT_LANGUAGE)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
     let bytes = axum::body::to_bytes(req.into_body(), 1_048_576)
         .await
         .unwrap_or_default();
@@ -87,7 +96,8 @@ pub async fn handler(state: State<AppState>, sess: Extension<Sess>, req: Request
     if op == "getfeedicon" {
         return get_feed_icon(&state, &sess, &body, seq).await;
     }
-    let (status, content) = before_and_dispatch(&state, &sess, &op, &body).await;
+    let (status, content) =
+        before_and_dispatch(&state, &sess, &op, &body, accept_language.as_deref()).await;
 
     let mut res = envelope(seq, status, content);
     // `before()` sets `Content-Type: application/json`; the session `nocache`
@@ -122,6 +132,7 @@ pub async fn before_and_dispatch(
     sess: &Sess,
     op: &str,
     body: &Map<String, Value>,
+    accept_language: Option<&str>,
 ) -> (i64, Value) {
     let data = sess.data();
     let uid = data.uid();
@@ -146,7 +157,7 @@ pub async fn before_and_dispatch(
         "getcategories" => get_categories(state, uid, body).await,
         "getfeedtree" => get_feed_tree(state, sess, body).await,
         "getlabels" => get_labels(state, uid, body).await,
-        "getheadlines" => get_headlines(state, sess, body).await,
+        "getheadlines" => get_headlines(state, sess, body, accept_language).await,
         "getarticle" => get_article(state, sess, uid, body).await,
         "getpref" => get_pref(state, sess, body).await,
         "getversion" => (
@@ -772,9 +783,19 @@ async fn get_labels(state: &AppState, uid: Option<i64>, body: &Map<String, Value
     )
 }
 
-async fn get_headlines(state: &AppState, sess: &Sess, body: &Map<String, Value>) -> (i64, Value) {
+async fn get_headlines(
+    state: &AppState,
+    sess: &Sess,
+    body: &Map<String, Value>,
+    accept_language: Option<&str>,
+) -> (i64, Value) {
     let data = sess.data();
     let uid = data.uid().unwrap_or(0);
+    // M10.3: resolve the UI locale (the user's `USER_LANGUAGE` pref wins, else
+    // `Accept-Language`, else English) so the headline feed titles render in
+    // the user's language, like PHP's `Feeds::get_headlines` (the API boundary
+    // carries no profile → the user-default row).
+    let locale = crate::i18n::resolve_user_locale(state, uid, None, accept_language).await;
     let feed_id = match body.get("feed_id") {
         Some(Value::String(s)) => clean_str(s),
         Some(other) => clean_str(&other.to_string()),
@@ -827,9 +848,8 @@ async fn get_headlines(state: &AppState, sess: &Sess, body: &Map<String, Value>)
         skip_first_id_check,
         ..Default::default()
     };
-    // M10.3: machine-facing (English) — `get_headlines_query` resolves no
-    // locale internally; only the interactive `view` path carries a UI locale.
-    let q = headlines::get_headlines_query(&state.db, &params).await;
+    let q =
+        headlines::get_headlines_query(&state.db, &params, locale.as_deref(), &state.i18n).await;
 
     // M7.6: the HOOK_SANITIZE context (no_iframes et al.) — built once for
     // the whole request (PHP's singleton; the active set is per owner).

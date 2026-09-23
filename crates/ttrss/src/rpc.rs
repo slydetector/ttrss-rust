@@ -324,6 +324,11 @@ async fn dispatch(
     // M10.3: resolve the UI locale once (profile-aware `USER_LANGUAGE` pref,
     // falling back to `Accept-Language`) for the server-rendered surfaces
     // (the headlines `feed_title`/content and the `hotkeyhelp` descriptions).
+    //
+    // TODO(perf): this runs for *every* RPC op, even ones that render no
+    // user-facing string (it hits the per-process prefs cache — a memory hit
+    // after the first load per user). Re-evaluate lazily (resolve only in
+    // `view`/`hotkeyhelp`) if the pref load ever shows up in a profile.
     let locale = {
         let uid = data.uid().unwrap_or(0);
         let profile = data.profile().map(|p| p as i32);

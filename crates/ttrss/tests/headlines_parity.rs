@@ -55,7 +55,7 @@ fn row_ids(rows: &[sqlx::postgres::PgRow]) -> Vec<i32> {
 async fn test_get_headlines_return_structure() {
     let _ = with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
-    let q = get_headlines_query(&db, &params(-4)).await; // Feeds::FEED_ALL
+    let q = get_headlines_query(&db, &params(-4), None, common::empty_i18n()).await; // Feeds::FEED_ALL
 
     // The Rust HeadlinesQuery is the typed form of PHP's 9-element return
     // tuple: the row set, feed title / site URL / error / last updated
@@ -82,7 +82,7 @@ async fn test_get_headlines_return_structure() {
 async fn test_get_headlines_by_feed_id() {
     let _ = with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
-    let q = get_headlines_query(&db, &params(1)).await; // Hacker News
+    let q = get_headlines_query(&db, &params(1), None, common::empty_i18n()).await; // Hacker News
 
     assert_eq!("Hacker News", q.feed_title);
     assert!(
@@ -106,7 +106,7 @@ async fn test_get_headlines_by_feed_id_empty() {
     let _ = with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     // Feed id 999 does not exist
-    let q = get_headlines_query(&db, &params(999)).await;
+    let q = get_headlines_query(&db, &params(999), None, common::empty_i18n()).await;
     assert!(q.article_rows.is_empty());
         Ok(())
     })).await.unwrap();
@@ -120,7 +120,7 @@ async fn test_get_headlines_by_feed_id_different_owner() {
     // Feed 1 exists but owner_uid=2 has no subscriptions
     let mut p = params(1);
     p.owner_uid = 2;
-    let q = get_headlines_query(&db, &p).await;
+    let q = get_headlines_query(&db, &p, None, common::empty_i18n()).await;
     assert!(
         q.article_rows.is_empty(),
         "Owner 2 should see no headlines for feed 1"
@@ -136,7 +136,7 @@ async fn test_get_headlines_by_feed_id_different_owner() {
 async fn test_get_headlines_feed_all() {
     let _ = with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
-    let q = get_headlines_query(&db, &params(-4)).await; // Feeds::FEED_ALL
+    let q = get_headlines_query(&db, &params(-4), None, common::empty_i18n()).await; // Feeds::FEED_ALL
 
     assert!(q.is_vfeed);
     assert!(
@@ -152,7 +152,7 @@ async fn test_get_headlines_feed_all() {
 async fn test_get_headlines_feed_starred() {
     let _ = with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
-    let q = get_headlines_query(&db, &params(-1)).await; // Feeds::FEED_STARRED
+    let q = get_headlines_query(&db, &params(-1), None, common::empty_i18n()).await; // Feeds::FEED_STARRED
 
     assert!(q.is_vfeed);
     // seed.sql marks articles 3, 8, 11 as marked=true
@@ -177,7 +177,7 @@ async fn test_get_headlines_feed_starred() {
 async fn test_get_headlines_feed_fresh() {
     let _ = with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
-    let q = get_headlines_query(&db, &params(-3)).await; // Feeds::FEED_FRESH
+    let q = get_headlines_query(&db, &params(-3), None, common::empty_i18n()).await; // Feeds::FEED_FRESH
 
     assert!(
         !q.article_rows.is_empty(),
@@ -211,7 +211,7 @@ async fn test_get_headlines_feed_recently_read() {
     )
     .await;
 
-    let q = get_headlines_query(&db, &params(-6)).await; // Feeds::FEED_RECENTLY_READ
+    let q = get_headlines_query(&db, &params(-6), None, common::empty_i18n()).await; // Feeds::FEED_RECENTLY_READ
 
     // Virtual feed
     assert!(q.is_vfeed);
@@ -245,7 +245,7 @@ async fn test_get_headlines_view_mode_unread() {
     let db = setup(&url).await;
     let mut p = params(1); // Hacker News (3 articles: 2 unread, 1 read)
     p.view_mode = "unread".into();
-    let q = get_headlines_query(&db, &p).await;
+    let q = get_headlines_query(&db, &p, None, common::empty_i18n()).await;
 
     assert_eq!(
         2,
@@ -270,7 +270,7 @@ async fn test_get_headlines_view_mode_marked() {
     let db = setup(&url).await;
     let mut p = params(-4);
     p.view_mode = "marked".into();
-    let q = get_headlines_query(&db, &p).await;
+    let q = get_headlines_query(&db, &p, None, common::empty_i18n()).await;
 
     // seed.sql has 3 marked articles (ids 3, 8, 11)
     assert_eq!(3, q.article_rows.len(), "Should return 3 marked articles");
@@ -292,7 +292,7 @@ async fn test_get_headlines_view_mode_published() {
     let db = setup(&url).await;
     let mut p = params(-4);
     p.view_mode = "published".into();
-    let q = get_headlines_query(&db, &p).await;
+    let q = get_headlines_query(&db, &p, None, common::empty_i18n()).await;
 
     // None of the seeded articles are published
     assert!(
@@ -313,7 +313,7 @@ async fn test_get_headlines_view_mode_adaptive_scopes_to_unread() {
     let db = setup(&url).await;
     let mut p = params(1); // Hacker News (3 articles: 2 unread, 1 read)
     p.view_mode = "adaptive".into();
-    let q = get_headlines_query(&db, &p).await;
+    let q = get_headlines_query(&db, &p, None, common::empty_i18n()).await;
 
     assert_eq!(
         2,
@@ -354,7 +354,7 @@ async fn test_get_headlines_view_mode_adaptive_falls_back_to_all() {
 
     let mut p = params(1);
     p.view_mode = "adaptive".into();
-    let q = get_headlines_query(&db, &p).await;
+    let q = get_headlines_query(&db, &p, None, common::empty_i18n()).await;
 
     assert_eq!(
         ids.len(),
@@ -372,7 +372,7 @@ async fn test_get_headlines_view_mode_adaptive_category() {
     let mut p = params(1); // category 1 = Technology (feeds 1, 2, 3)
     p.cat_view = true;
     p.view_mode = "adaptive".into();
-    let q = get_headlines_query(&db, &p).await;
+    let q = get_headlines_query(&db, &p, None, common::empty_i18n()).await;
 
     // Independent oracle: the unread articles in category 1.
     let expected_unread: i64 = sqlx::query_scalar(
@@ -408,7 +408,7 @@ async fn test_get_headlines_limit() {
     let db = setup(&url).await;
     let mut p = params(-4);
     p.limit = 5;
-    let q = get_headlines_query(&db, &p).await;
+    let q = get_headlines_query(&db, &p, None, common::empty_i18n()).await;
 
     assert_eq!(
         5,
@@ -427,12 +427,12 @@ async fn test_get_headlines_offset() {
     // First call: limit=5, offset=0 (page 1)
     let mut p = params(-4);
     p.limit = 5;
-    let q1 = get_headlines_query(&db, &p).await;
+    let q1 = get_headlines_query(&db, &p, None, common::empty_i18n()).await;
     let ids_page1 = row_ids(&q1.article_rows);
 
     // Second call: limit=5, offset=5 (page 2)
     p.offset = 5;
-    let q2 = get_headlines_query(&db, &p).await;
+    let q2 = get_headlines_query(&db, &p, None, common::empty_i18n()).await;
     let ids_page2 = row_ids(&q2.article_rows);
 
     assert_eq!(5, ids_page1.len());
@@ -460,7 +460,7 @@ async fn test_get_headlines_since_id() {
     let db = setup(&url).await;
     let mut p = params(-4);
     p.since_id = 5;
-    let q = get_headlines_query(&db, &p).await;
+    let q = get_headlines_query(&db, &p, None, common::empty_i18n()).await;
 
     // Should only return articles with id > 5
     for id in row_ids(&q.article_rows) {
@@ -480,7 +480,7 @@ async fn test_get_headlines_cat_view() {
     // Category 1 = "Technology" (feeds 1, 2, 3)
     let mut p = params(1); // category id
     p.cat_view = true;
-    let q = get_headlines_query(&db, &p).await;
+    let q = get_headlines_query(&db, &p, None, common::empty_i18n()).await;
 
     assert_eq!("Technology", q.feed_title);
     // Category 1 has 3 feeds with 3+3+2 = 8 articles
@@ -500,7 +500,7 @@ async fn test_get_headlines_cat_view_uncategorized() {
     let db = setup(&url).await;
     let mut p = params(0); // Feeds::CATEGORY_UNCATEGORIZED
     p.cat_view = true;
-    let q = get_headlines_query(&db, &p).await;
+    let q = get_headlines_query(&db, &p, None, common::empty_i18n()).await;
 
     assert_eq!("Uncategorized", q.feed_title);
     // All seeded feeds have a category, so uncategorized should be empty
@@ -516,7 +516,7 @@ async fn test_get_headlines_cat_view_uncategorized() {
 async fn test_get_headlines_metadata_feed() {
     let _ = with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
-    let q = get_headlines_query(&db, &params(1)).await;
+    let q = get_headlines_query(&db, &params(1), None, common::empty_i18n()).await;
 
     assert_eq!("Hacker News", q.feed_title);
     assert_eq!("https://news.ycombinator.com", q.feed_site_url);
@@ -532,7 +532,7 @@ async fn test_get_headlines_metadata_category() {
     let db = setup(&url).await;
     let mut p = params(1);
     p.cat_view = true;
-    let q = get_headlines_query(&db, &p).await;
+    let q = get_headlines_query(&db, &p, None, common::empty_i18n()).await;
 
     assert_eq!("Technology", q.feed_title);
         Ok(())
@@ -546,7 +546,7 @@ async fn test_get_headlines_metadata_category() {
 async fn test_get_headlines_columns() {
     let _ = with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
-    let q = get_headlines_query(&db, &params(1)).await;
+    let q = get_headlines_query(&db, &params(1), None, common::empty_i18n()).await;
 
     assert!(!q.article_rows.is_empty());
 
@@ -602,7 +602,7 @@ async fn test_get_headlines_feed_not_subscribed() {
     // for it
     let mut p = params(1);
     p.owner_uid = 2;
-    let q = get_headlines_query(&db, &p).await;
+    let q = get_headlines_query(&db, &p, None, common::empty_i18n()).await;
 
     assert!(q.article_rows.is_empty());
     // Feed doesn't exist for owner_uid=2, so _get_title returns "Unknown feed"

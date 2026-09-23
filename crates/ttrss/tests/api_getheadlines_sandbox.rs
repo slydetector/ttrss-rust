@@ -77,7 +77,7 @@ async fn add_iframe_entry(pool: &sqlx::PgPool) {
 /// The article-50 `content` field of the `getheadlines` response.
 async fn headline_content(state: &AppState, sess: &Sess, pairs: &[(&str, Value)]) -> Option<String> {
     let (status, content) =
-        api::before_and_dispatch(state, sess, "getheadlines", &request(pairs)).await;
+        api::before_and_dispatch(state, sess, "getheadlines", &request(pairs), None).await;
     assert_eq!(status, 0);
     content
         .as_array()
@@ -91,7 +91,7 @@ async fn headline_content(state: &AppState, sess: &Sess, pairs: &[(&str, Value)]
 /// The article-50 `content` field of a `getarticle` response.
 async fn article_content(state: &AppState, sess: &Sess) -> Option<String> {
     let (status, content) =
-        api::before_and_dispatch(state, sess, "getarticle", &request(&[("article_id", json!([50]))])).await;
+        api::before_and_dispatch(state, sess, "getarticle", &request(&[("article_id", json!([50]))]), None).await;
     assert_eq!(status, 0);
     content
         .as_array()
@@ -207,6 +207,7 @@ async fn test_headlines_score_is_json_string() {
     let (status, content) = api::before_and_dispatch(
         &state, &sess, "getheadlines",
         &request(&[("feed_id", json!("5"))]),
+        None,
     )
     .await;
     assert_eq!(status, 0);

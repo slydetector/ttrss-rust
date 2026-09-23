@@ -94,7 +94,7 @@ async fn test_flat_lists_nested_cat_and_omits_descendant_unread() {
         // No `enable_nested`: every category (roots and nested) is its own entry,
         // and each counter covers only its direct feeds.
         let (status, content) =
-            api::before_and_dispatch(&state, &sess, "getcategories", &request(&[])).await;
+            api::before_and_dispatch(&state, &sess, "getcategories", &request(&[]), None).await;
         assert_eq!(status, 0);
         let cats = real_cats(&content);
         assert_eq!(cats.get(&1), Some(&6), "cat 1 direct unread; got {cats:?}");
@@ -117,6 +117,7 @@ async fn test_enable_nested_lists_roots_only_and_folds_descendants() {
             &sess,
             "getcategories",
             &request(&[("enable_nested", json!("true"))]),
+            None,
         )
         .await;
         assert_eq!(status, 0);
@@ -147,6 +148,7 @@ async fn test_enable_nested_unread_only_drops_zero_unread_roots() {
                 ("enable_nested", json!("true")),
                 ("unread_only", json!("true")),
             ]),
+            None,
         )
         .await;
         assert_eq!(status, 0);
@@ -168,7 +170,7 @@ async fn test_special_cats_without_include_empty() {
         let (state, sess) = setup(&url).await;
 
         let (status, content) =
-            api::before_and_dispatch(&state, &sess, "getcategories", &request(&[])).await;
+            api::before_and_dispatch(&state, &sess, "getcategories", &request(&[]), None).await;
         assert_eq!(status, 0);
 
         let ids: Vec<i64> = content

@@ -95,6 +95,15 @@ pub fn test_config() -> ttrss::core::config::Config {
     cfg
 }
 
+/// An empty [`I18nCache`] for callers of query functions that now thread a
+/// locale but resolve none (`None` → English): the catalogs are never
+/// consulted, so an empty one is fine. Shared process-wide (the `None` locale
+/// makes it cheap — no `.mo` is ever parsed).
+pub fn empty_i18n() -> &'static ttrss::i18n::I18nCache {
+    static CACHE: std::sync::OnceLock<ttrss::i18n::I18nCache> = std::sync::OnceLock::new();
+    CACHE.get_or_init(|| ttrss::i18n::I18nCache::new(std::path::PathBuf::new()))
+}
+
 /// Standard admin session: `uid = 1`, `access_level = 10`.
 pub fn admin_sess() -> ttrss::session::Sess {
     use ttrss::core::phpser::Value as PValue;

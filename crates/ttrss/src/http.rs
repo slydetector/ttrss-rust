@@ -396,6 +396,11 @@ async fn public_handler(
         ),
         None => (op.unwrap_or(""), None),
     };
+    // The request's `Accept-Language` (M10.3): threaded to the syndication
+    // handler, which resolves it into the UI locale for the feed titles.
+    let accept_language = headers
+        .get(axum::http::header::ACCEPT_LANGUAGE)
+        .and_then(|v| v.to_str().ok());
     match op {
         "login" => {
             let env: Vec<(String, String)> = basic_auth_env(&server_env)
@@ -491,6 +496,7 @@ async fn public_handler(
                 format: query.format.as_deref().unwrap_or("atom"),
                 orig_guid: query.orig_guid.as_deref().unwrap_or(""),
                 noxml: param_to_bool(query.noxml.as_deref()),
+                accept_language,
             };
             syndication::handle_rss(&state, &req).await
         }

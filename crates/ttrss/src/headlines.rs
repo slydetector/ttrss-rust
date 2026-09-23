@@ -1397,13 +1397,11 @@ impl HeadlinesParams {
 pub async fn get_headlines_query(
     db: &crate::core::db::Db,
     params: &HeadlinesParams,
+    locale: Option<&str>,
+    i18n: &crate::i18n::I18nCache,
 ) -> HeadlinesQuery {
     let feed_num: Option<i64> = params.feed.trim().parse::<i64>().ok();
     let rows = prefs::load_rows(db, params.owner_uid, None).await;
-    // Machine-facing entry (the external API, syndication, and the parity
-    // tests): resolve no locale → English (the default). `machine_i18n()` is
-    // an empty cache [`crate::i18n::__`] never consults when the locale is
-    // `None` (it short-circuits to the English msgid).
     get_headlines(
         db,
         params.owner_uid,
@@ -1425,20 +1423,10 @@ pub async fn get_headlines_query(
         params.since_id,
         params.ignore_vfeed_group,
         &params.start_ts,
-        None, // locale (English)
-        machine_i18n(),
+        locale,
+        i18n,
     )
     .await
-}
-
-/// The machine-facing [`get_headlines_query`] entry always resolves to English,
-/// so it needs no real catalogs — this empty cache exists only to satisfy the
-/// private [`get_headlines`] signature (a `None` locale means
-/// [`crate::i18n::__`] / [`crate::i18n::t_sprintf`] never consult it).
-static EMPTY_I18N: std::sync::OnceLock<crate::i18n::I18nCache> =
-    std::sync::OnceLock::new();
-fn machine_i18n() -> &'static crate::i18n::I18nCache {
-    EMPTY_I18N.get_or_init(|| crate::i18n::I18nCache::new(std::path::PathBuf::new()))
 }
 
 /// `Feeds::_get_headlines` — the dynamic headline query, ported branch-for-

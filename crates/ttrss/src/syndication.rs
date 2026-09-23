@@ -71,6 +71,10 @@ pub struct RssRequest<'a> {
     pub orig_guid: &'a str,
     /// `noxml` — serve the Atom document as `text/plain`.
     pub noxml: bool,
+    /// The request's `Accept-Language` (M10.3) — resolved into the UI locale
+    /// (the feed owner's `USER_LANGUAGE` pref wins, else the header, else
+    /// English) so the syndicated feed titles render in the owner's language.
+    pub accept_language: Option<&'a str>,
 }
 
 /// `op=rss` handler.
@@ -140,9 +144,12 @@ async fn generate_feed(state: &AppState, owner_uid: i64, req: &RssRequest<'_>) -
         skip_first_id_check,
     };
 
-    // M10.3: machine-facing (English) — `get_headlines_query` resolves no
-    // locale internally; only the interactive `view` path carries a UI locale.
-    let q = get_headlines_query(&state.db, &params).await;
+    // M10.3: resolve the UI locale (the feed owner's `USER_LANGUAGE` pref wins,
+    // else `Accept-Language`, else English) so the syndicated feed titles
+    // render in the owner's language, like PHP.
+    let locale =
+        crate::i18n::resolve_user_locale(state, owner_uid, None, req.accept_language).await;
+    let q = get_headlines_query(&state.db, &params, locale.as_deref(), &state.i18n).await;
 
     // `Feeds::_get_access_key($feed, false, $owner_uid)` (get-or-create).
     let key = get_or_create_access_key(pool, feed, false, owner_uid).await;
