@@ -71,8 +71,8 @@
 | Increment | Status | Notes |
 |-----------|--------|-------|
 | M10.1 | ✅ Done (`6cfdb93`, `65f8fce`) | `I18nCache` (lazy `.mo`), `resolve_locale`, `resolve_request_locale`, `__`, `t_sprintf`. Wired into `AppState`. |
-| M10.2 | 🔄 In progress | `translations` RPC field ✅. Shell template → minijinja with `__()` ✅. `t_nsprintf` ✅. Login/OTP/forgotpass templates ✅ (minijinja + `__()`). |
-| M10.3 | ⬜ Pending | API response string audit + `__()` wrappers. |
+| M10.2 | ✅ Done | Shell template → minijinja with `__()` ✅. `t_nsprintf` ✅. Login/OTP/forgotpass templates ✅. **`translations` RPC `init` field populated** — it was an empty `Value::Array` placeholder since M2 (the field was *present*, never *populated*, so SPA client-side i18n via `App._translations` was dead): now resolves the locale (profile-aware `USER_LANGUAGE` + `Accept-Language`) and returns the original→translated object (PHP `RPC.php:198`). Guard: `tests/rpc_init_translations.rs`. |
+| M10.3 | ⬜ Pending | API response string audit + `__()` wrappers. (The stray `getconfig` `translations` field — added in M10.2 in the wrong endpoint, where PHP sends none — was removed 2026-09-23; `tests/api_getconfig.rs` now pins its absence.) |
 | M10.4 | ⬜ Pending | Plugin strings via `HostCtx`. |
 | M10.5 | ⬜ Deferred to M8 | CLI strings. |
 | M10.6 | ⬜ Pending | Verification & parity (5 locales end-to-end). |

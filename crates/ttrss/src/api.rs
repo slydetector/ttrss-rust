@@ -61,13 +61,6 @@ pub async fn handler(state: State<AppState>, sess: Extension<Sess>, req: Request
     if !content_type_is_json(ct) {
         return envelope(-1, STATUS_ERR, json!({ "error": E_INCORRECT_USAGE })).into_response();
     }
-    // M10.3: extract Accept-Language before the body is consumed.
-    let accept_language: Option<String> = req
-        .headers()
-        .get(header::ACCEPT_LANGUAGE)
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string());
-    let accept_language = accept_language.as_deref();
     let bytes = axum::body::to_bytes(req.into_body(), 1_048_576)
         .await
         .unwrap_or_default();
@@ -94,7 +87,7 @@ pub async fn handler(state: State<AppState>, sess: Extension<Sess>, req: Request
     if op == "getfeedicon" {
         return get_feed_icon(&state, &sess, &body, seq).await;
     }
-    let (status, content) = before_and_dispatch(&state, &sess, &op, &body, accept_language).await;
+    let (status, content) = before_and_dispatch(&state, &sess, &op, &body).await;
 
     let mut res = envelope(seq, status, content);
     // `before()` sets `Content-Type: application/json`; the session `nocache`
@@ -129,7 +122,6 @@ pub async fn before_and_dispatch(
     sess: &Sess,
     op: &str,
     body: &Map<String, Value>,
-    accept_language: Option<&str>,
 ) -> (i64, Value) {
     let data = sess.data();
     let uid = data.uid();
@@ -139,7 +131,7 @@ pub async fn before_and_dispatch(
     }
 
     match op {
-        "login" => login(state, sess, body, accept_language).await,
+        "login" => login(state, sess, body).await,
         // `API::logout`: destroy the session; the middleware deletes the stored
         // row. `UserHelper::logout` always succeeds, so no login gate is needed.
         "logout" => {
@@ -147,7 +139,7 @@ pub async fn before_and_dispatch(
             (STATUS_OK, json!({ "status": "OK" }))
         }
         "isloggedin" => (STATUS_OK, json!({ "status": data.uid().is_some() })),
-        "getconfig" => (STATUS_OK, get_config(state, uid, accept_language).await),
+        "getconfig" => (STATUS_OK, get_config(state, uid).await),
         "getunread" => get_unread(state, uid, body).await,
         "getcounters" => get_counters(state, sess, body).await,
         "getfeeds" => get_feeds(state, uid, body).await,
@@ -204,7 +196,7 @@ fn param_bool_default(body: &Map<String, Value>, key: &str, default: bool) -> bo
 // ── Login / config ──────────────────────────────────────────────────────────
 
 /// `API::login` — app-password auth (`service = '_api'`), then a fresh session.
-async fn login(state: &AppState, sess: &Sess, body: &Map<String, Value>, accept_language: Option<&str>) -> (i64, Value) {
+async fn login(state: &AppState, sess: &Sess, body: &Map<String, Value>) -> (i64, Value) {
     let pool = state.db.pool();
     let login_name = clean_str(body.get("user").and_then(Value::as_str).unwrap_or(""));
     let password = clean_str(body.get("password").and_then(Value::as_str).unwrap_or(""));
@@ -268,7 +260,7 @@ async fn login(state: &AppState, sess: &Sess, body: &Map<String, Value>, accept_
         STATUS_OK,
         json!({
             "session_id": new_id,
-            "config": get_config(state, Some(uid as i64), accept_language).await,
+            "config": get_config(state, Some(uid as i64)).await,
             "api_level": API_LEVEL,
         }),
     )
@@ -303,7 +295,7 @@ async fn verify_app_password(pool: &sqlx::PgPool, login: &str, password: &str) -
 }
 
 /// `API::_get_config` (+ `getConfig`).
-async fn get_config(state: &AppState, uid: Option<i64>, accept_language: Option<&str>) -> Value {
+async fn get_config(state: &AppState, uid: Option<i64>) -> Value {
     let uid = uid.unwrap_or(0);
     let pool = state.db.pool();
     let num_feeds =
@@ -312,31 +304,6 @@ async fn get_config(state: &AppState, uid: Option<i64>, accept_language: Option<
             .fetch_one(pool)
             .await
             .unwrap_or(0);
-    // M10.3: resolve locale and build the translations map — populated only
-    // for non-English locales (English resolves to `None` → `{}`). Read
-    // USER_LANGUAGE through the standard pref path (user-default row; the API
-    // boundary carries no profile).
-    let rows = prefs::load_rows(&state.db, uid, None).await;
-    let user_lang: Option<String> = {
-        let v = prefs::resolve("USER_LANGUAGE", &rows, None).as_str().to_string();
-        (!v.is_empty()).then_some(v)
-    };
-    let locale = crate::i18n::resolve_request_locale(
-        &state.i18n,
-        accept_language,
-        user_lang.as_deref(),
-    );
-    let translations = match &locale {
-        Some(loc) => {
-            let map = state.i18n.translations_map(loc).unwrap_or_default();
-            let obj: serde_json::Map<String, Value> = map
-                .into_iter()
-                .map(|(k, v)| (k, Value::String(v)))
-                .collect();
-            Value::Object(obj)
-        }
-        None => Value::Object(serde_json::Map::new()),
-    };
     // `_get_custom_sort_types` (no plugin sort hooks) → `[]`; `daemon_is_running`
     // is true — the updater runs in-process, always on (D1 = B; D6 = c).
     json!({
@@ -344,7 +311,6 @@ async fn get_config(state: &AppState, uid: Option<i64>, accept_language: Option<
         "daemon_is_running": true,
         "icons_url": format!("{}/public.php", state.config.self_url_rtrim()),
         "num_feeds": num_feeds,
-        "translations": translations,
     })
 }
 

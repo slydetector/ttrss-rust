@@ -58,7 +58,7 @@ async fn get_feeds(
     sess: &Sess,
     pairs: &[(&str, Value)],
 ) -> Value {
-    let (status, content) = api::before_and_dispatch(state, sess, "getfeeds", &request(pairs), None).await;
+    let (status, content) = api::before_and_dispatch(state, sess, "getfeeds", &request(pairs)).await;
     assert_eq!(status, 0, "getfeeds should succeed: {content}");
     content
 }

@@ -106,6 +106,13 @@ pub async fn handler(
     sess: axum::extract::Extension<Sess>,
     req: Request,
 ) -> Response {
+    // `startup_gettext` runs per request; the `init` (`sanitycheck`) response
+    // carries the `translations` map for the resolved locale (PHP `RPC::init`).
+    let accept_language: Option<String> = req
+        .headers()
+        .get(header::ACCEPT_LANGUAGE)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
     let (form, file) = parse_backend(req).await;
     let op = form.op.clone().unwrap_or_default();
     let method = form
@@ -134,7 +141,7 @@ pub async fn handler(
     }
 
     let (body, content_type) =
-        match dispatch(&state, &sess, &op, &method, &csrf, &extra, file.as_deref()).await {
+        match dispatch(&state, &sess, &op, &method, &csrf, &extra, file.as_deref(), accept_language.as_deref()).await {
             DispatchOutput::Json(v) => (v.to_string(), "application/json; charset=utf-8"),
             DispatchOutput::Html(h) => (h, "application/json; charset=utf-8"),
             DispatchOutput::TextHtml(h) => (h, "text/html;charset=UTF-8"),
@@ -270,6 +277,7 @@ async fn dispatch(
     csrf: &str,
     extra: &Map<String, Value>,
     file: Option<&[u8]>,
+    accept_language: Option<&str>,
 ) -> DispatchOutput {
     let mut data = sess.data();
 
@@ -316,7 +324,7 @@ async fn dispatch(
     match op {
         "RPC" => match method {
             "hotkeyhelp" => DispatchOutput::Html(crate::hotkeys::hotkey_help()),
-            _ => DispatchOutput::Json(rpc_handler(state, sess, method, extra).await),
+            _ => DispatchOutput::Json(rpc_handler(state, sess, method, extra, accept_language).await),
         },
         // `PluginHandler::catchall` (M7.3) — plugin method dispatch. The
         // handler-level CSRF gate is a no-op (see `csrf_ignored`); the
@@ -632,9 +640,10 @@ async fn rpc_handler(
     sess: &Sess,
     method: &str,
     extra: &Map<String, Value>,
+    accept_language: Option<&str>,
 ) -> Value {
     match method {
-        "sanitycheck" => sanity_check(state, sess, extra).await,
+        "sanitycheck" => sanity_check(state, sess, extra, accept_language).await,
         // TODO: stub (M2 close-out). PHP's `checkforupdates` polls
         // `tt-rss.org/tt-rss/version.json` for new *PHP* releases (vs the
         // local git checkout) and git-checks installed plugins for updates;
@@ -719,7 +728,12 @@ fn is_administrative(op: &str) -> bool {
 }
 
 /// `RPC::sanityCheck`.
-async fn sanity_check(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Value {
+async fn sanity_check(
+    state: &AppState,
+    sess: &Sess,
+    extra: &Map<String, Value>,
+    accept_language: Option<&str>,
+) -> Value {
     let data = sess.data();
     let uid = data.uid().unwrap_or(0);
     let profile = data.profile().map(|p| p as i32);
@@ -768,11 +782,30 @@ async fn sanity_check(state: &AppState, sess: &Sess, extra: &Map<String, Value>)
         );
     }
 
+    // `RPC::init` → `translations` (PHP `RPC.php:198`): the full original→translated
+    // map for the resolved locale (the SPA's `App._translations`, `App.js:624`); an
+    // empty object for English / no locale. Resolve like the shell (`http.rs`):
+    // profile-aware `USER_LANGUAGE` pref, else `Accept-Language`.
+    let rows = crate::prefs::load_rows_cached(&state.prefs_cache, &state.db, uid, profile).await;
+    let user_lang_pref = crate::prefs::resolve("USER_LANGUAGE", &rows, profile);
+    let user_lang = user_lang_pref.as_str();
+    let locale =
+        crate::i18n::resolve_request_locale(&state.i18n, accept_language, Some(user_lang));
+    let translations = match &locale {
+        Some(loc) => {
+            let map = state.i18n.translations_map(loc).unwrap_or_default();
+            let obj: Map<String, Value> =
+                map.into_iter().map(|(k, v)| (k, Value::String(v))).collect();
+            Value::Object(obj)
+        }
+        None => Value::Object(Map::new()),
+    };
+
     if err == "E_SUCCESS" {
         json!({
             "init-params": make_init_params(state, sess, uid, profile).await,
             "runtime-info": make_runtime_info(state, sess).await,
-            "translations": Value::Array(vec![]),
+            "translations": translations,
         })
     } else {
         json!({ "error": { "code": err, "params": params } })

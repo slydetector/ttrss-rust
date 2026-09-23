@@ -101,7 +101,7 @@ async fn test_get_version() {
     let (state, sess) = setup(&url).await;
     enable_api(&state.db).await;
     let (status, content) =
-        api::before_and_dispatch(&state, &sess, "getversion", &request(&[]), None).await;
+        api::before_and_dispatch(&state, &sess, "getversion", &request(&[])).await;
     assert_eq!(status, 0);
     assert_eq!(content["version"], "26.08-2f7d831f");
         Ok(())
@@ -114,7 +114,7 @@ async fn test_get_api_level() {
     let (state, sess) = setup(&url).await;
     enable_api(&state.db).await;
     let (status, content) =
-        api::before_and_dispatch(&state, &sess, "getapilevel", &request(&[]), None).await;
+        api::before_and_dispatch(&state, &sess, "getapilevel", &request(&[])).await;
     assert_eq!(status, 0);
     assert_eq!(content["level"], 23);
         Ok(())
@@ -127,7 +127,7 @@ async fn test_api_disabled() {
     let _ = with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let (status, content) =
-        api::before_and_dispatch(&state, &sess, "getversion", &request(&[]), None).await;
+        api::before_and_dispatch(&state, &sess, "getversion", &request(&[])).await;
     assert_eq!(status, 1);
     assert_eq!(content["error"], "API_DISABLED");
         Ok(())
@@ -143,7 +143,7 @@ async fn test_logout() {
     enable_api(&state.db).await;
     assert_eq!(sess.data().uid(), Some(1));
 
-    let (status, content) = api::before_and_dispatch(&state, &sess, "logout", &request(&[]), None).await;
+    let (status, content) = api::before_and_dispatch(&state, &sess, "logout", &request(&[])).await;
     assert_eq!(status, 0);
     assert_eq!(content["status"], "OK");
     assert_eq!(sess.data().uid(), None, "session should be destroyed");
@@ -159,7 +159,7 @@ async fn test_logout_not_logged_in() {
     let (state, _sess) = setup(&url).await;
     let anon = Sess::new("anon-sid".to_string()); // no `uid`
 
-    let (status, content) = api::before_and_dispatch(&state, &anon, "logout", &request(&[]), None).await;
+    let (status, content) = api::before_and_dispatch(&state, &anon, "logout", &request(&[])).await;
     assert_eq!(status, 0);
     assert_eq!(content["status"], "OK");
         Ok(())
