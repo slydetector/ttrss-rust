@@ -8,6 +8,8 @@ The frozen PHP reference in `tt-rss/` (commit `2f7d831`) is the spec.
 
 - **The PHP reference is the spec.** Where the port and `tt-rss/` disagree, the
   PHP wins; surface any deliberate deviation.
+- **Assume the port is wrong:** consult `tt-rss/` for canonical behavior before
+  treating it as correct.
 - **Verify APIs against the toolchain and vendored sources, not memory.** This
   is a **future-dated Rust** (`rustc 1.98.0`, 2026); `std` and crate APIs may
   differ from training data. Before relying on any `std`/crate API, grep the
@@ -56,6 +58,10 @@ The frozen PHP reference in `tt-rss/` (commit `2f7d831`) is the spec.
   absolutely necessary: names/patterns aren't unique and are susceptible to
   grep misinformation (the shell running the command matches its own pattern).
 - **Don't delete outside the working directory without permission.** Only remove files inside the repo (and `/tmp` files you created). Anything outside the repo — other dirs, `~/Downloads`, system paths, etc. — needs explicit permission first.
+- **Mark incomplete work:** leave a `// TODO(scope): …` and a `tracing::warn!`
+  of the same text at the site — never a placeholder that looks done.
+- **Trust the code, not the ✅:** a "done" in the plan is a claim — verify
+  against the code before relying on it.
 
 ## Build on existing libraries
 
