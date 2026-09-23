@@ -11,12 +11,11 @@ mod common;
 
 use std::net::TcpListener;
 
-use sqlx::pool::PoolOptions;
-use sqlx::postgres::PgConnectOptions;
 use ttrss::core::config::Config;
 use ttrss::core::db::Db;
 use ttrss::pluginhost::PluginHost;
 use ttrss::updates::{fetch_one_feed, FeedUpdateFlags};
+use test_db::template::with_test_db;
 /// An empty plugin host — the `HOOK_ARTICLE_FILTER` chain is a no-op with
 /// no plugins (M7.9), so these tests exercise the plugin-free path.
 fn no_plugins() -> PluginHost {
@@ -173,13 +172,10 @@ async fn entry_count(db: &Db, feed_id: i32) -> i64 {
 
 // A successful update (a 200 with parseable XML): the feed's articles are
 // ingested + the success metadata is stamped.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_fetch_one_feed_success(pool: PoolOptions<sqlx::Postgres>, options: PgConnectOptions) {
-    let db = common::make_db(pool, options).await.expect("test db");
+#[tokio::test]
+async fn test_fetch_one_feed_success() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = common::make_db_from_url(&url).await.expect("test db");
     let cfg = test_config();
     let mock = MockServer::new(vec![Canned {
         status: 200,
@@ -199,17 +195,16 @@ async fn test_fetch_one_feed_success(pool: PoolOptions<sqlx::Postgres>, options:
     assert_eq!(entry_count(&db, feed_id).await, 1);
     // The `last_modified` is recorded (for the next conditional request).
     assert_eq!(last_modified(&db, feed_id).await, "Sun, 06 Nov 1994 08:49:37 GMT");
+        Ok(())
+    })).await.unwrap();
 }
 
 // A 304 (not modified): the feed is confirmed unchanged (no new articles, no
 // `last_unconditional` — the fetch was conditional).
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_fetch_one_feed_304(pool: PoolOptions<sqlx::Postgres>, options: PgConnectOptions) {
-    let db = common::make_db(pool, options).await.expect("test db");
+#[tokio::test]
+async fn test_fetch_one_feed_304() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = common::make_db_from_url(&url).await.expect("test db");
     let cfg = test_config();
     let mock = MockServer::new(vec![Canned {
         status: 304,
@@ -243,17 +238,16 @@ async fn test_fetch_one_feed_304(pool: PoolOptions<sqlx::Postgres>, options: PgC
             .expect("last_unconditional");
     assert!(lu.is_some());
     assert_eq!(entry_count(&db, feed_id).await, 0);
+        Ok(())
+    })).await.unwrap();
 }
 
 // A 429 (too many requests): the feed is throttled (`last_updated` +
 // `last_successful_update` pushed into the future, `last_error` stamped).
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_fetch_one_feed_429(pool: PoolOptions<sqlx::Postgres>, options: PgConnectOptions) {
-    let db = common::make_db(pool, options).await.expect("test db");
+#[tokio::test]
+async fn test_fetch_one_feed_429() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = common::make_db_from_url(&url).await.expect("test db");
     let cfg = test_config();
     let mock = MockServer::new(vec![Canned {
         status: 429,
@@ -281,19 +275,15 @@ async fn test_fetch_one_feed_429(pool: PoolOptions<sqlx::Postgres>, options: PgC
     assert!(last_successful_update_is_set(&db, feed_id).await);
     // The feed is NOT disabled (the auto-disable is M6c.4).
     assert_eq!(update_interval(&db, feed_id).await, 0);
+        Ok(())
+    })).await.unwrap();
 }
 
 // A network error (connection refused): the feed's `last_error` is stamped.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_fetch_one_feed_network_error(
-    pool: PoolOptions<sqlx::Postgres>,
-    options: PgConnectOptions,
-) {
-    let db = common::make_db(pool, options).await.expect("test db");
+#[tokio::test]
+async fn test_fetch_one_feed_network_error() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = common::make_db_from_url(&url).await.expect("test db");
     let cfg = test_config();
     // A port that is not listening (bind + drop to get a free port).
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -317,20 +307,16 @@ async fn test_fetch_one_feed_network_error(
             .await
             .expect("last_updated");
     assert!(lu.is_some());
+        Ok(())
+    })).await.unwrap();
 }
 
 // A parse failure (a 200 with invalid XML): the feed's `last_error` is stamped
 // (the M6b `process_feed` parse-failure path).
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_fetch_one_feed_parse_failure(
-    pool: PoolOptions<sqlx::Postgres>,
-    options: PgConnectOptions,
-) {
-    let db = common::make_db(pool, options).await.expect("test db");
+#[tokio::test]
+async fn test_fetch_one_feed_parse_failure() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = common::make_db_from_url(&url).await.expect("test db");
     let cfg = test_config();
     let mock = MockServer::new(vec![Canned {
         status: 200,
@@ -348,19 +334,15 @@ async fn test_fetch_one_feed_parse_failure(
     assert!(!last_error(&db, feed_id).await.is_empty());
     // The `last_unconditional` is stamped (the M6b parse-failure path).
     assert!(last_unconditional_is_set(&db, feed_id).await);
+        Ok(())
+    })).await.unwrap();
 }
 
 // A permission gate failure (a read-only owner): the feed is not updated.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_fetch_one_feed_readonly_owner(
-    pool: PoolOptions<sqlx::Postgres>,
-    options: PgConnectOptions,
-) {
-    let db = common::make_db(pool, options).await.expect("test db");
+#[tokio::test]
+async fn test_fetch_one_feed_readonly_owner() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = common::make_db_from_url(&url).await.expect("test db");
     let cfg = test_config();
     let mock = MockServer::new(vec![Canned {
         status: 200,
@@ -374,5 +356,7 @@ async fn test_fetch_one_feed_readonly_owner(
     let outcome = fetch_one_feed(db.pool(), &cfg, &no_plugins(), feed_id, &FeedUpdateFlags::default(), None).await.expect("fetch");
     assert!(!outcome.success, "expected a read-only owner to fail");
     assert!(outcome.error.is_some(), "expected an error message");
+        Ok(())
+    })).await.unwrap();
 }
 

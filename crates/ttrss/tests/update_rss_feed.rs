@@ -9,8 +9,6 @@
 
 mod common;
 
-use sqlx::pool::PoolOptions;
-use sqlx::postgres::PgConnectOptions;
 use sqlx::Row;
 use ttrss::core::config::Config;
 use ttrss::core::db::Db;
@@ -19,6 +17,7 @@ use ttrss::pluginhost::host::HostCtx;
 use ttrss::pluginhost::plugin::BoxFuture;
 use ttrss::pluginhost::{About, HOOK_ARTICLE_FILTER, Plugin, PluginHost};
 use ttrss::updates::{update_rss_feed, FeedUpdateFlags};
+use test_db::template::with_test_db;
 
 /// An empty plugin host — the pipeline's `HOOK_ARTICLE_FILTER` chain is a
 /// no-op with no plugins (M7.9), so these tests exercise the plugin-free path.
@@ -155,51 +154,37 @@ async fn last_error(db: &Db, feed_id: i32) -> String {
 }
 
 // PHP: testNonexistentFeedReturnsFalse
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_nonexistent_feed_returns_false(
-    pool: PoolOptions<sqlx::Postgres>,
-    options: PgConnectOptions,
-) {
-    let db = common::make_db(pool, options).await.expect("test db");
+#[tokio::test]
+async fn test_nonexistent_feed_returns_false() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = common::make_db_from_url(&url).await.expect("test db");
     assert!(!update_rss_feed(db.pool(), &test_config(), &no_plugins(), 9999, MOCK_FEED, &FeedUpdateFlags::default(), None)
         .await
         .expect("update"));
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: testReadonlyUserCannotUpdateFeed
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_readonly_user_cannot_update_feed(
-    pool: PoolOptions<sqlx::Postgres>,
-    options: PgConnectOptions,
-) {
-    let db = common::make_db(pool, options).await.expect("test db");
+#[tokio::test]
+async fn test_readonly_user_cannot_update_feed() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = common::make_db_from_url(&url).await.expect("test db");
     let readonly_uid = create_user(&db, 100, -1 /* READONLY */).await;
     let feed_id = create_feed(&db, 100, readonly_uid, "http://example.com/feed1.xml").await;
 
     assert!(!update_rss_feed(db.pool(), &test_config(), &no_plugins(), feed_id, MOCK_FEED, &FeedUpdateFlags::default(), None)
         .await
         .expect("update"));
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: testSuccessfulUpdateReturnsTrue
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_successful_update_returns_true(
-    pool: PoolOptions<sqlx::Postgres>,
-    options: PgConnectOptions,
-) {
-    let db = common::make_db(pool, options).await.expect("test db");
+#[tokio::test]
+async fn test_successful_update_returns_true() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = common::make_db_from_url(&url).await.expect("test db");
     let uid = create_user(&db, 101, 0 /* USER */).await;
     let feed_id = create_feed(&db, 101, uid, "http://example.com/feed2.xml").await;
 
@@ -207,16 +192,15 @@ async fn test_successful_update_returns_true(
         .await
         .expect("update"));
     assert_eq!(entry_count(&db, feed_id).await, 1);
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: testFeedMetadataUpdated
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_feed_metadata_updated(pool: PoolOptions<sqlx::Postgres>, options: PgConnectOptions) {
-    let db = common::make_db(pool, options).await.expect("test db");
+#[tokio::test]
+async fn test_feed_metadata_updated() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = common::make_db_from_url(&url).await.expect("test db");
     let uid = create_user(&db, 102, 0).await;
     let feed_id = create_feed(&db, 102, uid, "http://example.com/feed3.xml").await;
 
@@ -225,19 +209,15 @@ async fn test_feed_metadata_updated(pool: PoolOptions<sqlx::Postgres>, options: 
         .expect("update"));
     assert!(last_successful_update_is_set(&db, feed_id).await);
     assert_eq!(last_error(&db, feed_id).await, "");
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: testArticleFieldsStoredCorrectly
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_article_fields_stored_correctly(
-    pool: PoolOptions<sqlx::Postgres>,
-    options: PgConnectOptions,
-) {
-    let db = common::make_db(pool, options).await.expect("test db");
+#[tokio::test]
+async fn test_article_fields_stored_correctly() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = common::make_db_from_url(&url).await.expect("test db");
     let uid = create_user(&db, 103, 0).await;
     let feed_id = create_feed(&db, 103, uid, "http://example.com/feed4.xml").await;
 
@@ -271,22 +251,18 @@ async fn test_article_fields_stored_correctly(
     );
     assert!(updated.is_some());
     assert_eq!(num_comments, 0);
+        Ok(())
+    })).await.unwrap();
 }
 
 // Rust-only (no direct PHP `update_rss_feed` test asserts enclosures): the
 // enclosure parsed from the feed's Atom `<link rel="enclosure">` must be
 // persisted to `ttrss_enclosures` with `post_id` = the base entry id, which is
 // what the read side's `num_enclosures` / inline-image path keys on.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_enclosure_stored_on_update(
-    pool: PoolOptions<sqlx::Postgres>,
-    options: PgConnectOptions,
-) {
-    let db = common::make_db(pool, options).await.expect("test db");
+#[tokio::test]
+async fn test_enclosure_stored_on_update() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = common::make_db_from_url(&url).await.expect("test db");
     let uid = create_user(&db, 106, 0 /* USER */).await;
     let feed_id = create_feed(&db, 106, uid, "http://example.com/f9.xml").await;
 
@@ -319,18 +295,14 @@ async fn test_enclosure_stored_on_update(
     assert_eq!(content_type, "image/jpeg");
     assert_eq!(title, "");
     assert_eq!(post_id, entry_id, "post_id must be the base entry id");
+        Ok(())
+    })).await.unwrap();
 }
 // PHP: testSecondUpdateDoesNotCreateDuplicate
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_second_update_does_not_create_duplicate(
-    pool: PoolOptions<sqlx::Postgres>,
-    options: PgConnectOptions,
-) {
-    let db = common::make_db(pool, options).await.expect("test db");
+#[tokio::test]
+async fn test_second_update_does_not_create_duplicate() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = common::make_db_from_url(&url).await.expect("test db");
     let uid = create_user(&db, 104, 0).await;
     let feed_id = create_feed(&db, 104, uid, "http://example.com/feed5.xml").await;
 
@@ -343,19 +315,15 @@ async fn test_second_update_does_not_create_duplicate(
         .await
         .expect("update #2"));
     assert_eq!(entry_count(&db, feed_id).await, 1); // still 1, not 2
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: testParseErrorReturnsFalse
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_parse_error_returns_false(
-    pool: PoolOptions<sqlx::Postgres>,
-    options: PgConnectOptions,
-) {
-    let db = common::make_db(pool, options).await.expect("test db");
+#[tokio::test]
+async fn test_parse_error_returns_false() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = common::make_db_from_url(&url).await.expect("test db");
     let uid = create_user(&db, 105, 0).await;
     let feed_id = create_feed(&db, 105, uid, "http://example.com/feed6.xml").await;
 
@@ -363,6 +331,8 @@ async fn test_parse_error_returns_false(
         .await
         .expect("update"));
     assert!(!last_error(&db, feed_id).await.is_empty());
+        Ok(())
+    })).await.unwrap();
 }
 
 // ============================================================================
@@ -444,16 +414,10 @@ async fn article_tags(db: &Db, feed_id: i32) -> Vec<String> {
     .expect("article tags")
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_filter_action_drops_article(
-    pool: PoolOptions<sqlx::Postgres>,
-    options: PgConnectOptions,
-) {
-    let db = common::make_db(pool, options).await.expect("test db");
+#[tokio::test]
+async fn test_filter_action_drops_article() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = common::make_db_from_url(&url).await.expect("test db");
     let uid = create_user(&db, 200, 0).await;
     let feed_id = create_feed(&db, 200, uid, "http://example.com/f1.xml").await;
     let filter_id = create_filter(&db, uid, TITLE_RULE, 1 /* title */).await;
@@ -481,18 +445,14 @@ async fn test_filter_action_drops_article(
         base_before + 1,
         "the base entry is still created"
     );
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_score_action_marks_starred(
-    pool: PoolOptions<sqlx::Postgres>,
-    options: PgConnectOptions,
-) {
-    let db = common::make_db(pool, options).await.expect("test db");
+#[tokio::test]
+async fn test_score_action_marks_starred() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = common::make_db_from_url(&url).await.expect("test db");
     let uid = create_user(&db, 201, 0).await;
     let feed_id = create_feed(&db, 201, uid, "http://example.com/f2.xml").await;
     let filter_id = create_filter(&db, uid, TITLE_RULE, 1).await;
@@ -504,18 +464,14 @@ async fn test_score_action_marks_starred(
     let (unread, marked) = user_entry_flags(&db, feed_id).await.expect("flags");
     assert!(marked, "score 2000 (>1000) should mark the article starred");
     assert!(unread, "score 2000 is >= -500, so the article stays unread");
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_score_action_below_read_threshold(
-    pool: PoolOptions<sqlx::Postgres>,
-    options: PgConnectOptions,
-) {
-    let db = common::make_db(pool, options).await.expect("test db");
+#[tokio::test]
+async fn test_score_action_below_read_threshold() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = common::make_db_from_url(&url).await.expect("test db");
     let uid = create_user(&db, 202, 0).await;
     let feed_id = create_feed(&db, 202, uid, "http://example.com/f3.xml").await;
     let filter_id = create_filter(&db, uid, TITLE_RULE, 1).await;
@@ -527,18 +483,14 @@ async fn test_score_action_below_read_threshold(
     let (unread, marked) = user_entry_flags(&db, feed_id).await.expect("flags");
     assert!(!unread, "score -1000 (<-500) should mark the article read");
     assert!(!marked, "score -1000 should not mark the article starred");
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_catchup_action_marks_read(
-    pool: PoolOptions<sqlx::Postgres>,
-    options: PgConnectOptions,
-) {
-    let db = common::make_db(pool, options).await.expect("test db");
+#[tokio::test]
+async fn test_catchup_action_marks_read() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = common::make_db_from_url(&url).await.expect("test db");
     let uid = create_user(&db, 203, 0).await;
     let feed_id = create_feed(&db, 203, uid, "http://example.com/f4.xml").await;
     let filter_id = create_filter(&db, uid, TITLE_RULE, 1).await;
@@ -549,15 +501,14 @@ async fn test_catchup_action_marks_read(
         .expect("update"));
     let (unread, _marked) = user_entry_flags(&db, feed_id).await.expect("flags");
     assert!(!unread, "a `catchup` action should mark the article read");
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_tag_action_adds_tags(pool: PoolOptions<sqlx::Postgres>, options: PgConnectOptions) {
-    let db = common::make_db(pool, options).await.expect("test db");
+#[tokio::test]
+async fn test_tag_action_adds_tags() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = common::make_db_from_url(&url).await.expect("test db");
     let uid = create_user(&db, 204, 0).await;
     let feed_id = create_feed(&db, 204, uid, "http://example.com/f5.xml").await;
     let filter_id = create_filter(&db, uid, TITLE_RULE, 1).await;
@@ -569,15 +520,14 @@ async fn test_tag_action_adds_tags(pool: PoolOptions<sqlx::Postgres>, options: P
     let tags = article_tags(&db, feed_id).await;
     assert!(tags.contains(&"rust".to_string()), "tags: {tags:?}");
     assert!(tags.contains(&"tiny-rss".to_string()), "tags: {tags:?}");
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_ignore_tag_removes_tag(pool: PoolOptions<sqlx::Postgres>, options: PgConnectOptions) {
-    let db = common::make_db(pool, options).await.expect("test db");
+#[tokio::test]
+async fn test_ignore_tag_removes_tag() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = common::make_db_from_url(&url).await.expect("test db");
     let uid = create_user(&db, 205, 0).await;
     let feed_id = create_feed(&db, 205, uid, "http://example.com/f6.xml").await;
     let filter_id = create_filter(&db, uid, TITLE_RULE, 1).await;
@@ -593,18 +543,14 @@ async fn test_ignore_tag_removes_tag(pool: PoolOptions<sqlx::Postgres>, options:
         !tags.contains(&"spam".to_string()),
         "the `ignore-tag` action should remove the tag: {tags:?}"
     );
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_blacklisted_tag_removed(
-    pool: PoolOptions<sqlx::Postgres>,
-    options: PgConnectOptions,
-) {
-    let db = common::make_db(pool, options).await.expect("test db");
+#[tokio::test]
+async fn test_blacklisted_tag_removed() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = common::make_db_from_url(&url).await.expect("test db");
     let uid = create_user(&db, 206, 0).await;
     let feed_id = create_feed(&db, 206, uid, "http://example.com/f7.xml").await;
     sqlx::query(
@@ -627,18 +573,14 @@ async fn test_blacklisted_tag_removed(
         !tags.contains(&"spam".to_string()),
         "a blacklisted tag should be removed: {tags:?}"
     );
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_label_action_assigns_label(
-    pool: PoolOptions<sqlx::Postgres>,
-    options: PgConnectOptions,
-) {
-    let db = common::make_db(pool, options).await.expect("test db");
+#[tokio::test]
+async fn test_label_action_assigns_label() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = common::make_db_from_url(&url).await.expect("test db");
     let uid = create_user(&db, 207, 0).await;
     let feed_id = create_feed(&db, 207, uid, "http://example.com/f8.xml").await;
     let label_id: i32 = sqlx::query_scalar(
@@ -669,6 +611,8 @@ async fn test_label_action_assigns_label(
         n, 1,
         "the `label` action should assign the label to the article"
     );
+        Ok(())
+    })).await.unwrap();
 }
 
 
@@ -711,16 +655,10 @@ impl Plugin for HookRewriter {
 // M7.9 — the pipeline fires `HOOK_ARTICLE_FILTER` (owner-scoped) on each new
 // article: the post-hook content is stored, the pre-hook hash is kept, and the
 // lowercased class name accumulates into the base entry's `plugin_data`.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_article_filter_hook_rewrites_content(
-    pool: PoolOptions<sqlx::Postgres>,
-    options: PgConnectOptions,
-) {
-    let db = common::make_db(pool, options).await.expect("test db");
+#[tokio::test]
+async fn test_article_filter_hook_rewrites_content() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = common::make_db_from_url(&url).await.expect("test db");
     let uid = create_user(&db, 201, 0 /* USER */).await;
     let feed_id = create_feed(&db, 201, uid, "http://example.com/hook.xml").await;
 
@@ -755,6 +693,8 @@ async fn test_article_filter_hook_rewrites_content(
         "the article content should be rewritten by the hook, got {content:?}"
     );
     assert_eq!(plugin_data, "hook_rewriter,");
+        Ok(())
+    })).await.unwrap();
 }
 
 
@@ -762,16 +702,10 @@ async fn test_article_filter_hook_rewrites_content(
 // appears (whole-word, case-insensitive) in the article's tags/content/title is
 // assigned to the article; non-matching captions are not. (The PHP's
 // `Auto_Assign_Labels::hook_article_filter` + the pipeline's label storage.)
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_auto_assign_labels_match_and_no_match(
-    pool: PoolOptions<sqlx::Postgres>,
-    options: PgConnectOptions,
-) {
-    let db = common::make_db(pool, options).await.expect("test db");
+#[tokio::test]
+async fn test_auto_assign_labels_match_and_no_match() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = common::make_db_from_url(&url).await.expect("test db");
     let uid = create_user(&db, 221, 0 /* USER */).await;
     let feed_id = create_feed(&db, 221, uid, "http://example.com/aal.xml").await;
 
@@ -829,4 +763,6 @@ async fn test_auto_assign_labels_match_and_no_match(
     assert_eq!(matched, 1, "the matching caption should be assigned to the article");
     let nomatched: i64 = count_for(nomatch_label).await.expect("no-match count");
     assert_eq!(nomatched, 0, "the non-matching caption should not be assigned");
+        Ok(())
+    })).await.unwrap();
 }

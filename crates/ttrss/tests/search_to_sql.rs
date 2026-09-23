@@ -13,8 +13,8 @@
 mod common;
 
 use chrono::Datelike;
-use ttrss::core::db::Db;
 use ttrss::search;
+use test_db::template::with_test_db;
 
 /// (input, expected query_part, expected words)
 const CASES: &[(&str, &str, &[&str])] = &[
@@ -95,16 +95,10 @@ const DATE_CASES: &[(&str, &str, &str)] = &[
     ("x @  y", "today", "(  (updated >= '<<D>> 00:00:00' AND updated <= '<<D>> 23:59:59')) AND (tsvector_combined @@ to_tsquery('', 'x & y'))"),
 ];
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn search_to_sql_fragments(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db: Db = common::make_db(pool, options).await.expect("test db");
+#[tokio::test]
+async fn search_to_sql_fragments() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = common::make_db_from_url(&url).await.expect("test db");
 
     // Match the oracle DB's label set (labels 1-2 come from the fixture).
     sqlx::query(
@@ -121,18 +115,14 @@ async fn search_to_sql_fragments(
         assert_eq!(parts.query_part, *want_part, "input: {input:?}");
         assert_eq!(parts.words, *want_words, "input: {input:?}");
     }
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn search_to_sql_date_cases(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db: Db = common::make_db(pool, options).await.expect("test db");
+#[tokio::test]
+async fn search_to_sql_date_cases() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = common::make_db_from_url(&url).await.expect("test db");
 
     let today = chrono::Utc::now().date_naive();
     let wd = today.weekday().num_days_from_monday() as i64;
@@ -155,4 +145,6 @@ async fn search_to_sql_date_cases(
         let parts = search::search_to_sql(&db, 1, None, input, "").await;
         assert_eq!(parts.query_part, want, "input: {input:?}");
     }
+        Ok(())
+    })).await.unwrap();
 }

@@ -25,6 +25,7 @@ use ttrss::core::session::Session;
 use ttrss::counters::{self, FeedOrTag};
 use ttrss::session::Sess;
 use ttrss::AppState;
+use test_db::template::with_test_db;
 
 /// `DbTestCase::setUp`: `$_SESSION["uid"] = 1`.
 const SESSION_UID: i64 = 1;
@@ -35,11 +36,8 @@ const SESSION_UID: i64 = 1;
 const ICON_DIR: &str = "no-such-test-icon-dir";
 
 /// `DbTestCase::setUp` + the test class `setUp` on top of the harness pool.
-async fn setup(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) -> Db {
-    let db = common::make_db(pool, options).await.expect("test db");
+async fn setup(url: &str) -> Db {
+    let db = common::make_db_from_url(url).await.expect("test db");
     // Prefs::set(Prefs::FRESH_ARTICLE_MAX_AGE, 999999, 1, null)
     sqlx::query(
         "INSERT INTO ttrss_user_prefs2 (owner_uid, pref_name, profile, value)
@@ -85,106 +83,80 @@ fn is_label_entry(v: &Value) -> bool {
 // ── Return type ─────────────────────────────────────────────────────────────
 
 // PHP: test_get_counters_returns_int
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_counters_returns_int(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_counters_returns_int() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     let result =
         counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(-4), false, false, None).await;
     assert!(result >= 0);
+        Ok(())
+    })).await.unwrap();
 }
 
 // ── Virtual feeds ───────────────────────────────────────────────────────────
 
 // PHP: test_get_counters_feed_all
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_counters_feed_all(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_counters_feed_all() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     // All 11 seeded articles belong to owner_uid=1
     assert_eq!(
         11,
         counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(-4), false, false, None).await
     );
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_get_counters_feed_starred
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_counters_feed_starred(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_counters_feed_starred() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     // seed.sql: articles 3, 8, 11 are marked=true
     assert_eq!(
         3,
         counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(-1), false, false, None).await
     );
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_get_counters_feed_starred_unread_only
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_counters_feed_starred_unread_only(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_counters_feed_starred_unread_only() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     // Starred articles: 3, 8, 11 — none are unread
     assert_eq!(
         0,
         counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(-1), false, true, None).await
     );
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_get_counters_feed_published
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_counters_feed_published(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_counters_feed_published() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     // No articles are published in seed data
     assert_eq!(
         0,
         counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(-2), false, false, None).await
     );
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_get_counters_feed_fresh
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_counters_feed_fresh(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_counters_feed_fresh() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     // Fresh = unread + score >= 0 + within FRESH_ARTICLE_MAX_AGE.
     // setUp() sets FRESH_ARTICLE_MAX_AGE=999999 so all unread articles are
     // fresh: 1,2,4,5,6,7,9,10 = 8
@@ -192,57 +164,45 @@ async fn test_get_counters_feed_fresh(
         8,
         counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(-3), false, false, None).await
     );
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_get_counters_feed_recently_read
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_counters_feed_recently_read(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_counters_feed_recently_read() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     // FEED_RECENTLY_READ always returns 0
     assert_eq!(
         0,
         counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(-6), false, false, None).await
     );
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_get_counters_feed_archived
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_counters_feed_archived(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_counters_feed_archived() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     // Archived = feed_id IS NULL — no articles have null feed_id
     assert_eq!(
         0,
         counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(0), false, false, None).await
     );
+        Ok(())
+    })).await.unwrap();
 }
 
 // ── Regular feed IDs ────────────────────────────────────────────────────────
 
 // PHP: test_get_counters_by_feed_id
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_counters_by_feed_id(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_counters_by_feed_id() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     // Default (unread_only=false) returns TOTAL count.
     assert_eq!(
         3,
@@ -264,19 +224,15 @@ async fn test_get_counters_by_feed_id(
         counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(4), false, false, None).await,
         "Feed 4 (MIT Tech Review): articles 9,10,11 → total = 3"
     );
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_get_counters_by_feed_id_all
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_counters_by_feed_id_all(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_counters_by_feed_id_all() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     assert_eq!(
         3,
         counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(1), false, false, None).await
@@ -293,19 +249,15 @@ async fn test_get_counters_by_feed_id_all(
         3,
         counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(4), false, false, None).await
     );
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_get_counters_by_feed_id_unread_only
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_counters_by_feed_id_unread_only(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_counters_by_feed_id_unread_only() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     assert_eq!(
         2,
         counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(1), false, true, None).await
@@ -322,94 +274,74 @@ async fn test_get_counters_by_feed_id_unread_only(
         2,
         counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(4), false, true, None).await
     );
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_get_counters_nonexistent_feed
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_counters_nonexistent_feed(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_counters_nonexistent_feed() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     // Feed 999 doesn't exist and has no user entries
     assert_eq!(
         0,
         counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(999), false, false, None).await
     );
+        Ok(())
+    })).await.unwrap();
 }
 
 // ── Category view ───────────────────────────────────────────────────────────
 
 // PHP: test_get_counters_category
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_counters_category(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_counters_category() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     // Category 1 (Technology): feeds 1,2,3 → articles 1-8
     // Unread: 1,2,4,5,6,7 = 6
     assert_eq!(
         6,
         counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(1), true, false, None).await
     );
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_get_counters_category_all
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_counters_category_all(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_counters_category_all() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     // Category queries always call _get_cat_unread() → returns unread count
     assert_eq!(
         6,
         counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(1), true, false, None).await
     );
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_get_counters_category_unread_only
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_counters_category_unread_only(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_counters_category_unread_only() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     // is_cat=true always returns unread via _get_cat_unread()
     assert_eq!(
         6,
         counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(1), true, true, None).await
     );
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_get_counters_category_science
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_counters_category_science(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_counters_category_science() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     // Category 2 (Science & Nature): feed 4 → articles 9,10,11
     // Unread: 9,10 = 2
     assert_eq!(
@@ -422,76 +354,60 @@ async fn test_get_counters_category_science(
         3,
         counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(2), false, false, None).await
     );
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_get_counters_category_uncategorized
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_counters_category_uncategorized(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_counters_category_uncategorized() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     // Category 0 = uncategorized — all seeded feeds have a category
     assert_eq!(
         0,
         counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(0), true, false, None).await
     );
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_get_counters_category_special
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_counters_category_special(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_counters_category_special() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     // CATEGORY_SPECIAL (-1) returns 0
     assert_eq!(
         0,
         counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(-1), true, false, None).await
     );
+        Ok(())
+    })).await.unwrap();
 }
 
 // ── Tag feed ────────────────────────────────────────────────────────────────
 
 // PHP: test_get_counters_tag
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_counters_tag(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_counters_tag() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     // Tags are stored in ttrss_tags table (not tag_cache).
     // Seed data only populates tag_cache strings, not ttrss_tags rows.
     assert_eq!(
         0,
         counters::get_counters(&db, SESSION_UID, FeedOrTag::Tag("rust"), false, false, None).await
     );
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_get_counters_tag_nonexistent
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_counters_tag_nonexistent(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_counters_tag_nonexistent() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     assert_eq!(
         0,
         counters::get_counters(
@@ -504,39 +420,31 @@ async fn test_get_counters_tag_nonexistent(
         )
         .await
     );
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_get_counters_tag_all
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_counters_tag_all(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_counters_tag_all() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     // No tags in ttrss_tags table from seed data
     assert_eq!(
         0,
         counters::get_counters(&db, SESSION_UID, FeedOrTag::Tag("ai"), false, false, None).await
     );
+        Ok(())
+    })).await.unwrap();
 }
 
 // ── Label IDs ───────────────────────────────────────────────────────────────
 
 // PHP: test_get_counters_label_id
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_counters_label_id(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_counters_label_id() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     // Insert label for uid=1
     let label_id: i32 = sqlx::query_scalar(
         "INSERT INTO ttrss_labels2 (owner_uid, caption) VALUES (1, 'test-counter-label') RETURNING id",
@@ -585,21 +493,17 @@ async fn test_get_counters_label_id(
     );
     // NOTE: the PHP test's cleanup DELETEs are unnecessary — the harness
     // drops the per-test database.
+        Ok(())
+    })).await.unwrap();
 }
 
 // ── Owner UID ───────────────────────────────────────────────────────────────
 
 // PHP: test_get_counters_different_owner
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_counters_different_owner(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_counters_different_owner() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     // Feed 1 exists but owner_uid=2 has no user entries
     assert_eq!(
         0,
@@ -609,39 +513,31 @@ async fn test_get_counters_different_owner(
         0,
         counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(-4), false, false, Some(2)).await
     );
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_get_counters_category_different_owner
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_counters_category_different_owner(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_counters_category_different_owner() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     // Category 1 has no entries for owner_uid=2
     assert_eq!(
         0,
         counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(1), true, false, Some(2)).await
     );
+        Ok(())
+    })).await.unwrap();
 }
 
 // ── Cross-feed totals ───────────────────────────────────────────────────────
 
 // PHP: test_get_counters_all_total
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_counters_all_total(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_counters_all_total() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     // FEED_ALL for uid=1 should include all 11 articles
     assert_eq!(
         11,
@@ -653,19 +549,15 @@ async fn test_get_counters_all_total(
         8,
         counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(-4), false, true, None).await
     );
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_get_counters_sum_per_feed
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_counters_sum_per_feed(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_counters_sum_per_feed() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     // Sum of individual feed counts should equal FEED_ALL total
     let mut total = 0;
     for i in 1..=4i64 {
@@ -681,21 +573,17 @@ async fn test_get_counters_sum_per_feed(
             counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(i), false, true, None).await;
     }
     assert_eq!(8, unread_total);
+        Ok(())
+    })).await.unwrap();
 }
 
 // ── Counters::get_feeds (via get_conditional) ───────────────────────────────
 
 // PHP: test_counters_get_feeds_returns_array
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_counters_get_feeds_returns_array(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_counters_get_feeds_returns_array() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     let result = counters::get_conditional(
         &db,
         SESSION_UID,
@@ -705,19 +593,15 @@ async fn test_counters_get_feeds_returns_array(
     )
     .await;
     assert!(!result.is_empty());
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_counters_get_feeds_contains_requested_feeds
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_counters_get_feeds_contains_requested_feeds(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_counters_get_feeds_contains_requested_feeds() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     let result = counters::get_conditional(
         &db,
         SESSION_UID,
@@ -772,19 +656,15 @@ async fn test_counters_get_feeds_contains_requested_feeds(
         "Feed 2 should have 3 unread"
     );
     assert_eq!(0, f2.get("markedcounter").and_then(Value::as_i64).unwrap());
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_counters_get_feeds_empty_array
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_counters_get_feeds_empty_array(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_counters_get_feeds_empty_array() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     let result = counters::get_conditional(
         &db,
         SESSION_UID,
@@ -807,6 +687,8 @@ async fn test_counters_get_feeds_empty_array(
         feed_entries.is_empty(),
         "Empty feed_ids should yield no feed entries"
     );
+        Ok(())
+    })).await.unwrap();
 }
 
 // ── Rust-only regression: `get_cats` with a filtered cat list ──────────────
@@ -825,16 +707,10 @@ async fn test_counters_get_feeds_empty_array(
 // Seed fixtures: Technology (cat 1) holds feeds 1-3 → 6 unread (articles
 // 1,2,4,5,6,7), 2 marked (3, 8), 0 published, no child cats; no seeded feed
 // lacks a category; Science & Nature (cat 2) holds none of feeds 1-2.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_counters_get_conditional_feed_ids_category_rows(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_counters_get_conditional_feed_ids_category_rows() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     let result = counters::get_conditional(
         &db,
         SESSION_UID,
@@ -905,35 +781,27 @@ async fn test_counters_get_conditional_feed_ids_category_rows(
         !by_id.contains_key(&2),
         "cat 2 must not appear for feeds [1, 2]: {cat_entries:?}"
     );
+        Ok(())
+    })).await.unwrap();
 }
 // ── Counters::get_all() ─────────────────────────────────────────────────────
 
 // PHP: test_counters_get_all_returns_array
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_counters_get_all_returns_array(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_counters_get_all_returns_array() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     let result = counters::get_all(&db, SESSION_UID, std::path::Path::new(ICON_DIR)).await;
     assert!(!result.is_empty());
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_counters_get_all_contains_global_unread
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_counters_get_all_contains_global_unread(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_counters_get_all_contains_global_unread() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     let result = counters::get_all(&db, SESSION_UID, std::path::Path::new(ICON_DIR)).await;
 
     let global: Vec<&Value> = result
@@ -947,19 +815,15 @@ async fn test_counters_get_all_contains_global_unread(
     assert_eq!(1, global.len());
     let m = global[0].as_object().unwrap();
     assert!(m.get("counter").and_then(Value::as_i64).unwrap() >= 0);
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_counters_get_all_contains_virtual_feeds
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_counters_get_all_contains_virtual_feeds(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_counters_get_all_contains_virtual_feeds() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     let result = counters::get_all(&db, SESSION_UID, std::path::Path::new(ICON_DIR)).await;
 
     // Feeds::{FEED_ARCHIVED, FEED_STARRED, FEED_PUBLISHED, FEED_FRESH, FEED_ALL}
@@ -981,19 +845,15 @@ async fn test_counters_get_all_contains_virtual_feeds(
     for entry in &virtual_entries {
         assert!(entry.as_object().unwrap().get("counter").is_some());
     }
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_counters_get_all_contains_category_entries
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_counters_get_all_contains_category_entries(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_counters_get_all_contains_category_entries() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     let result = counters::get_all(&db, SESSION_UID, std::path::Path::new(ICON_DIR)).await;
 
     let cat_entries: Vec<&Value> = result
@@ -1006,54 +866,42 @@ async fn test_counters_get_all_contains_category_entries(
         .collect();
     // At least the Labels category + the 2 seed categories
     assert!(!cat_entries.is_empty());
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_counters_get_all_contains_label_entries
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_counters_get_all_contains_label_entries(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_counters_get_all_contains_label_entries() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     let result = counters::get_all(&db, SESSION_UID, std::path::Path::new(ICON_DIR)).await;
 
     let label_entries: Vec<&Value> = result.iter().filter(|v| is_label_entry(v)).collect();
     // Seed data has 2 labels (test-label-1, test-label-2)
     assert_eq!(2, label_entries.len(), "Should contain seed label entries");
+        Ok(())
+    })).await.unwrap();
 }
 
 // ── Counters::get_labels() ──────────────────────────────────────────────────
 
 // PHP: test_counters_get_labels_returns_array
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_counters_get_labels_returns_array(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_counters_get_labels_returns_array() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     let result = counters::get_labels(&db, SESSION_UID, None).await;
     assert!(!result.is_empty());
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_counters_get_labels_with_ids
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_counters_get_labels_with_ids(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_counters_get_labels_with_ids() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     let label_ids = seed_label_ids(&db).await;
     assert!(!label_ids.is_empty());
 
@@ -1071,51 +919,39 @@ async fn test_counters_get_labels_with_ids(
         assert!(m.get("auxcounter").is_some());
         assert!(m.get("description").is_some());
     }
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_counters_get_labels_empty_array
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_counters_get_labels_empty_array(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_counters_get_labels_empty_array() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     let result = counters::get_labels(&db, SESSION_UID, Some(&[])).await;
     assert!(result.is_empty());
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_counters_get_labels_nonexistent_ids
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_counters_get_labels_nonexistent_ids(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_counters_get_labels_nonexistent_ids() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     let result = counters::get_labels(&db, SESSION_UID, Some(&[99999, 99998])).await;
     assert!(result.is_empty());
+        Ok(())
+    })).await.unwrap();
 }
 
 // ── Counters::get_conditional with label_ids ────────────────────────────────
 
 // PHP: test_counters_get_conditional_with_label_ids
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_counters_get_conditional_with_label_ids(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_counters_get_conditional_with_label_ids() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     let label_ids = seed_label_ids(&db).await;
     assert!(!label_ids.is_empty());
 
@@ -1130,19 +966,15 @@ async fn test_counters_get_conditional_with_label_ids(
 
     let label_entries: Vec<&Value> = result.iter().filter(|v| is_label_entry(v)).collect();
     assert_eq!(label_ids.len(), label_entries.len());
+        Ok(())
+    })).await.unwrap();
 }
 
 // PHP: test_counters_get_conditional_with_both_feed_and_label_ids
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_counters_get_conditional_with_both_feed_and_label_ids(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let db = setup(pool, options).await;
+#[tokio::test]
+async fn test_counters_get_conditional_with_both_feed_and_label_ids() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = setup(&url).await;
     let label_ids = seed_label_ids(&db).await;
 
     let result = counters::get_conditional(
@@ -1166,6 +998,8 @@ async fn test_counters_get_conditional_with_both_feed_and_label_ids(
         label_entries.len(),
         "Should contain label entries"
     );
+        Ok(())
+    })).await.unwrap();
 }
 
 // ── get_all_counters handler (RPC glue) ─────────────────────────────────────
@@ -1225,11 +1059,8 @@ fn test_config() -> Config {
 
 /// [`setup`] + the `AppState`/`Sess` the handler takes (session `uid = 1`,
 /// the fixture owner).
-async fn setup_state(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) -> (AppState, Sess) {
-    let db = setup(pool, options).await;
+async fn setup_state(url: &str) -> (AppState, Sess) {
+    let db = setup(url).await;
     let state = AppState::new(test_config(), db);
     let mut data = Session::new();
     data.set("uid", PValue::Int(1));
@@ -1266,16 +1097,10 @@ fn cat_entries(counters: &[Value]) -> Vec<&Value> {
 // category rows (Technology + uncategorized + Labels), all label entries
 // (no `label_ids` param → PHP `get_labels(null)` = all labels), and the
 // string `seq` echoed as an int.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_all_counters_handler_feed_ids_array(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup_state(pool, options).await;
+#[tokio::test]
+async fn test_get_all_counters_handler_feed_ids_array() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup_state(&url).await;
     let mut extra = Map::new();
     extra.insert("seq".into(), json!("7"));
     extra.insert("feed_id_count".into(), json!(2));
@@ -1306,20 +1131,16 @@ async fn test_get_all_counters_handler_feed_ids_array(
     // No label_ids param → PHP `get_labels(null)` → all seeded labels.
     let labels: Vec<&Value> = c.iter().filter(|v| is_label_entry(v)).collect();
     assert_eq!(2, labels.len(), "all seeded labels: {c:?}");
+        Ok(())
+    })).await.unwrap();
 }
 
 // Rust-only: absent `*_id_count` params → -1 → null → `Counters::get_all()`
 // — every feed, every category, numeric `seq` echoed as-is.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_all_counters_handler_no_counts_returns_all(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup_state(pool, options).await;
+#[tokio::test]
+async fn test_get_all_counters_handler_no_counts_returns_all() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup_state(&url).await;
     let mut extra = Map::new();
     extra.insert("seq".into(), json!(3));
     let v = counters::get_all_counters(&state, &sess, &extra).await;
@@ -1337,20 +1158,16 @@ async fn test_get_all_counters_handler_no_counts_returns_all(
         cat_ids,
         "all categories + uncategorized + labels"
     );
+        Ok(())
+    })).await.unwrap();
 }
 
 // Rust-only: an explicit `feed_id_count: -1` overrides the supplied `feed_ids`
 // (PHP: `$feed_id_count == -1 ? null : _param_to_int_array(...)`).
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_all_counters_handler_feed_id_count_minus_one(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup_state(pool, options).await;
+#[tokio::test]
+async fn test_get_all_counters_handler_feed_id_count_minus_one() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup_state(&url).await;
     let mut extra = Map::new();
     extra.insert("feed_id_count".into(), json!(-1));
     extra.insert("feed_ids".into(), json!(["1", "2"]));
@@ -1362,20 +1179,16 @@ async fn test_get_all_counters_handler_feed_id_count_minus_one(
         feed_ids_in(c),
         "count -1 → null → all feeds"
     );
+        Ok(())
+    })).await.unwrap();
 }
 
 // Rust-only: `DISABLE_CONDITIONAL_COUNTERS` → `Counters::get_all()` even when
 // feed ids were supplied (PHP: `is_array($feed_ids) && !Prefs::get(...)`).
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_all_counters_handler_disable_conditional(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup_state(pool, options).await;
+#[tokio::test]
+async fn test_get_all_counters_handler_disable_conditional() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup_state(&url).await;
     sqlx::query(
         "INSERT INTO ttrss_user_prefs2 (owner_uid, pref_name, profile, value)
          VALUES (1, 'DISABLE_CONDITIONAL_COUNTERS', NULL, '1')",
@@ -1405,20 +1218,16 @@ async fn test_get_all_counters_handler_disable_conditional(
         cat_ids,
         "get_all() → all categories"
     );
+        Ok(())
+    })).await.unwrap();
 }
 
 // Rust-only: `label_ids` on the conditional path → only the requested label
 // entries (PHP `get_conditional($feed_ids, $label_ids)` → `get_labels($label_ids)`).
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_all_counters_handler_label_ids_subset(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup_state(pool, options).await;
+#[tokio::test]
+async fn test_get_all_counters_handler_label_ids_subset() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup_state(&url).await;
     let mut extra = Map::new();
     extra.insert("feed_id_count".into(), json!(2));
     extra.insert("feed_ids".into(), json!(["1", "2"]));
@@ -1433,4 +1242,6 @@ async fn test_get_all_counters_handler_label_ids_subset(
         ttrss::labels::label_to_feed_id(1),
         labels[0]["id"].as_i64().unwrap()
     );
+        Ok(())
+    })).await.unwrap();
 }

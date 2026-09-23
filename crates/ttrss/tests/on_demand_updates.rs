@@ -8,8 +8,6 @@
 
 mod common;
 
-use sqlx::pool::PoolOptions;
-use sqlx::postgres::PgConnectOptions;
 use serde_json::{json, Map, Value};
 use ttrss::api::update_feed;
 use ttrss::core::config::Config;
@@ -20,6 +18,7 @@ use ttrss::feeds::subscribe;
 use ttrss::session::Sess;
 use ttrss::AppState;
 use common::{Canned, MockServer};
+use test_db::template::with_test_db;
 
 const MOCK_FEED: &str = include_str!("../../../tt-rss/tests_integration/feed.xml");
 
@@ -141,16 +140,10 @@ fn atom_mock() -> MockServer {
 
 // `Feeds::_subscribe` → the immediate first update: the feed is created (code
 // 1) and `update_basic_info` fills in the feed's title from the fetched feed.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_subscribe_first_update(
-    pool: PoolOptions<sqlx::Postgres>,
-    options: PgConnectOptions,
-) {
-    let db = common::make_db(pool, options).await.expect("test db");
+#[tokio::test]
+async fn test_subscribe_first_update() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = common::make_db_from_url(&url).await.expect("test db");
     let cfg = test_config();
     let mock = atom_mock();
     let uid = create_user(&db, 300, 0).await;
@@ -175,20 +168,16 @@ async fn test_subscribe_first_update(
         feed_title(&db, feed_id as i32).await,
         "Atom:base testfeed"
     );
+        Ok(())
+    })).await.unwrap();
 }
 
 // `Feeds::_subscribe` for a feed the user already subscribes to: code 0 (no
 // duplicate insert), the existing feed's id.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_subscribe_existing_feed(
-    pool: PoolOptions<sqlx::Postgres>,
-    options: PgConnectOptions,
-) {
-    let db = common::make_db(pool, options).await.expect("test db");
+#[tokio::test]
+async fn test_subscribe_existing_feed() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = common::make_db_from_url(&url).await.expect("test db");
     let cfg = test_config();
     let mock = atom_mock();
     let uid = create_user(&db, 301, 0).await;
@@ -211,21 +200,17 @@ async fn test_subscribe_existing_feed(
         rc.get("feed_id").and_then(|v| v.as_i64()),
         Some(feed_id as i64)
     );
+        Ok(())
+    })).await.unwrap();
 }
 
 // `API::updateFeed` — the on-demand full update: the feed's articles are
 // ingested immediately (the request blocks on the update, not queued behind
 // the daemon loop's `Semaphore(N)`).
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_update_feed_on_demand(
-    pool: PoolOptions<sqlx::Postgres>,
-    options: PgConnectOptions,
-) {
-    let db = common::make_db(pool, options).await.expect("test db");
+#[tokio::test]
+async fn test_update_feed_on_demand() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = common::make_db_from_url(&url).await.expect("test db");
     let mock = atom_mock();
     let state = make_state(db.clone());
     let uid = create_user(&db, 302, 0).await;
@@ -238,20 +223,16 @@ async fn test_update_feed_on_demand(
 
     // The on-demand update ingested the feed's article immediately.
     assert_eq!(entry_count(&db, feed_id).await, 1);
+        Ok(())
+    })).await.unwrap();
 }
 
 // `API::updateFeed` dedup: a feed already in flight (claimed by the running
 // daemon loop within the last 10 minutes) is a no-op — no re-fetch, no articles.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_update_feed_dedup_when_in_flight(
-    pool: PoolOptions<sqlx::Postgres>,
-    options: PgConnectOptions,
-) {
-    let db = common::make_db(pool, options).await.expect("test db");
+#[tokio::test]
+async fn test_update_feed_dedup_when_in_flight() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let db = common::make_db_from_url(&url).await.expect("test db");
     let mock = atom_mock();
     let state = make_state(db.clone());
     let uid = create_user(&db, 303, 0).await;
@@ -270,4 +251,6 @@ async fn test_update_feed_dedup_when_in_flight(
 
     // The in-flight feed was skipped (no re-fetch, no articles ingested).
     assert_eq!(entry_count(&db, feed_id).await, 0);
+        Ok(())
+    })).await.unwrap();
 }

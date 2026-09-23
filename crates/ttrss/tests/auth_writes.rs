@@ -8,12 +8,12 @@ mod common;
 
 use serde_json::{json, Map, Value};
 use ttrss::core::config::Config;
-use ttrss::core::db::Db;
 use ttrss::core::phpser::Value as PValue;
 use ttrss::core::session::Session;
 use ttrss::core::user;
 use ttrss::session::Sess;
 use ttrss::AppState;
+use test_db::template::with_test_db;
 
 /// A test-only config (the handlers only need `db`).
 fn test_config() -> Config {
@@ -63,11 +63,8 @@ fn test_config() -> Config {
 
 /// Fresh fixtures + a session carrying `uid = 1`, the admin access level, the
 /// `auth_internal` module and the `admin` login name.
-async fn setup(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) -> (AppState, Sess) {
-    let db: Db = common::make_db(pool, options).await.expect("test db");
+async fn setup(url: &str) -> (AppState, Sess) {
+    let db = common::make_db_from_url(url).await.expect("test db");
     let state = AppState::new(test_config(), db);
     let mut data = Session::new();
     data.set("uid", PValue::Int(1));
@@ -87,15 +84,10 @@ fn form(pairs: &[(&str, &str)]) -> Map<String, Value> {
         .collect()
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql"
-))]
-async fn test_change_personal_data(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_change_personal_data() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let db = state.db.pool();
 
     let extra = form(&[("full_name", "Test User"), ("email", "test@example.com")]);
@@ -109,17 +101,14 @@ async fn test_change_personal_data(
             .unwrap();
     assert_eq!(row.0, "Test User");
     assert_eq!(row.1, "test@example.com");
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql"
-))]
-async fn test_changepassword_success(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_changepassword_success() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let db = state.db.pool();
 
     let extra = form(&[
@@ -144,17 +133,14 @@ async fn test_changepassword_success(
     assert!(user::verify_password(&pwd_hash, "newpass", &salt));
     assert!(!user::verify_password(&pwd_hash, "password", &salt));
     assert_eq!(sess.data().pwd_hash(), Some(pwd_hash.as_str()));
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql"
-))]
-async fn test_changepassword_validation_errors(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_changepassword_validation_errors() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
 
     // Each pair is (form fields, expected message substring). The baseline
     // password is irrelevant — validation short-circuits before verification.
@@ -212,17 +198,14 @@ async fn test_changepassword_validation_errors(
             "should be prefixed with ERROR:, got: {out}"
         );
     }
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql"
-))]
-async fn test_changepassword_wrong_old_password(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_changepassword_wrong_old_password() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let extra = form(&[
         ("old_password", "not-the-password"),
         ("new_password", "newpass"),
@@ -230,17 +213,14 @@ async fn test_changepassword_wrong_old_password(
     ]);
     let out = ttrss::settings::changepassword(&state, &sess, &extra).await;
     assert!(out.contains("Old password is incorrect."), "got: {out}");
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql"
-))]
-async fn test_changepassword_forbidden(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (mut state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_changepassword_forbidden() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (mut state, sess) = setup(&url).await;
     state.config.forbid_password_changes = true;
     let extra = form(&[
         ("old_password", "password"),
@@ -251,17 +231,14 @@ async fn test_changepassword_forbidden(
     assert!(out.starts_with("ERROR: "), "got: {out}");
     assert!(out.contains("Access forbidden."), "got: {out}");
     assert!(out.contains("alert-danger"), "got: {out}");
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql"
-))]
-async fn test_otp_enable(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_otp_enable() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let db = state.db.pool();
 
     // A known secret so we can compute the current TOTP code.
@@ -304,17 +281,14 @@ async fn test_otp_enable(
         .await
         .unwrap();
     assert!(enabled);
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql"
-))]
-async fn test_otp_disable(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_otp_disable() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let db = state.db.pool();
 
     // Wrong password first.
@@ -343,17 +317,14 @@ async fn test_otp_disable(
         secret.is_none(),
         "secret should be cleared on disable (schema >= 143)"
     );
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql"
-))]
-async fn test_customize_css(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_customize_css() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let db = state.db.pool();
 
     sqlx::query(
@@ -368,4 +339,6 @@ async fn test_customize_css(
     let out = ttrss::settings::customize_css(&state, &sess).await;
     let expect = json!({ "value": "body { color: red; }\n/* second line */" });
     assert_eq!(out, expect, "got: {out}");
+        Ok(())
+    })).await.unwrap();
 }

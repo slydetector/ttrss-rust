@@ -15,11 +15,11 @@ use kuchikiki::parse_html;
 use kuchikiki::traits::TendrilSink;
 use serde_json::{json, Map, Value};
 use ttrss::core::config::Config;
-use ttrss::core::db::Db;
 use ttrss::core::phpser::Value as PValue;
 use ttrss::core::session::{self, Session};
 use ttrss::session::Sess;
 use ttrss::AppState;
+use test_db::template::with_test_db;
 
 /// A test-only config (the handlers only need `db` + `feed_icon_dir`).
 fn test_config() -> Config {
@@ -66,11 +66,8 @@ fn test_config() -> Config {
 }
 
 /// Fresh fixtures + a session carrying `uid = 1` (owner of all fixture rows).
-async fn setup(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) -> (AppState, Sess) {
-    let db: Db = common::make_db(pool, options).await.expect("test db");
+async fn setup(url: &str) -> (AppState, Sess) {
+    let db = common::make_db_from_url(url).await.expect("test db");
     let state = AppState::new(test_config(), db);
     let mut data = Session::new();
     data.set("uid", PValue::Int(1));
@@ -87,16 +84,10 @@ fn request(pairs: &[(&str, Value)]) -> Map<String, Value> {
 /// `editfeed` returns the feed row (with a computed `icon` + decrypted
 /// `auth_pass`), the category `<select>`, the update/purge intervals, the user
 /// access level, and the text-search language list.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_editfeed_basic(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_editfeed_basic() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
 
     let result = ttrss::feeds::editfeed(&state, &sess, &request(&[("id", json!(1))])).await;
     assert!(result.is_object(), "expected object, got {result}");
@@ -210,34 +201,26 @@ async fn test_editfeed_basic(
 
     // plugin_data
     assert_eq!(result["plugin_data"], "");
+        Ok(())
+    })).await.unwrap();
 }
 
 /// `editfeed` returns `null` for an unknown / non-owned feed.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_editfeed_unknown_feed(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_editfeed_unknown_feed() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let result = ttrss::feeds::editfeed(&state, &sess, &request(&[("id", json!(9999))])).await;
     assert!(result.is_null(), "expected null, got {result}");
+        Ok(())
+    })).await.unwrap();
 }
 
 /// Nested categories are indented by level in the category `<select>`.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_editfeed_cats_nested(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_editfeed_cats_nested() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let db = &state.db;
     // Add a child category under "Technology" (id 1).
     sqlx::query(
@@ -256,6 +239,8 @@ async fn test_editfeed_cats_nested(
         .expect("indented Sub-Tech: {select}");
     assert!(sub_pos > tech_pos, "child should follow parent: {select}");
     assert!(select.contains("Sub-Tech"));
+        Ok(())
+    })).await.unwrap();
 }
 
 /// `decrypt_feed_pass` reverses the `editSave` auth_pass envelope.
@@ -277,16 +262,10 @@ fn test_decrypt_feed_pass_roundtrip() {
 }
 
 /// `get_icon` maps virtual feed ids to Material icon names.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_get_icon_virtual(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, _sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_get_icon_virtual() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, _sess) = setup(&url).await;
     use ttrss::feeds::get_icon;
     assert_eq!(get_icon(&state, 0), "archive");
     assert_eq!(get_icon(&state, -1), "star");
@@ -301,6 +280,8 @@ async fn test_get_icon_virtual(
     );
     // A real feed with no icon file maps to the empty string.
     assert_eq!(get_icon(&state, 1), "");
+        Ok(())
+    })).await.unwrap();
 }
 
 // --- editfeeds (batch-edit dialog) structural tests -----------------------
@@ -315,16 +296,10 @@ fn parse_doc(html: &str) -> kuchikiki::NodeRef {
     parse_html().one(html)
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_editfeeds_overview(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_editfeeds_overview() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let html = ttrss::feeds::editfeeds(&state, &sess, &request(&[("ids", json!("1,2"))])).await;
     let doc = parse_doc(&html);
 
@@ -367,18 +342,14 @@ async fn test_editfeeds_overview(
             "Options".to_string(),
         ]
     );
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_editfeeds_general_tab(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_editfeeds_general_tab() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let html = ttrss::feeds::editfeeds(&state, &sess, &request(&[("ids", json!("1,2"))])).await;
     let doc = parse_doc(&html);
 
@@ -426,18 +397,14 @@ async fn test_editfeeds_general_tab(
         update_options.contains(&"-1=Disable updates".to_string()),
         "{update_options:?}"
     );
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_editfeeds_auth_tab(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_editfeeds_auth_tab() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let html = ttrss::feeds::editfeeds(&state, &sess, &request(&[("ids", json!("1,2"))])).await;
     let doc = parse_doc(&html);
 
@@ -468,18 +435,14 @@ async fn test_editfeeds_auth_tab(
             .collect::<Vec<_>>();
         assert_eq!(toggle.len(), 1, "exactly one toggle for {name}");
     }
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_editfeeds_options_tab(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_editfeeds_options_tab() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let html = ttrss::feeds::editfeeds(&state, &sess, &request(&[("ids", json!("1,2"))])).await;
     let doc = parse_doc(&html);
 
@@ -515,18 +478,14 @@ async fn test_editfeeds_options_tab(
         1,
         "one submit button"
     );
+        Ok(())
+    })).await.unwrap();
 }
 
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_editfeeds_category_options(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_editfeeds_category_options() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let html = ttrss::feeds::editfeeds(&state, &sess, &request(&[("ids", json!("1,2"))])).await;
     let doc = parse_doc(&html);
 
@@ -558,6 +517,8 @@ async fn test_editfeeds_category_options(
         options.iter().any(|(t, _, s)| t == "Uncategorized" && *s),
         "Uncategorized selected: {options:?}"
     );
+        Ok(())
+    })).await.unwrap();
 }
 
 /// `Feeds::subscribeToFeed` — the "Add a feed" dialog data: the category
@@ -565,16 +526,10 @@ async fn test_editfeeds_category_options(
 /// the update-interval options (the default-annotated `$update_intervals`, a
 /// JSON object). The frontend's `select_hash` re-sorts the interval keys, so
 /// only the data (not the object key order) matters.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_subscribe_to_feed(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_subscribe_to_feed() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
 
     let result = ttrss::feeds::subscribe_to_feed(&state, &sess).await;
 
@@ -613,21 +568,17 @@ async fn test_subscribe_to_feed(
     assert_eq!(update["15"].as_str().unwrap(), "15 minutes");
     assert_eq!(update["60"].as_str().unwrap(), "Hourly");
     assert_eq!(update["10080"].as_str().unwrap(), "Weekly");
+        Ok(())
+    })).await.unwrap();
 }
 
 /// `Feeds::opensite` — 302-redirect to a feed's site URL (validated), or 404 if
 /// the feed is missing, owned by another user, or has an empty/invalid site
 /// URL. Not a JSON method: it returns a raw status + optional `Location` + body.
-#[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
-    "../../test-db/fixtures/baseline.sql",
-    "../../test-db/fixtures/seed.sql",
-))]
-async fn test_opensite(
-    pool: sqlx::pool::PoolOptions<sqlx::Postgres>,
-    options: sqlx::postgres::PgConnectOptions,
-) {
-    let (state, sess) = setup(pool, options).await;
+#[tokio::test]
+async fn test_opensite() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
     let db = state.db.pool();
 
     // Extra feeds to exercise the failure paths:
@@ -689,4 +640,6 @@ async fn test_opensite(
         StatusCode::NOT_FOUND,
         "invalid site URL is not found"
     );
+        Ok(())
+    })).await.unwrap();
 }
