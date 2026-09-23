@@ -121,6 +121,7 @@
 
 			 	<!-- order 0, default -->
 
+{{ main_toolbar_buttons }}
 
 				<!-- order 5: alert icons -->
 

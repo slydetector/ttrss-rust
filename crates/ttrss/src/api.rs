@@ -312,16 +312,15 @@ async fn get_config(state: &AppState, uid: Option<i64>, accept_language: Option<
             .fetch_one(pool)
             .await
             .unwrap_or(0);
-    // M10.3: resolve locale and build the translations map (PHP parity).
-    // Read USER_LANGUAGE pref (single indexed query, negligible cost).
-    let user_lang: Option<String> = sqlx::query_scalar(
-        "SELECT val_string FROM ttrss_user_prefs2 WHERE owner_uid = $1 AND name = 'USER_LANGUAGE'",
-    )
-    .bind(uid)
-    .fetch_optional(pool)
-    .await
-    .ok()
-    .flatten();
+    // M10.3: resolve locale and build the translations map — populated only
+    // for non-English locales (English resolves to `None` → `{}`). Read
+    // USER_LANGUAGE through the standard pref path (user-default row; the API
+    // boundary carries no profile).
+    let rows = prefs::load_rows(&state.db, uid, None).await;
+    let user_lang: Option<String> = {
+        let v = prefs::resolve("USER_LANGUAGE", &rows, None).as_str().to_string();
+        (!v.is_empty()).then_some(v)
+    };
     let locale = crate::i18n::resolve_request_locale(
         &state.i18n,
         accept_language,

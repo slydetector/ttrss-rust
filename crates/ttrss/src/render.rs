@@ -152,7 +152,9 @@ pub fn theme_css_link(docroot: &Path, theme: &str) -> String {
 /// Render the authenticated SPA shell (`index.php`). The skeleton (container
 /// divs, per-plugin `Plugins.*` blocks, theme/PWA metadata) is fixed for the
 /// golden dataset; the per-session dynamic values are the CSRF token, the
-/// scripts cache-bust timestamp and the per-user theme link.
+/// scripts cache-bust timestamp, the per-user theme link, the active
+/// plugins' shell assets and the `HOOK_MAIN_TOOLBAR_BUTTON` button row (PHP
+/// `index.php:195`, rendered between the order-0 and order-5 toolbar markers).
 pub fn render_shell(
     csrf_token: &str,
     scripts_ts: i64,
@@ -160,6 +162,7 @@ pub fn render_shell(
     user_css_style: &str,
     plugin_css: &str,
     plugin_js: &str,
+    main_toolbar_buttons: &str,
     locale: Option<&str>,
     i18n: &std::sync::Arc<crate::i18n::I18nCache>,
 ) -> String {
@@ -184,6 +187,7 @@ pub fn render_shell(
             user_css_style => user_css_style,
             plugin_css => plugin_css,
             plugin_js => plugin_js,
+            main_toolbar_buttons => main_toolbar_buttons,
         })
         .unwrap()
 }
@@ -361,14 +365,14 @@ mod tests {
         // Non-empty custom CSS → the inline `<style>` block appears in both the
         // shell and the prefs page (PHP `UserHelper::print_user_stylesheet`).
         let i18n = std::sync::Arc::new(crate::i18n::I18nCache::new(std::path::PathBuf::from("../../tt-rss/locale")));
-        let shell = render_shell("tok", 123, "", &block, "", "", None, &i18n);
+        let shell = render_shell("tok", 123, "", &block, "", "", "", None, &i18n);
         assert!(shell.contains(&block), "shell missing the user stylesheet block");
         let prefs = render_prefs_page("tok", 123, 3, "", &block, "", "");
         assert!(prefs.contains(&block), "prefs missing the user stylesheet block");
 
         // Empty → no `user_css_style` block is emitted.
         let i18n = std::sync::Arc::new(crate::i18n::I18nCache::new(std::path::PathBuf::from("../../tt-rss/locale")));
-        assert!(!render_shell("tok", 123, "", "", "", "", None, &i18n).contains("user_css_style"));
+        assert!(!render_shell("tok", 123, "", "", "", "", "", None, &i18n).contains("user_css_style"));
         assert!(!render_prefs_page("tok", 123, 3, "", "", "", "").contains("user_css_style"));
     }
 
@@ -379,13 +383,37 @@ mod tests {
         let css = ".my-plugin { color: red; }";
         let js = "Plugins.MyPlugin = {};";
         let i18n = std::sync::Arc::new(crate::i18n::I18nCache::new(std::path::PathBuf::from("../../tt-rss/locale")));
-        let shell = render_shell("tok", 123, "", "", css, js, None, &i18n);
+        let shell = render_shell("tok", 123, "", "", css, js, "", None, &i18n);
         assert!(shell.contains(css), "shell missing plugin CSS");
         assert!(shell.contains(js), "shell missing plugin JS");
         // Empty assets → no plugin CSS/JS in the shell.
         let i18n = std::sync::Arc::new(crate::i18n::I18nCache::new(std::path::PathBuf::from("../../tt-rss/locale")));
-        let shell_empty = render_shell("tok", 123, "", "", "", "", None, &i18n);
+        let shell_empty = render_shell("tok", 123, "", "", "", "", "", None, &i18n);
         assert!(!shell_empty.contains("Plugins."), "empty shell should have no plugin JS");
+    }
+
+    /// `HOOK_MAIN_TOOLBAR_BUTTON` output lands between the order-0 and order-5
+    /// toolbar markers (PHP `index.php:195`), and is absent when the row is
+    /// empty (no active plugin emits a button).
+    #[test]
+    fn shell_renders_main_toolbar_buttons_between_markers() {
+        let i18n = std::sync::Arc::new(crate::i18n::I18nCache::new(std::path::PathBuf::from("../../tt-rss/locale")));
+        let marker_before = "<!-- order 0, default -->";
+        let marker_after = "<!-- order 5: alert icons -->";
+        let button = "<button id=\"sidebar-toggle-button\" class=\"toggle-sidebar-label\"></button>";
+        let shell = render_shell("tok", 123, "", "", "", "", button, None, &i18n);
+        let before = shell.find(marker_before).expect("order-0 marker present");
+        let at = shell.find(button).expect("toolbar button row present");
+        let after = shell.find(marker_after).expect("order-5 marker present");
+        assert!(before < at && at < after, "button row must sit between the toolbar markers");
+        // Empty row → nothing between the markers.
+        let shell_empty = render_shell("tok", 123, "", "", "", "", "", None, &i18n);
+        let b = shell_empty.find(marker_before).expect("order-0 marker present");
+        let a = shell_empty.find(marker_after).expect("order-5 marker present");
+        assert!(
+            shell_empty[b + marker_before.len()..a].trim().is_empty(),
+            "empty row leaves nothing but whitespace between the markers"
+        );
     }
 
     /// The prefs page takes the active plugins' *prefs* assets (`get_prefs_css`/
@@ -410,10 +438,10 @@ mod tests {
     fn shell_translates_strings_for_non_english_locale() {
         let i18n = std::sync::Arc::new(crate::i18n::I18nCache::new(std::path::PathBuf::from("../../tt-rss/locale")));
         // English (no locale): the original string is present.
-        let en = render_shell("tok", 123, "", "", "", "", None, &i18n);
+        let en = render_shell("tok", 123, "", "", "", "", "", None, &i18n);
         assert!(en.contains("Loading, please wait..."), "English shell should have the original string");
         // German: the string should be translated.
-        let de = render_shell("tok", 123, "", "", "", "", Some("de_DE"), &i18n);
+        let de = render_shell("tok", 123, "", "", "", "", "", Some("de_DE"), &i18n);
         assert!(!de.contains("Loading, please wait..."), "German shell should not have the English string");
         assert!(de.contains("Ladevorgang, bitte warten..."), "German shell should contain the translated string");
     }

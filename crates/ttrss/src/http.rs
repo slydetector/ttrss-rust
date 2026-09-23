@@ -133,25 +133,35 @@ async fn index(
     let user_css = user_css_style(&state, &data).await;
     let active_plugins = resolve_active_plugins(&state, &data).await;
     let (plugin_css, plugin_js) = plugin_assets(&state.plugins, &active_plugins);
+    let main_toolbar_buttons = main_toolbar_buttons(&state, &sess).await;
     // M10.2: resolve locale for shell translations.
     let accept_language: Option<&str> = headers
         .get(header::ACCEPT_LANGUAGE)
         .and_then(|v| v.to_str().ok());
     let uid = data.uid().unwrap_or(0);
-    let user_lang: Option<String> = sqlx::query_scalar(
-        "SELECT val_string FROM ttrss_user_prefs2 WHERE owner_uid = $1 AND name = 'USER_LANGUAGE'",
-    )
-    .bind(uid)
-    .fetch_optional(state.db.pool())
-    .await
-    .ok()
-    .flatten();
+    // PHP `include/functions.php:137`: `Prefs::get(USER_LANGUAGE, uid, profile)`
+    // — resolve it through the standard pref path (profile override, then user
+    // default), like every other user pref.
+    let profile = data.profile().map(|p| p as i32);
+    let rows = crate::prefs::load_rows_cached(&state.prefs_cache, &state.db, uid, profile).await;
+    let user_lang_pref = crate::prefs::resolve("USER_LANGUAGE", &rows, profile);
+    let user_lang = user_lang_pref.as_str();
     let locale = crate::i18n::resolve_request_locale(
         &state.i18n,
         accept_language,
-        user_lang.as_deref(),
+        Some(user_lang),
     );
-    let html = render::render_shell(csrf, ts, &theme_link, &user_css, &plugin_css, &plugin_js, locale.as_deref(), &state.i18n);
+    let html = render::render_shell(
+        csrf,
+        ts,
+        &theme_link,
+        &user_css,
+        &plugin_css,
+        &plugin_js,
+        &main_toolbar_buttons,
+        locale.as_deref(),
+        &state.i18n,
+    );
     let etag = format!("\"{}\"", md5_hex(&html));
     // `send_conditional_html`: 304 when the client's validator matches.
     if headers
@@ -289,6 +299,22 @@ fn plugin_assets(host: &crate::pluginhost::PluginHost, active: &[String]) -> (St
 /// `get_prefs_js` — a different pair than the shell's.
 fn prefs_plugin_assets(host: &crate::pluginhost::PluginHost, active: &[String]) -> (String, String) {
     plugin_assets_for(host, active, |p| p.get_prefs_css(), |p| p.get_prefs_js())
+}
+
+/// PHP `index.php:195` — the main toolbar's plugin button row:
+/// `run_hooks_callback(HOOK_MAIN_TOOLBAR_BUTTON, echo)`. The echo callback
+/// only prints its result and never short-circuits, so a plain `run_hooks`
+/// suffices; the concatenated `host.output` is the row (empty when no active
+/// plugin emits a button).
+async fn main_toolbar_buttons(state: &AppState, sess: &session::Sess) -> String {
+    let mut pctx = crate::pluginhost::dispatch::session_ctx(state, sess).await;
+    pctx
+        .run_hooks(
+            crate::pluginhost::HOOK_MAIN_TOOLBAR_BUTTON,
+            |plugin, host| plugin.hook_main_toolbar_button(host),
+        )
+        .await;
+    pctx.output.trim().to_string()
 }
 
 async fn theme_css_link(state: &AppState, data: &core_session::Session) -> String {
