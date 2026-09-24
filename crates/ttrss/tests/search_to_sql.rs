@@ -97,7 +97,7 @@ const DATE_CASES: &[(&str, &str, &str)] = &[
 
 #[tokio::test]
 async fn search_to_sql_fragments() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = common::make_db_from_url(&url).await.expect("test db");
 
     // Match the oracle DB's label set (labels 1-2 come from the fixture).
@@ -121,7 +121,7 @@ async fn search_to_sql_fragments() {
 
 #[tokio::test]
 async fn search_to_sql_date_cases() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = common::make_db_from_url(&url).await.expect("test db");
 
     let today = chrono::Utc::now().date_naive();

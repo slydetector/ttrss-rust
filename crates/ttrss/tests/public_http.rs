@@ -96,7 +96,7 @@ async fn expect_profiles(state: &AppState, v: &serde_json::Value, login: &str) {
 
 #[tokio::test]
 async fn test_getprofiles_form_post_populates_dropdown() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = make_state(&url).await;
     // Inserted out of order; the response must be title-ascending.
     add_user_with_profiles(&state, "httpprofile", &["Work", "Home"]).await;
@@ -115,7 +115,7 @@ async fn test_getprofiles_form_post_populates_dropdown() {
 
 #[tokio::test]
 async fn test_getprofiles_query_string_still_works() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = make_state(&url).await;
     add_user_with_profiles(&state, "queryprofile", &["Solo"]).await;
     let app = app(state.clone());
@@ -135,7 +135,7 @@ async fn test_getprofiles_query_string_still_works() {
 
 #[tokio::test]
 async fn test_getprofiles_form_post_missing_login_returns_empty() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = make_state(&url).await;
     let app = app(state);
 
@@ -231,7 +231,7 @@ async fn expect_api_login_envelope(resp: axum::response::Response) {
 
 #[tokio::test]
 async fn test_api_login_via_directory_url() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = make_state(&url).await;
     add_user_with_api_password(&state).await;
     let app = app(state);
@@ -252,7 +252,7 @@ async fn test_api_login_via_directory_url() {
 
 #[tokio::test]
 async fn test_api_login_via_bare_path() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = make_state(&url).await;
     add_user_with_api_password(&state).await;
     let app = app(state);
@@ -312,7 +312,7 @@ async fn add_user_with_main_password(
 /// scenario the Android client hits.
 #[tokio::test]
 async fn test_api_login_main_password_fallback() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = make_state(&url).await;
     let login = add_user_with_main_password(&state, "mainlogin", "mainpass", false).await;
     let app = app(state);
@@ -333,7 +333,7 @@ async fn test_api_login_main_password_fallback() {
 /// app password, the regular password is rejected (app passwords only).
 #[tokio::test]
 async fn test_api_login_otp_enabled_requires_app_password() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = make_state(&url).await;
     let login = add_user_with_main_password(&state, "otplogin", "otppass", true).await;
     let app = app(state);
@@ -358,7 +358,7 @@ async fn test_api_login_otp_enabled_requires_app_password() {
 
 #[tokio::test]
 async fn test_base_path_redirects_to_trailing_slash() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = make_state(&url).await;
     let app = app(state);
 

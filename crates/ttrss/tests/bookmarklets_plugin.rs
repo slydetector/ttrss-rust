@@ -97,7 +97,7 @@ async fn published_count(pool: &sqlx::PgPool, owner: i32) -> i64 {
 // bookmarklet links + the "More info…" button.
 #[tokio::test]
 async fn test_prefs_tab() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = setup(&url, "bookmarklets").await;
     let plugin = state.plugins.get_plugin("bookmarklets").expect("bookmarklets registered");
     let mut c = ctx(&state);
@@ -135,7 +135,7 @@ async fn test_prefs_tab() {
 // `hook_prefs_tab` on a non-`prefFeeds` tab prints nothing.
 #[tokio::test]
 async fn test_prefs_tab_other_tab() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = setup(&url, "bookmarklets").await;
     let plugin = state.plugins.get_plugin("bookmarklets").expect("bookmarklets registered");
     let mut c = ctx(&state);
@@ -150,7 +150,7 @@ async fn test_prefs_tab_other_tab() {
 // title + URL.
 #[tokio::test]
 async fn test_sharepopup_form() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = setup(&url, "bookmarklets").await;
 
     let plugin = state.plugins.get_plugin("bookmarklets").expect("bookmarklets registered");
@@ -180,7 +180,7 @@ async fn test_sharepopup_form() {
 // returns the `window.close()` script.
 #[tokio::test]
 async fn test_sharepopup_share() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = setup(&url, "bookmarklets").await;
 
     let before = published_count(state.db.pool(), 1).await;
@@ -217,7 +217,7 @@ async fn test_sharepopup_share() {
 // `sharepopup` (unauthenticated) → the login form.
 #[tokio::test]
 async fn test_sharepopup_not_logged_in() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = setup(&url, "bookmarklets").await;
 
     // The public dispatch uses owner 0 (unauthenticated) — but the
@@ -246,7 +246,7 @@ async fn test_sharepopup_not_logged_in() {
 // `subscribe` (no feed_url, logged in) → the form.
 #[tokio::test]
 async fn test_subscribe_form() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = setup(&url, "bookmarklets").await;
 
     let plugin = state.plugins.get_plugin("bookmarklets").expect("bookmarklets registered");
@@ -270,7 +270,7 @@ async fn test_subscribe_form() {
 // `subscribe` (unauthenticated) → the login form.
 #[tokio::test]
 async fn test_subscribe_not_logged_in() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = setup(&url, "bookmarklets").await;
 
     let v = public_dispatch(&state, "bookmarklets", "subscribe", &json!({})).await.unwrap();

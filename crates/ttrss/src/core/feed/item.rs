@@ -176,15 +176,12 @@ impl<'input> FeedItem<'input> {
             return clean_str(&text_content(com));
         }
         for link in all_child_ns(node, NS_ATOM, "link") {
-            if link.attribute("rel") == Some("replies") {
-                if let Some(t) = link.attribute("type") {
-                    if t.contains("text/html") {
-                        if let Some(href) = link.attribute("href") {
+            if link.attribute("rel") == Some("replies")
+                && let Some(t) = link.attribute("type")
+                    && t.contains("text/html")
+                        && let Some(href) = link.attribute("href") {
                             return clean_str(href);
                         }
-                    }
-                }
-            }
         }
         String::new()
     }
@@ -202,21 +199,19 @@ impl<'input> FeedItem<'input> {
             candidates.push((t.id(), text_content(t)));
         }
         for l in all_child_ns(node, NS_ATOM, "link") {
-            if l.attribute("rel") == Some("replies") {
-                if let Some(v) = l
+            if l.attribute("rel") == Some("replies")
+                && let Some(v) = l
                     .attributes()
                     .find(|a| a.name() == "count" && a.namespace() == Some(NS_THREAD))
                     .map(|a| a.value().to_string())
                 {
                     candidates.push((l.id(), v));
                 }
-            }
         }
-        if let Some((_, value)) = candidates.iter().min_by_key(|(id, _)| id.get()) {
-            if is_numeric(value) {
+        if let Some((_, value)) = candidates.iter().min_by_key(|(id, _)| id.get())
+            && is_numeric(value) {
                 return clean_str(value).parse::<i32>().unwrap_or(0);
             }
-        }
         0
     }
 }
@@ -444,15 +439,14 @@ pub(super) fn rewrite_content_to_base(base: Option<&str>, content: &str) -> Stri
             continue;
         }
         for a in n.attributes() {
-            if a.name() == "href" || a.name() == "src" {
-                if let Some(new_val) = rewrite_relative(base, a.value()) {
+            if (a.name() == "href" || a.name() == "src")
+                && let Some(new_val) = rewrite_relative(base, a.value()) {
                     out = out.replacen(
                         &format!("\"{}\"", a.value()),
                         &format!("\"{}\"", new_val),
                         1,
                     );
                 }
-            }
         }
     }
     out
@@ -469,11 +463,10 @@ pub(super) fn media_enclosures<'a, 'input>(node: Node<'a, 'input>) -> Vec<FeedEn
     for group in all_child_ns(node, NS_MEDIA, "group") {
         if let Some(content) = first_child_ns(group, NS_MEDIA, "content") {
             let mut enc = media_content_enclosure(content);
-            if enc.title.is_empty() {
-                if let Some(desc) = first_child_ns(group, NS_MEDIA, "description") {
+            if enc.title.is_empty()
+                && let Some(desc) = first_child_ns(group, NS_MEDIA, "description") {
                     enc.title = clean_str(&text_content(desc));
                 }
-            }
             encs.push(enc);
         }
     }

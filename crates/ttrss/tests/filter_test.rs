@@ -25,7 +25,7 @@ fn test_config() -> Config { common::test_config() }
 async fn setup(
     url: &str,
 ) -> (AppState, Sess) {
-    let db: Db = common::make_db_from_url(&url).await.expect("test db");
+    let db: Db = common::make_db_from_url(url).await.expect("test db");
     let state = AppState::new(test_config(), db);
     let mut data = Session::new();
     data.set("uid", PValue::Int(1));
@@ -142,7 +142,7 @@ async fn do_test(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> V
 
 #[tokio::test]
 async fn test_test_filter_do_title_match() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = &state.db;
 
@@ -204,7 +204,7 @@ async fn test_test_filter_do_title_match() {
 
 #[tokio::test]
 async fn test_test_filter_do_feed_scope() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = &state.db;
 
@@ -253,7 +253,7 @@ async fn test_test_filter_do_feed_scope() {
 
 #[tokio::test]
 async fn test_test_filter_do_category_scope() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = &state.db;
 
@@ -292,7 +292,7 @@ async fn test_test_filter_do_category_scope() {
 
 #[tokio::test]
 async fn test_test_filter_do_uncategorized_scope() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = &state.db;
 
@@ -339,7 +339,7 @@ async fn test_test_filter_do_uncategorized_scope() {
 
 #[tokio::test]
 async fn test_test_filter_do_content_preview() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = &state.db;
 
@@ -389,7 +389,7 @@ async fn test_test_filter_do_content_preview() {
 
 #[tokio::test]
 async fn test_test_filter_do_content_preview_strips_tags() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = &state.db;
 
@@ -432,7 +432,7 @@ async fn test_test_filter_do_content_preview_strips_tags() {
 }
 #[tokio::test]
 async fn test_test_filter_do_match_any_vs_all() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = &state.db;
 
@@ -471,7 +471,7 @@ async fn test_test_filter_do_match_any_vs_all() {
 
 #[tokio::test]
 async fn test_test_filter_do_inverse_all_match_empty_items() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = &state.db;
 
@@ -504,7 +504,7 @@ async fn test_test_filter_do_inverse_all_match_empty_items() {
 
 #[tokio::test]
 async fn test_test_filter_do_inverse_no_match_fatal() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = &state.db;
 
@@ -535,7 +535,7 @@ async fn test_test_filter_do_inverse_no_match_fatal() {
 
 #[tokio::test]
 async fn test_test_filter_do_tag_rule() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = &state.db;
 
@@ -575,7 +575,7 @@ async fn test_test_filter_do_tag_rule() {
 
 #[tokio::test]
 async fn test_test_filter_do_limit_offset() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = &state.db;
 
@@ -616,7 +616,7 @@ async fn test_test_filter_do_limit_offset() {
 
 #[tokio::test]
 async fn test_test_filter_do_no_rules_no_match() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = &state.db;
 
@@ -636,7 +636,7 @@ async fn test_test_filter_do_no_rules_no_match() {
 
 #[tokio::test]
 async fn test_test_filter_do_invalid_rule_json_skipped() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = &state.db;
 
@@ -670,7 +670,7 @@ async fn test_test_filter_do_invalid_rule_json_skipped() {
 /// fix the handler read the bare `rule` key and silently saved none.
 #[tokio::test]
 async fn test_editsave_rule_bracket_fields() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     use axum::body::to_bytes;
     use axum::extract::State;
     use axum::http::{header, Method};

@@ -46,7 +46,7 @@ async fn pref_value(db: &Pool, pref_name: &str) -> Option<String> {
 
 #[tokio::test]
 async fn test_set_pref_sets_bool() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = state.db.pool();
 
@@ -75,7 +75,7 @@ async fn test_set_pref_sets_bool() {
 
 #[tokio::test]
 async fn test_set_pref_stylesheet_keeps_tags() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = state.db.pool();
 
@@ -99,7 +99,7 @@ async fn test_set_pref_stylesheet_keeps_tags() {
 
 #[tokio::test]
 async fn test_set_pref_strips_tags_other() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = state.db.pool();
 
@@ -128,7 +128,7 @@ async fn test_set_pref_strips_tags_other() {
 
 #[tokio::test]
 async fn test_toggle_pref_flips_bool() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = state.db.pool();
 
@@ -161,7 +161,7 @@ async fn test_toggle_pref_flips_bool() {
 
 #[tokio::test]
 async fn test_set_widescreen() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = state.db.pool();
 
@@ -183,7 +183,7 @@ async fn test_set_widescreen() {
 
 #[tokio::test]
 async fn test_client_log_acks() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
 
     let rv = ttrss::settings::client_log(
@@ -204,7 +204,7 @@ async fn test_client_log_acks() {
 
 #[tokio::test]
 async fn test_client_log_empty_noop() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
 
     // An empty `msg` logs nothing and echoes nothing (JSON `null`).

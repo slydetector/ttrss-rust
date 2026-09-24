@@ -105,9 +105,6 @@ async fn healthz() -> impl IntoResponse {
         .expect("valid response")
 }
 
-/// Apache's `DirectorySlash`: 301 redirect `<base>` → `<base>/` so the
-/// browser resolves relative asset paths against the correct directory.
-
 /// GET `/` and `/index.php` — the authenticated SPA shell, or the login page
 /// when the session has no logged-in user. The shell is revalidated via ETag.
 async fn index(
@@ -730,11 +727,10 @@ async fn logout_flow(state: &AppState, sess: session::Sess, form: &PublicForm) -
                 Box::pin(async move { plugin.hook_post_logout(ctx, &login, u_id as i32).await })
             },
             |result: &serde_json::Value, _plugin| {
-                if let Some(url) = result.get(0).and_then(|v| v.as_str()) {
-                    if !url.is_empty() && redirect_url.is_empty() {
+                if let Some(url) = result.get(0).and_then(|v| v.as_str())
+                    && !url.is_empty() && redirect_url.is_empty() {
                         redirect_url = url.to_string();
                     }
-                }
                 false
             },
         )

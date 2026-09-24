@@ -71,7 +71,7 @@ async fn getconfig(state: &AppState, sess: &Sess) -> Value {
 /// absence so a stray copy of that field can't reappear in the external API.
 #[tokio::test]
 async fn test_getconfig_shape_and_no_translations_field() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     enable_api(&state.db).await;
 

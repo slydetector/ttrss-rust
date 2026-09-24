@@ -78,12 +78,11 @@ pub async fn handler(state: State<AppState>, sess: Extension<Sess>, req: Request
 
     // `$_REQUEST["sid"]` → load and adopt the addressed session (the API client
     // carries no cookie; `session_id($_REQUEST["sid"]); session_start()`).
-    if let Some(sid) = body.get("sid").and_then(Value::as_str) {
-        if !sid.is_empty() {
+    if let Some(sid) = body.get("sid").and_then(Value::as_str)
+        && !sid.is_empty() {
             let data = session::load(&state.db, state.config.encryption_key, sid).await;
             sess.replace(sid.to_string(), data);
         }
-    }
 
     let op = body
         .get("op")

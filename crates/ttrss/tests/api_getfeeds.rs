@@ -32,7 +32,7 @@ fn test_config() -> Config { common::test_config() }
 async fn setup(
     url: &str,
 ) -> (AppState, Sess) {
-    let db: Db = common::make_db_from_url(&url).await.expect("test db");
+    let db: Db = common::make_db_from_url(url).await.expect("test db");
     let state = AppState::new(test_config(), db);
     let mut data = Session::new();
     data.set("uid", PValue::Int(1));
@@ -85,7 +85,7 @@ fn unread_of(content: &Value, id: i64) -> i64 {
 
 #[tokio::test]
 async fn special_feeds_cat_minus_1() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let c = get_feeds(&state, &sess, &[("cat_id", json!(-1))]).await;
     // Six special feeds, PHP's fixed order: Starred, Published, Fresh, All,
@@ -120,7 +120,7 @@ async fn special_feeds_cat_minus_1() {
 
 #[tokio::test]
 async fn labels_cat_minus_2() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let c = get_feeds(&state, &sess, &[("cat_id", json!(-2))]).await;
     // Both labels (0 unread each, but unread_only=false so they appear).
@@ -144,7 +144,7 @@ async fn labels_cat_minus_2() {
 
 #[tokio::test]
 async fn all_except_virtual_cat_minus_3_full_shape() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let c = get_feeds(&state, &sess, &[("cat_id", json!(-3))]).await;
     // All 4 real feeds, ordered by title (all order_id 0): Ars(3), HN(1),
@@ -186,7 +186,7 @@ async fn all_except_virtual_cat_minus_3_full_shape() {
 
 #[tokio::test]
 async fn real_cat_lists_only_that_cats_feeds() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     // Cat 1 (Technology) has feeds 1,2,3 and no children.
     let c = get_feeds(&state, &sess, &[("cat_id", json!(1))]).await;
@@ -199,7 +199,7 @@ async fn real_cat_lists_only_that_cats_feeds() {
 
 #[tokio::test]
 async fn uncategorized_cat_0_is_empty() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     // No uncategorized (cat_id NULL/0) feeds in the fixture → empty.
     let c = get_feeds(&state, &sess, &[("cat_id", json!(0))]).await;
@@ -210,7 +210,7 @@ async fn uncategorized_cat_0_is_empty() {
 
 #[tokio::test]
 async fn unread_only_drops_zero_unread_feeds() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     // Add a feed in cat 1 with no entries (0 unread).
     sqlx::query(
@@ -234,7 +234,7 @@ async fn unread_only_drops_zero_unread_feeds() {
 
 #[tokio::test]
 async fn limit_and_offset_paginate() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     // Ordered by title: Ars(3), HN(1), MIT(4), Register(2).
     let first = get_feeds(&state, &sess, &[("cat_id", json!(-3)), ("limit", json!(2))]).await;
@@ -252,7 +252,7 @@ async fn limit_and_offset_paginate() {
 
 #[tokio::test]
 async fn include_nested_folds_child_cat_unread() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     // Add a child cat 3 under cat 1, with feed 5 (1 unread entry).
     let p = state.db.pool();

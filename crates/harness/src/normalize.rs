@@ -151,16 +151,13 @@ pub fn normalize_json(value: &Value) -> Value {
                 // the absolute value legitimately differs. Normalize a positive
                 // epoch to a token; `ts: 0` (no icon cached) is meaningful and
                 // left as-is so a has-icon vs no-icon difference still diffs.
-                if k == "ts" {
-                    if let Value::Number(n) = v {
-                        if let Some(i) = n.as_u64() {
-                            if i >= 1_000_000_000 {
+                if k == "ts"
+                    && let Value::Number(n) = v
+                        && let Some(i) = n.as_u64()
+                            && i >= 1_000_000_000 {
                                 out.insert(k.clone(), Value::String("<ts>".into()));
                                 continue;
                             }
-                        }
-                    }
-                }
                 out.insert(k.clone(), normalize_json(v));
             }
             Value::Object(out)

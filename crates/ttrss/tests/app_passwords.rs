@@ -49,7 +49,7 @@ async fn fetch(db: &Pool) -> Vec<(i32, String, String, String, Option<String>)> 
 
 #[tokio::test]
 async fn test_generate_app_password() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
         let (state, sess) = common::make_state(&url).await;
         let db = state.db.pool();
 
@@ -95,7 +95,7 @@ async fn test_generate_app_password() {
 
 #[tokio::test]
 async fn test_generate_app_password_unique_chars() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
         let (state, sess) = common::make_state(&url).await;
         let db = state.db.pool();
 
@@ -123,7 +123,7 @@ async fn test_generate_app_password_unique_chars() {
 
 #[tokio::test]
 async fn test_delete_app_passwords() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
         let (state, sess) = common::make_state(&url).await;
         let db = state.db.pool();
 
@@ -161,7 +161,7 @@ async fn test_delete_app_passwords() {
 
 #[tokio::test]
 async fn test_delete_app_passwords_foreign_noop() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
         let (state, sess) = common::make_state(&url).await;
         let db = state.db.pool();
 
@@ -198,7 +198,7 @@ async fn test_delete_app_passwords_foreign_noop() {
 
 #[tokio::test]
 async fn test_delete_app_passwords_empty_ids_noop() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
         let (state, sess) = common::make_state(&url).await;
         let db = state.db.pool();
 
@@ -218,7 +218,7 @@ async fn test_delete_app_passwords_empty_ids_noop() {
 
 #[tokio::test]
 async fn test_app_password_list_escapes_title() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
         let (state, sess) = common::make_state(&url).await;
         let db = state.db.pool();
 

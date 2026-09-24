@@ -25,7 +25,7 @@ fn test_config() -> Config { common::test_config() }
 async fn setup(
     url: &str,
 ) -> (AppState, Sess) {
-    let db: Db = common::make_db_from_url(&url).await.expect("test db");
+    let db: Db = common::make_db_from_url(url).await.expect("test db");
     let state = AppState::new(test_config(), db);
     let mut data = Session::new();
     data.set("uid", PValue::Int(1));
@@ -87,7 +87,7 @@ async fn label_action_count(db: &Db, param: &str) -> i64 {
 /// `Pref_Labels::edit`: returns the label row as a JSON object.
 #[tokio::test]
 async fn test_edit() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
 
     let v = ttrss::labels::edit(&state, &sess, &request(&[("id", json!(1))])).await;
@@ -115,7 +115,7 @@ async fn test_edit() {
 /// `Pref_Labels::edit`: a nonexistent id returns `None` (PHP prints nothing).
 #[tokio::test]
 async fn test_edit_not_found() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     assert!(
         ttrss::labels::edit(&state, &sess, &request(&[("id", json!(9999))]))
@@ -130,7 +130,7 @@ async fn test_edit_not_found() {
 /// a duplicate caption is not created and returns empty.
 #[tokio::test]
 async fn test_add_label() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = &state.db;
 
@@ -160,7 +160,7 @@ async fn test_add_label() {
 /// `Pref_Labels::add`: `output` set suppresses the message (still creates).
 #[tokio::test]
 async fn test_add_label_output_suppress() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = &state.db;
 
@@ -181,7 +181,7 @@ async fn test_add_label_output_suppress() {
 /// owner's label caches; other labels are unaffected.
 #[tokio::test]
 async fn test_remove_labels() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = &state.db;
     let pool = db.pool();
@@ -232,7 +232,7 @@ async fn test_remove_labels() {
 /// filter actions that referenced the old caption.
 #[tokio::test]
 async fn test_save_rename() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = &state.db;
     let pool = db.pool();
@@ -274,7 +274,7 @@ async fn test_save_rename() {
 /// already uses is a no-op (returns the old caption).
 #[tokio::test]
 async fn test_save_collision() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = &state.db;
 
@@ -297,7 +297,7 @@ async fn test_save_collision() {
 /// `Pref_Labels::save`: a nonexistent label is a no-op (returns empty).
 #[tokio::test]
 async fn test_save_not_found() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let out = ttrss::labels::save(
         &state,
@@ -315,7 +315,7 @@ async fn test_save_not_found() {
 /// clears the owner's label caches.
 #[tokio::test]
 async fn test_colorset_both() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = &state.db;
     let pool = db.pool();
@@ -356,7 +356,7 @@ async fn test_colorset_both() {
 /// `color`), leaving bg unchanged.
 #[tokio::test]
 async fn test_colorset_single() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = &state.db;
 
@@ -382,7 +382,7 @@ async fn test_colorset_single() {
 /// `Pref_Labels::colorreset`: resets the selected labels' colors to `''`.
 #[tokio::test]
 async fn test_colorreset() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = &state.db;
     let pool = db.pool();

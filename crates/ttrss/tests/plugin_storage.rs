@@ -60,7 +60,7 @@ async fn seed_owner(pool: &sqlx::PgPool, login: &str) -> i32 {
 
 #[tokio::test]
 async fn test_set_and_get() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     // PHP: test_set_and_get
     let pool = setup_pool(&url).await;
     let uid = seed_owner(&pool, "alice").await;
@@ -81,7 +81,7 @@ async fn test_set_and_get() {
 
 #[tokio::test]
 async fn test_get_returns_default_when_missing() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     // PHP: test_get_returns_default_when_missing
     let pool = setup_pool(&url).await;
     let uid = seed_owner(&pool, "alice").await;
@@ -104,7 +104,7 @@ async fn test_get_returns_default_when_missing() {
 
 #[tokio::test]
 async fn test_set_array() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     // PHP: test_set_array
     let pool = setup_pool(&url).await;
     let uid = seed_owner(&pool, "alice").await;
@@ -133,7 +133,7 @@ async fn test_set_array() {
 
 #[tokio::test]
 async fn test_get_array() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     // PHP: test_get_array
     let pool = setup_pool(&url).await;
     let uid = seed_owner(&pool, "alice").await;
@@ -167,7 +167,7 @@ async fn test_get_array() {
 
 #[tokio::test]
 async fn test_get_all() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     // PHP: test_get_all
     let pool = setup_pool(&url).await;
     let uid = seed_owner(&pool, "alice").await;
@@ -188,7 +188,7 @@ async fn test_get_all() {
 
 #[tokio::test]
 async fn test_clear_data_removes_from_db() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     // PHP: test_clear_data_removes_from_db
     let pool = setup_pool(&url).await;
     let uid = seed_owner(&pool, "alice").await;
@@ -222,7 +222,7 @@ async fn test_clear_data_removes_from_db() {
 
 #[tokio::test]
 async fn test_owner_isolation() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     // (uid, class-name) keying: two owners, same plugin class.
     let pool = setup_pool(&url).await;
     let uid1 = seed_owner(&pool, "alice").await;
@@ -258,7 +258,7 @@ async fn test_owner_isolation() {
 
 #[tokio::test]
 async fn test_profile_scoping() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let pool = setup_pool(&url).await;
     let uid = seed_owner(&pool, "alice").await;
     let host = PluginHost::new();
@@ -334,7 +334,7 @@ async fn test_profile_scoping() {
 
 #[tokio::test]
 async fn test_php_written_row_decode() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     // Interop, read side: a row written with PHP's exact `serialize()` bytes
     // must decode through the storage API (byte-exact decode of PHP-written
     // fixture rows).
@@ -401,7 +401,7 @@ async fn test_encode_matches_php_bytes() {
 
 #[tokio::test]
 async fn test_get_all_without_load() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     // PHP's quirk: `get_all` returns the in-memory map without `load_data()` —
     // a fresh context (no prior get) sees an empty map even with a row.
     let pool = setup_pool(&url).await;

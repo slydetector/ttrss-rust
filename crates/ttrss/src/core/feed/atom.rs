@@ -123,11 +123,10 @@ pub(super) fn get_enclosures<'a, 'input>(node: Node<'a, 'input>) -> Vec<FeedEncl
         }
         let base = xml_base(link);
         let mut link_val = clean_str(href);
-        if let Some(b) = &base {
-            if let Some(rewritten) = rewrite_relative(b, &link_val) {
+        if let Some(b) = &base
+            && let Some(rewritten) = rewrite_relative(b, &link_val) {
                 link_val = rewritten;
             }
-        }
         let enc = FeedEnclosure {
             enc_type: clean_str(link.attribute("type").unwrap_or("")),
             length: clean_str(link.attribute("length").unwrap_or("")),
@@ -143,15 +142,13 @@ pub(super) fn get_enclosures<'a, 'input>(node: Node<'a, 'input>) -> Vec<FeedEncl
 /// PHP `FeedItem_Atom::get_language()`: the entry's `xml:lang`, else the feed's
 /// `xml:lang`, else `""`.
 pub(super) fn get_language<'a, 'input>(node: Node<'a, 'input>) -> String {
-    if let Some(lang) = xml_attr(node, "lang") {
-        if !lang.is_empty() {
+    if let Some(lang) = xml_attr(node, "lang")
+        && !lang.is_empty() {
             return clean_str(lang);
         }
-    }
-    if let Some(feed) = node.parent() {
-        if feed.is_element() {
+    if let Some(feed) = node.parent()
+        && feed.is_element() {
             return clean_str(xml_attr(feed, "lang").unwrap_or(""));
         }
-    }
     String::new()
 }

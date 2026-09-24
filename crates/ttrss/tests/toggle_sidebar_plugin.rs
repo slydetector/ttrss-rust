@@ -45,7 +45,7 @@ fn ctx(state: &AppState) -> HostCtx<'_> {
 // `hook_main_toolbar_button` renders the toggle button.
 #[tokio::test]
 async fn test_toolbar_button() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = setup(&url, "toggle_sidebar").await;
     let mut host = ctx(&state);
     let plugin = ToggleSidebar;
@@ -64,7 +64,7 @@ async fn test_toolbar_button() {
 // `get_js` returns the toggle JS.
 #[tokio::test]
 async fn test_get_js() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     setup(&url, "toggle_sidebar").await;
     let plugin = ToggleSidebar;
 
@@ -109,7 +109,7 @@ async fn shell_page(state: &AppState) -> String {
 /// order-0 and order-5 toolbar markers.
 #[tokio::test]
 async fn test_shell_carries_toolbar_button_when_plugin_active() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = setup(&url, "toggle_sidebar").await;
     let html = shell_page(&state).await;
     let marker_before = "<!-- order 0, default -->";
@@ -128,7 +128,7 @@ async fn test_shell_carries_toolbar_button_when_plugin_active() {
 /// markers) — the PHP fallback for the stock set minus `toggle_sidebar`.
 #[tokio::test]
 async fn test_shell_toolbar_slot_empty_when_plugin_inactive() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = setup(&url, "").await;
     let html = shell_page(&state).await;
     let marker_before = "<!-- order 0, default -->";

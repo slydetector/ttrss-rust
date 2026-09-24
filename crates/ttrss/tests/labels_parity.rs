@@ -182,7 +182,7 @@ async fn get_label_cache(db: &Db, ref_id: i32) -> String {
 /// PHP: test_find_id_existing_label
 #[tokio::test]
 async fn test_find_id_existing_label() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     // seed.sql inserts label id=1 with caption 'test-label-1'
     let id = labels::find_id(db.pool(), "test-label-1", 1).await;
@@ -194,7 +194,7 @@ async fn test_find_id_existing_label() {
 /// PHP: test_find_id_non_existing_label
 #[tokio::test]
 async fn test_find_id_non_existing_label() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     let id = labels::find_id(db.pool(), "nonexistent-label", 1).await;
     assert_eq!(0, id, "Should return 0 for a label that does not exist");
@@ -205,7 +205,7 @@ async fn test_find_id_non_existing_label() {
 /// PHP: test_find_id_case_insensitive
 #[tokio::test]
 async fn test_find_id_case_insensitive() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     let id_upper = labels::find_id(db.pool(), "TEST-LABEL-1", 1).await;
     let id_mixed = labels::find_id(db.pool(), "Test-Label-1", 1).await;
@@ -221,7 +221,7 @@ async fn test_find_id_case_insensitive() {
 /// PHP: test_find_id_different_owner
 #[tokio::test]
 async fn test_find_id_different_owner() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     // seed data is for uid=1; uid=999 has no labels
     let id = labels::find_id(db.pool(), "test-label-1", 999).await;
@@ -233,7 +233,7 @@ async fn test_find_id_different_owner() {
 /// PHP: test_find_caption_existing
 #[tokio::test]
 async fn test_find_caption_existing() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     let caption = labels::find_caption(db.pool(), 1, 1).await;
     assert_eq!("test-label-1", caption);
@@ -244,7 +244,7 @@ async fn test_find_caption_existing() {
 /// PHP: test_find_caption_non_existing
 #[tokio::test]
 async fn test_find_caption_non_existing() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     let caption = labels::find_caption(db.pool(), 9999, 1).await;
     assert_eq!("", caption);
@@ -255,7 +255,7 @@ async fn test_find_caption_non_existing() {
 /// PHP: test_find_caption_different_owner
 #[tokio::test]
 async fn test_find_caption_different_owner() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     let caption = labels::find_caption(db.pool(), 1, 999).await;
     assert_eq!("", caption);
@@ -266,7 +266,7 @@ async fn test_find_caption_different_owner() {
 /// PHP: test_get_all_returns_seed_labels
 #[tokio::test]
 async fn test_get_all_returns_seed_labels() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     let all = labels::get_all(db.pool(), 1).await;
     assert_eq!(2, all.len());
@@ -277,7 +277,7 @@ async fn test_get_all_returns_seed_labels() {
 /// PHP: test_get_all_ordered_by_caption
 #[tokio::test]
 async fn test_get_all_ordered_by_caption() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     let all = labels::get_all(db.pool(), 1).await;
     // Seed: 'test-label-1' (id=1), 'test-label-2' (id=2)
@@ -296,7 +296,7 @@ async fn test_get_all_ordered_by_caption() {
 /// PHP: test_get_all_empty_for_nonexistent_owner
 #[tokio::test]
 async fn test_get_all_empty_for_nonexistent_owner() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     let all = labels::get_all(db.pool(), 9999).await;
     assert!(all.is_empty());
@@ -307,7 +307,7 @@ async fn test_get_all_empty_for_nonexistent_owner() {
 /// PHP: test_get_all_includes_color_fields
 #[tokio::test]
 async fn test_get_all_includes_color_fields() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     let all = labels::get_all(db.pool(), 1).await;
     let first = &all[0];
@@ -322,7 +322,7 @@ async fn test_get_all_includes_color_fields() {
 /// PHP: test_get_as_hash_returns_associative_array
 #[tokio::test]
 async fn test_get_as_hash_returns_associative_array() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     let hash = labels::get_as_hash(db.pool(), 1).await;
     assert_eq!(2, hash.len());
@@ -333,7 +333,7 @@ async fn test_get_as_hash_returns_associative_array() {
 /// PHP: test_get_as_hash_keys_are_ids
 #[tokio::test]
 async fn test_get_as_hash_keys_are_ids() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     let hash = labels::get_as_hash(db.pool(), 1).await;
     assert!(hash.contains_key(&1));
@@ -345,7 +345,7 @@ async fn test_get_as_hash_keys_are_ids() {
 /// PHP: test_get_as_hash_values_match_get_all
 #[tokio::test]
 async fn test_get_as_hash_values_match_get_all() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     let hash = labels::get_as_hash(db.pool(), 1).await;
     let all = labels::get_all(db.pool(), 1).await;
@@ -362,7 +362,7 @@ async fn test_get_as_hash_values_match_get_all() {
 /// PHP: test_create_new_label
 #[tokio::test]
 async fn test_create_new_label() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     let result = labels::create(
         &db,
@@ -391,7 +391,7 @@ async fn test_create_new_label() {
 /// PHP: test_create_label_with_default_colors
 #[tokio::test]
 async fn test_create_label_with_default_colors() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     let result = labels::create(&db, "minimal-label", None, None, 1, None)
         .await
@@ -413,7 +413,7 @@ async fn test_create_label_with_default_colors() {
 /// PHP: test_create_duplicate_label_returns_false
 #[tokio::test]
 async fn test_create_duplicate_label_returns_false() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     // seed has 'test-label-1'
     let result = labels::create(&db, "test-label-1", None, None, 1, None)
@@ -430,7 +430,7 @@ async fn test_create_duplicate_label_returns_false() {
 /// PHP: test_create_duplicate_label_case_insensitive
 #[tokio::test]
 async fn test_create_duplicate_label_case_insensitive() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     // seed has 'test-label-1'
     let result = labels::create(&db, "TEST-LABEL-1", None, None, 1, None)
@@ -444,7 +444,7 @@ async fn test_create_duplicate_label_case_insensitive() {
 /// PHP: test_create_different_owner
 #[tokio::test]
 async fn test_create_different_owner() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     // The test database only has uid=1 (admin). Creating for other UIDs
     // would require additional seed data, so we verify that uid=1 works and
@@ -479,7 +479,7 @@ async fn test_create_different_owner() {
 /// PHP: test_remove_existing_label
 #[tokio::test]
 async fn test_remove_existing_label() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     // Create a label to remove
     let result = labels::create(
@@ -511,7 +511,7 @@ async fn test_remove_existing_label() {
 /// PHP: test_remove_cleans_label_cache
 #[tokio::test]
 async fn test_remove_cleans_label_cache() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     // Create a label
     let result = labels::create(
@@ -555,7 +555,7 @@ async fn test_remove_cleans_label_cache() {
 /// PHP: test_remove_nonexistent_label
 #[tokio::test]
 async fn test_remove_nonexistent_label() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     // Should not throw — removing a non-existent label is a no-op
     labels::remove(&db, 99999, 1, None)
@@ -568,7 +568,7 @@ async fn test_remove_nonexistent_label() {
 /// PHP: test_add_article_to_existing_label
 #[tokio::test]
 async fn test_add_article_to_existing_label() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     // seed has label id=1, caption='test-label-1'; article ref_id=1
     labels::add_article(db.pool(), 1, "test-label-1", 1).await;
@@ -586,7 +586,7 @@ async fn test_add_article_to_existing_label() {
 /// PHP: test_add_article_to_nonexistent_label
 #[tokio::test]
 async fn test_add_article_to_nonexistent_label() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     // Label 'nonexistent' does not exist, so find_id returns 0 and
     // add_article returns early without modifying anything
@@ -606,7 +606,7 @@ async fn test_add_article_to_nonexistent_label() {
 /// PHP: test_add_article_is_idempotent
 #[tokio::test]
 async fn test_add_article_is_idempotent() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     labels::add_article(db.pool(), 1, "test-label-1", 1).await;
     let count1 = count_user_labels(&db, 1, 1).await;
@@ -625,7 +625,7 @@ async fn test_add_article_is_idempotent() {
 /// PHP: test_add_article_different_article
 #[tokio::test]
 async fn test_add_article_different_article() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     labels::add_article(db.pool(), 1, "test-label-1", 1).await;
     let count1 = count_user_labels(&db, 1, 1).await;
@@ -642,7 +642,7 @@ async fn test_add_article_different_article() {
 /// PHP: test_remove_article_from_existing_label
 #[tokio::test]
 async fn test_remove_article_from_existing_label() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     // First add the label relation
     labels::add_article(db.pool(), 1, "test-label-1", 1).await;
@@ -661,7 +661,7 @@ async fn test_remove_article_from_existing_label() {
 /// PHP: test_remove_article_nonexistent_relation
 #[tokio::test]
 async fn test_remove_article_nonexistent_relation() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     // Removing a label relation that doesn't exist should be a no-op
     let initial_count = count_user_labels(&db, 1, 9999).await;
@@ -675,7 +675,7 @@ async fn test_remove_article_nonexistent_relation() {
 /// PHP: test_remove_article_clears_cache
 #[tokio::test]
 async fn test_remove_article_clears_cache() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     // Add a label to article 1
     labels::add_article(db.pool(), 1, "test-label-1", 1).await;
@@ -701,7 +701,7 @@ async fn test_remove_article_clears_cache() {
 /// PHP: test_clear_cache_clears_label_cache
 #[tokio::test]
 async fn test_clear_cache_clears_label_cache() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     // Set a label_cache
     sqlx::query(
@@ -726,7 +726,7 @@ async fn test_clear_cache_clears_label_cache() {
 /// PHP: test_clear_cache_nonexistent_article
 #[tokio::test]
 async fn test_clear_cache_nonexistent_article() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     // Should not throw even if article doesn't exist
     labels::clear_cache(db.pool(), 99999).await;
@@ -737,7 +737,7 @@ async fn test_clear_cache_nonexistent_article() {
 /// PHP: test_update_cache_force_mode
 #[tokio::test]
 async fn test_update_cache_force_mode() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     // Force mode first clears the cache, then repopulates from the
     // article's actual labels (via Article::_get_labels). Since article
@@ -769,7 +769,7 @@ async fn test_update_cache_force_mode() {
 /// PHP: test_update_cache_with_labels
 #[tokio::test]
 async fn test_update_cache_with_labels() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     // Labels format: [[label_id, caption, fg_color, bg_color], ...]
     let labels_arg = vec![json!([1, "test-label-1", "#ff0000", "#ffffff"])];
@@ -798,7 +798,7 @@ async fn test_update_cache_with_labels() {
 /// PHP: test_update_cache_empty_labels
 #[tokio::test]
 async fn test_update_cache_empty_labels() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     // Set a label_cache first
     sqlx::query(
@@ -823,7 +823,7 @@ async fn test_update_cache_empty_labels() {
 /// PHP: test_full_label_lifecycle
 #[tokio::test]
 async fn test_full_label_lifecycle() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     // 1. Create a new label
     let result = labels::create(

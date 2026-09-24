@@ -66,7 +66,7 @@ async fn shell_page(state: &AppState, accept_language: Option<&str>) -> String {
 /// header: the shell renders the translated strings.
 #[tokio::test]
 async fn test_shell_uses_user_language_pref() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = setup(&url).await;
     sqlx::query(
         "INSERT INTO ttrss_user_prefs2 (owner_uid, pref_name, profile, value)
@@ -94,7 +94,7 @@ async fn test_shell_uses_user_language_pref() {
 /// fallback with no header → default locale).
 #[tokio::test]
 async fn test_shell_stays_english_without_pref() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = setup(&url).await;
 
     let html = shell_page(&state, None).await;

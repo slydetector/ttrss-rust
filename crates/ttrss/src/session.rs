@@ -101,11 +101,10 @@ impl Sess {
 pub fn cookie_sid(req: &Request) -> Option<String> {
     let raw = req.headers().get(header::COOKIE)?.to_str().ok()?;
     for part in raw.split(';') {
-        if let Some((k, v)) = part.trim().split_once('=') {
-            if k == SESSION_NAME {
+        if let Some((k, v)) = part.trim().split_once('=')
+            && k == SESSION_NAME {
                 return Some(v.trim().to_string());
             }
-        }
     }
     None
 }

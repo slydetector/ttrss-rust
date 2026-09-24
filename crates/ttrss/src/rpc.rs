@@ -170,11 +170,10 @@ pub async fn handler(
                     .header(header::CONTENT_TYPE, ct)
                     .body(Body::from(body))
                     .expect("valid response");
-                if let Some(d) = disposition {
-                    if let Ok(hv) = d.parse() {
+                if let Some(d) = disposition
+                    && let Ok(hv) = d.parse() {
                         res.headers_mut().insert(header::CONTENT_DISPOSITION, hv);
                     }
-                }
                 if sess.had_cookie() {
                     super::nocache_headers(res.headers_mut());
                 }
@@ -269,6 +268,7 @@ enum DispatchOutput {
     Download(StatusCode, String, Option<String>, String),
 }
 
+#[allow(clippy::too_many_arguments)] // mirrors the PHP API dispatcher
 async fn dispatch(
     state: &AppState,
     sess: &Sess,

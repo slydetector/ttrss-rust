@@ -226,13 +226,11 @@ async fn run_step(
         // Substitute {{...}} placeholders in all string values.
         substitute_json(&mut body, vars)?;
         // Auto-inject API session id for subsequent API calls.
-        if step.path.starts_with("/api/index.php") && body.get("sid").is_none() {
-            if let Some(sid) = vars.get("api_sid") {
-                if let serde_json::Value::Object(map) = &mut body {
+        if step.path.starts_with("/api/index.php") && body.get("sid").is_none()
+            && let Some(sid) = vars.get("api_sid")
+                && let serde_json::Value::Object(map) = &mut body {
                     map.insert("sid".to_string(), json!(sid));
                 }
-            }
-        }
         req = req.json(&body);
     }
     for (k, v) in &step.headers {
@@ -277,8 +275,8 @@ async fn run_step(
         }
     }
 
-    if let Some(expected) = step.expect_status {
-        if status != expected {
+    if let Some(expected) = step.expect_status
+        && status != expected {
             eprintln!(
                 "[run] step {}: expected status {expected}, got {status}",
                 step.name
@@ -287,7 +285,6 @@ async fn run_step(
             write_exchange(out, seq, step, &url, &headers, status, &bytes, db_state.as_ref())?;
             return Err(anyhow!("status mismatch"));
         }
-    }
 
     write_exchange(out, seq, step, &url, &headers, status, &bytes, db_state.as_ref())?;
     println!("[run] {:03} {:<32} {status}", seq + 1, step.name);

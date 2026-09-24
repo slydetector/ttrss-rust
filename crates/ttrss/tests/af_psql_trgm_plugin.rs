@@ -76,7 +76,7 @@ async fn insert_entry(pool: &sqlx::PgPool, feed_id: i32, guid: &str, title: &str
 // `save` returns the "Data saved" message.
 #[tokio::test]
 async fn test_save() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     setup(&url, "af_psql_trgm").await;
 
     let msg = AfPsqlTrgm::save(0.85, 32, true);
@@ -91,7 +91,7 @@ async fn test_save() {
 // `hook_article_button` renders the `bookmark_outline` icon.
 #[tokio::test]
 async fn test_article_button() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = setup(&url, "af_psql_trgm").await;
     let mut host = ctx(&state);
     let plugin = AfPsqlTrgm;
@@ -107,7 +107,7 @@ async fn test_article_button() {
 // `hook_prefs_tab("prefFeeds")` renders the AccordionPane with the form fields.
 #[tokio::test]
 async fn test_prefs_tab() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = setup(&url, "af_psql_trgm").await;
     let mut host = ctx(&state);
     let plugin = AfPsqlTrgm;
@@ -149,7 +149,7 @@ async fn test_prefs_tab() {
 // The filter returns false when the feed is not enabled.
 #[tokio::test]
 async fn test_filter_not_enabled() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = setup(&url, "af_psql_trgm").await;
     let pool = state.db.pool();
 
@@ -173,7 +173,7 @@ async fn test_filter_not_enabled() {
 // The filter returns false when the title is too short.
 #[tokio::test]
 async fn test_filter_too_short() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = setup(&url, "af_psql_trgm").await;
     let pool = state.db.pool();
 
@@ -197,7 +197,7 @@ async fn test_filter_too_short() {
 // A similar article (≥ threshold) is caught by the filter.
 #[tokio::test]
 async fn test_filter_similar() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = setup(&url, "af_psql_trgm").await;
     let pool = state.db.pool();
 
@@ -228,7 +228,7 @@ async fn test_filter_similar() {
 // `showrelated` returns the related-articles HTML.
 #[tokio::test]
 async fn test_showrelated() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = setup(&url, "af_psql_trgm").await;
     let pool = state.db.pool();
 
@@ -248,7 +248,7 @@ async fn test_showrelated() {
 // `showrelated` for a missing article returns an empty string.
 #[tokio::test]
 async fn test_showrelated_missing() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = setup(&url, "af_psql_trgm").await;
     let pool = state.db.pool();
 
@@ -277,7 +277,7 @@ fn sess(uid: i32) -> ttrss::session::Sess {
 /// plugins), so this was always empty.
 #[tokio::test]
 async fn test_editfeed_payload_carries_trgm_checkbox_when_active() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = setup(&url, "af_psql_trgm").await;
     let extra: serde_json::Map<String, serde_json::Value> =
         serde_json::json!({ "id": 1 }).as_object().unwrap().clone();
@@ -297,7 +297,7 @@ async fn test_editfeed_payload_carries_trgm_checkbox_when_active() {
 /// baseline).
 #[tokio::test]
 async fn test_editfeed_payload_plugin_data_empty_when_inactive() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = setup(&url, "").await;
     let extra: serde_json::Map<String, serde_json::Value> =
         serde_json::json!({ "id": 1 }).as_object().unwrap().clone();

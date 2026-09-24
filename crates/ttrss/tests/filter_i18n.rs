@@ -1,9 +1,9 @@
 //! DB test for the `Pref_Filters` i18n (M10.3) — the translated filter
 //! strings under a non-English locale (`de_DE`).
 //!
-//! Covers the two distinct code paths: the rule name (`get_rule_name` → `__`
-//! + `t_sprintf`) and the filter-details title summary (`filter_details` →
-//! `t_nsprintf` + `__`).
+//! Covers the two distinct code paths: the rule name (`get_rule_name` →
+//! `__` + `t_sprintf`) and the filter-details title summary
+//! (`filter_details` → `t_nsprintf` + `__`).
 //!
 //! Rust-only: the frozen PHP suite has no filter-configuration locale test.
 
@@ -96,7 +96,7 @@ async fn filter_name(
 /// and `"%s on %s in %s %s"` → `"%s innerhalb %s von %s %s"`.
 #[tokio::test]
 async fn test_filter_rule_name_de_de() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
         let (state, sess) = setup(&url).await;
 
         let en = rule_name(&state, &sess, None).await;
@@ -121,7 +121,7 @@ async fn test_filter_rule_name_de_de() {
 /// `erfüllt beliebige Regel`.
 #[tokio::test]
 async fn test_filter_details_de_de() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
         let (state, sess) = setup(&url).await;
 
         // A filter (match_any_rule) with one Title rule across All feeds.

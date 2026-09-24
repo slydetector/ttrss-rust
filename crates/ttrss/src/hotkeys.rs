@@ -105,11 +105,10 @@ pub async fn hotkeys_map(host: &mut crate::pluginhost::host::HostCtx<'_>) -> (Ve
     // key keeps its slot), then any plugin-added sequences.
     let mut prefixes: Vec<String> = Vec::new();
     let add_prefix = |seq: &str, prefixes: &mut Vec<String>| {
-        if let Some(first) = seq.split(' ').next() {
-            if seq.contains(' ') && !prefixes.iter().any(|p| p == first) {
+        if let Some(first) = seq.split(' ').next()
+            && seq.contains(' ') && !prefixes.iter().any(|p| p == first) {
                 prefixes.push(first.to_string());
             }
-        }
     };
     for (seq, _) in HOTKEYS {
         if map.contains_key(*seq) {

@@ -871,11 +871,10 @@ pub async fn opensite(
             .ok()
             .flatten();
 
-    if let Some(url) = site_url {
-        if let Some(valid) = crate::urlhelper::validate(&url, false) {
+    if let Some(url) = site_url
+        && let Some(valid) = crate::urlhelper::validate(&url, false) {
             return (StatusCode::FOUND, Some(valid), String::new());
         }
-    }
 
     (
         StatusCode::NOT_FOUND,
@@ -1724,13 +1723,11 @@ async fn editsaveops(
     let feed_language = util::clean_str(&s("feed_language"));
 
     // Encrypt the password up front (PHP: before the single/batch branch).
-    if let Some(key) = &state.config.encryption_key {
-        if !auth_pass.is_empty() {
-            if let Ok(env) = crate::core::session::encrypt_envelope(auth_pass.as_bytes(), key) {
+    if let Some(key) = &state.config.encryption_key
+        && !auth_pass.is_empty()
+            && let Ok(env) = crate::core::session::encrypt_envelope(auth_pass.as_bytes(), key) {
                 auth_pass = base64::engine::general_purpose::STANDARD.encode(env);
             }
-        }
-    }
 
     let touched: i64;
     if !batch {
@@ -2568,15 +2565,12 @@ pub async fn upload_icon(
 /// PHP-unserialized `{algo,nonce,payload}` → decrypt) to the plaintext password.
 /// Returns the input unchanged when it can't be decoded.
 pub fn decrypt_feed_pass(auth_pass: &str, key: Option<&[u8; 32]>) -> String {
-    if !auth_pass.is_empty() {
-        if let Some(k) = key {
-            if let Ok(decoded) = base64::engine::general_purpose::STANDARD.decode(auth_pass) {
-                if let Ok(pt) = crate::core::session::decrypt_envelope(&decoded, k) {
+    if !auth_pass.is_empty()
+        && let Some(k) = key
+            && let Ok(decoded) = base64::engine::general_purpose::STANDARD.decode(auth_pass)
+                && let Ok(pt) = crate::core::session::decrypt_envelope(&decoded, k) {
                     return String::from_utf8_lossy(&pt).to_string();
                 }
-            }
-        }
-    }
     auth_pass.to_string()
 }
 

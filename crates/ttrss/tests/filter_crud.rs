@@ -25,7 +25,7 @@ fn test_config() -> Config { common::test_config() }
 async fn setup(
     url: &str,
 ) -> (AppState, Sess) {
-    let db: Db = common::make_db_from_url(&url).await.expect("test db");
+    let db: Db = common::make_db_from_url(url).await.expect("test db");
     let state = AppState::new(test_config(), db);
     let mut data = Session::new();
     data.set("uid", PValue::Int(1));
@@ -144,7 +144,7 @@ async fn filter_count(db: &Db) -> i64 {
 /// `Pref_Filters::filtersortreset` — every filter's order is reset to 0.
 #[tokio::test]
 async fn test_filtersortreset() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = &state.db;
     let id = insert_filter(db, "F1").await;
@@ -171,7 +171,7 @@ async fn test_filtersortreset() {
 /// the `payload` JSON.
 #[tokio::test]
 async fn test_savefilterorder() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = &state.db;
     let a = insert_filter(db, "A").await;
@@ -211,7 +211,7 @@ async fn test_savefilterorder() {
 /// actions cascade. A foreign owner's filter is untouched.
 #[tokio::test]
 async fn test_remove_filters() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = &state.db;
     let id = insert_filter(db, "F1").await;
@@ -252,7 +252,7 @@ async fn test_remove_filters() {
 /// is untouched.
 #[tokio::test]
 async fn test_edit_save() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = &state.db;
     let id = insert_filter(db, "  Old Title ").await;
@@ -325,7 +325,7 @@ async fn test_edit_save() {
 /// with the posted rules.
 #[tokio::test]
 async fn test_add_filter() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = &state.db;
     let before = filter_count(db).await;
@@ -371,7 +371,7 @@ async fn test_add_filter() {
 /// `Pref_Filters::add` — a score action's `+N` param is stored as the integer.
 #[tokio::test]
 async fn test_add_filter_score_action() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = &state.db;
     let req = request(&[
@@ -400,7 +400,7 @@ async fn test_add_filter_score_action() {
 /// de-duplicated, sorted).
 #[tokio::test]
 async fn test_add_filter_tag_action() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = &state.db;
     let req = request(&[
@@ -434,7 +434,7 @@ async fn test_add_filter_tag_action() {
 /// copies its rules/actions, and disables it.
 #[tokio::test]
 async fn test_clone_filters() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = &state.db;
     let src = insert_filter(db, "Source").await;
@@ -490,7 +490,7 @@ async fn test_clone_filters() {
 /// moves their rules/actions, sets match_any_rule, and de-dupes.
 #[tokio::test]
 async fn test_join_filters() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = &state.db;
     let base = insert_filter(db, "Base").await;

@@ -41,12 +41,11 @@ pub(super) fn get_link<'a, 'input>(node: Node<'a, 'input>) -> String {
             }
         }
     }
-    if let Some(guid) = first_desc_local(node, "guid") {
-        if guid.attributes().next().is_some() && guid.attribute("isPermaLink") == Some("true") {
+    if let Some(guid) = first_desc_local(node, "guid")
+        && guid.attributes().next().is_some() && guid.attribute("isPermaLink") == Some("true") {
             let text = text_content(guid);
             return clean_str(php_trim(&text));
         }
-    }
     if let Some(link) = first_desc_local(node, "link") {
         let text = text_content(link);
         return clean_str(php_trim(&text));

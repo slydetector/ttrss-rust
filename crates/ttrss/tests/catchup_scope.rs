@@ -100,7 +100,7 @@ fn assert_catchup(before: &[Row], after: &[Row], in_scope: impl Fn(&Row) -> bool
 
 #[tokio::test]
 async fn test_catchup_single_feed() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = &state.db;
 
@@ -123,7 +123,7 @@ async fn test_catchup_single_feed() {
 
 #[tokio::test]
 async fn test_catchup_category() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = &state.db;
     let before = entry_rows(db).await;
@@ -146,7 +146,7 @@ async fn test_catchup_category() {
 
 #[tokio::test]
 async fn test_catchup_all() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = &state.db;
     let before = entry_rows(db).await;
@@ -164,7 +164,7 @@ async fn test_catchup_all() {
 
 #[tokio::test]
 async fn test_catchup_starred() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = &state.db;
 
@@ -191,7 +191,7 @@ async fn test_catchup_starred() {
 
 #[tokio::test]
 async fn test_catchup_published() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = &state.db;
 
@@ -217,7 +217,7 @@ async fn test_catchup_published() {
 
 #[tokio::test]
 async fn test_catchup_label() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = &state.db;
 
@@ -250,7 +250,7 @@ async fn test_catchup_label() {
 
 #[tokio::test]
 async fn test_catchup_cat_labels() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = &state.db;
 
@@ -284,7 +284,7 @@ async fn test_catchup_cat_labels() {
 
 #[tokio::test]
 async fn test_catchup_tag() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = &state.db;
 
@@ -331,7 +331,7 @@ async fn test_catchup_tag() {
 
 #[tokio::test]
 async fn test_catchup_uncategorized() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = &state.db;
 
@@ -431,7 +431,7 @@ async fn add_entry(
 
 #[tokio::test]
 async fn test_catchup_fresh() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = &state.db;
 
@@ -472,7 +472,7 @@ async fn test_catchup_fresh() {
 
 #[tokio::test]
 async fn test_catchup_mode_1day() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = &state.db;
 
@@ -516,7 +516,7 @@ async fn test_catchup_mode_1day() {
 
 #[tokio::test]
 async fn test_catchup_mode_1week() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = &state.db;
 

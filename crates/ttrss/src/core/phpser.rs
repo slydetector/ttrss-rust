@@ -121,11 +121,10 @@ impl Value {
     pub fn get(&self, key: &str) -> Option<&Value> {
         if let Some(items) = self.as_array() {
             for (k, v) in items {
-                if let Key::Bytes(ks) = k {
-                    if ks == key.as_bytes() {
+                if let Key::Bytes(ks) = k
+                    && ks == key.as_bytes() {
                         return Some(v);
                     }
-                }
             }
         }
         None

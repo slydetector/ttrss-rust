@@ -1485,11 +1485,10 @@ async fn upsert_article(
     }
     dlog(log.as_deref_mut(), DEBUG_LEVEL_VERBOSE, "assigning labels [filters]...".into());
     for fa in &outcome.actions {
-        if fa.action_type.as_deref() == Some("label") {
-            if let Some(param) = fa.param.as_deref() {
+        if fa.action_type.as_deref() == Some("label")
+            && let Some(param) = fa.param.as_deref() {
                 crate::labels::add_article(pool, ref_id, param, owner as i64).await;
             }
-        }
     }
     // The PHP's `LOG_EXTENDED` "article enclosures:" dump — `print_r` of the
     // parsed enclosures (the established `{:?}`-for-`print_r` approximation;

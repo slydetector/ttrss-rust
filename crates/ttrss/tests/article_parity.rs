@@ -40,7 +40,7 @@ fn enclosure(content_type: &str, url: &str) -> Value {
 // PHP: test_get_tags_returns_tags_from_cache
 #[tokio::test]
 async fn test_get_tags_returns_tags_from_cache() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     // seed.sql: article 1 has tag_cache = 'rust|open-source'
     let tags = article::get_tags(db.pool(), SESSION_UID, 1, None, None).await;
@@ -54,7 +54,7 @@ async fn test_get_tags_returns_tags_from_cache() {
 // tag_cache 'database|postgresql', so the ported expectation is that tag.
 #[tokio::test]
 async fn test_get_tags_returns_empty_for_no_tags() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     // seed.sql: article 2 has tag_cache = 'database|postgresql'
     let tags = article::get_tags(db.pool(), SESSION_UID, 2, None, None).await;
@@ -66,7 +66,7 @@ async fn test_get_tags_returns_empty_for_no_tags() {
 // PHP: test_get_tags_with_custom_owner_uid
 #[tokio::test]
 async fn test_get_tags_with_custom_owner_uid() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     // uid=1 has tags; uid=999 has no user_entries
     let tags = article::get_tags(db.pool(), SESSION_UID, 1, Some(999), None).await;
@@ -78,7 +78,7 @@ async fn test_get_tags_with_custom_owner_uid() {
 // PHP: test_get_tags_with_explicit_tag_cache
 #[tokio::test]
 async fn test_get_tags_with_explicit_tag_cache() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     // When tag_cache is provided, it is split by comma
     let tags = article::get_tags(
@@ -106,7 +106,7 @@ async fn test_get_tags_with_explicit_tag_cache() {
 // PHP: test_get_labels_returns_cached_labels
 #[tokio::test]
 async fn test_get_labels_returns_cached_labels() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     // seed.sql: article 1 has label_cache = '' (empty)
     // This means it should query the database
@@ -119,7 +119,7 @@ async fn test_get_labels_returns_cached_labels() {
 // PHP: test_get_labels_returns_no_labels_marker
 #[tokio::test]
 async fn test_get_labels_returns_no_labels_marker() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     let labels = article::get_labels(db.pool(), SESSION_UID, 1, None).await;
     assert_eq!(labels, Vec::<Value>::new());
@@ -144,7 +144,7 @@ async fn test_get_labels_returns_no_labels_marker() {
 // PHP: test_get_labels_with_cached_labels
 #[tokio::test]
 async fn test_get_labels_with_cached_labels() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     // Manually set a label cache
     let labels: Vec<Value> = vec![json!(["1", "test-label-1", "#000000", "#ffffff"])];
@@ -166,7 +166,7 @@ async fn test_get_labels_with_cached_labels() {
 // PHP: test_get_labels_different_owner
 #[tokio::test]
 async fn test_get_labels_different_owner() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     let labels = article::get_labels(db.pool(), SESSION_UID, 1, Some(999)).await;
     assert_eq!(labels, Vec::<Value>::new());
@@ -179,7 +179,7 @@ async fn test_get_labels_different_owner() {
 // PHP: test_catchup_mark_as_read
 #[tokio::test]
 async fn test_catchup_mark_as_read() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     // Article 1 is unread (from seed.sql)
     let (before_unread, before_last_read): (bool, Option<NaiveDateTime>) = sqlx::query_as(
@@ -215,7 +215,7 @@ async fn test_catchup_mark_as_read() {
 // PHP: test_catchup_mark_as_unread
 #[tokio::test]
 async fn test_catchup_mark_as_unread() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     // Article 3 is read (from seed.sql)
     let before: bool = sqlx::query_scalar(
@@ -249,7 +249,7 @@ async fn test_catchup_mark_as_unread() {
 // PHP: test_catchup_toggle
 #[tokio::test]
 async fn test_catchup_toggle() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     // Article 1 is unread → toggle should make it read
     article::catchup_by_id(db.pool(), &[1], CATCHUP_MODE_TOGGLE, SESSION_UID, None).await;
@@ -279,7 +279,7 @@ async fn test_catchup_toggle() {
 // PHP: test_catchup_multiple_articles
 #[tokio::test]
 async fn test_catchup_multiple_articles() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     // Mark articles 1, 2, 3 as read at once
     article::catchup_by_id(
@@ -308,7 +308,7 @@ async fn test_catchup_multiple_articles() {
 // PHP: test_catchup_custom_owner_uid
 #[tokio::test]
 async fn test_catchup_custom_owner_uid() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     // Should not affect uid=999's entries
     article::catchup_by_id(
@@ -339,7 +339,7 @@ async fn test_catchup_custom_owner_uid() {
 // PHP: test_purge_orphans_removes_orphaned_entries
 #[tokio::test]
 async fn test_purge_orphans_removes_orphaned_entries() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     // Insert an article without a corresponding user_entry
     let orphan_id: i32 = sqlx::query_scalar(
@@ -378,7 +378,7 @@ async fn test_purge_orphans_removes_orphaned_entries() {
 // PHP: test_purge_orphans_keeps_valid_entries
 #[tokio::test]
 async fn test_purge_orphans_keeps_valid_entries() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     // Article 1 has both ttrss_entries and ttrss_user_entries
     article::purge_orphans(db.pool()).await;
@@ -397,7 +397,7 @@ async fn test_purge_orphans_keeps_valid_entries() {
 // PHP: test_get_enclosures_returns_enclosures_for_article
 #[tokio::test]
 async fn test_get_enclosures_returns_enclosures_for_article() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     // seed.sql adds 2 enclosures for article id=1
     let enclosures = article::get_enclosures(db.pool(), 1).await;
@@ -417,7 +417,7 @@ async fn test_get_enclosures_returns_enclosures_for_article() {
 // PHP: test_get_enclosures_returns_empty_for_no_enclosures
 #[tokio::test]
 async fn test_get_enclosures_returns_empty_for_no_enclosures() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     // Article 2 has no enclosures in seed.sql
     let enclosures = article::get_enclosures(db.pool(), 2).await;
@@ -431,7 +431,7 @@ async fn test_get_enclosures_returns_empty_for_no_enclosures() {
 // PHP: test_labels_of_returns_empty_for_empty_array
 #[tokio::test]
 async fn test_labels_of_returns_empty_for_empty_array() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     let labels = article::labels_of(db.pool(), &[], SESSION_UID).await;
     assert_eq!(labels, Vec::<i64>::new());
@@ -442,7 +442,7 @@ async fn test_labels_of_returns_empty_for_empty_array() {
 // PHP: test_labels_of_returns_unique_labels
 #[tokio::test]
 async fn test_labels_of_returns_unique_labels() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     // Articles 1 and 2 are in the same feed but have different tags
     // Labels are not assigned to these articles in seed, so should be empty
@@ -455,7 +455,7 @@ async fn test_labels_of_returns_unique_labels() {
 // PHP: test_feeds_of_returns_empty_for_empty_array
 #[tokio::test]
 async fn test_feeds_of_returns_empty_for_empty_array() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     let feeds = article::feeds_of(db.pool(), &[], SESSION_UID).await;
     assert_eq!(feeds, Vec::<i64>::new());
@@ -466,7 +466,7 @@ async fn test_feeds_of_returns_empty_for_empty_array() {
 // PHP: test_feeds_of_returns_unique_feeds
 #[tokio::test]
 async fn test_feeds_of_returns_unique_feeds() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     // Articles 1, 2, 3 are all in feed_id=1 (Hacker News)
     let feeds = article::feeds_of(db.pool(), &[1, 2, 3], SESSION_UID).await;
@@ -478,7 +478,7 @@ async fn test_feeds_of_returns_unique_feeds() {
 // PHP: test_feeds_of_returns_multiple_feeds
 #[tokio::test]
 async fn test_feeds_of_returns_multiple_feeds() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     // Articles 1 (feed 1) and 4 (feed 2)
     let feeds = article::feeds_of(db.pool(), &[1, 4], SESSION_UID).await;
@@ -515,7 +515,7 @@ async fn get_image_stock(
 // PHP: test_get_image_extract_youtube_embed
 #[tokio::test]
 async fn test_get_image_extract_youtube_embed() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     let _ = db;
     let content = "<p>Check out this video: <iframe src=\"https://www.youtube.com/embed/dQw4w9WgXcQ\"></iframe></p>";
@@ -537,7 +537,7 @@ async fn test_get_image_extract_youtube_embed() {
 // PHP: test_get_image_extract_video_poster
 #[tokio::test]
 async fn test_get_image_extract_video_poster() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     let _ = db;
     let content = "<video poster=\"https://example.com/poster.jpg\"><source src=\"https://example.com/video.mp4\"></video>";
@@ -559,7 +559,7 @@ async fn test_get_image_extract_video_poster() {
 // PHP: test_get_image_extract_first_image
 #[tokio::test]
 async fn test_get_image_extract_first_image() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     let _ = db;
     let content = "<p>Some text <img src=\"https://example.com/photo.jpg\"></p>";
@@ -578,7 +578,7 @@ async fn test_get_image_extract_first_image() {
 // PHP: test_get_image_skips_data_uris
 #[tokio::test]
 async fn test_get_image_skips_data_uris() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     let _ = db;
     let content = "<img src=\"data:image/png;base64,abc123\">";
@@ -594,7 +594,7 @@ async fn test_get_image_skips_data_uris() {
 // PHP: test_get_image_falls_back_to_enclosure_image
 #[tokio::test]
 async fn test_get_image_falls_back_to_enclosure_image() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     let _ = db;
     let content = "<p>No images in content</p>";
@@ -618,7 +618,7 @@ async fn test_get_image_falls_back_to_enclosure_image() {
 // PHP: test_get_image_does_not_select_non_image_enclosure
 #[tokio::test]
 async fn test_get_image_does_not_select_non_image_enclosure() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     let _ = db;
     let content = "<p>No images in content</p>";
@@ -639,7 +639,7 @@ async fn test_get_image_does_not_select_non_image_enclosure() {
 // PHP: test_get_image_mark_album_with_multiple_enclosures
 #[tokio::test]
 async fn test_get_image_mark_album_with_multiple_enclosures() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     let _ = db;
     let content = "<p>Single image</p>";
@@ -662,7 +662,7 @@ async fn test_get_image_mark_album_with_multiple_enclosures() {
 // PHP: test_get_image_rewrites_relative_urls
 #[tokio::test]
 async fn test_get_image_rewrites_relative_urls() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     let _ = db;
     // Per RFC 3986, both /path and path resolve to root when base ends with /

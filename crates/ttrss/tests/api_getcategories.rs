@@ -87,7 +87,7 @@ fn real_cats(content: &Value) -> std::collections::BTreeMap<i64, i64> {
 
 #[tokio::test]
 async fn test_flat_lists_nested_cat_and_omits_descendant_unread() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
         let (state, sess) = setup(&url).await;
         add_nested_cat(state.db.pool()).await;
 
@@ -106,7 +106,7 @@ async fn test_flat_lists_nested_cat_and_omits_descendant_unread() {
 
 #[tokio::test]
 async fn test_enable_nested_lists_roots_only_and_folds_descendants() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
         let (state, sess) = setup(&url).await;
         add_nested_cat(state.db.pool()).await;
 
@@ -131,7 +131,7 @@ async fn test_enable_nested_lists_roots_only_and_folds_descendants() {
 
 #[tokio::test]
 async fn test_enable_nested_unread_only_drops_zero_unread_roots() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
         let (state, sess) = setup(&url).await;
         add_nested_cat(state.db.pool()).await;
         // Read all of cat 2's feed so the root has zero unread.
@@ -166,7 +166,7 @@ async fn test_enable_nested_unread_only_drops_zero_unread_roots() {
 /// uncategorized feeds, so UNCATEGORIZED (id 0) is absent.
 #[tokio::test]
 async fn test_special_cats_without_include_empty() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
         let (state, sess) = setup(&url).await;
 
         let (status, content) =

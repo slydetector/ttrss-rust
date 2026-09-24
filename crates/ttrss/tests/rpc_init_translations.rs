@@ -91,7 +91,7 @@ fn translations(v: &Value) -> &serde_json::Map<String, Value> {
 /// of a known string) even with no `Accept-Language` header.
 #[tokio::test]
 async fn test_init_translations_follow_user_language_pref() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = setup(&url).await;
     sqlx::query(
         "INSERT INTO ttrss_user_prefs2 (owner_uid, pref_name, profile, value)
@@ -113,7 +113,7 @@ async fn test_init_translations_follow_user_language_pref() {
 /// No pref, no header → English → the object is present but empty.
 #[tokio::test]
 async fn test_init_translations_empty_for_english() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = setup(&url).await;
     let content = init_rpc(&state, None).await;
     assert!(
@@ -127,7 +127,7 @@ async fn test_init_translations_empty_for_english() {
 /// No pref → the `Accept-Language` header is the fallback.
 #[tokio::test]
 async fn test_init_translations_fall_back_to_accept_language() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = setup(&url).await;
     let content = init_rpc(&state, Some("de-DE")).await;
     assert!(!translations(&content).is_empty(), "de-DE header must populate the map");
@@ -179,7 +179,7 @@ async fn view_rpc(state: &AppState, feed: &str) -> String {
 /// path is wired to it — the linchpin M10.6's multi-locale e2e builds on).
 #[tokio::test]
 async fn test_view_feed_not_found_translated() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = setup(&url).await;
     sqlx::query(
         "INSERT INTO ttrss_user_prefs2 (owner_uid, pref_name, profile, value)

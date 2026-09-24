@@ -63,7 +63,7 @@ async fn marked_state(db: &Db, ref_id: i32) -> (bool, Option<chrono::NaiveDateTi
 // PHP: test_publ_publish_article
 #[tokio::test]
 async fn test_publ_publish_article() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = &state.db;
 
@@ -94,7 +94,7 @@ async fn test_publ_publish_article() {
 // PHP: test_publ_unpublish_article
 #[tokio::test]
 async fn test_publ_unpublish_article() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = &state.db;
 
@@ -132,7 +132,7 @@ async fn test_publ_unpublish_article() {
 // PHP: test_mark_star_article
 #[tokio::test]
 async fn test_mark_star_article() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = &state.db;
 
@@ -163,7 +163,7 @@ async fn test_mark_star_article() {
 // PHP: test_mark_unstar_article
 #[tokio::test]
 async fn test_mark_unstar_article() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = &state.db;
 
@@ -201,7 +201,7 @@ async fn test_mark_unstar_article() {
 // PHP: test_publ_updates_last_published_timestamp
 #[tokio::test]
 async fn test_publ_updates_last_published_timestamp() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = &state.db;
 
@@ -243,7 +243,7 @@ async fn test_publ_updates_last_published_timestamp() {
 // PHP: test_delete_removes_articles
 #[tokio::test]
 async fn test_delete_removes_articles() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = &state.db;
 
@@ -277,7 +277,7 @@ async fn test_delete_removes_articles() {
 #[allow(non_snake_case)]
 #[tokio::test]
 async fn test_markSelected_mark_as_read() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = &state.db;
 
@@ -306,7 +306,7 @@ async fn test_markSelected_mark_as_read() {
 #[allow(non_snake_case)]
 #[tokio::test]
 async fn test_markSelected_mark_as_unread() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = &state.db;
 
@@ -341,7 +341,7 @@ async fn test_markSelected_mark_as_unread() {
 #[allow(non_snake_case)]
 #[tokio::test]
 async fn test_publishSelected_publish_articles() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = &state.db;
 
@@ -369,7 +369,7 @@ async fn test_publishSelected_publish_articles() {
 #[allow(non_snake_case)]
 #[tokio::test]
 async fn test_publishSelected_unpublish_articles() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = &state.db;
 

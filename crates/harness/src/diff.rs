@@ -201,8 +201,8 @@ fn compare_exchanges(ea: &Exchange, eb: &Exchange) -> Vec<String> {
                         "text",
                     )
                 };
-                if na != nb {
-                    if let Some(off) = first_diff_offset(&na, &nb) {
+                if na != nb
+                    && let Some(off) = first_diff_offset(&na, &nb) {
                         details.push(format!(
                             "{label} body differs @{}: {:?} vs {:?}",
                             off,
@@ -210,7 +210,6 @@ fn compare_exchanges(ea: &Exchange, eb: &Exchange) -> Vec<String> {
                             ctx(&nb, off)
                         ));
                     }
-                }
             }
         }
         ("binary", "binary") => {
@@ -244,11 +243,10 @@ fn is_json(s: &str) -> bool {
 }
 
 fn parse_or_raw(s: &str) -> serde_json::Value {
-    if is_json(s) {
-        if let Ok(v) = serde_json::from_str(s) {
+    if is_json(s)
+        && let Ok(v) = serde_json::from_str(s) {
             return v;
         }
-    }
     serde_json::Value::String(s.to_string())
 }
 

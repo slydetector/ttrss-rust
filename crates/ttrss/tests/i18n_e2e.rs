@@ -158,7 +158,7 @@ async fn view_not_found(state: &AppState) -> String {
 /// change in the DB only takes effect on a fresh cache.
 #[tokio::test]
 async fn test_cross_locale_shell() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
         for locale in LOCALES {
             let state = setup(&url, "auth_internal").await;
             save_admin_session(&state).await;
@@ -182,7 +182,7 @@ async fn test_cross_locale_shell() {
 /// The API `view` "not found" error carries the request's locale (5 locales).
 #[tokio::test]
 async fn test_cross_locale_api_view() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
         for locale in LOCALES {
             let state = setup(&url, "auth_internal").await;
             save_admin_session(&state).await;
@@ -203,7 +203,7 @@ async fn test_cross_locale_api_view() {
 /// `toggle_sidebar` button is enabled and rendered in the shell.
 #[tokio::test]
 async fn test_cross_locale_plugin() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
         for locale in LOCALES {
             let state = setup(&url, "auth_internal,toggle_sidebar").await;
             save_admin_session(&state).await;
@@ -225,7 +225,7 @@ async fn test_cross_locale_plugin() {
 /// the shell stays English.
 #[tokio::test]
 async fn test_unavailable_locale_falls_back_english() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
         let state = setup(&url, "auth_internal").await;
         save_admin_session(&state).await;
         set_user_language(&state, "zz_ZZ").await;

@@ -39,11 +39,9 @@ impl I18nCache {
                 // A locale dir must contain LC_MESSAGES/messages.mo
                 if path.is_dir()
                     && path.join("LC_MESSAGES").join("messages.mo").is_file()
-                {
-                    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                    && let Some(name) = path.file_name().and_then(|n| n.to_str()) {
                         available_locales.push(name.to_string());
                     }
-                }
             }
         }
         available_locales.sort();
@@ -199,13 +197,11 @@ pub fn resolve_locale(
     available: &[String],
 ) -> Option<String> {
     // 1. User preference wins (unless "auto").
-    if let Some(pref) = user_pref {
-        if !pref.is_empty() && pref != "auto" {
-            if available.iter().any(|a| a == pref) {
+    if let Some(pref) = user_pref
+        && !pref.is_empty() && pref != "auto"
+            && available.iter().any(|a| a == pref) {
                 return Some(pref.to_string());
             }
-        }
-    }
 
     // 2. Accept-Language header.
     let header = accept_language?;

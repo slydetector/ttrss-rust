@@ -34,7 +34,7 @@ async fn count(pool: &sqlx::PgPool, sql: &str) -> i64 {
 
 #[tokio::test]
 async fn test_import_creates_category_and_feed() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = common::make_app_state(&url).await;
     let sess = sess_for(1);
     let opml = r#"<?xml version="1.0" encoding="utf-8"?>
@@ -87,7 +87,7 @@ async fn test_import_creates_category_and_feed() {
 
 #[tokio::test]
 async fn test_import_dedupes_feeds() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = common::make_app_state(&url).await;
     let sess = sess_for(1);
     let opml = r#"<opml version="1.0"><body>
@@ -115,7 +115,7 @@ async fn test_import_dedupes_feeds() {
 
 #[tokio::test]
 async fn test_import_top_level_feed_uncategorized() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = common::make_app_state(&url).await;
     let sess = sess_for(1);
     // A top-level feed (not inside a category) goes to the "Imported feeds"
@@ -139,7 +139,7 @@ async fn test_import_top_level_feed_uncategorized() {
 
 #[tokio::test]
 async fn test_import_top_level_feed_uses_imported_cat() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = common::make_app_state(&url).await;
     let sess = sess_for(1);
     // Pre-create the "Imported feeds" category: a top-level feed now lands in it.
@@ -174,7 +174,7 @@ async fn test_import_top_level_feed_uses_imported_cat() {
 
 #[tokio::test]
 async fn test_import_unknown_feed_title() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = common::make_app_state(&url).await;
     let sess = sess_for(1);
     // No text/title → the feed title defaults to "[Unknown]".
@@ -197,7 +197,7 @@ async fn test_import_unknown_feed_title() {
 
 #[tokio::test]
 async fn test_import_parse_error_returns_error() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = common::make_app_state(&url).await;
     let sess = sess_for(1);
     let body = ttrss::opml::import(&state, &sess, Some(b"this is not xml <<<")).await;
@@ -211,7 +211,7 @@ async fn test_import_parse_error_returns_error() {
 
 #[tokio::test]
 async fn test_import_labels() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = common::make_app_state(&url).await;
     let sess = sess_for(1);
     let opml = r##"<opml version="1.0"><body>
@@ -243,7 +243,7 @@ async fn test_import_labels() {
 
 #[tokio::test]
 async fn test_import_labels_dedup() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = common::make_app_state(&url).await;
     let sess = sess_for(1);
     let opml = r#"<opml version="1.0"><body>
@@ -265,7 +265,7 @@ async fn test_import_labels_dedup() {
 
 #[tokio::test]
 async fn test_import_prefs() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = common::make_app_state(&url).await;
     let sess = sess_for(1);
     let opml = r#"<opml version="1.0"><body>
@@ -292,7 +292,7 @@ async fn test_import_prefs() {
 
 #[tokio::test]
 async fn test_import_filter() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = common::make_app_state(&url).await;
     let sess = sess_for(1);
     let opml = r#"<opml version="1.0"><body>
@@ -336,7 +336,7 @@ async fn test_import_filter() {
 
 #[tokio::test]
 async fn test_import_no_file_reports_upload_error() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = common::make_app_state(&url).await;
     let sess = sess_for(1);
     let body = ttrss::opml::import(&state, &sess, None).await;
@@ -377,7 +377,7 @@ fn sess_authed(uid: i64) -> Sess {
 /// 404 as `E_UNKNOWN_METHOD`) and returns the `opml_notice` body.
 #[tokio::test]
 async fn test_dispatch_pref_feeds_importopml() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = common::make_app_state(&url).await;
     let opml = r#"<?xml version="1.0" encoding="utf-8"?>
 <opml version="1.0">

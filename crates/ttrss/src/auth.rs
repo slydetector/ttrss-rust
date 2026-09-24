@@ -72,7 +72,7 @@ pub async fn authenticate(pool: &sqlx::PgPool, login: &str, password: &str, otp:
 
     let Some(r) = row else {
         return AuthOutcome::Failure {
-            message: __(ERR_BAD_CREDENTIALS).into(),
+            message: __(ERR_BAD_CREDENTIALS),
         };
     };
     let user = UserRow {
@@ -96,27 +96,26 @@ pub async fn authenticate(pool: &sqlx::PgPool, login: &str, password: &str, otp:
                     success(pool, &user, password).await
                 } else {
                     AuthOutcome::Failure {
-                        message: __(ERR_BAD_CREDENTIALS).into(),
+                        message: __(ERR_BAD_CREDENTIALS),
                     }
                 }
             }
             _ => AuthOutcome::OtpChallenge,
         }
     } else {
-        if let Some(laa) = user.last_auth_attempt {
-            if now_unix() - laa.and_utc().timestamp() < AUTH_MIN_INTERVAL {
+        if let Some(laa) = user.last_auth_attempt
+            && now_unix() - laa.and_utc().timestamp() < AUTH_MIN_INTERVAL {
                 let _ = stamp_last_attempt(pool, user.id).await;
                 return AuthOutcome::Failure {
-                    message: __(ERR_THROTTLED).into(),
+                    message: __(ERR_THROTTLED),
                 };
             }
-        }
         if user::verify_password(&user.pwd_hash, password, &user.salt) {
             success(pool, &user, password).await
         } else {
             let _ = stamp_last_attempt(pool, user.id).await;
             AuthOutcome::Failure {
-                message: __(ERR_BAD_CREDENTIALS).into(),
+                message: __(ERR_BAD_CREDENTIALS),
             }
         }
     }
@@ -129,7 +128,7 @@ pub async fn authenticate(pool: &sqlx::PgPool, login: &str, password: &str, otp:
 async fn success(pool: &sqlx::PgPool, user: &UserRow, password: &str) -> AuthOutcome {
     if user.access_level == user::ACCESS_LEVEL_DISABLED {
         return AuthOutcome::Failure {
-            message: __(ERR_BAD_CREDENTIALS).into(),
+            message: __(ERR_BAD_CREDENTIALS),
         };
     }
 
@@ -190,9 +189,9 @@ pub async fn check_password(pool: &sqlx::PgPool, uid: i32, password: &str) -> bo
     if !crate::core::user::verify_password(&pwd_hash, password, &salt) {
         return false;
     }
-    if let Some((algo, _)) = pwd_hash.split_once(':') {
-        if algo != crate::core::user::ALGO_SSHA512 {
-            if let Some(new_hash) =
+    if let Some((algo, _)) = pwd_hash.split_once(':')
+        && algo != crate::core::user::ALGO_SSHA512
+            && let Some(new_hash) =
                 crate::core::user::hash_password(password, &salt, crate::core::user::ALGO_SSHA512)
             {
                 let _ = sqlx::query("UPDATE ttrss_users SET pwd_hash = $1 WHERE id = $2")
@@ -201,8 +200,6 @@ pub async fn check_password(pool: &sqlx::PgPool, uid: i32, password: &str) -> bo
                     .execute(pool)
                     .await;
             }
-        }
-    }
     true
 }
 

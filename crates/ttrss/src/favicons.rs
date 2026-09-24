@@ -54,22 +54,19 @@ pub async fn get_favicon_urls(site_url: &str) -> Vec<String> {
         for el in sel {
             let attrs = el.attributes.borrow();
             let rel = attrs.get("rel").map(|r| r.to_lowercase()).unwrap_or_default();
-            if rel == "shortcut icon" || rel == "icon" || rel == "alternate icon" {
-                if let Some(href) = attrs.get("href") {
-                    if let Some(abs) = urlhelper::rewrite_relative(&base, href) {
+            if (rel == "shortcut icon" || rel == "icon" || rel == "alternate icon")
+                && let Some(href) = attrs.get("href")
+                    && let Some(abs) = urlhelper::rewrite_relative(&base, href) {
                         urls.push(abs);
                     }
-                }
-            }
         }
     }
 
     // Fallback: `<base>/favicon.ico`.
-    if urls.is_empty() {
-        if let Some(fallback) = urlhelper::rewrite_relative(&base, "/favicon.ico") {
+    if urls.is_empty()
+        && let Some(fallback) = urlhelper::rewrite_relative(&base, "/favicon.ico") {
             urls.push(fallback);
         }
-    }
 
     urls
 }

@@ -65,7 +65,7 @@ async fn last_digest_sent(db: &Pool) -> Option<chrono::NaiveDateTime> {
 
 #[tokio::test]
 async fn test_saveconfig_sets_prefs() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = state.db.pool();
 
@@ -96,7 +96,7 @@ async fn test_saveconfig_sets_prefs() {
 
 #[tokio::test]
 async fn test_saveconfig_boolean_default() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = state.db.pool();
 
@@ -128,7 +128,7 @@ async fn test_saveconfig_boolean_default() {
 
 #[tokio::test]
 async fn test_saveconfig_ignores_invalid_pref() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = state.db.pool();
 
@@ -154,7 +154,7 @@ async fn test_saveconfig_ignores_invalid_pref() {
 
 #[tokio::test]
 async fn test_saveconfig_blacklisted_tags_normalized() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = state.db.pool();
 
@@ -177,7 +177,7 @@ async fn test_saveconfig_blacklisted_tags_normalized() {
 
 #[tokio::test]
 async fn test_saveconfig_need_reload_on_theme_change() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = state.db.pool();
 
@@ -200,7 +200,7 @@ async fn test_saveconfig_need_reload_on_theme_change() {
 
 #[tokio::test]
 async fn test_saveconfig_no_reload_unchanged() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
 
     // Saving an unchanged `USER_CSS_THEME` (still the default "") does not
@@ -216,7 +216,7 @@ async fn test_saveconfig_no_reload_unchanged() {
 
 #[tokio::test]
 async fn test_saveconfig_digest_time_resets() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = state.db.pool();
 
@@ -246,7 +246,7 @@ async fn test_saveconfig_digest_time_resets() {
 
 #[tokio::test]
 async fn test_resetconfig_discards_overrides() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = state.db.pool();
 

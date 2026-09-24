@@ -69,7 +69,7 @@ fn expect_failure(outcome: AuthOutcome) -> String {
 // PHP: test_correct_credentials_returns_true_and_sets_session
 #[tokio::test]
 async fn test_correct_credentials_returns_true_and_sets_session() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (db, uid) = setup(&url).await;
 
     let (id, login, access_level) =
@@ -91,7 +91,7 @@ async fn test_correct_credentials_returns_true_and_sets_session() {
 // PHP: test_admin_credentials_work
 #[tokio::test]
 async fn test_admin_credentials_work() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (db, _) = setup(&url).await;
 
     let (id, _login, access_level) =
@@ -116,7 +116,7 @@ async fn test_admin_credentials_work() {
 // PHP: test_authenticate_updates_last_login
 #[tokio::test]
 async fn test_authenticate_updates_last_login() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (db, _) = setup(&url).await;
 
     // PHP: usleep(100_000) before authenticating.
@@ -139,7 +139,7 @@ async fn test_authenticate_updates_last_login() {
 // PHP: test_wrong_password_returns_false
 #[tokio::test]
 async fn test_wrong_password_returns_false() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (db, _) = setup(&url).await;
 
     let _msg = expect_failure(auth::authenticate(db.pool(), "testuser", "wrong", None).await);
@@ -150,7 +150,7 @@ async fn test_wrong_password_returns_false() {
 // PHP: test_nonexistent_user_returns_false
 #[tokio::test]
 async fn test_nonexistent_user_returns_false() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (db, _) = setup(&url).await;
 
     let _msg = expect_failure(auth::authenticate(db.pool(), "ghost", "anything", None).await);
@@ -161,7 +161,7 @@ async fn test_nonexistent_user_returns_false() {
 // PHP: test_login_is_case_insensitive
 #[tokio::test]
 async fn test_login_is_case_insensitive() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (db, uid) = setup(&url).await;
 
     let (id, _login, _access_level) =
@@ -177,7 +177,7 @@ async fn test_login_is_case_insensitive() {
 // PHP: test_disabled_user_cannot_authenticate
 #[tokio::test]
 async fn test_disabled_user_cannot_authenticate() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (db, _) = setup(&url).await;
 
     // PHP inserts: hash_password('nope', 'saltxx', HASH_ALGO_SSHA512),

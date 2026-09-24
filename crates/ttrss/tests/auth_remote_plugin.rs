@@ -110,7 +110,7 @@ fn proxy_login_form(login: &str, password: &str) -> String {
 
 #[tokio::test]
 async fn test_remote_user_auto_creates_and_fake_login_session() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = make_state(&url, |_| {}).await;
     let resp = app(state.clone())
         .oneshot(post_form(
@@ -156,7 +156,7 @@ async fn test_remote_user_auto_creates_and_fake_login_session() {
 
 #[tokio::test]
 async fn test_remote_user_updates_lemonldap_name_email() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = make_state(&url, |_| {}).await;
     // First login creates the account + the name/email.
     let resp = app(state.clone())
@@ -190,7 +190,7 @@ async fn test_remote_user_updates_lemonldap_name_email() {
 
 #[tokio::test]
 async fn test_basic_auth_header_maps_to_php_auth_user() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = make_state(&url, |_| {}).await;
     let basic = base64_encode("dave:anypass");
     let resp = app(state.clone())
@@ -213,7 +213,7 @@ async fn test_basic_auth_header_maps_to_php_auth_user() {
 
 #[tokio::test]
 async fn test_no_proxy_credentials_falls_through_to_auth_internal() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = make_state(&url, |_| {}).await;
     // A real password account.
     let salt = "testsalt";
@@ -247,7 +247,7 @@ async fn test_no_proxy_credentials_falls_through_to_auth_internal() {
 
 #[tokio::test]
 async fn test_ssl_certificate_serial_maps_to_registered_user() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = make_state(&url, |_| {}).await;
     // A user with a registered cert serial pref (the fingerprint PHP
     // computes from the mod_ssl headers).
@@ -291,7 +291,7 @@ async fn test_ssl_certificate_serial_maps_to_registered_user() {
 
 #[tokio::test]
 async fn test_logout_redirects_to_post_logout_url_when_configured() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = make_state(&url, |cfg| {
         cfg.auth_remote_post_logout_url = "https://idp.example/logout-redirect".into();
     }).await;
@@ -322,7 +322,7 @@ async fn test_logout_redirects_to_post_logout_url_when_configured() {
 
 #[tokio::test]
 async fn test_logout_defaults_to_index_when_url_unset() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = make_state(&url, |_| {}).await;
     let resp = app(state.clone())
         .oneshot(post_form(
@@ -350,7 +350,7 @@ async fn test_logout_defaults_to_index_when_url_unset() {
 
 #[tokio::test]
 async fn test_logout_ignores_invalid_post_logout_url() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = make_state(&url, |cfg| {
         cfg.auth_remote_post_logout_url = "javascript:alert(1)".into();
     }).await;

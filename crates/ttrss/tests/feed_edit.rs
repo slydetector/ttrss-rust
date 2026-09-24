@@ -88,7 +88,7 @@ fn request(pairs: &[(&str, Value)]) -> Map<String, Value> {
 /// access level, and the text-search language list.
 #[tokio::test]
 async fn test_editfeed_basic() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
 
     let result = ttrss::feeds::editfeed(&state, &sess, &request(&[("id", json!(1))])).await;
@@ -210,7 +210,7 @@ async fn test_editfeed_basic() {
 /// `editfeed` returns `null` for an unknown / non-owned feed.
 #[tokio::test]
 async fn test_editfeed_unknown_feed() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let result = ttrss::feeds::editfeed(&state, &sess, &request(&[("id", json!(9999))])).await;
     assert!(result.is_null(), "expected null, got {result}");
@@ -221,7 +221,7 @@ async fn test_editfeed_unknown_feed() {
 /// Nested categories are indented by level in the category `<select>`.
 #[tokio::test]
 async fn test_editfeed_cats_nested() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = &state.db;
     // Add a child category under "Technology" (id 1).
@@ -266,7 +266,7 @@ fn test_decrypt_feed_pass_roundtrip() {
 /// `get_icon` maps virtual feed ids to Material icon names.
 #[tokio::test]
 async fn test_get_icon_virtual() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, _sess) = setup(&url).await;
     use ttrss::feeds::get_icon;
     assert_eq!(get_icon(&state, 0), "archive");
@@ -300,7 +300,7 @@ fn parse_doc(html: &str) -> kuchikiki::NodeRef {
 
 #[tokio::test]
 async fn test_editfeeds_overview() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let html = ttrss::feeds::editfeeds(&state, &sess, &request(&[("ids", json!("1,2"))])).await;
     let doc = parse_doc(&html);
@@ -350,7 +350,7 @@ async fn test_editfeeds_overview() {
 
 #[tokio::test]
 async fn test_editfeeds_general_tab() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let html = ttrss::feeds::editfeeds(&state, &sess, &request(&[("ids", json!("1,2"))])).await;
     let doc = parse_doc(&html);
@@ -405,7 +405,7 @@ async fn test_editfeeds_general_tab() {
 
 #[tokio::test]
 async fn test_editfeeds_auth_tab() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let html = ttrss::feeds::editfeeds(&state, &sess, &request(&[("ids", json!("1,2"))])).await;
     let doc = parse_doc(&html);
@@ -443,7 +443,7 @@ async fn test_editfeeds_auth_tab() {
 
 #[tokio::test]
 async fn test_editfeeds_options_tab() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let html = ttrss::feeds::editfeeds(&state, &sess, &request(&[("ids", json!("1,2"))])).await;
     let doc = parse_doc(&html);
@@ -486,7 +486,7 @@ async fn test_editfeeds_options_tab() {
 
 #[tokio::test]
 async fn test_editfeeds_category_options() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let html = ttrss::feeds::editfeeds(&state, &sess, &request(&[("ids", json!("1,2"))])).await;
     let doc = parse_doc(&html);
@@ -530,7 +530,7 @@ async fn test_editfeeds_category_options() {
 /// only the data (not the object key order) matters.
 #[tokio::test]
 async fn test_subscribe_to_feed() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
 
     let result = ttrss::feeds::subscribe_to_feed(&state, &sess).await;
@@ -579,7 +579,7 @@ async fn test_subscribe_to_feed() {
 /// URL. Not a JSON method: it returns a raw status + optional `Location` + body.
 #[tokio::test]
 async fn test_opensite() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = state.db.pool();
 

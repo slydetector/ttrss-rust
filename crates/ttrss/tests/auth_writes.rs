@@ -88,7 +88,7 @@ fn form(pairs: &[(&str, &str)]) -> Map<String, Value> {
 
 #[tokio::test]
 async fn test_change_personal_data() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = state.db.pool();
 
@@ -109,7 +109,7 @@ async fn test_change_personal_data() {
 
 #[tokio::test]
 async fn test_changepassword_success() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = state.db.pool();
 
@@ -141,7 +141,7 @@ async fn test_changepassword_success() {
 
 #[tokio::test]
 async fn test_changepassword_validation_errors() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
 
     // Each pair is (form fields, expected message substring). The baseline
@@ -206,7 +206,7 @@ async fn test_changepassword_validation_errors() {
 
 #[tokio::test]
 async fn test_changepassword_wrong_old_password() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let extra = form(&[
         ("old_password", "not-the-password"),
@@ -221,7 +221,7 @@ async fn test_changepassword_wrong_old_password() {
 
 #[tokio::test]
 async fn test_changepassword_forbidden() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (mut state, sess) = setup(&url).await;
     state.config.forbid_password_changes = true;
     let extra = form(&[
@@ -239,7 +239,7 @@ async fn test_changepassword_forbidden() {
 
 #[tokio::test]
 async fn test_otp_enable() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = state.db.pool();
 
@@ -289,7 +289,7 @@ async fn test_otp_enable() {
 
 #[tokio::test]
 async fn test_otp_disable() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = state.db.pool();
 
@@ -325,7 +325,7 @@ async fn test_otp_disable() {
 
 #[tokio::test]
 async fn test_customize_css() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = state.db.pool();
 

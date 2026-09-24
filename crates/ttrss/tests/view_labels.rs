@@ -40,7 +40,7 @@ fn test_config() -> Config { common::test_config() }
 
 /// Fresh fixtures + a session carrying `uid = 1` (owner of the fixture rows).
 async fn setup(url: &str) -> (AppState, Sess) {
-    let db: Db = common::make_db_from_url(&url).await.expect("test db");
+    let db: Db = common::make_db_from_url(url).await.expect("test db");
     let state = AppState::new(test_config(), db);
     let mut data = Session::new();
     data.set("uid", PValue::Int(SESSION_UID));
@@ -64,7 +64,7 @@ async fn label_cache(pool: &sqlx::Pool<sqlx::Postgres>, article_id: i64) -> Opti
 
 #[tokio::test]
 async fn test_view_populates_label_cache() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let p = state.db.pool();
 

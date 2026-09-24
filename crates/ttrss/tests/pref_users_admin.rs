@@ -68,7 +68,7 @@ fn test_config() -> Config {
 
 /// Fresh fixtures + an admin session (`uid = 1`, `access_level = 10`).
 async fn setup(url: &str) -> (AppState, Sess) {
-    let db: Db = common::make_db_from_url(&url).await.expect("test db");
+    let db: Db = common::make_db_from_url(url).await.expect("test db");
     let state = AppState::new(test_config(), db);
     let mut data = Session::new();
     data.set("uid", PValue::Int(1));
@@ -98,7 +98,7 @@ async fn seed_plain_user(pool: &sqlx::PgPool, login: &str) -> i32 {
 
 #[tokio::test]
 async fn test_edit() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
 
     // Admin (uid 1) exists → the edit dialog data.
@@ -138,7 +138,7 @@ async fn read_user(
 
 #[tokio::test]
 async fn test_edit_save_update() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let pool = state.db.pool();
     let id = seed_plain_user(pool, "TestUser").await;
@@ -167,7 +167,7 @@ async fn test_edit_save_update() {
 
 #[tokio::test]
 async fn test_edit_save_admin_forced_admin_login() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let pool = state.db.pool();
 
@@ -191,7 +191,7 @@ async fn test_edit_save_admin_forced_admin_login() {
 
 #[tokio::test]
 async fn test_edit_save_empty_login_early_return() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let pool = state.db.pool();
     let id = seed_plain_user(pool, "keepme").await;
@@ -221,7 +221,7 @@ async fn test_edit_save_empty_login_early_return() {
 
 #[tokio::test]
 async fn test_edit_save_password_reset() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let pool = state.db.pool();
     let id = seed_plain_user(pool, "pwreset").await;
@@ -269,7 +269,7 @@ async fn test_edit_save_password_reset() {
 
 #[tokio::test]
 async fn test_remove() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let pool = state.db.pool();
     let victim = seed_plain_user(pool, "victim").await;
@@ -290,7 +290,7 @@ async fn test_remove() {
 
 #[tokio::test]
 async fn test_add() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let pool = state.db.pool();
 
@@ -327,7 +327,7 @@ async fn test_add() {
 
 #[tokio::test]
 async fn test_reset_pass() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     // Reset an existing user's password to a random one.
     let out = users::reset_pass(&state, &sess, &form(&[("id", "1")])).await;
@@ -349,7 +349,7 @@ async fn test_reset_pass() {
 /// proceeds for an admin. Exercised through the public `rpc::handler`.
 #[tokio::test]
 async fn test_admin_gate_denies_non_admin() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, _sess) = setup(&url).await;
 
     // A session for `uid = 1` (admin in the DB) carrying the admin's stored
@@ -422,7 +422,7 @@ async fn test_admin_gate_denies_non_admin() {
 /// PHP suite has no users-page locale test.
 #[tokio::test]
 async fn test_index_localizes_de_de() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let ctx = ttrss::i18n::I18nCtx {
         locale: Some("de_DE".to_string()),
@@ -454,7 +454,7 @@ async fn test_index_localizes_de_de() {
 /// Without a locale scope, the index page stays English (identity `__`).
 #[tokio::test]
 async fn test_index_english_without_scope() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let html = ttrss::users::index(&state, &sess, &serde_json::Map::new()).await;
     assert!(

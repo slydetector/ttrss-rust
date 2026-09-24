@@ -195,11 +195,10 @@ impl<'input> FeedParser<'input> {
                     .iter()
                     .find(|l| l.attribute("rel") == Some("alternate"))
             });
-        if let Some(href) = link.and_then(|l| l.attribute("href")) {
-            if !href.is_empty() {
+        if let Some(href) = link.and_then(|l| l.attribute("href"))
+            && !href.is_empty() {
                 self.link = Some(href.to_string());
             }
-        }
         // items: //atom:entry, falling back to //atom03:entry
         let mut entries: Vec<Node> = d
             .descendants()
@@ -260,11 +259,10 @@ impl<'input> FeedParser<'input> {
             self.title = Some(t.text().unwrap_or("").to_string());
         }
         // link: //rssfake:channel/rssfake:link -> nodeValue
-        if let Some(l) = child_of_ns(d, NS_RSS10, "channel", "link") {
-            if let Some(text) = l.text() {
+        if let Some(l) = child_of_ns(d, NS_RSS10, "channel", "link")
+            && let Some(text) = l.text() {
                 self.link = Some(text.to_string());
             }
-        }
         // items: //rssfake:item
         for n in d.descendants() {
             if n.is_element()
@@ -311,15 +309,13 @@ fn feed_child<'a, 'input>(
         if feed.is_element()
             && feed.tag_name().namespace() == Some(feed_ns)
             && feed.tag_name().name() == "feed"
-        {
-            if let Some(c) = feed.children().find(|c| {
+            && let Some(c) = feed.children().find(|c| {
                 c.is_element()
                     && c.tag_name().namespace() == Some(feed_ns)
                     && c.tag_name().name() == field
             }) {
                 return Some(c);
             }
-        }
     }
     None
 }
@@ -355,14 +351,13 @@ fn child_of<'a, 'input>(
     child: &str,
 ) -> Option<Node<'a, 'input>> {
     for p in doc.descendants() {
-        if p.is_element() && p.tag_name().name() == parent {
-            if let Some(c) = p
+        if p.is_element() && p.tag_name().name() == parent
+            && let Some(c) = p
                 .children()
                 .find(|c| c.is_element() && c.tag_name().name() == child)
             {
                 return Some(c);
             }
-        }
     }
     None
 }
@@ -376,15 +371,14 @@ fn child_of_ns<'a, 'input>(
     child: &str,
 ) -> Option<Node<'a, 'input>> {
     for p in doc.descendants() {
-        if p.is_element() && p.tag_name().namespace() == Some(ns) && p.tag_name().name() == parent {
-            if let Some(c) = p.children().find(|c| {
+        if p.is_element() && p.tag_name().namespace() == Some(ns) && p.tag_name().name() == parent
+            && let Some(c) = p.children().find(|c| {
                 c.is_element()
                     && c.tag_name().namespace() == Some(ns)
                     && c.tag_name().name() == child
             }) {
                 return Some(c);
             }
-        }
     }
     None
 }

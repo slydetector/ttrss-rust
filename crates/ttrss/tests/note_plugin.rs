@@ -123,7 +123,7 @@ fn json_of(v: &MethodOutput) -> &Value {
 // `edit` returns the dialog body with the note in the textarea.
 #[tokio::test]
 async fn test_setnote_then_edit() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = setup(&url, "note").await;
     let sess = session(1);
 
@@ -156,7 +156,7 @@ async fn test_setnote_then_edit() {
 // `clean()` strips tags from the stored note (PHP's `clean($_REQUEST["note"])`).
 #[tokio::test]
 async fn test_setnote_strips_tags() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = setup(&url, "note").await;
     let sess = session(1);
 
@@ -170,7 +170,7 @@ async fn test_setnote_strips_tags() {
 // textarea (the row appears when the article is first read).
 #[tokio::test]
 async fn test_edit_no_row_footer_only() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = setup(&url, "note").await;
     let sess = session(1);
 
@@ -186,7 +186,7 @@ async fn test_edit_no_row_footer_only() {
 // `INSERT`) — a later `edit` still sees no textarea.
 #[tokio::test]
 async fn test_setnote_no_row_noop() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = setup(&url, "note").await;
     let sess = session(1);
 
@@ -203,7 +203,7 @@ async fn test_setnote_no_row_noop() {
 // cannot see or touch owner 2's row.
 #[tokio::test]
 async fn test_owner_scoping() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = setup(&url, "note").await;
 
     // A self-contained fixture: owner 2 + an entry no one else reads (the
@@ -257,7 +257,7 @@ async fn test_owner_scoping() {
 // (entry 2's row exists with an empty note → the textarea renders empty).
 #[tokio::test]
 async fn test_per_article_scoping() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = setup(&url, "note").await;
     let sess = session(1);
 
@@ -279,7 +279,7 @@ async fn test_per_article_scoping() {
 // is rejected even for an existing method.
 #[tokio::test]
 async fn test_csrf_fail() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = setup(&url, "note").await;
     let sess = session(1);
 
@@ -293,7 +293,7 @@ async fn test_csrf_fail() {
 // plugin (PHP's per-request host only loads the enabled set).
 #[tokio::test]
 async fn test_inactive_plugin_unknown() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = setup(&url, "auth_internal").await; // `note` not enabled
     let sess = session(1);
 
@@ -307,7 +307,7 @@ async fn test_inactive_plugin_unknown() {
 // gets from the hook (attribute order + visible text as PHP's literal).
 #[tokio::test]
 async fn test_button_row() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = setup(&url, "note").await;
     let plugin = state.plugins.get_plugin("note").expect("note registered");
     let mut ctx = HostCtx::empty(&state.plugins, state.db.pool(), &state.config);
@@ -327,7 +327,7 @@ async fn test_button_row() {
 // `method_exists` parity: case-insensitive, exactly the two methods.
 #[tokio::test]
 async fn test_method_exists() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = setup(&url, "note").await;
     let plugin = state.plugins.get_plugin("note").expect("note registered");
 

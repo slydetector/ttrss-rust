@@ -24,7 +24,7 @@ fn test_config() -> Config { common::test_config() }
 async fn setup(
     url: &str,
 ) -> (AppState, Sess) {
-    let db: Db = common::make_db_from_url(&url).await.expect("test db");
+    let db: Db = common::make_db_from_url(url).await.expect("test db");
     let state = AppState::new(test_config(), db);
     let mut data = Session::new();
     data.set("uid", PValue::Int(1));
@@ -55,7 +55,7 @@ async fn insert_filter(db: &Db, title: &str) -> i32 {
 /// actions, and the `filter_types` / `action_types` maps (type 5 unsupported).
 #[tokio::test]
 async fn test_edit_new_filter() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let Some(json) = ttrss::filters::edit(&state, &sess, &request(&[("id", json!(0))])).await
     else {
@@ -91,7 +91,7 @@ async fn test_edit_new_filter() {
 /// `edit` on a missing filter (nonzero id, not owned) returns `None`.
 #[tokio::test]
 async fn test_edit_not_found() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let json = ttrss::filters::edit(&state, &sess, &request(&[("id", json!(999999))])).await;
     assert!(json.is_none(), "missing filter should print nothing");
@@ -104,7 +104,7 @@ async fn test_edit_not_found() {
 /// action list (with `action_param_label` and names), and the type maps.
 #[tokio::test]
 async fn test_edit_existing() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = state.db.pool();
     let fid = insert_filter(&state.db, "My filter").await;
@@ -176,7 +176,7 @@ async fn test_edit_existing() {
 /// yields the PHP's literal error strings.
 #[tokio::test]
 async fn test_print_rule_name() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
 
     let rule = json!({ "reg_exp": "(?i)rust", "filter_type": 1, "feed_id": ["1"] });
@@ -212,7 +212,7 @@ async fn test_print_rule_name() {
 /// yields the PHP's literal error strings.
 #[tokio::test]
 async fn test_print_action_name() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
 
     let action = json!({ "action_id": 4, "action_param": "hello, world" });

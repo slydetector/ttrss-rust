@@ -97,7 +97,7 @@ async fn enable_api(db: &Db) {
 
 #[tokio::test]
 async fn test_get_version() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     enable_api(&state.db).await;
     let (status, content) =
@@ -110,7 +110,7 @@ async fn test_get_version() {
 
 #[tokio::test]
 async fn test_get_api_level() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     enable_api(&state.db).await;
     let (status, content) =
@@ -124,7 +124,7 @@ async fn test_get_api_level() {
 /// Without the `ENABLE_API_ACCESS` pref (default `false`) the gate rejects.
 #[tokio::test]
 async fn test_api_disabled() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let (status, content) =
         api::before_and_dispatch(&state, &sess, "getversion", &request(&[]), None).await;
@@ -138,7 +138,7 @@ async fn test_api_disabled() {
 /// (the middleware deletes the stored row on `destroy`).
 #[tokio::test]
 async fn test_logout() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     enable_api(&state.db).await;
     assert_eq!(sess.data().uid(), Some(1));
@@ -155,7 +155,7 @@ async fn test_logout() {
 /// succeeds), so it is exempt from the not-logged-in gate.
 #[tokio::test]
 async fn test_logout_not_logged_in() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, _sess) = setup(&url).await;
     let anon = Sess::new("anon-sid".to_string()); // no `uid`
 
@@ -169,7 +169,7 @@ async fn test_logout_not_logged_in() {
 /// `catchupFeed` marks a feed's unread entries read and returns `status: OK`.
 #[tokio::test]
 async fn test_catchup_feed_ok() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     // refs 1,2 are feed 1 and unread; ref 3 is feed 1 and already read.
     let (status, content) =
@@ -190,7 +190,7 @@ async fn test_catchup_feed_ok() {
 /// `updateArticle` field 0 (`marked`), mode 1 (`true`): mark the entries.
 #[tokio::test]
 async fn test_update_marked() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let (status, content) = api::update_article(
         &state,
@@ -221,7 +221,7 @@ async fn test_update_marked() {
 /// `updateArticle` field 2 (`unread`), mode 0 (`false`): mark read + set `last_read`.
 #[tokio::test]
 async fn test_update_unread_mode0() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let (status, content) = api::update_article(
         &state,
@@ -253,7 +253,7 @@ async fn test_update_unread_mode0() {
 /// `updateArticle` field 0 (`marked`), mode 2 (`toggle`): flip each entry.
 #[tokio::test]
 async fn test_update_toggle() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     // Seed refs 1,2,4 are unmarked; pre-mark ref 4 so the toggle flips it back.
     sqlx::query("UPDATE ttrss_user_entries SET marked = true WHERE ref_id = 4")
@@ -293,7 +293,7 @@ async fn test_update_toggle() {
 /// `updateArticle` field 3 (`note`): store the note text.
 #[tokio::test]
 async fn test_update_note() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let (status, content) = api::update_article(
         &state,
@@ -321,7 +321,7 @@ async fn test_update_note() {
 /// `updateArticle` field 4 (`score`): store the score (rejects `0`).
 #[tokio::test]
 async fn test_update_score() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let (status, content) = api::update_article(
         &state,
@@ -365,7 +365,7 @@ async fn test_update_score() {
 /// `updateArticle` with no `article_ids` → `INCORRECT_USAGE`.
 #[tokio::test]
 async fn test_update_incorrect_usage_empty() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let (status, content) = api::update_article(
         &state,
@@ -382,7 +382,7 @@ async fn test_update_incorrect_usage_empty() {
 /// `updateArticle` field 0 (`marked`) with a non-0/1/2 mode → `INCORRECT_USAGE`.
 #[tokio::test]
 async fn test_update_incorrect_usage_badmode() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let (status, content) = api::update_article(
         &state,
@@ -403,7 +403,7 @@ async fn test_update_incorrect_usage_badmode() {
 /// `unsubscribeFeed` removes an owned feed (or `E_OPERATION_FAILED` if absent).
 #[tokio::test]
 async fn test_unsubscribe_ok() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let (status, content) =
         api::unsubscribe_feed(&state, &sess, &request(&[("feed_id", json!(1))])).await;
@@ -426,7 +426,7 @@ async fn test_unsubscribe_ok() {
 /// `setArticleLabel` assign=true attaches label 1 (`label_id = 1026`).
 #[tokio::test]
 async fn test_set_label_assign() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let (status, content) = api::set_article_label(
         &state,
@@ -454,7 +454,7 @@ async fn test_set_label_assign() {
 /// `setArticleLabel` assign=false removes label 1 from the entry.
 #[tokio::test]
 async fn test_set_label_remove() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     // Pre-attach label 1 to ref 1.
     sqlx::query("INSERT INTO ttrss_user_labels2 (label_id, article_id) VALUES (1, 1)")
@@ -487,7 +487,7 @@ async fn test_set_label_remove() {
 /// `setArticleLabel` with an unknown label id → no rows updated.
 #[tokio::test]
 async fn test_set_label_missing() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let (status, content) = api::set_article_label(
         &state,
@@ -507,7 +507,7 @@ async fn test_set_label_missing() {
 
 #[tokio::test]
 async fn test_share_to_published_ok() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let pool = state.db.pool();
     let (status, content) = api::share_to_published(
@@ -553,7 +553,7 @@ async fn test_share_to_published_ok() {
 
 #[tokio::test]
 async fn test_share_to_published_invalid_url() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let (status, content) = api::share_to_published(
         &state,
@@ -573,7 +573,7 @@ async fn test_share_to_published_invalid_url() {
 
 #[tokio::test]
 async fn test_share_to_published_no_title_or_url() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let (status, content) = api::share_to_published(
         &state,
@@ -593,7 +593,7 @@ async fn test_share_to_published_no_title_or_url() {
 
 #[tokio::test]
 async fn test_share_to_published_updates_existing() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let pool = state.db.pool();
 
@@ -679,7 +679,7 @@ async fn response_bytes(res: axum::response::Response) -> Vec<u8> {
 /// `getFeedIcon` with no session → the `NOT_LOGGED_IN` JSON envelope.
 #[tokio::test]
 async fn test_get_feed_icon_not_logged_in() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, _) = setup(&url).await;
     let sess = Sess::new("anon".to_string());
     sess.replace("anon".to_string(), Session::new());
@@ -695,7 +695,7 @@ async fn test_get_feed_icon_not_logged_in() {
 /// `getFeedIcon` for a feed with no cached icon → the `E_NOT_FOUND` envelope.
 #[tokio::test]
 async fn test_get_feed_icon_not_found() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     enable_api(&state.db).await;
     let body = request(&[("id", json!(55))]);
@@ -710,7 +710,7 @@ async fn test_get_feed_icon_not_found() {
 /// `getFeedIcon` for a feed with a cached PNG icon → 200 + `image/png` + bytes.
 #[tokio::test]
 async fn test_get_feed_icon_found_png() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let dir = icon_dir("png");
     let png = vec![0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 1, 2, 3];
     std::fs::write(dir.join("55"), &png).expect("write icon");
@@ -731,7 +731,7 @@ async fn test_get_feed_icon_found_png() {
 /// `getFeedIcon` content-type detection: a JPEG icon → `image/jpeg`.
 #[tokio::test]
 async fn test_get_feed_icon_found_jpeg() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let dir = icon_dir("jpeg");
     let jpeg = vec![0xFF, 0xD8, 0xFF, 0xE0, 1, 2, 3];
     std::fs::write(dir.join("7"), &jpeg).expect("write icon");

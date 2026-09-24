@@ -578,7 +578,7 @@ pub async fn index(state: &AppState, sess: &Sess) -> Result<String, sqlx::Error>
             let help_text = if name == prefs::DIGEST_PREFERRED_TIME {
                 Some(format!(
                     "{}. {}",
-                    help.map(|h| __(h)).unwrap_or_default(),
+                    help.map(__).unwrap_or_default(),
                     t_sprintf("Current server time: %s", &[ctx.server_time.as_str()])
                 ))
             } else if name == prefs::FRESH_ARTICLE_MAX_AGE
@@ -586,7 +586,7 @@ pub async fn index(state: &AppState, sess: &Sess) -> Result<String, sqlx::Error>
             {
                 Some(format!("<strong>{}</strong>", __("hours")))
             } else {
-                help.map(|s| __(s)).filter(|s| !s.is_empty())
+                help.map(__).filter(|s| !s.is_empty())
             };
             if *ty == prefs::Type::Bool {
                 listed_boolean_prefs.push(name.to_string());

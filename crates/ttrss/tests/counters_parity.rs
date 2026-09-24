@@ -85,7 +85,7 @@ fn is_label_entry(v: &Value) -> bool {
 // PHP: test_get_counters_returns_int
 #[tokio::test]
 async fn test_get_counters_returns_int() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     let result =
         counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(-4), false, false, None).await;
@@ -99,7 +99,7 @@ async fn test_get_counters_returns_int() {
 // PHP: test_get_counters_feed_all
 #[tokio::test]
 async fn test_get_counters_feed_all() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     // All 11 seeded articles belong to owner_uid=1
     assert_eq!(
@@ -113,7 +113,7 @@ async fn test_get_counters_feed_all() {
 // PHP: test_get_counters_feed_starred
 #[tokio::test]
 async fn test_get_counters_feed_starred() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     // seed.sql: articles 3, 8, 11 are marked=true
     assert_eq!(
@@ -127,7 +127,7 @@ async fn test_get_counters_feed_starred() {
 // PHP: test_get_counters_feed_starred_unread_only
 #[tokio::test]
 async fn test_get_counters_feed_starred_unread_only() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     // Starred articles: 3, 8, 11 — none are unread
     assert_eq!(
@@ -141,7 +141,7 @@ async fn test_get_counters_feed_starred_unread_only() {
 // PHP: test_get_counters_feed_published
 #[tokio::test]
 async fn test_get_counters_feed_published() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     // No articles are published in seed data
     assert_eq!(
@@ -155,7 +155,7 @@ async fn test_get_counters_feed_published() {
 // PHP: test_get_counters_feed_fresh
 #[tokio::test]
 async fn test_get_counters_feed_fresh() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     // Fresh = unread + score >= 0 + within FRESH_ARTICLE_MAX_AGE.
     // setUp() sets FRESH_ARTICLE_MAX_AGE=999999 so all unread articles are
@@ -171,7 +171,7 @@ async fn test_get_counters_feed_fresh() {
 // PHP: test_get_counters_feed_recently_read
 #[tokio::test]
 async fn test_get_counters_feed_recently_read() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     // FEED_RECENTLY_READ always returns 0
     assert_eq!(
@@ -185,7 +185,7 @@ async fn test_get_counters_feed_recently_read() {
 // PHP: test_get_counters_feed_archived
 #[tokio::test]
 async fn test_get_counters_feed_archived() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     // Archived = feed_id IS NULL — no articles have null feed_id
     assert_eq!(
@@ -201,7 +201,7 @@ async fn test_get_counters_feed_archived() {
 // PHP: test_get_counters_by_feed_id
 #[tokio::test]
 async fn test_get_counters_by_feed_id() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     // Default (unread_only=false) returns TOTAL count.
     assert_eq!(
@@ -231,7 +231,7 @@ async fn test_get_counters_by_feed_id() {
 // PHP: test_get_counters_by_feed_id_all
 #[tokio::test]
 async fn test_get_counters_by_feed_id_all() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     assert_eq!(
         3,
@@ -256,7 +256,7 @@ async fn test_get_counters_by_feed_id_all() {
 // PHP: test_get_counters_by_feed_id_unread_only
 #[tokio::test]
 async fn test_get_counters_by_feed_id_unread_only() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     assert_eq!(
         2,
@@ -281,7 +281,7 @@ async fn test_get_counters_by_feed_id_unread_only() {
 // PHP: test_get_counters_nonexistent_feed
 #[tokio::test]
 async fn test_get_counters_nonexistent_feed() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     // Feed 999 doesn't exist and has no user entries
     assert_eq!(
@@ -297,7 +297,7 @@ async fn test_get_counters_nonexistent_feed() {
 // PHP: test_get_counters_category
 #[tokio::test]
 async fn test_get_counters_category() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     // Category 1 (Technology): feeds 1,2,3 → articles 1-8
     // Unread: 1,2,4,5,6,7 = 6
@@ -312,7 +312,7 @@ async fn test_get_counters_category() {
 // PHP: test_get_counters_category_all
 #[tokio::test]
 async fn test_get_counters_category_all() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     // Category queries always call _get_cat_unread() → returns unread count
     assert_eq!(
@@ -326,7 +326,7 @@ async fn test_get_counters_category_all() {
 // PHP: test_get_counters_category_unread_only
 #[tokio::test]
 async fn test_get_counters_category_unread_only() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     // is_cat=true always returns unread via _get_cat_unread()
     assert_eq!(
@@ -340,7 +340,7 @@ async fn test_get_counters_category_unread_only() {
 // PHP: test_get_counters_category_science
 #[tokio::test]
 async fn test_get_counters_category_science() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     // Category 2 (Science & Nature): feed 4 → articles 9,10,11
     // Unread: 9,10 = 2
@@ -361,7 +361,7 @@ async fn test_get_counters_category_science() {
 // PHP: test_get_counters_category_uncategorized
 #[tokio::test]
 async fn test_get_counters_category_uncategorized() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     // Category 0 = uncategorized — all seeded feeds have a category
     assert_eq!(
@@ -375,7 +375,7 @@ async fn test_get_counters_category_uncategorized() {
 // PHP: test_get_counters_category_special
 #[tokio::test]
 async fn test_get_counters_category_special() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     // CATEGORY_SPECIAL (-1) returns 0
     assert_eq!(
@@ -391,7 +391,7 @@ async fn test_get_counters_category_special() {
 // PHP: test_get_counters_tag
 #[tokio::test]
 async fn test_get_counters_tag() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     // Tags are stored in ttrss_tags table (not tag_cache).
     // Seed data only populates tag_cache strings, not ttrss_tags rows.
@@ -406,7 +406,7 @@ async fn test_get_counters_tag() {
 // PHP: test_get_counters_tag_nonexistent
 #[tokio::test]
 async fn test_get_counters_tag_nonexistent() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     assert_eq!(
         0,
@@ -427,7 +427,7 @@ async fn test_get_counters_tag_nonexistent() {
 // PHP: test_get_counters_tag_all
 #[tokio::test]
 async fn test_get_counters_tag_all() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     // No tags in ttrss_tags table from seed data
     assert_eq!(
@@ -443,7 +443,7 @@ async fn test_get_counters_tag_all() {
 // PHP: test_get_counters_label_id
 #[tokio::test]
 async fn test_get_counters_label_id() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     // Insert label for uid=1
     let label_id: i32 = sqlx::query_scalar(
@@ -502,7 +502,7 @@ async fn test_get_counters_label_id() {
 // PHP: test_get_counters_different_owner
 #[tokio::test]
 async fn test_get_counters_different_owner() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     // Feed 1 exists but owner_uid=2 has no user entries
     assert_eq!(
@@ -520,7 +520,7 @@ async fn test_get_counters_different_owner() {
 // PHP: test_get_counters_category_different_owner
 #[tokio::test]
 async fn test_get_counters_category_different_owner() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     // Category 1 has no entries for owner_uid=2
     assert_eq!(
@@ -536,7 +536,7 @@ async fn test_get_counters_category_different_owner() {
 // PHP: test_get_counters_all_total
 #[tokio::test]
 async fn test_get_counters_all_total() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     // FEED_ALL for uid=1 should include all 11 articles
     assert_eq!(
@@ -556,7 +556,7 @@ async fn test_get_counters_all_total() {
 // PHP: test_get_counters_sum_per_feed
 #[tokio::test]
 async fn test_get_counters_sum_per_feed() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     // Sum of individual feed counts should equal FEED_ALL total
     let mut total = 0;
@@ -582,7 +582,7 @@ async fn test_get_counters_sum_per_feed() {
 // PHP: test_counters_get_feeds_returns_array
 #[tokio::test]
 async fn test_counters_get_feeds_returns_array() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     let result = counters::get_conditional(
         &db,
@@ -600,7 +600,7 @@ async fn test_counters_get_feeds_returns_array() {
 // PHP: test_counters_get_feeds_contains_requested_feeds
 #[tokio::test]
 async fn test_counters_get_feeds_contains_requested_feeds() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     let result = counters::get_conditional(
         &db,
@@ -663,7 +663,7 @@ async fn test_counters_get_feeds_contains_requested_feeds() {
 // PHP: test_counters_get_feeds_empty_array
 #[tokio::test]
 async fn test_counters_get_feeds_empty_array() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     let result = counters::get_conditional(
         &db,
@@ -709,7 +709,7 @@ async fn test_counters_get_feeds_empty_array() {
 // lacks a category; Science & Nature (cat 2) holds none of feeds 1-2.
 #[tokio::test]
 async fn test_counters_get_conditional_feed_ids_category_rows() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     let result = counters::get_conditional(
         &db,
@@ -789,7 +789,7 @@ async fn test_counters_get_conditional_feed_ids_category_rows() {
 // PHP: test_counters_get_all_returns_array
 #[tokio::test]
 async fn test_counters_get_all_returns_array() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     let result = counters::get_all(&db, SESSION_UID, std::path::Path::new(ICON_DIR)).await;
     assert!(!result.is_empty());
@@ -800,7 +800,7 @@ async fn test_counters_get_all_returns_array() {
 // PHP: test_counters_get_all_contains_global_unread
 #[tokio::test]
 async fn test_counters_get_all_contains_global_unread() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     let result = counters::get_all(&db, SESSION_UID, std::path::Path::new(ICON_DIR)).await;
 
@@ -822,7 +822,7 @@ async fn test_counters_get_all_contains_global_unread() {
 // PHP: test_counters_get_all_contains_virtual_feeds
 #[tokio::test]
 async fn test_counters_get_all_contains_virtual_feeds() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     let result = counters::get_all(&db, SESSION_UID, std::path::Path::new(ICON_DIR)).await;
 
@@ -852,7 +852,7 @@ async fn test_counters_get_all_contains_virtual_feeds() {
 // PHP: test_counters_get_all_contains_category_entries
 #[tokio::test]
 async fn test_counters_get_all_contains_category_entries() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     let result = counters::get_all(&db, SESSION_UID, std::path::Path::new(ICON_DIR)).await;
 
@@ -873,7 +873,7 @@ async fn test_counters_get_all_contains_category_entries() {
 // PHP: test_counters_get_all_contains_label_entries
 #[tokio::test]
 async fn test_counters_get_all_contains_label_entries() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     let result = counters::get_all(&db, SESSION_UID, std::path::Path::new(ICON_DIR)).await;
 
@@ -889,7 +889,7 @@ async fn test_counters_get_all_contains_label_entries() {
 // PHP: test_counters_get_labels_returns_array
 #[tokio::test]
 async fn test_counters_get_labels_returns_array() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     let result = counters::get_labels(&db, SESSION_UID, None).await;
     assert!(!result.is_empty());
@@ -900,7 +900,7 @@ async fn test_counters_get_labels_returns_array() {
 // PHP: test_counters_get_labels_with_ids
 #[tokio::test]
 async fn test_counters_get_labels_with_ids() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     let label_ids = seed_label_ids(&db).await;
     assert!(!label_ids.is_empty());
@@ -926,7 +926,7 @@ async fn test_counters_get_labels_with_ids() {
 // PHP: test_counters_get_labels_empty_array
 #[tokio::test]
 async fn test_counters_get_labels_empty_array() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     let result = counters::get_labels(&db, SESSION_UID, Some(&[])).await;
     assert!(result.is_empty());
@@ -937,7 +937,7 @@ async fn test_counters_get_labels_empty_array() {
 // PHP: test_counters_get_labels_nonexistent_ids
 #[tokio::test]
 async fn test_counters_get_labels_nonexistent_ids() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     let result = counters::get_labels(&db, SESSION_UID, Some(&[99999, 99998])).await;
     assert!(result.is_empty());
@@ -950,7 +950,7 @@ async fn test_counters_get_labels_nonexistent_ids() {
 // PHP: test_counters_get_conditional_with_label_ids
 #[tokio::test]
 async fn test_counters_get_conditional_with_label_ids() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     let label_ids = seed_label_ids(&db).await;
     assert!(!label_ids.is_empty());
@@ -973,7 +973,7 @@ async fn test_counters_get_conditional_with_label_ids() {
 // PHP: test_counters_get_conditional_with_both_feed_and_label_ids
 #[tokio::test]
 async fn test_counters_get_conditional_with_both_feed_and_label_ids() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     let label_ids = seed_label_ids(&db).await;
 
@@ -1101,7 +1101,7 @@ fn cat_entries(counters: &[Value]) -> Vec<&Value> {
 // string `seq` echoed as an int.
 #[tokio::test]
 async fn test_get_all_counters_handler_feed_ids_array() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup_state(&url).await;
     let mut extra = Map::new();
     extra.insert("seq".into(), json!("7"));
@@ -1141,7 +1141,7 @@ async fn test_get_all_counters_handler_feed_ids_array() {
 // — every feed, every category, numeric `seq` echoed as-is.
 #[tokio::test]
 async fn test_get_all_counters_handler_no_counts_returns_all() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup_state(&url).await;
     let mut extra = Map::new();
     extra.insert("seq".into(), json!(3));
@@ -1168,7 +1168,7 @@ async fn test_get_all_counters_handler_no_counts_returns_all() {
 // (PHP: `$feed_id_count == -1 ? null : _param_to_int_array(...)`).
 #[tokio::test]
 async fn test_get_all_counters_handler_feed_id_count_minus_one() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup_state(&url).await;
     let mut extra = Map::new();
     extra.insert("feed_id_count".into(), json!(-1));
@@ -1189,7 +1189,7 @@ async fn test_get_all_counters_handler_feed_id_count_minus_one() {
 // feed ids were supplied (PHP: `is_array($feed_ids) && !Prefs::get(...)`).
 #[tokio::test]
 async fn test_get_all_counters_handler_disable_conditional() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup_state(&url).await;
     sqlx::query(
         "INSERT INTO ttrss_user_prefs2 (owner_uid, pref_name, profile, value)
@@ -1228,7 +1228,7 @@ async fn test_get_all_counters_handler_disable_conditional() {
 // entries (PHP `get_conditional($feed_ids, $label_ids)` → `get_labels($label_ids)`).
 #[tokio::test]
 async fn test_get_all_counters_handler_label_ids_subset() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup_state(&url).await;
     let mut extra = Map::new();
     extra.insert("feed_id_count".into(), json!(2));

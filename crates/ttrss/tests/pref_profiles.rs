@@ -24,7 +24,7 @@ fn test_config() -> Config { common::test_config() }
 
 /// Fresh fixtures + a session carrying `uid = 1` (owner of the fixture rows).
 async fn setup(url: &str) -> (AppState, Sess) {
-    let db: Db = common::make_db_from_url(&url).await.expect("test db");
+    let db: Db = common::make_db_from_url(url).await.expect("test db");
     let state = AppState::new(test_config(), db);
     let mut data = Session::new();
     data.set("uid", PValue::Int(1));
@@ -120,7 +120,7 @@ async fn insert_user(db: &Pool, id: i32, login: &str) {
 
 #[tokio::test]
 async fn test_add_profile() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = state.db.pool();
 
@@ -149,7 +149,7 @@ async fn test_add_profile() {
 
 #[tokio::test]
 async fn test_add_profile_empty_title() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = state.db.pool();
     // A whitespace-only (cleaned-to-empty) title is a no-op.
@@ -163,7 +163,7 @@ async fn test_add_profile_empty_title() {
 
 #[tokio::test]
 async fn test_save_profile() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = state.db.pool();
     let id = insert_profile(db, "Old").await;
@@ -203,7 +203,7 @@ async fn test_save_profile() {
 
 #[tokio::test]
 async fn test_remove_profiles() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = state.db.pool();
     let a = insert_profile(db, "A").await;
@@ -223,7 +223,7 @@ async fn test_remove_profiles() {
 
 #[tokio::test]
 async fn test_remove_profiles_keeps_active() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = state.db.pool();
     let a = insert_profile(db, "A").await;
@@ -243,7 +243,7 @@ async fn test_remove_profiles_keeps_active() {
 
 #[tokio::test]
 async fn test_activate_profile() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = state.db.pool();
     let id = insert_profile(db, "Work").await;
@@ -272,7 +272,7 @@ async fn test_activate_profile() {
 
 #[tokio::test]
 async fn test_clone_profile_from_default() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = state.db.pool();
     // Default-profile (profile = NULL) overrides: one normal, one blacklisted.
@@ -309,7 +309,7 @@ async fn test_clone_profile_from_default() {
 
 #[tokio::test]
 async fn test_clone_profile_from_named() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = state.db.pool();
     let src = insert_profile(db, "Source").await;
@@ -354,7 +354,7 @@ async fn test_clone_profile_from_named() {
 
 #[tokio::test]
 async fn test_clone_profile_bad_input() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = state.db.pool();
 

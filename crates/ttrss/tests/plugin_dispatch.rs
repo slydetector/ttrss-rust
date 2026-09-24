@@ -170,7 +170,7 @@ fn code(v: &Value) -> &str {
 // Dispatch: valid CSRF, existing method → invoked, request map as params.
 #[tokio::test]
 async fn test_protected_dispatch() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let plugin = DispatchPlugin {
         public: true,
         csrf_ignore: false,
@@ -207,7 +207,7 @@ async fn test_protected_dispatch() {
 // Unknown plugin → `E_UNKNOWN_PLUGIN` (before any method/CSRF check).
 #[tokio::test]
 async fn test_protected_unknown_plugin() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let plugin = DispatchPlugin {
         public: true,
         csrf_ignore: false,
@@ -234,7 +234,7 @@ async fn test_protected_unknown_plugin() {
 // CSRF gate (the PHP checks `method_exists` before `validate_csrf`).
 #[tokio::test]
 async fn test_protected_unknown_method_beats_csrf() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let plugin = DispatchPlugin {
         public: true,
         csrf_ignore: false,
@@ -261,7 +261,7 @@ async fn test_protected_unknown_method_beats_csrf() {
 // CSRF fail: bad token, method exists, no `csrf_ignore` → `E_UNAUTHORIZED`.
 #[tokio::test]
 async fn test_protected_csrf_fail() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let plugin = DispatchPlugin {
         public: true,
         csrf_ignore: false,
@@ -288,7 +288,7 @@ async fn test_protected_csrf_fail() {
 // invoked.
 #[tokio::test]
 async fn test_protected_csrf_ignore_bypass() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let plugin = DispatchPlugin {
         public: true,
         csrf_ignore: true,
@@ -314,7 +314,7 @@ async fn test_protected_csrf_ignore_bypass() {
 // `clean()` on the plugin name: tags stripped + trimmed (PHP `clean()`).
 #[tokio::test]
 async fn test_protected_name_cleaned() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let plugin = DispatchPlugin {
         public: true,
         csrf_ignore: false,
@@ -343,7 +343,7 @@ async fn test_protected_name_cleaned() {
 // non-public → `E_UNAUTHORIZED`.
 #[tokio::test]
 async fn test_public_private_method_rejected() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let plugin = DispatchPlugin {
         public: false,
         csrf_ignore: false,
@@ -369,7 +369,7 @@ async fn test_public_private_method_rejected() {
 // `load($name, KIND_ALL, 0)` — no user context on this path).
 #[tokio::test]
 async fn test_public_dispatch() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let plugin = DispatchPlugin {
         public: true,
         csrf_ignore: false,
@@ -398,7 +398,7 @@ async fn test_public_dispatch() {
 // (the public path passes `['plugin' => $name]`, the protected one does not).
 #[tokio::test]
 async fn test_public_unknown_plugin() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let plugin = DispatchPlugin {
         public: true,
         csrf_ignore: false,
@@ -424,7 +424,7 @@ async fn test_public_unknown_plugin() {
 // Unknown method → `E_UNKNOWN_METHOD` (checked before `is_public_method`).
 #[tokio::test]
 async fn test_public_unknown_method() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let plugin = DispatchPlugin {
         public: true,
         csrf_ignore: false,
@@ -450,7 +450,7 @@ async fn test_public_unknown_method() {
 // resolves to its last component (PHP `basename()`).
 #[tokio::test]
 async fn test_public_name_basename() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let plugin = DispatchPlugin {
         public: true,
         csrf_ignore: false,
@@ -477,7 +477,7 @@ async fn test_public_name_basename() {
 // envelope.
 #[tokio::test]
 async fn test_protected_raw_output() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let plugin = DispatchPlugin {
         public: true,
         csrf_ignore: true,

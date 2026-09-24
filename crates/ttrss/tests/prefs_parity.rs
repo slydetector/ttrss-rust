@@ -61,7 +61,7 @@ async fn setup(
 /// PHP: test_set_inserts_new_row_into_db
 #[tokio::test]
 async fn test_set_inserts_new_row_into_db() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     let uid = create_test_user(&db, "test_insert").await;
     let value = 120;
@@ -86,7 +86,7 @@ async fn test_set_inserts_new_row_into_db() {
 /// PHP: test_set_updates_existing_row
 #[tokio::test]
 async fn test_set_updates_existing_row() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     let uid = create_test_user(&db, "test_update").await;
     let value1 = 99;
@@ -111,7 +111,7 @@ async fn test_set_updates_existing_row() {
 /// PHP: test_set_stores_bool_as_string_in_db
 #[tokio::test]
 async fn test_set_stores_bool_as_string_in_db() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     let uid = create_test_user(&db, "test_bool_db").await;
 
@@ -143,7 +143,7 @@ async fn test_set_stores_bool_as_string_in_db() {
 /// PHP: test_set_stores_string_in_db
 #[tokio::test]
 async fn test_set_stores_string_in_db() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     let uid = create_test_user(&db, "test_string_db").await;
     let value = "Y-m-d H:i";
@@ -162,7 +162,7 @@ async fn test_set_stores_string_in_db() {
 /// PHP: test_set_strips_tags_from_string_values
 #[tokio::test]
 async fn test_set_strips_tags_from_string_values() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     let uid = create_test_user(&db, "test_strip_tags").await;
     let malicious = "<script>alert('xss')</script>M d, G:i";
@@ -182,7 +182,7 @@ async fn test_set_strips_tags_from_string_values() {
 /// PHP: test_set_returns_true_without_db_change_when_value_unchanged
 #[tokio::test]
 async fn test_set_returns_true_without_db_change_when_value_unchanged() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     let uid = create_test_user(&db, "test_noop").await;
     let value = 60; // This is the default
@@ -211,7 +211,7 @@ async fn test_set_returns_true_without_db_change_when_value_unchanged() {
 /// PHP: test_get_all_returns_all_pref_definitions
 #[tokio::test]
 async fn test_get_all_returns_all_pref_definitions() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     let uid = create_test_user(&db, "test_get_all").await;
 
@@ -240,7 +240,7 @@ async fn test_get_all_returns_all_pref_definitions() {
 /// PHP: test_get_all_returns_default_values_for_new_user
 #[tokio::test]
 async fn test_get_all_returns_default_values_for_new_user() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     let uid = create_test_user(&db, "test_get_all_defaults").await;
 
@@ -264,7 +264,7 @@ async fn test_get_all_returns_default_values_for_new_user() {
 /// PHP: test_set_profile_blacklisted_pref_returns_false
 #[tokio::test]
 async fn test_set_profile_blacklisted_pref_returns_false() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     let uid = create_test_user(&db, "test_profile_bl").await;
     let profile_id = 100;
@@ -289,7 +289,7 @@ async fn test_set_profile_blacklisted_pref_returns_false() {
 /// PHP: test_set_non_blacklisted_pref_works_with_profile
 #[tokio::test]
 async fn test_set_non_blacklisted_pref_works_with_profile() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     let uid = create_test_user(&db, "test_profile_nonbl").await;
     let profile_id = prefs::create_profile(&db, uid, "test_profile_nonbl").await;
@@ -325,7 +325,7 @@ async fn test_set_non_blacklisted_pref_works_with_profile() {
 /// PHP: test_reset_clears_all_user_prefs
 #[tokio::test]
 async fn test_reset_clears_all_user_prefs() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     let uid = create_test_user(&db, "test_reset").await;
 
@@ -366,7 +366,7 @@ async fn test_reset_clears_all_user_prefs() {
 /// PHP: test_reset_does_not_delete_migrated_flag
 #[tokio::test]
 async fn test_reset_does_not_delete_migrated_flag() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     let uid = create_test_user(&db, "test_reset_mig").await;
 
@@ -390,7 +390,7 @@ async fn test_reset_does_not_delete_migrated_flag() {
 /// PHP: test_set_returns_false_for_invalid_pref_name
 #[tokio::test]
 async fn test_set_returns_false_for_invalid_pref_name() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     let uid = create_test_user(&db, "test_invalid").await;
 
@@ -409,7 +409,7 @@ async fn test_set_returns_false_for_invalid_pref_name() {
 /// PHP: test_multiple_users_have_isolated_prefs
 #[tokio::test]
 async fn test_multiple_users_have_isolated_prefs() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     let uid1 = create_test_user(&db, "test_iso_1").await;
     let uid2 = create_test_user(&db, "test_iso_2").await;

@@ -170,7 +170,7 @@ async fn entry_title_count(db: &Db, title: &str) -> i64 {
 // aggregate / cross-feed invariants.
 #[tokio::test]
 async fn test_batch_smoke() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = common::make_db_from_url(&url).await.expect("test db");
     let cfg = test_config();
     let mock = MockServer::new(vec![

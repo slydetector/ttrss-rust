@@ -81,7 +81,7 @@ async fn entries(db: &Db) -> Vec<Entry> {
 }
 #[tokio::test]
 async fn headline_fts_filters_rows() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (_state, _sess, db) = setup(&url).await;
     let lang = "english";
 
@@ -112,7 +112,7 @@ async fn headline_fts_filters_rows() {
 
 #[tokio::test]
 async fn headline_fts_empty_language_is_unexecutable() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (_state, _sess, db) = setup(&url).await;
 
     // Default search language "" → to_tsquery('', …) → parse error in the
@@ -127,7 +127,7 @@ async fn headline_fts_empty_language_is_unexecutable() {
 
 #[tokio::test]
 async fn headline_title_like_filters() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (_state, _sess, db) = setup(&url).await;
     let lang = "english";
 
@@ -144,7 +144,7 @@ async fn headline_title_like_filters() {
 
 #[tokio::test]
 async fn headline_star_search() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (_state, _sess, db) = setup(&url).await;
     let lang = "english";
 
@@ -167,7 +167,7 @@ async fn headline_star_search() {
 
 #[tokio::test]
 async fn headline_dry_run_errors() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (_state, _sess, db) = setup(&url).await;
 
     // `note:` resolves against `ttrss_user_entries.note` (valid SQL); the
@@ -199,7 +199,7 @@ async fn headline_dry_run_errors() {
 
 #[tokio::test]
 async fn catchup_scoped_to_search() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess, db) = setup(&url).await;
     let before = entries(&db).await;
 
@@ -232,7 +232,7 @@ async fn catchup_scoped_to_search() {
 
 #[tokio::test]
 async fn catchup_search_with_mode_window() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess, db) = setup(&url).await;
 
     // A FRESH unread "task" article in feed 1 (date_entered = NOW()).

@@ -133,8 +133,8 @@ fn tag_attr(tag: &str, name: &str) -> String {
     };
     let v = &tag[i + needle.len()..];
     let v = v.trim_start();
-    if let Some(c) = v.chars().next() {
-        if c == '"' || c == '\'' {
+    if let Some(c) = v.chars().next()
+        && (c == '"' || c == '\'') {
             let q = c;
             let body = &v[1..];
             let Some(end) = body.find(q) else {
@@ -142,7 +142,6 @@ fn tag_attr(tag: &str, name: &str) -> String {
             };
             return body[..end].to_string();
         }
-    }
     v.split([' ', '\t', '\n', '\r', '>']).next().unwrap_or("").to_string()
 }
 

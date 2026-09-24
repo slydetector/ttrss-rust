@@ -148,7 +148,7 @@ async fn seed_starred_article(
 
 #[tokio::test]
 async fn test_task_caches_starred_media() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     use common::{Canned, MockServer};
 
     let base = cache_base();
@@ -201,7 +201,7 @@ async fn test_task_caches_starred_media() {
 
 #[tokio::test]
 async fn test_attempt_cap() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let base = cache_base();
     let state = setup(&url, base.clone()).await;
 
@@ -235,7 +235,7 @@ async fn test_attempt_cap() {
 
 #[tokio::test]
 async fn test_expire_removes_orphaned_media() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let base = cache_base();
     let state = setup(&url, base.clone()).await;
 

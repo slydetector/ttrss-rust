@@ -358,8 +358,7 @@ pub async fn get_image(
             )
             .await;
         if let Some(triple) = state.4.as_array() {
-            article_image = triple
-                .get(0)
+            article_image = triple.first()
                 .and_then(Value::as_str)
                 .unwrap_or("")
                 .to_string();
@@ -420,12 +419,11 @@ pub async fn get_image(
                     .get("content_type")
                     .and_then(Value::as_str)
                     .is_some_and(|ct| ct.contains("image/"));
-                if is_image {
-                    if let Some(url) = enc.get("content_url").and_then(Value::as_str) {
+                if is_image
+                    && let Some(url) = enc.get("content_url").and_then(Value::as_str) {
                         article_image = url.to_string();
                         break;
                     }
-                }
             }
         }
 
@@ -499,13 +497,11 @@ fn first_source_src(root: &NodeRef) -> Option<String> {
     // Iterative DFS = document order.
     let mut stack = vec![root.clone()];
     while let Some(node) = stack.pop() {
-        if let Some(el) = node.as_element() {
-            if el.name.local.to_string().eq_ignore_ascii_case("source") {
-                if let Some(src) = el.attributes.borrow().get("src") {
+        if let Some(el) = node.as_element()
+            && el.name.local.to_string().eq_ignore_ascii_case("source")
+                && let Some(src) = el.attributes.borrow().get("src") {
                     return Some(src.to_string());
                 }
-            }
-        }
         let children: Vec<NodeRef> = node.children().collect();
         for child in children.into_iter().rev() {
             stack.push(child);
@@ -701,24 +697,21 @@ pub async fn labels_of(pool: &sqlx::PgPool, ids: &[i32], uid: i64) -> Vec<i64> {
     let mut rv: Vec<i64> = Vec::new();
     for row in &rows {
         let cache: Option<String> = row.get(0);
-        if let Some(cache) = cache {
-            if let Ok(v) = serde_json::from_str::<Value>(cache.trim()) {
-                if let Some(arr) = v.as_array() {
+        if let Some(cache) = cache
+            && let Ok(v) = serde_json::from_str::<Value>(cache.trim())
+                && let Some(arr) = v.as_array() {
                     for label in arr {
                         // Only list-form entries carry a feed id; the
                         // `{"no-labels":1}` object form is skipped.
-                        if let Some(items) = label.as_array() {
-                            if let Some(first) = items.first().and_then(Value::as_i64) {
+                        if let Some(items) = label.as_array()
+                            && let Some(first) = items.first().and_then(Value::as_i64) {
                                 let lid = feed_to_label_id(first);
                                 if seen.insert(lid) {
                                     rv.push(lid);
                                 }
                             }
-                        }
                     }
                 }
-            }
-        }
     }
     rv
 }
@@ -744,11 +737,10 @@ pub async fn feeds_of(pool: &sqlx::PgPool, ids: &[i32], uid: i64) -> Vec<i64> {
     let mut rv: Vec<i64> = Vec::new();
     for row in &rows {
         let feed_id: Option<i32> = row.get(0);
-        if let Some(fid) = feed_id {
-            if seen.insert(fid as i64) {
+        if let Some(fid) = feed_id
+            && seen.insert(fid as i64) {
                 rv.push(fid as i64);
             }
-        }
     }
     rv
 }

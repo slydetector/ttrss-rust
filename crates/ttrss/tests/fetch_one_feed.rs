@@ -176,7 +176,7 @@ async fn entry_count(db: &Db, feed_id: i32) -> i64 {
 // ingested + the success metadata is stamped.
 #[tokio::test]
 async fn test_fetch_one_feed_success() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = common::make_db_from_url(&url).await.expect("test db");
     let cfg = test_config();
     let mock = MockServer::new(vec![Canned {
@@ -205,7 +205,7 @@ async fn test_fetch_one_feed_success() {
 // `last_unconditional` — the fetch was conditional).
 #[tokio::test]
 async fn test_fetch_one_feed_304() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = common::make_db_from_url(&url).await.expect("test db");
     let cfg = test_config();
     let mock = MockServer::new(vec![Canned {
@@ -248,7 +248,7 @@ async fn test_fetch_one_feed_304() {
 // `last_successful_update` pushed into the future, `last_error` stamped).
 #[tokio::test]
 async fn test_fetch_one_feed_429() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = common::make_db_from_url(&url).await.expect("test db");
     let cfg = test_config();
     let mock = MockServer::new(vec![Canned {
@@ -284,7 +284,7 @@ async fn test_fetch_one_feed_429() {
 // A network error (connection refused): the feed's `last_error` is stamped.
 #[tokio::test]
 async fn test_fetch_one_feed_network_error() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = common::make_db_from_url(&url).await.expect("test db");
     let cfg = test_config();
     // A port that is not listening (bind + drop to get a free port).
@@ -317,7 +317,7 @@ async fn test_fetch_one_feed_network_error() {
 // (the M6b `process_feed` parse-failure path).
 #[tokio::test]
 async fn test_fetch_one_feed_parse_failure() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = common::make_db_from_url(&url).await.expect("test db");
     let cfg = test_config();
     let mock = MockServer::new(vec![Canned {
@@ -343,7 +343,7 @@ async fn test_fetch_one_feed_parse_failure() {
 // A permission gate failure (a read-only owner): the feed is not updated.
 #[tokio::test]
 async fn test_fetch_one_feed_readonly_owner() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = common::make_db_from_url(&url).await.expect("test db");
     let cfg = test_config();
     let mock = MockServer::new(vec![Canned {

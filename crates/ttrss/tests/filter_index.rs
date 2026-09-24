@@ -25,7 +25,7 @@ fn test_config() -> Config { common::test_config() }
 async fn setup(
     url: &str,
 ) -> (AppState, Sess) {
-    let db: Db = common::make_db_from_url(&url).await.expect("test db");
+    let db: Db = common::make_db_from_url(url).await.expect("test db");
     let state = AppState::new(test_config(), db);
     let mut data = Session::new();
     data.set("uid", PValue::Int(1));
@@ -44,7 +44,7 @@ fn request(pairs: &[(&str, Value)]) -> Map<String, Value> {
 /// box is empty when there is no search.
 #[tokio::test]
 async fn test_index_structure() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let html = ttrss::filters::index(&state, &sess, &request(&[])).await;
 
@@ -84,7 +84,7 @@ async fn test_index_structure() {
 /// (unescaped) value — matching PHP.
 #[tokio::test]
 async fn test_index_search_param() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let html = ttrss::filters::index(
         &state,
@@ -107,7 +107,7 @@ async fn test_index_search_param() {
 /// `index` without a `search` param reads `prefs_filter_search` from the session.
 #[tokio::test]
 async fn test_index_search_from_session() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     sess.with_mut(|s| {
         s.set(

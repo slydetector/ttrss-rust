@@ -164,7 +164,7 @@ async fn ref_ids(db: &Db) -> Vec<i32> {
 /// `editSave` updates a single feed's columns (owner-scoped).
 #[tokio::test]
 async fn test_edit_save_single() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup_from_url(&url).await;
     let db = &state.db;
 
@@ -212,7 +212,7 @@ async fn test_edit_save_single() {
 /// `editSave` with `cat_id = 0` clears the category (`NULL`).
 #[tokio::test]
 async fn test_edit_save_cat_id_null() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup_from_url(&url).await;
     let db = &state.db;
 
@@ -233,7 +233,7 @@ async fn test_edit_save_cat_id_null() {
 /// `editSave` on a feed the owner does not own is a no-op.
 #[tokio::test]
 async fn test_edit_save_nonexistent() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup_from_url(&url).await;
     let db = &state.db;
 
@@ -255,7 +255,7 @@ async fn test_edit_save_nonexistent() {
 /// the rest of the owner's feeds untouched.
 #[tokio::test]
 async fn test_batch_edit_save() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup_from_url(&url).await;
     let db = &state.db;
 
@@ -291,7 +291,7 @@ async fn test_batch_edit_save() {
 /// `batchEditSave` with an empty `ids` is a no-op.
 #[tokio::test]
 async fn test_batch_edit_save_empty_ids() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup_from_url(&url).await;
     let db = &state.db;
 
@@ -317,7 +317,7 @@ async fn test_batch_edit_save_empty_ids() {
 /// default); with it off the category is left untouched.
 #[tokio::test]
 async fn test_batch_edit_save_cat_respects_pref() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup_from_url(&url).await;
     let db = &state.db;
 
@@ -357,7 +357,7 @@ async fn test_batch_edit_save_cat_respects_pref() {
 /// password is written verbatim and `auth_pass_encrypted` is cleared.
 #[tokio::test]
 async fn test_batch_edit_save_auth_pass() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup_from_url(&url).await;
     let db = &state.db;
 
@@ -393,7 +393,7 @@ async fn test_batch_edit_save_auth_pass() {
 /// away; the feed's access keys are removed.
 #[tokio::test]
 async fn test_remove_feed() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup_from_url(&url).await;
     let db = &state.db;
 
@@ -436,7 +436,7 @@ async fn test_remove_feed() {
 /// `remove` (negative id) removes the label (and its assignments + cache).
 #[tokio::test]
 async fn test_remove_label() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup_from_url(&url).await;
     let db = &state.db;
 
@@ -467,7 +467,7 @@ async fn test_remove_label() {
 /// `addCat` creates a category; a second call with the same title is a no-op.
 #[tokio::test]
 async fn test_add_cat() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup_from_url(&url).await;
     let db = &state.db;
 
@@ -488,7 +488,7 @@ async fn test_add_cat() {
 /// no-op.
 #[tokio::test]
 async fn test_rename_cat() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup_from_url(&url).await;
     let db = &state.db;
 
@@ -531,7 +531,7 @@ async fn test_rename_cat() {
 /// `cat_id` is nulled (`ON DELETE SET NULL`).
 #[tokio::test]
 async fn test_remove_cat() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup_from_url(&url).await;
     let db = &state.db;
 
@@ -598,7 +598,7 @@ async fn access_key_for(db: &Db, feed_id: &str, is_cat: bool) -> Option<String> 
 /// `catsortreset` zeroes every category `order_id` for the owner.
 #[tokio::test]
 async fn test_catsortreset() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup_from_url(&url).await;
     let db = &state.db;
     sqlx::query("UPDATE ttrss_feed_categories SET order_id = 5 WHERE id = 1")
@@ -621,7 +621,7 @@ async fn test_catsortreset() {
 /// `feedsortreset` zeroes every feed `order_id` for the owner.
 #[tokio::test]
 async fn test_feedsortreset() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup_from_url(&url).await;
     let db = &state.db;
     sqlx::query("UPDATE ttrss_feeds SET order_id = 9 WHERE id = 1")
@@ -642,7 +642,7 @@ async fn test_feedsortreset() {
 /// level (the dojo `payload` tree).
 #[tokio::test]
 async fn test_savefeedorder_reorder() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup_from_url(&url).await;
     let db = &state.db;
 
@@ -678,7 +678,7 @@ async fn test_savefeedorder_reorder() {
 /// `savefeedorder` can move a feed to a different category (its `cat_id`).
 #[tokio::test]
 async fn test_savefeedorder_move() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup_from_url(&url).await;
     let db = &state.db;
 
@@ -711,7 +711,7 @@ async fn test_savefeedorder_move() {
 /// `clearKeys` deletes every access key for the owner.
 #[tokio::test]
 async fn test_clear_keys() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup_from_url(&url).await;
     let db = &state.db;
     sqlx::query(
@@ -734,7 +734,7 @@ async fn test_clear_keys() {
 /// keeping a single row per (feed, is_cat)).
 #[tokio::test]
 async fn test_regen_feed_key() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup_from_url(&url).await;
     let db = &state.db;
 
@@ -766,7 +766,7 @@ async fn test_regen_feed_key() {
 /// `getSharedURL` builds the public RSS share URL for a feed (title + link).
 #[tokio::test]
 async fn test_get_shared_url() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup_from_url(&url).await;
     let db = &state.db;
 
@@ -794,7 +794,7 @@ async fn test_get_shared_url() {
 /// `favicon_*` columns (only when the cached file exists and is removable).
 #[tokio::test]
 async fn test_remove_icon() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup_from_url(&url).await;
     let db = &state.db;
     // A real, writable icon dir for this test.
@@ -841,7 +841,7 @@ async fn test_remove_icon() {
 
 #[tokio::test]
 async fn test_upload_icon() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     use sqlx::Row as _;
     let (state, sess) = setup_from_url(&url).await;
     let db = &state.db;
@@ -940,7 +940,7 @@ async fn test_upload_icon() {
 /// unencrypted).
 #[tokio::test]
 async fn test_batch_add_feeds() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     use sqlx::Row as _;
     let (state, sess) = setup_from_url(&url).await;
     let db = &state.db;
@@ -990,7 +990,7 @@ async fn test_batch_add_feeds() {
 /// the new one is added).
 #[tokio::test]
 async fn test_batch_add_feeds_skip_existing() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup_from_url(&url).await;
     let db = &state.db;
     let before: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM ttrss_feeds WHERE owner_uid = 1")
@@ -1030,7 +1030,7 @@ async fn test_batch_add_feeds_skip_existing() {
 /// `batchAddFeeds`: invalid / non-http lines are skipped by `UrlHelper::validate`.
 #[tokio::test]
 async fn test_batch_add_feeds_invalid_skipped() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup_from_url(&url).await;
     let db = &state.db;
     ttrss::feeds::batch_add_feeds(
@@ -1056,7 +1056,7 @@ async fn test_batch_add_feeds_invalid_skipped() {
 /// `batchAddFeeds`: a read-only user is a no-op (no feeds added).
 #[tokio::test]
 async fn test_batch_add_feeds_readonly_noop() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup_from_url(&url).await;
     sess.with_mut(|s| s.set("access_level", PValue::Int(-1)));
     let db = &state.db;
@@ -1083,7 +1083,7 @@ async fn test_batch_add_feeds_readonly_noop() {
 /// `(int)` cast) + the category `<select>`.
 #[tokio::test]
 async fn test_batch_subscribe() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup_from_url(&url).await;
     let v = ttrss::feeds::batch_subscribe(&state, &sess).await;
     // The PHP `(int)` cast — an int, not a JSON boolean.
@@ -1113,7 +1113,7 @@ async fn test_batch_subscribe() {
 /// (not `E_UNKNOWN_METHOD`).
 #[tokio::test]
 async fn test_dispatch_case_insensitive() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db: Db = common::make_db_from_url(&url).await.expect("test db");
     let state = AppState::new(test_config(), db);
 

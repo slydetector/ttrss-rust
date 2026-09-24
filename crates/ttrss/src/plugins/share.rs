@@ -29,6 +29,11 @@ use crate::pluginhost::plugin::{About, BoxFuture, MethodOutput, Plugin, PluginEr
 use crate::pluginhost::{HOOK_ARTICLE_BUTTON, HOOK_PREFS_TAB_SECTION};
 use crate::util::{clean_str, uniqid_short};
 
+/// A `format_article` row: the entry's own columns + its feed's derived ones.
+type ArticleRow = (
+    i32, String, String, String, i32, Option<String>, Option<String>, Option<String>, Option<bool>, Option<bool>,
+);
+
 /// PHP's `class Share extends Plugin` (stateless → `Copy`, so the async
 /// dispatch can copy it across the `Box::pin` boundary).
 #[derive(Clone, Copy)]
@@ -301,9 +306,7 @@ async fn get(host: &mut HostCtx<'_>, params: &Value) -> Result<MethodOutput, Plu
 
 /// `Share::format_article` — the article page (PHP's private `format_article`).
 async fn format_article(host: &mut HostCtx<'_>, id: i32, owner_uid: i32) -> Result<String, PluginError> {
-    let row: Option<(
-        i32, String, String, String, i32, Option<String>, Option<String>, Option<String>, Option<bool>, Option<bool>,
-    )> = sqlx::query_as(
+    let row: Option<ArticleRow> = sqlx::query_as(
         "SELECT id, title, link, content, feed_id, lang,\n\
          (SELECT site_url FROM ttrss_feeds WHERE id = feed_id) as site_url,\n\
          (SELECT title FROM ttrss_feeds WHERE id = feed_id) as feed_title,\n\

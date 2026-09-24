@@ -692,11 +692,10 @@ pub async fn get_counters(
         return 0;
     }
     // tags: `$feed != "0" && $n_feed == 0`
-    if let FeedOrTag::Tag(s) = feed {
-        if s != "0" && n_feed == 0 {
+    if let FeedOrTag::Tag(s) = feed
+        && s != "0" && n_feed == 0 {
             return tag_counters(pool, owner, unread_only, s).await;
         }
-    }
     let fresh_max_age = if n_feed == FEED_FRESH {
         let rows = prefs::load_rows(db, owner, None).await;
         prefs::resolve(prefs::FRESH_ARTICLE_MAX_AGE, &rows, None).as_int()
@@ -897,11 +896,10 @@ async fn cats_of(pool: &sqlx::PgPool, uid: i64, feeds: &[i64], with_parents: boo
     if let Some(r) = rows.first() {
         let cat_id = r.get::<Option<i32>, _>(0).unwrap_or(0) as i64;
         rv.push(cat_id);
-        if with_parents {
-            if let Some(parent) = r.get::<Option<i32>, _>(1) {
+        if with_parents
+            && let Some(parent) = r.get::<Option<i32>, _>(1) {
                 rv.extend(parent_cats(pool, uid, parent as i64).await);
             }
-        }
     }
     // `array_unique` — dedup preserving first-seen order.
     let mut seen = std::collections::BTreeSet::new();

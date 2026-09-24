@@ -22,7 +22,7 @@ use test_db::template::with_test_db;
 async fn setup(
     url: &str,
 ) -> (AppState, Sess) {
-    let db: Db = common::make_db_from_url(&url).await.expect("test db");
+    let db: Db = common::make_db_from_url(url).await.expect("test db");
     let state = AppState::new(common::test_config(), db);
     let mut data = Session::new();
     data.set("uid", PValue::Int(1));
@@ -104,7 +104,7 @@ async fn article_content(state: &AppState, sess: &Sess) -> Option<String> {
 
 #[tokio::test]
 async fn test_headlines_strips_iframe_without_flag() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     add_iframe_entry(state.db.pool()).await;
 
@@ -126,7 +126,7 @@ async fn test_headlines_strips_iframe_without_flag() {
 
 #[tokio::test]
 async fn test_headlines_keeps_hardened_iframe_with_flag() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     add_iframe_entry(state.db.pool()).await;
 
@@ -154,7 +154,7 @@ async fn test_headlines_keeps_hardened_iframe_with_flag() {
 
 #[tokio::test]
 async fn test_getarticle_reads_the_session_flag() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     add_iframe_entry(state.db.pool()).await;
 
@@ -200,7 +200,7 @@ async fn test_getarticle_reads_the_session_flag() {
 /// → `false` → no spurious RPC.
 #[tokio::test]
 async fn test_headlines_score_is_json_string() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     add_iframe_entry(state.db.pool()).await;
 

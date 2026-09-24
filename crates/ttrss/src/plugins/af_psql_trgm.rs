@@ -31,6 +31,10 @@ use crate::pluginhost::{
     HOOK_PREFS_TAB,
 };
 
+/// A related-article row from the `showrelated` query:
+/// `(entry_id, feed_id, title, link, feed_title, similarity)`.
+type RelatedRow = (i32, i32, String, Option<String>, String, Option<f32>);
+
 /// The `af_psql_trgm` plugin.
 #[derive(Clone, Copy)]
 pub struct AfPsqlTrgm;
@@ -85,7 +89,7 @@ impl AfPsqlTrgm {
         };
 
         // Query the related articles (top 10 by similarity, over 2 weeks).
-        let rows: Vec<(i32, i32, String, Option<String>, String, Option<f32>)> =
+        let rows: Vec<RelatedRow> =
             sqlx::query_as(
                 "SELECT e.id, ue.feed_id, e.title, e.link, \
                         COALESCE(f.title, '') AS feed_title, \
@@ -151,6 +155,7 @@ impl AfPsqlTrgm {
     /// 6. If max similarity ≥ threshold, set `force_catchup = true`
     ///
     /// Returns `true` if the article should be force-caught-up (marked read).
+    #[allow(clippy::too_many_arguments)] // mirrors the PHP `filter` hook signature
     pub async fn filter(
         pool: &sqlx::PgPool,
         title: &str,

@@ -78,7 +78,7 @@ async fn call(state: &AppState, body: &str) -> String {
 // articles" button lands in the Sharing pane (the section site).
 #[tokio::test]
 async fn test_feeds_tab_plugin_panes() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state =
         setup(&url, "bookmarklets,af_psql_trgm,af_comics,share").await;
     let html = call(&state, "op=Pref_Feeds&method=index").await;
@@ -119,7 +119,7 @@ async fn test_feeds_tab_plugin_panes() {
 // after the Plugins pane).
 #[tokio::test]
 async fn test_prefs_tab_nsfw_pane() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = setup(&url, "nsfw").await;
     {
         let mut c = HostCtx::for_user(
@@ -160,7 +160,7 @@ async fn test_prefs_tab_nsfw_pane() {
 // and the section sites contribute nothing.
 #[tokio::test]
 async fn test_tabs_empty_when_no_plugins() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = setup(&url, "").await;
 
     let feeds = call(&state, "op=Pref_Feeds&method=index").await;

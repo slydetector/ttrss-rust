@@ -144,7 +144,7 @@ fn atom_mock() -> MockServer {
 // 1) and `update_basic_info` fills in the feed's title from the fetched feed.
 #[tokio::test]
 async fn test_subscribe_first_update() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = common::make_db_from_url(&url).await.expect("test db");
     let cfg = test_config();
     let mock = atom_mock();
@@ -178,7 +178,7 @@ async fn test_subscribe_first_update() {
 // duplicate insert), the existing feed's id.
 #[tokio::test]
 async fn test_subscribe_existing_feed() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = common::make_db_from_url(&url).await.expect("test db");
     let cfg = test_config();
     let mock = atom_mock();
@@ -211,7 +211,7 @@ async fn test_subscribe_existing_feed() {
 // the daemon loop's `Semaphore(N)`).
 #[tokio::test]
 async fn test_update_feed_on_demand() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = common::make_db_from_url(&url).await.expect("test db");
     let mock = atom_mock();
     let state = make_state(db.clone());
@@ -233,7 +233,7 @@ async fn test_update_feed_on_demand() {
 // daemon loop within the last 10 minutes) is a no-op — no re-fetch, no articles.
 #[tokio::test]
 async fn test_update_feed_dedup_when_in_flight() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = common::make_db_from_url(&url).await.expect("test db");
     let mock = atom_mock();
     let state = make_state(db.clone());

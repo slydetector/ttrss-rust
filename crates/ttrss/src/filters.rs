@@ -282,8 +282,8 @@ async fn rule_where(
 ) -> String {
     if let Some(mo) = match_on {
         let mo = mo.trim();
-        if !mo.is_empty() {
-            if let Ok(referenced) = serde_json::from_str::<Vec<Value>>(mo) {
+        if !mo.is_empty()
+            && let Ok(referenced) = serde_json::from_str::<Vec<Value>>(mo) {
                 let mut parts: Vec<String> = Vec::new();
                 for f in &referenced {
                     if let Some(fid) = f.as_str() {
@@ -303,7 +303,6 @@ async fn rule_where(
                 }
                 return parts.join(", ");
             }
-        }
     }
     if cat_filter {
         crate::feeds::category_title(pool, cat_id.unwrap_or(0), uid).await

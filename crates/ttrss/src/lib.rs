@@ -54,6 +54,11 @@ use std::sync::Arc;
 use crate::core::config::Config;
 use crate::core::db::Db;
 use crate::pluginhost::PluginHost;
+/// The per-process prefs cache (the PHP's `Prefs` singleton `$cache`): a
+/// `RwLock`-guarded map of one entry per (uid, profile) to its pref rows.
+pub(crate) type PrefsCache =
+    std::sync::RwLock<std::collections::HashMap<(i64, Option<i32>), Vec<(String, Option<i32>, String)>>>;
+
 /// Shared server state (`AppState`): configuration + DB pool + the startup
 /// plugin registry (M7.1).
 #[derive(Clone)]
@@ -62,9 +67,9 @@ pub struct AppState {
     pub db: Db,
     /// The plugin registry, built once at startup ([`PluginHost::startup`]).
     pub plugins: Arc<PluginHost>,
-    /// Per-process prefs cache (the PHP's `Prefs` singleton `$cache`): one
-    /// `SELECT` per (uid, profile), then memory hits. Invalidated on prefs save.
-    pub(crate) prefs_cache: Arc<std::sync::RwLock<std::collections::HashMap<(i64, Option<i32>), Vec<(String, Option<i32>, String)>>>>,
+    /// Per-process prefs cache (the PHP's `Prefs` singleton `$cache`);
+    /// invalidated on prefs save.
+    pub(crate) prefs_cache: Arc<PrefsCache>,
     /// Gettext catalog cache (M10.1): lazily loads `.mo` files per locale.
     pub i18n: Arc<i18n::I18nCache>,
 }

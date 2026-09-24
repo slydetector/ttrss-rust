@@ -46,7 +46,7 @@ async fn add_user_with_profiles(
 
 #[tokio::test]
 async fn test_getprofiles_empty_login_returns_empty() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = make_state(&url).await;
     let v = auth::get_profiles(&state.db, "").await;
     assert_eq!(v, serde_json::json!([]), "no login -> []: {v}");
@@ -56,7 +56,7 @@ async fn test_getprofiles_empty_login_returns_empty() {
 
 #[tokio::test]
 async fn test_getprofiles_unknown_login_returns_default_only() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = make_state(&url).await;
     let v = auth::get_profiles(&state.db, "nouser").await;
     assert_eq!(
@@ -70,7 +70,7 @@ async fn test_getprofiles_unknown_login_returns_default_only() {
 
 #[tokio::test]
 async fn test_getprofiles_lists_profiles_title_asc() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = make_state(&url).await;
     // Inserted out of order; the response must be title-ascending.
     let uid = add_user_with_profiles(&state, "profuser", &["Zeta", "Alpha", "Mid"]).await;
@@ -100,7 +100,7 @@ async fn test_getprofiles_lists_profiles_title_asc() {
 
 #[tokio::test]
 async fn test_getprofiles_login_case_insensitive() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = make_state(&url).await;
     add_user_with_profiles(&state, "CaseUser", &["P1"]).await;
 

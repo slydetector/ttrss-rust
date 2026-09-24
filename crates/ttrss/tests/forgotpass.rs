@@ -20,7 +20,7 @@ fn test_config() -> Config { common::test_config() }
 async fn setup(
     url: &str,
 ) -> AppState {
-    let db: Db = common::make_db_from_url(&url).await.expect("test db");
+    let db: Db = common::make_db_from_url(url).await.expect("test db");
     AppState::new(test_config(), db)
 }
 
@@ -48,7 +48,7 @@ async fn stored_token(pool: &sqlx::PgPool, login: &str) -> Option<String> {
 /// (password reset, token cleared).
 #[tokio::test]
 async fn test_forgotpass_full_flow() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = setup(&url).await;
     let p = state.db.pool();
 
@@ -184,7 +184,7 @@ async fn test_forgotpass_full_flow() {
 /// A POST for an unknown login reports "not found" and stores no token.
 #[tokio::test]
 async fn test_forgotpass_unknown_user() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = setup(&url).await;
     let p = state.db.pool();
 
@@ -239,7 +239,7 @@ async fn test_forgotpass_unknown_user() {
 /// `disable_login_form` (or a missing `auth_internal` plugin) → 403.
 #[tokio::test]
 async fn test_forgotpass_forbidden() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db: Db = common::make_db_from_url(&url).await.expect("test db");
     let mut config = test_config();
     config.disable_login_form = true;

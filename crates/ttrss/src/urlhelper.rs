@@ -683,11 +683,10 @@ pub async fn fetch(opts: &FetchOptions) -> FetchResult {
         .timeout(timeout)
         .connect_timeout(connect_timeout)
         .redirect(redirect_policy);
-    if let Some(proxy) = &opts.proxy {
-        if let Ok(p) = reqwest::Proxy::all(proxy) {
+    if let Some(proxy) = &opts.proxy
+        && let Ok(p) = reqwest::Proxy::all(proxy) {
             builder = builder.proxy(p);
         }
-    }
     let Ok(client) = builder.build() else {
         res.error = "Failed to build HTTP client.".into();
         return res;
@@ -809,16 +808,14 @@ async fn send_once(
     req = req.header("User-Agent", useragent);
 
     // Conditional request (skipped for POST, matching the PHP).
-    if let Some(lm) = &opts.last_modified {
-        if !is_post {
+    if let Some(lm) = &opts.last_modified
+        && !is_post {
             req = req.header("If-Modified-Since", lm);
         }
-    }
-    if let Some(etag) = &opts.etag {
-        if !is_post {
+    if let Some(etag) = &opts.etag
+        && !is_post {
             req = req.header("If-None-Match", etag);
         }
-    }
     if let Some(acc) = &opts.http_accept {
         req = req.header("Accept", acc);
     }
@@ -829,13 +826,11 @@ async fn send_once(
         req = req.header("Referer", ref_);
     }
 
-    if is_basic_or_digest {
-        if let (Some(login), Some(pass)) = (&opts.login, &opts.pass) {
-            if !login.is_empty() && !pass.is_empty() {
+    if is_basic_or_digest
+        && let (Some(login), Some(pass)) = (&opts.login, &opts.pass)
+            && !login.is_empty() && !pass.is_empty() {
                 req = req.basic_auth(login, Some(pass));
             }
-        }
-    }
 
     if let Some(post) = &opts.post_query {
         req = req.form(post);

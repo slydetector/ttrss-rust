@@ -53,7 +53,7 @@ fn row_ids(rows: &[sqlx::postgres::PgRow]) -> Vec<i32> {
 // PHP: test_get_headlines_return_structure
 #[tokio::test]
 async fn test_get_headlines_return_structure() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     let q = get_headlines_query(&db, &params(-4)).await; // Feeds::FEED_ALL
 
@@ -80,7 +80,7 @@ async fn test_get_headlines_return_structure() {
 // PHP: test_get_headlines_by_feed_id
 #[tokio::test]
 async fn test_get_headlines_by_feed_id() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     let q = get_headlines_query(&db, &params(1)).await; // Hacker News
 
@@ -103,7 +103,7 @@ async fn test_get_headlines_by_feed_id() {
 // PHP: test_get_headlines_by_feed_id_empty
 #[tokio::test]
 async fn test_get_headlines_by_feed_id_empty() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     // Feed id 999 does not exist
     let q = get_headlines_query(&db, &params(999)).await;
@@ -115,7 +115,7 @@ async fn test_get_headlines_by_feed_id_empty() {
 // PHP: test_get_headlines_by_feed_id_different_owner
 #[tokio::test]
 async fn test_get_headlines_by_feed_id_different_owner() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     // Feed 1 exists but owner_uid=2 has no subscriptions
     let mut p = params(1);
@@ -134,7 +134,7 @@ async fn test_get_headlines_by_feed_id_different_owner() {
 // PHP: test_get_headlines_feed_all
 #[tokio::test]
 async fn test_get_headlines_feed_all() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     let q = get_headlines_query(&db, &params(-4)).await; // Feeds::FEED_ALL
 
@@ -150,7 +150,7 @@ async fn test_get_headlines_feed_all() {
 // PHP: test_get_headlines_feed_starred
 #[tokio::test]
 async fn test_get_headlines_feed_starred() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     let q = get_headlines_query(&db, &params(-1)).await; // Feeds::FEED_STARRED
 
@@ -175,7 +175,7 @@ async fn test_get_headlines_feed_starred() {
 // PHP: test_get_headlines_feed_fresh
 #[tokio::test]
 async fn test_get_headlines_feed_fresh() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     let q = get_headlines_query(&db, &params(-3)).await; // Feeds::FEED_FRESH
 
@@ -197,7 +197,7 @@ async fn test_get_headlines_feed_fresh() {
 // PHP: test_get_headlines_feed_recently_read
 #[tokio::test]
 async fn test_get_headlines_feed_recently_read() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     // Articles 3, 8, 11 are marked=true in seed but have last_read=NULL.
     // Use _catchup_by_id to set last_read = NOW() so they qualify as
@@ -241,7 +241,7 @@ async fn test_get_headlines_feed_recently_read() {
 // PHP: test_get_headlines_view_mode_unread
 #[tokio::test]
 async fn test_get_headlines_view_mode_unread() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     let mut p = params(1); // Hacker News (3 articles: 2 unread, 1 read)
     p.view_mode = "unread".into();
@@ -266,7 +266,7 @@ async fn test_get_headlines_view_mode_unread() {
 // PHP: test_get_headlines_view_mode_marked
 #[tokio::test]
 async fn test_get_headlines_view_mode_marked() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     let mut p = params(-4);
     p.view_mode = "marked".into();
@@ -288,7 +288,7 @@ async fn test_get_headlines_view_mode_marked() {
 // PHP: test_get_headlines_view_mode_published
 #[tokio::test]
 async fn test_get_headlines_view_mode_published() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     let mut p = params(-4);
     p.view_mode = "published".into();
@@ -309,7 +309,7 @@ async fn test_get_headlines_view_mode_published() {
 // unread it falls back to all articles (Feeds.php `$view_mode == "adaptive"`).
 #[tokio::test]
 async fn test_get_headlines_view_mode_adaptive_scopes_to_unread() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     let mut p = params(1); // Hacker News (3 articles: 2 unread, 1 read)
     p.view_mode = "adaptive".into();
@@ -332,7 +332,7 @@ async fn test_get_headlines_view_mode_adaptive_scopes_to_unread() {
 
 #[tokio::test]
 async fn test_get_headlines_view_mode_adaptive_falls_back_to_all() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     // Mark every article in feed 1 read so there is no unread to scope to.
     let ids: Vec<i32> = sqlx::query_scalar(
@@ -367,7 +367,7 @@ async fn test_get_headlines_view_mode_adaptive_falls_back_to_all() {
 
 #[tokio::test]
 async fn test_get_headlines_view_mode_adaptive_category() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     let mut p = params(1); // category 1 = Technology (feeds 1, 2, 3)
     p.cat_view = true;
@@ -404,7 +404,7 @@ async fn test_get_headlines_view_mode_adaptive_category() {
 // PHP: test_get_headlines_limit
 #[tokio::test]
 async fn test_get_headlines_limit() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     let mut p = params(-4);
     p.limit = 5;
@@ -422,7 +422,7 @@ async fn test_get_headlines_limit() {
 // PHP: test_get_headlines_offset
 #[tokio::test]
 async fn test_get_headlines_offset() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     // First call: limit=5, offset=0 (page 1)
     let mut p = params(-4);
@@ -456,7 +456,7 @@ async fn test_get_headlines_offset() {
 // PHP: test_get_headlines_since_id
 #[tokio::test]
 async fn test_get_headlines_since_id() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     let mut p = params(-4);
     p.since_id = 5;
@@ -475,7 +475,7 @@ async fn test_get_headlines_since_id() {
 // PHP: test_get_headlines_cat_view
 #[tokio::test]
 async fn test_get_headlines_cat_view() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     // Category 1 = "Technology" (feeds 1, 2, 3)
     let mut p = params(1); // category id
@@ -496,7 +496,7 @@ async fn test_get_headlines_cat_view() {
 // PHP: test_get_headlines_cat_view_uncategorized
 #[tokio::test]
 async fn test_get_headlines_cat_view_uncategorized() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     let mut p = params(0); // Feeds::CATEGORY_UNCATEGORIZED
     p.cat_view = true;
@@ -514,7 +514,7 @@ async fn test_get_headlines_cat_view_uncategorized() {
 // PHP: test_get_headlines_metadata_feed
 #[tokio::test]
 async fn test_get_headlines_metadata_feed() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     let q = get_headlines_query(&db, &params(1)).await;
 
@@ -528,7 +528,7 @@ async fn test_get_headlines_metadata_feed() {
 // PHP: test_get_headlines_metadata_category
 #[tokio::test]
 async fn test_get_headlines_metadata_category() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     let mut p = params(1);
     p.cat_view = true;
@@ -544,7 +544,7 @@ async fn test_get_headlines_metadata_category() {
 // PHP: test_get_headlines_columns
 #[tokio::test]
 async fn test_get_headlines_columns() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     let q = get_headlines_query(&db, &params(1)).await;
 
@@ -596,7 +596,7 @@ async fn test_get_headlines_columns() {
 // PHP: test_get_headlines_feed_not_subscribed
 #[tokio::test]
 async fn test_get_headlines_feed_not_subscribed() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = setup(&url).await;
     // Feed 1 exists in the DB but owner_uid=2 has no ttrss_user_entries
     // for it

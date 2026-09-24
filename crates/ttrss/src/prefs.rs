@@ -447,7 +447,7 @@ pub async fn load_rows_pool(
 /// `load_rows` with a per-process cache (the PHP's `Prefs` singleton `$cache`):
 /// one `SELECT` per (uid, profile), then memory hits until invalidated.
 pub async fn load_rows_cached(
-    cache: &std::sync::RwLock<std::collections::HashMap<(i64, Option<i32>), Vec<(String, Option<i32>, String)>>>,
+    cache: &crate::PrefsCache,
     db: &Db,
     uid: i64,
     profile: Option<i32>,
@@ -467,7 +467,7 @@ pub async fn load_rows_cached(
 /// Drop the cached rows for a (uid, profile) — called after a prefs save so
 /// the next read reflects the change (the PHP's `Prefs::set` updates the
 /// in-memory cache entry).
-pub fn invalidate(cache: &std::sync::RwLock<std::collections::HashMap<(i64, Option<i32>), Vec<(String, Option<i32>, String)>>>, uid: i64, profile: Option<i32>) {
+pub fn invalidate(cache: &crate::PrefsCache, uid: i64, profile: Option<i32>) {
     if let Ok(mut c) = cache.write() {
         c.remove(&(uid, profile));
     }

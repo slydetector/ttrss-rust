@@ -101,9 +101,7 @@ impl Plugin for AuthRemote {
                 return None;
             }
 
-            let Some(uid) = auto_create_user(host, &try_login, password).await else {
-                return None;
-            };
+            let uid = auto_create_user(host, &try_login, password).await?;
 
             // The fake-login session markers (PHP `$_SESSION[...] = …`):
             // the port sets them on the session the caller builds from the
@@ -229,7 +227,7 @@ async fn get_login_by_ssl_certificate(host: &mut HostCtx<'_>) -> String {
                     .server(&format!("{prefix}S_DN"))
                     .unwrap_or("")
                     .to_string();
-                return crate::util::sha1_hex(&format!("{serial}{v_start}{v_end}{s_dn}"));
+                return crate::util::sha1_hex(format!("{serial}{v_start}{v_end}{s_dn}"));
             }
         }
         String::new()

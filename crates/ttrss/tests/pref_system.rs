@@ -69,7 +69,7 @@ fn test_config() -> Config {
 
 /// Fresh fixtures + an admin session (`uid = 1`, `access_level = 10`).
 async fn setup(url: &str) -> (AppState, Sess) {
-    let db: Db = common::make_db_from_url(&url).await.expect("test db");
+    let db: Db = common::make_db_from_url(url).await.expect("test db");
     let state = AppState::new(test_config(), db);
     let mut data = Session::new();
     data.set("uid", PValue::Int(1));
@@ -102,7 +102,7 @@ fn count_log_rows(html: &str) -> usize {
 /// `index` renders the accordion with all four panes (assumes SQL logging).
 #[tokio::test]
 async fn test_index_structure() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let html = system::index(&state, &sess, &Map::new()).await;
     for marker in [
@@ -127,7 +127,7 @@ async fn test_index_structure() {
 /// E_USER_ERROR row; "Everything" (1024) shows both.
 #[tokio::test]
 async fn test_log_viewer_severity() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     seed_error(state.db.pool(), 256, "a user error").await;
     seed_error(state.db.pool(), 2, "a warning").await;
@@ -170,7 +170,7 @@ async fn test_log_viewer_severity() {
 /// `clearLog` deletes all error-log rows.
 #[tokio::test]
 async fn test_clear_log() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, _) = setup(&url).await;
     seed_error(state.db.pool(), 256, "one").await;
     seed_error(state.db.pool(), 2, "two").await;
@@ -204,7 +204,7 @@ fn test_send_test_email_noop() {
 /// dump, and omits the db password / encryption key.
 #[tokio::test]
 async fn test_get_php_info() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, _) = setup(&url).await;
     let html = system::get_php_info(&state);
     assert!(

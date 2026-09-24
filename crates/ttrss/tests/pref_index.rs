@@ -66,7 +66,7 @@ fn test_config() -> Config {
 
 /// Fresh fixtures + a session carrying `uid = 1` and an admin access level.
 async fn setup(url: &str) -> (AppState, Sess) {
-    let db: Db = common::make_db_from_url(&url).await.expect("test db");
+    let db: Db = common::make_db_from_url(url).await.expect("test db");
     let state = AppState::new(test_config(), db);
     (state, common::admin_sess())
 }
@@ -78,7 +78,7 @@ fn normalize(s: &str) -> String {
 
 #[tokio::test]
 async fn test_index_structure() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
 
     let html = ttrss::pref_ui::index(&state, &sess).await.expect("render");
@@ -150,7 +150,7 @@ async fn test_index_structure() {
 
 #[tokio::test]
 async fn test_index_profile_hides_blacklisted() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = state.db.pool();
 
@@ -187,7 +187,7 @@ async fn test_index_profile_hides_blacklisted() {
 /// `__`/`t_sprintf` helpers read the per-request `I18N` scope). Rust-only.
 #[tokio::test]
 async fn test_index_localizes_de_de() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let ctx = ttrss::i18n::I18nCtx {
         locale: Some("de_DE".to_string()),

@@ -148,6 +148,7 @@ pub fn theme_css_link(docroot: &Path, theme: &str) -> String {
 /// scripts cache-bust timestamp, the per-user theme link, the active
 /// plugins' shell assets and the `HOOK_MAIN_TOOLBAR_BUTTON` button row (PHP
 /// `index.php:195`, rendered between the order-0 and order-5 toolbar markers).
+#[allow(clippy::too_many_arguments)] // mirrors PHP `index.php` shell rendering
 pub fn render_shell(
     csrf_token: &str,
     scripts_ts: i64,

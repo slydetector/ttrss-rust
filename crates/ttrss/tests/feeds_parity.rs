@@ -39,7 +39,7 @@ const CATEGORY_LABELS: i64 = -2;
 /// PHP: test_get_title_special_feeds (functional + integration).
 #[tokio::test]
 async fn test_get_title_special_feeds() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
         let db = common::make_db_ref(&url).await;
         let uid = 1;
         assert_eq!(
@@ -76,7 +76,7 @@ async fn test_get_title_special_feeds() {
 /// the virtual-feed titles are actually translated, matching PHP `Feeds.php:1151-1161`.
 #[tokio::test]
 async fn test_get_title_special_feeds_translated() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
         let db = common::make_db_ref(&url).await;
         let cache = std::sync::Arc::new(I18nCache::new(
             std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -103,7 +103,7 @@ async fn test_get_title_special_feeds_translated() {
 /// PHP: test_get_title_error_feed (functional + integration).
 #[tokio::test]
 async fn test_get_title_error_feed() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
         let db = common::make_db_ref(&url).await;
         // FEED_ERROR (-7) is < 0 and >= LABEL_BASE_INDEX (-1024): the final else
         // branch returns the id as a string.
@@ -117,7 +117,7 @@ async fn test_get_title_error_feed() {
 /// PHP: test_get_title_numeric_feed_id_existing.
 #[tokio::test]
 async fn test_get_title_numeric_feed_id_existing() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
         let db = common::make_db_ref(&url).await;
         let uid = 1;
         assert_eq!("Hacker News", feeds::feed_title(db.pool(), 1, uid).await);
@@ -134,7 +134,7 @@ async fn test_get_title_numeric_feed_id_existing() {
 /// PHP: test_get_title_numeric_feed_id_missing.
 #[tokio::test]
 async fn test_get_title_numeric_feed_id_missing() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
         let db = common::make_db_ref(&url).await;
         // Feed id 999 does not exist for owner 1.
         assert_eq!(
@@ -148,7 +148,7 @@ async fn test_get_title_numeric_feed_id_missing() {
 /// PHP: test_get_title_label_id_existing.
 #[tokio::test]
 async fn test_get_title_label_id_existing() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
         let db = common::make_db_ref(&url).await;
         let uid = 1;
         // Label reference IDs must be < LABEL_BASE_INDEX (-1024); the label id is
@@ -170,7 +170,7 @@ async fn test_get_title_label_id_existing() {
 /// PHP: test_get_title_label_id_missing.
 #[tokio::test]
 async fn test_get_title_label_id_missing() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
         let db = common::make_db_ref(&url).await;
         // Label id 9999 does not exist; its reference is < LABEL_BASE_INDEX.
         let ref_id = ttrss::labels::label_to_feed_id(9999);
@@ -185,7 +185,7 @@ async fn test_get_title_label_id_missing() {
 /// PHP: test_get_title_category_special.
 #[tokio::test]
 async fn test_get_title_category_special() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
         let db = common::make_db_ref(&url).await;
         assert_eq!(
             "Special",
@@ -198,7 +198,7 @@ async fn test_get_title_category_special() {
 /// PHP: test_get_title_category_uncategorized.
 #[tokio::test]
 async fn test_get_title_category_uncategorized() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
         let db = common::make_db_ref(&url).await;
         assert_eq!(
             "Uncategorized",
@@ -211,7 +211,7 @@ async fn test_get_title_category_uncategorized() {
 /// PHP: test_get_title_category_labels.
 #[tokio::test]
 async fn test_get_title_category_labels() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
         let db = common::make_db_ref(&url).await;
         assert_eq!(
             "Labels",
@@ -224,7 +224,7 @@ async fn test_get_title_category_labels() {
 /// PHP: test_get_title_category_existing.
 #[tokio::test]
 async fn test_get_title_category_existing() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
         let db = common::make_db_ref(&url).await;
         let uid = 1;
         assert_eq!("Technology", feeds::category_title(db.pool(), 1, uid).await);
@@ -239,7 +239,7 @@ async fn test_get_title_category_existing() {
 /// PHP: test_get_title_category_missing.
 #[tokio::test]
 async fn test_get_title_category_missing() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
         let db = common::make_db_ref(&url).await;
         // Category id 999 does not exist for owner 1.
         assert_eq!("UNKNOWN", feeds::category_title(db.pool(), 999, 1).await);
@@ -250,7 +250,7 @@ async fn test_get_title_category_missing() {
 /// PHP: test_get_title_different_owner_uid.
 #[tokio::test]
 async fn test_get_title_different_owner_uid() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
         let db = common::make_db_ref(&url).await;
         // seed data is for owner 1; owner 2 has no categories.
         assert_eq!("UNKNOWN", feeds::category_title(db.pool(), 1, 2).await);

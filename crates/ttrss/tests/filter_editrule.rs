@@ -95,7 +95,7 @@ fn expected_nested(selected: &[&str]) -> String {
 fn test_config() -> Config { common::test_config() }
 
 async fn setup(url: &str) -> (AppState, Sess) {
-    let db: Db = common::make_db_from_url(&url).await.expect("test db");
+    let db: Db = common::make_db_from_url(url).await.expect("test db");
     let state = AppState::new(test_config(), db);
     let mut data = Session::new();
     data.set("uid", PValue::Int(1));
@@ -113,7 +113,7 @@ fn request(pairs: &[(&str, Value)]) -> Map<String, Value> {
 /// section, and the `<select multiple=<TAB>rue"` opening — byte-for-byte the PHP.
 #[tokio::test]
 async fn test_editrule_nested() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     insert_nested_dataset(state.db.pool()).await;
 
@@ -129,7 +129,7 @@ async fn test_editrule_nested() {
 /// `selected="1"`.
 #[tokio::test]
 async fn test_editrule_selected() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     insert_nested_dataset(state.db.pool()).await;
 
@@ -145,7 +145,7 @@ async fn test_editrule_selected() {
 /// `editrule` with category + feed selection: `CAT:902`, `CAT:904`, and feed `9010`.
 #[tokio::test]
 async fn test_editrule_cat_selected() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     insert_nested_dataset(state.db.pool()).await;
 
@@ -163,7 +163,7 @@ async fn test_editrule_cat_selected() {
 /// (no "All feeds", no "Uncategorized", no indentation) inside the same `<select>`.
 #[tokio::test]
 async fn test_editrule_flat() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let db = state.db.pool();
     insert_nested_dataset(db).await;

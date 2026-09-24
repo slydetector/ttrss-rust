@@ -87,11 +87,10 @@ impl Plugin for AutoAssignLabels {
                 if caption.is_empty() || labels_contains_caption(&cur, caption) {
                     continue;
                 }
-                if caption_word_match(caption, &haystack) {
-                    if let Some(arr) = cur.as_array_mut() {
+                if caption_word_match(caption, &haystack)
+                    && let Some(arr) = cur.as_array_mut() {
                         arr.push(label.clone());
                     }
-                }
             }
             article["labels"] = cur;
             article.clone()

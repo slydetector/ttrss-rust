@@ -53,7 +53,7 @@ async fn tag_row_count(db: &Db) -> i64 {
 // PHP: test_set_score_single_article
 #[tokio::test]
 async fn test_set_score_single_article() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = common::make_state(&url).await;
     let db = &state.db;
 
@@ -73,7 +73,7 @@ async fn test_set_score_single_article() {
 // PHP: test_set_score_multiple_articles
 #[tokio::test]
 async fn test_set_score_multiple_articles() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = common::make_state(&url).await;
     let db = &state.db;
 
@@ -95,7 +95,7 @@ async fn test_set_score_multiple_articles() {
 // PHP: test_set_score_zero
 #[tokio::test]
 async fn test_set_score_zero() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = common::make_state(&url).await;
     let db = &state.db;
 
@@ -117,7 +117,7 @@ async fn test_set_score_zero() {
 // PHP: test_set_article_tags_new_tags
 #[tokio::test]
 async fn test_set_article_tags_new_tags() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = common::make_state(&url).await;
 
     let result = ttrss::article::set_article_tags(
@@ -137,7 +137,7 @@ async fn test_set_article_tags_new_tags() {
 // PHP: test_set_article_tags_replaces_existing
 #[tokio::test]
 async fn test_set_article_tags_replaces_existing() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = common::make_state(&url).await;
     let db = &state.db;
 
@@ -162,7 +162,7 @@ async fn test_set_article_tags_replaces_existing() {
 // PHP: test_set_article_tags_clears_all
 #[tokio::test]
 async fn test_set_article_tags_clears_all() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = common::make_state(&url).await;
     let db = &state.db;
 
@@ -182,7 +182,7 @@ async fn test_set_article_tags_clears_all() {
 // PHP: test_set_article_tags_trims_whitespace
 #[tokio::test]
 async fn test_set_article_tags_trims_whitespace() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = common::make_state(&url).await;
 
     let result = ttrss::article::set_article_tags(
@@ -204,7 +204,7 @@ async fn test_set_article_tags_trims_whitespace() {
 // PHP: test_print_article_tags_existing
 #[tokio::test]
 async fn test_print_article_tags_existing() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, _sess) = common::make_state(&url).await;
 
     let result = ttrss::article::print_article_tags(state.db.pool(), 1, 1).await;
@@ -217,7 +217,7 @@ async fn test_print_article_tags_existing() {
 // PHP: test_print_article_tags_empty
 #[tokio::test]
 async fn test_print_article_tags_empty() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, _sess) = common::make_state(&url).await;
 
     // Article 11 has tag_cache 'quantum|computing' from seed
@@ -232,7 +232,7 @@ async fn test_print_article_tags_empty() {
 // PHP: test_complete_tags_returns_matching_tags
 #[tokio::test]
 async fn test_complete_tags_returns_matching_tags() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = common::make_state(&url).await;
     let db = &state.db;
 
@@ -255,7 +255,7 @@ async fn test_complete_tags_returns_matching_tags() {
 // PHP: test_complete_tags_no_match
 #[tokio::test]
 async fn test_complete_tags_no_match() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = common::make_state(&url).await;
 
     let result = ttrss::article::complete_tags(
@@ -272,7 +272,7 @@ async fn test_complete_tags_no_match() {
 // PHP: test_complete_tags_case_sensitive
 #[tokio::test]
 async fn test_complete_tags_case_sensitive() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = common::make_state(&url).await;
     let db = &state.db;
 
@@ -297,7 +297,7 @@ async fn test_complete_tags_case_sensitive() {
 // PHP: test_assign_to_label
 #[tokio::test]
 async fn test_assign_to_label() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = common::make_state(&url).await;
 
     let result = ttrss::article::label_ops(
@@ -319,7 +319,7 @@ async fn test_assign_to_label() {
 // PHP: test_remove_from_label
 #[tokio::test]
 async fn test_remove_from_label() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = common::make_state(&url).await;
     let db = &state.db;
 
@@ -346,7 +346,7 @@ async fn test_remove_from_label() {
 // PHP: test_get_metadata_by_id
 #[tokio::test]
 async fn test_get_metadata_by_id() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, _sess) = common::make_state(&url).await;
 
     let result = ttrss::article::metadata_by_id(state.db.pool(), 1, 1).await;
@@ -365,7 +365,7 @@ async fn test_get_metadata_by_id() {
 // PHP: test_get_metadata_by_id_nonexistent
 #[tokio::test]
 async fn test_get_metadata_by_id_nonexistent() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, _sess) = common::make_state(&url).await;
 
     let result = ttrss::article::metadata_by_id(state.db.pool(), 1, 99999).await;
@@ -379,7 +379,7 @@ async fn test_get_metadata_by_id_nonexistent() {
 // PHP: test_redirect_valid_article
 #[tokio::test]
 async fn test_redirect_valid_article() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = common::make_state(&url).await;
 
     let (status, location, body) =

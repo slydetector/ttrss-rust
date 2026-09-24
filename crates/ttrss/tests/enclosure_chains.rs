@@ -85,7 +85,7 @@ async fn view_feed(state: &AppState, feed: &str) -> Value {
 // the pre-fix hardcoded copy was a single-line double-quote guess).
 #[tokio::test]
 async fn test_view_render_enclosure_chain_youtube() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (base, icons) = cache_dirs();
     let db: Db = common::make_db_from_url(&url).await.expect("test db");
     let state = AppState::new(test_config("af_youtube_embed", icons), db);
@@ -140,7 +140,7 @@ async fn test_view_render_enclosure_chain_youtube() {
 // through no chain at all).
 #[tokio::test]
 async fn test_view_enclosure_entry_chain_local_cache() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (base, icons) = cache_dirs();
     let db: Db = common::make_db_from_url(&url).await.expect("test db");
     let state = AppState::new(test_config("cache_starred_images", icons), db);
@@ -172,7 +172,7 @@ async fn test_view_enclosure_entry_chain_local_cache() {
     );
     // The other entry (the mp4, uncached) keeps its remote URL.
     assert!(
-        urls.iter().any(|u| *u == "https://example.com/video.mp4"),
+        urls.contains(&"https://example.com/video.mp4"),
         "uncached entry must stay remote: {urls:?}"
     );
     let _ = std::fs::remove_dir_all(&base);

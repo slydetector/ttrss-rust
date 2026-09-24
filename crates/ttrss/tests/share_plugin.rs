@@ -138,10 +138,10 @@ async fn shared_count(pool: &sqlx::PgPool, owner: i32) -> i64 {
 // echoes `{"link": …}`.
 #[tokio::test]
 async fn test_newkey_mints_key() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = setup(&url, "share").await;
     let sess = session(1);
-    let before = stored_uuid(&state.db.pool(), 1, 1).await;
+    let before = stored_uuid(state.db.pool(), 1, 1).await;
 
     let v = pluginhandler(&state, &sess, "tok", "newkey", &req(Some("1"))).await.unwrap();
     let j = json_of(&v);
@@ -149,7 +149,7 @@ async fn test_newkey_mints_key() {
     assert!(!new_key.is_empty());
     assert_ne!(new_key, before, "newkey should overwrite the seed key");
 
-    assert_eq!(stored_uuid(&state.db.pool(), 1, 1).await, new_key);
+    assert_eq!(stored_uuid(state.db.pool(), 1, 1).await, new_key);
         Ok(())
     })).await.unwrap();
 }
@@ -157,13 +157,13 @@ async fn test_newkey_mints_key() {
 // `unshare` clears the article's uuid + echoes the message.
 #[tokio::test]
 async fn test_unshare_clears_key() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = setup(&url, "share").await;
     let sess = session(1);
 
     let v = pluginhandler(&state, &sess, "tok", "unshare", &req(Some("1"))).await.unwrap();
     assert_eq!(raw(&v), "Article unshared");
-    assert_eq!(stored_uuid(&state.db.pool(), 1, 1).await, "");
+    assert_eq!(stored_uuid(state.db.pool(), 1, 1).await, "");
         Ok(())
     })).await.unwrap();
 }
@@ -171,14 +171,14 @@ async fn test_unshare_clears_key() {
 // `clearArticleKeys` blanks every one of the owner's article keys.
 #[tokio::test]
 async fn test_clear_article_keys() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = setup(&url, "share").await;
     let sess = session(1);
-    assert!(shared_count(&state.db.pool(), 1).await > 0, "seed should pre-share");
+    assert!(shared_count(state.db.pool(), 1).await > 0, "seed should pre-share");
 
     let v = pluginhandler(&state, &sess, "tok", "cleararticlekeys", &req(None)).await.unwrap();
     assert_eq!(raw(&v), "Shared URLs cleared.");
-    assert_eq!(shared_count(&state.db.pool(), 1).await, 0);
+    assert_eq!(shared_count(state.db.pool(), 1).await, 0);
         Ok(())
     })).await.unwrap();
 }
@@ -187,7 +187,7 @@ async fn test_clear_article_keys() {
 // without minting a new one.
 #[tokio::test]
 async fn test_share_dialog_reuses_key() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = setup(&url, "share").await;
     let sess = session(1);
 
@@ -200,7 +200,7 @@ async fn test_share_dialog_reuses_key() {
     assert!(html.contains("Generate new URL"), "{html}");
     assert!(html.contains("Close this window"), "{html}");
     // Reusing does not change the stored key.
-    assert_eq!(stored_uuid(&state.db.pool(), 1, 1).await, "uuid-hn-001");
+    assert_eq!(stored_uuid(state.db.pool(), 1, 1).await, "uuid-hn-001");
         Ok(())
     })).await.unwrap();
 }
@@ -208,18 +208,18 @@ async fn test_share_dialog_reuses_key() {
 // `shareDialog` on an article whose key was cleared mints a fresh one.
 #[tokio::test]
 async fn test_share_dialog_mints_when_empty() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = setup(&url, "share").await;
     let sess = session(1);
 
     // Clear the seed key first.
     pluginhandler(&state, &sess, "tok", "unshare", &req(Some("1"))).await.unwrap();
-    assert_eq!(stored_uuid(&state.db.pool(), 1, 1).await, "");
+    assert_eq!(stored_uuid(state.db.pool(), 1, 1).await, "");
 
     let v = pluginhandler(&state, &sess, "tok", "sharedialog", &req(Some("1"))).await.unwrap();
     let html = raw(&v);
     // A fresh key was minted (not the seed, not empty).
-    let new_key = stored_uuid(&state.db.pool(), 1, 1).await;
+    let new_key = stored_uuid(state.db.pool(), 1, 1).await;
     assert!(!new_key.is_empty() && new_key != "uuid-hn-001");
     assert!(html.contains(&format!("key={new_key}")), "{html}");
         Ok(())
@@ -230,7 +230,7 @@ async fn test_share_dialog_mints_when_empty() {
 // article 9999) → "Article not found.", no key minted.
 #[tokio::test]
 async fn test_share_dialog_no_row() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = setup(&url, "share").await;
     let sess = session(1);
 
@@ -245,14 +245,14 @@ async fn test_share_dialog_no_row() {
 // owner 1's key nor its `shareDialog` can read it.
 #[tokio::test]
 async fn test_owner_scoping() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = setup(&url, "share").await;
     let owner2 = session(2);
 
     // owner 2's unshare on owner 1's article is a no-op (no row for owner 2).
     pluginhandler(&state, &owner2, "tok", "unshare", &req(Some("1"))).await.unwrap();
     assert_eq!(
-        stored_uuid(&state.db.pool(), 1, 1).await,
+        stored_uuid(state.db.pool(), 1, 1).await,
         "uuid-hn-001",
         "owner 2 must not clear owner 1's key"
     );
@@ -269,7 +269,7 @@ async fn test_owner_scoping() {
 // `get` public route: a valid key serves the article page (200, text/html).
 #[tokio::test]
 async fn test_get_public_route() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = setup(&url, "share").await;
 
     // The seed pre-sets uuid-hn-001 on article 1 (owner 1).
@@ -289,7 +289,7 @@ async fn test_get_public_route() {
 // `get` public route: an unknown key → 404 "Article not found."
 #[tokio::test]
 async fn test_get_public_route_404() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = setup(&url, "share").await;
 
     let v = public_dispatch(&state, "share", "get", &json!({"key": "nonexistent"}))
@@ -317,7 +317,7 @@ async fn test_get_public_route_404() {
 //   is empty — exactly the reference's anonymous-page behavior.
 #[tokio::test]
 async fn test_get_public_route_render_chain_seam() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = setup(&url, "share,nsfw").await;
     {
         let mut c = ttrss::pluginhost::host::HostCtx::for_user(

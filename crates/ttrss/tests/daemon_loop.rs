@@ -118,7 +118,7 @@ async fn last_update_started_is_set(db: &Db, feed_id: i32) -> bool {
 // older than the default interval (30 min) is due.
 #[tokio::test]
 async fn test_select_due_feeds_default_interval() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = common::make_db_from_url(&url).await.expect("test db");
     let cfg = test_config();
     let uid = create_user(&db, 300, 0).await;
@@ -138,7 +138,7 @@ async fn test_select_due_feeds_default_interval() {
 // interval) is NOT due.
 #[tokio::test]
 async fn test_select_due_feeds_not_due() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = common::make_db_from_url(&url).await.expect("test db");
     let cfg = test_config();
     let uid = create_user(&db, 301, 0).await;
@@ -157,7 +157,7 @@ async fn test_select_due_feeds_not_due() {
 // A feed with `update_interval = -1` (disabled) is NOT due.
 #[tokio::test]
 async fn test_select_due_feeds_disabled() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = common::make_db_from_url(&url).await.expect("test db");
     let cfg = test_config();
     let uid = create_user(&db, 302, 0).await;
@@ -176,7 +176,7 @@ async fn test_select_due_feeds_disabled() {
 // A feed with `last_updated` NULL (never updated) is always due.
 #[tokio::test]
 async fn test_select_due_feeds_never_updated() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = common::make_db_from_url(&url).await.expect("test db");
     let cfg = test_config();
     let uid = create_user(&db, 303, 0).await;
@@ -195,7 +195,7 @@ async fn test_select_due_feeds_never_updated() {
 // A feed owned by a disabled user (access_level = -2) is NOT due.
 #[tokio::test]
 async fn test_select_due_feeds_disabled_owner() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = common::make_db_from_url(&url).await.expect("test db");
     let cfg = test_config();
     let uid = create_user(&db, 304, -2 /* DISABLED */).await;
@@ -214,7 +214,7 @@ async fn test_select_due_feeds_disabled_owner() {
 // A feed currently being updated (`last_update_started` recent) is NOT due.
 #[tokio::test]
 async fn test_select_due_feeds_in_progress() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = common::make_db_from_url(&url).await.expect("test db");
     let cfg = test_config();
     let uid = create_user(&db, 305, 0).await;
@@ -239,7 +239,7 @@ async fn test_select_due_feeds_in_progress() {
 // The claim sets `last_update_started = NOW()` for the due feeds.
 #[tokio::test]
 async fn test_claim_feeds() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = common::make_db_from_url(&url).await.expect("test db");
     let uid = create_user(&db, 306, 0).await;
     let feed_id = create_feed(&db, 306, uid, 0, "NOW() - INTERVAL '2 hour'").await;
@@ -260,7 +260,7 @@ async fn test_claim_feeds() {
 // The daemon loop exits when the `CancellationToken` is cancelled.
 #[tokio::test]
 async fn test_daemon_loop_graceful_shutdown() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = common::make_db_from_url(&url).await.expect("test db");
     let cfg = test_config();
     let cancel = tokio_util::sync::CancellationToken::new();

@@ -125,7 +125,7 @@ async fn stored_tags(ctx: &mut HostCtx<'_>) -> String {
 
 #[tokio::test]
 async fn test_save_roundtrip() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = setup(&url).await;
     let sess = session();
 
@@ -149,7 +149,7 @@ async fn test_save_roundtrip() {
 
 #[tokio::test]
 async fn test_render_wrap() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = setup(&url).await;
 
     // Seed the stored tag list directly (as `save` would).
@@ -187,7 +187,7 @@ async fn test_render_wrap() {
 
 #[tokio::test]
 async fn test_render_api_fallback() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = setup(&url).await;
     {
         let mut c = ctx(&state);
@@ -225,7 +225,7 @@ async fn test_render_api_fallback() {
 
 #[tokio::test]
 async fn test_image_hook() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = setup(&url).await;
     {
         let mut c = ctx(&state);
@@ -260,7 +260,7 @@ async fn test_image_hook() {
 
 #[tokio::test]
 async fn test_prefs_tab() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = setup(&url).await;
     {
         let mut c = ctx(&state);
@@ -298,7 +298,7 @@ async fn test_prefs_tab() {
 
 #[tokio::test]
 async fn test_csrf_gate() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = setup(&url).await;
     let sess = session();
 
@@ -319,7 +319,7 @@ async fn test_csrf_gate() {
 
 #[tokio::test]
 async fn test_disabled_plugin_unknown() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     // A registered but system-disabled plugin is an unknown plugin on the
     // protected path (M7.3's active-aware `get_plugin`).
     let state = setup(&url).await;
@@ -343,7 +343,7 @@ async fn test_disabled_plugin_unknown() {
 // representative image; a non-matching one falls through to the DOM parse.
 #[tokio::test]
 async fn test_get_image_runs_article_image_chain() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = setup(&url).await;
     {
         let mut c = ctx(&state);
@@ -380,7 +380,7 @@ async fn test_get_image_runs_article_image_chain() {
 // discarded by the chain runner.
 #[tokio::test]
 async fn test_cdm_view_runs_render_article_chain() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = setup(&url).await;
     {
         let mut c = ctx(&state);

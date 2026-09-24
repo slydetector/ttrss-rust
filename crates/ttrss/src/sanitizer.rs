@@ -168,17 +168,15 @@ fn allowed_elements(has_sandbox: bool) -> BTreeSet<String> {
 /// `diskcache::rewrite_urls`.
 pub(crate) fn find_body(doc: &NodeRef) -> Option<NodeRef> {
     for html in doc.children() {
-        if let Some(el) = html.as_element() {
-            if el_name(el) == "html" {
+        if let Some(el) = html.as_element()
+            && el_name(el) == "html" {
                 for c in html.children() {
-                    if let Some(b) = c.as_element() {
-                        if el_name(b) == "body" {
+                    if let Some(b) = c.as_element()
+                        && el_name(b) == "body" {
                             return Some(c);
                         }
-                    }
                 }
             }
-        }
     }
     None
 }
@@ -389,11 +387,10 @@ pub(crate) fn sanitize_core(
     wrap_iframes_in_div(&body);
 
     // 5. Highlight words (if the feed has any).
-    if let Some(words) = highlight_words_opt {
-        if !words.is_empty() {
+    if let Some(words) = highlight_words_opt
+        && !words.is_empty() {
             highlight_words(&body, words);
         }
-    }
 
     // Serialize the body's children (the fragment), iteratively.
     let mut out = String::new();
@@ -503,11 +500,10 @@ fn rewrite_single_element(
     if let Some(srcset) = srcset {
         let mut validated: Vec<(String, String)> = Vec::new();
         for (url, size) in decode_srcset(&srcset) {
-            if let Some(u) = rewrite_relative(base, &url, &name, "srcset", "") {
-                if !has_disallowed_ip(&u) {
+            if let Some(u) = rewrite_relative(base, &url, &name, "srcset", "")
+                && !has_disallowed_ip(&u) {
                     validated.push((u, size));
                 }
-            }
         }
         if !validated.is_empty() {
             el.attributes
@@ -593,8 +589,8 @@ fn rewrite_single_element(
 fn process_iframes(root: &NodeRef, admitted: Option<&BTreeSet<String>>) {
     let mut stack = vec![root.clone()];
     while let Some(node) = stack.pop() {
-        if let Some(el) = node.as_element() {
-            if el_name(el) == "iframe" {
+        if let Some(el) = node.as_element()
+            && el_name(el) == "iframe" {
                 // M7.11 — an iframe whose src host a plugin admitted via
                 // `HOOK_IFRAME_WHITELISTED` (in `admitted`) keeps the loose
                 // PHP sandbox value (the M5a.3 residual); the rest get the
@@ -612,7 +608,6 @@ fn process_iframes(root: &NodeRef, admitted: Option<&BTreeSet<String>>) {
                 };
                 el.attributes.borrow_mut().insert("sandbox", sandbox.to_string());
             }
-        }
         for c in node.children() {
             stack.push(c);
         }
@@ -654,13 +649,11 @@ fn collect_iframe_srcs(input: &str) -> Vec<String> {
     let mut stack = vec![body.clone()];
     let mut out = Vec::new();
     while let Some(node) = stack.pop() {
-        if let Some(el) = node.as_element() {
-            if el_name(el) == "iframe" {
-                if let Some(src) = el.attributes.borrow().get("src") {
+        if let Some(el) = node.as_element()
+            && el_name(el) == "iframe"
+                && let Some(src) = el.attributes.borrow().get("src") {
                     out.push(src.to_string());
                 }
-            }
-        }
         for c in node.children() {
             stack.push(c);
         }
@@ -713,15 +706,14 @@ pub async fn sanitize(
     // host set) before the core runs. The srcs are plain `String`s, so no
     // (non-`Send`) parse tree is held across the await that fires the hook.
     let mut admitted: BTreeSet<String> = BTreeSet::new();
-    if has_sandbox {
-        if let Some(plugins) = plugins.as_mut() {
+    if has_sandbox
+        && let Some(plugins) = plugins.as_mut() {
             for src in collect_iframe_srcs(input) {
                 if iframe_whitelisted(plugins, &src).await {
                     admitted.insert(url_host(&src));
                 }
             }
         }
-    }
     let mut out = sanitize_core(
         input,
         force_remove_images,
@@ -1048,11 +1040,10 @@ fn parse_url(url: &str) -> Option<UrlParts> {
                 None => (hostport.to_string(), None),
             }
         };
-        if let Some(port) = &port {
-            if !port.is_empty() && !port.bytes().all(|b| b.is_ascii_digit()) {
+        if let Some(port) = &port
+            && !port.is_empty() && !port.bytes().all(|b| b.is_ascii_digit()) {
                 return None; // PHP: parse_url("http://x:abc/") === false
             }
-        }
         parts.host = Some(host);
         parts.port = port.filter(|p| !p.is_empty());
         parts.path = path;

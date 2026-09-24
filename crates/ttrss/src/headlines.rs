@@ -199,8 +199,8 @@ pub async fn view(
         }
     }
 
-    if let Some(f) = feed_num {
-        if !cat_view && f > 0 {
+    if let Some(f) = feed_num
+        && !cat_view && f > 0 {
             let _ = sqlx::query(
                 "UPDATE ttrss_feeds SET last_viewed = NOW() WHERE id = $1 AND owner_uid = $2",
             )
@@ -209,7 +209,6 @@ pub async fn view(
             .execute(pool)
             .await;
         }
-    }
 
     let (override_order, skip_first_id_check) = order_to_override_query(&order_by);
 
@@ -943,11 +942,7 @@ fn tag_name(open_tag: &str) -> Option<&str> {
 fn parse_attrs(open_tag: &str) -> Option<Vec<(String, String)>> {
     let inner = open_tag[1..].trim();
     let inner = inner.strip_suffix('>')?.trim();
-    let inner = if inner.ends_with("/>") {
-        &inner[..inner.len() - 2]
-    } else {
-        inner
-    };
+    let inner = inner.strip_suffix("/>").unwrap_or(inner);
     // Drop the tag name; no attributes at all is valid (`<i/>`).
     let Some(space) = inner.find(char::is_whitespace) else {
         return Some(Vec::new());
@@ -1210,11 +1205,10 @@ pub(crate) fn url_to_youtube_vid(url: &str) -> Option<String> {
         r"//youtu\.be/([\w-]+)",
     ];
     for p in patterns {
-        if let Ok(re) = regex::Regex::new(p) {
-            if let Some(caps) = re.captures(&url) {
+        if let Ok(re) = regex::Regex::new(p)
+            && let Some(caps) = re.captures(&url) {
                 return Some(caps[1].to_string());
             }
-        }
     }
     None
 }
@@ -1476,13 +1470,11 @@ async fn get_headlines(
             };
             let mut unread =
                 crate::counters::get_counters(db, uid, feed_or_tag, cat_view, true, None).await;
-            if cat_view {
-                if let Some(f) = feed_num {
-                    if f > 0 && include_children {
+            if cat_view
+                && let Some(f) = feed_num
+                    && f > 0 && include_children {
                         unread += crate::counters::cat_children_unread(pool, uid, f).await;
                     }
-                }
-            }
             if unread > 0 {
                 view_query_part = " unread = true AND ".into();
             }

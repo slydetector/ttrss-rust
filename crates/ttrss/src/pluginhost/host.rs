@@ -549,6 +549,7 @@ impl<'a> HostCtx<'a> {
 
     /// Web-request / per-owner context: `TTRSS_PLUGINS` (system) + the
     /// owner's `_ENABLED_PLUGINS` (user, `KIND_USER`).
+    #[allow(clippy::too_many_arguments)] // mirrors the PHP plugin-host context construction
     pub fn for_user(
         host: &'a PluginHost,
         pool: &'a PgPool,

@@ -16,7 +16,7 @@ use test_db::template::with_test_db;
 /// nested under its category, with `htmlUrl`, and *no* `ttrss*` attributes.
 #[tokio::test]
 async fn test_export_feed_tree() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = common::make_app_state(&url).await;
     let opml = ttrss::opml::build_opml(state.db.pool(), 1, false).await;
 
@@ -55,7 +55,7 @@ async fn test_export_feed_tree() {
 /// the category carries `ttrssSortOrder`.
 #[tokio::test]
 async fn test_export_include_settings() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = common::make_app_state(&url).await;
     let opml = ttrss::opml::build_opml(state.db.pool(), 1, true).await;
 
@@ -82,7 +82,7 @@ async fn test_export_include_settings() {
 /// The `export` handler returns the OPML as a download (content-type + filename).
 #[tokio::test]
 async fn test_export_handler() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = common::make_app_state(&url).await;
     let mut data = ttrss::core::session::Session::new();
     data.set("uid", ttrss::core::phpser::Value::Int(1));
@@ -115,7 +115,7 @@ async fn test_export_handler() {
 /// import.
 #[tokio::test]
 async fn test_export_retains_empty_category() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = common::make_app_state(&url).await;
     // Add an empty category (no feeds, no sub-cats).
     sqlx::query("INSERT INTO ttrss_feed_categories (owner_uid, title) VALUES (1, 'Empty Cat')")

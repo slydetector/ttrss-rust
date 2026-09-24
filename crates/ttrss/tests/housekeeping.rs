@@ -173,7 +173,7 @@ fn test_is_due_hourly() {
 
 #[tokio::test]
 async fn test_purge_orphans() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = common::make_db_from_url(&url).await.expect("test db");
     let uid = create_user(&db, 400, 0).await;
     let feed_id = create_feed(&db, 400, uid, "http://example.com/f400").await;
@@ -206,7 +206,7 @@ async fn test_purge_orphans() {
 
 #[tokio::test]
 async fn test_disable_failed_feeds() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = common::make_db_from_url(&url).await.expect("test db");
     let cfg = test_config(); // daemon_unsuccessful_days_limit = 30
     let uid = create_user(&db, 401, 0).await;
@@ -261,7 +261,7 @@ async fn test_disable_failed_feeds() {
 
 #[tokio::test]
 async fn test_expire_error_log() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = common::make_db_from_url(&url).await.expect("test db");
 
     // An old error (should be deleted) and a recent one (should survive).
@@ -303,7 +303,7 @@ async fn test_expire_error_log() {
 
 #[tokio::test]
 async fn test_cleanup_feed_icons() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = common::make_db_from_url(&url).await.expect("test db");
     let mut cfg = test_config(); // cache_max_days = 7
     let uid = create_user(&db, 403, 0).await;
@@ -344,7 +344,7 @@ async fn test_cleanup_feed_icons() {
 
 #[tokio::test]
 async fn test_record_run_upsert() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = common::make_db_from_url(&url).await.expect("test db");
 
     // Insert.
@@ -385,7 +385,7 @@ async fn test_record_run_upsert() {
 
 #[tokio::test]
 async fn test_run_due_tasks_runs_due_only() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = common::make_db_from_url(&url).await.expect("test db");
     let cfg = test_config();
 
@@ -466,7 +466,7 @@ async fn test_run_due_tasks_runs_due_only() {
 
 #[tokio::test]
 async fn test_purge_feed() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = common::make_db_from_url(&url).await.expect("test db");
     let cfg = test_config();
     let uid = create_user(&db, 404, 0).await;
@@ -514,7 +514,7 @@ async fn test_purge_feed() {
 
 #[tokio::test]
 async fn test_purge_feed_disabled() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let db = common::make_db_from_url(&url).await.expect("test db");
     let cfg = test_config();
     let uid = create_user(&db, 405, 0).await;

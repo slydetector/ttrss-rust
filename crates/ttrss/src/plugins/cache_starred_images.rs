@@ -117,15 +117,14 @@ impl Plugin for CacheStarredImages {
     ) -> BoxFuture<'a, Value> {
         Box::pin(async move {
             let mut out = entry.clone();
-            if id != 0 {
-                if let Some(url) = out.get("content_url").and_then(|v| v.as_str()) {
+            if id != 0
+                && let Some(url) = out.get("content_url").and_then(|v| v.as_str()) {
                     let cache = DiskCache::new(&host.cache_dir, CACHE_NAME, &host.self_url);
                     let local = format!("{}-{}", id, sha1_hex(url));
                     if cache.exists(&local) {
                         out["content_url"] = Value::String(cache.get_url(&local));
                     }
                 }
-            }
             out
         })
     }
@@ -204,11 +203,10 @@ fn run_expire_caches(
             if let Ok(entries) = std::fs::read_dir(dir) {
                 for entry in entries.flatten() {
                     let name = entry.file_name().to_string_lossy().to_string();
-                    if let Some((aid, _)) = name.split_once('-') {
-                        if let Ok(aid) = aid.parse::<i64>() {
+                    if let Some((aid, _)) = name.split_once('-')
+                        && let Ok(aid) = aid.parse::<i64>() {
                             files.push((aid, entry.path()));
                         }
-                    }
                 }
             }
         }
@@ -260,14 +258,13 @@ async fn cache_article_images(
 
     // Load the attempt count from the status file (default 0).
     let mut attempt: i64 = 0;
-    if cache_status.exists(&status_filename) {
-        if let Some(s) = cache_status.get(&status_filename) {
+    if cache_status.exists(&status_filename)
+        && let Some(s) = cache_status.get(&status_filename) {
             attempt = serde_json::from_str::<Value>(&s)
                 .ok()
                 .and_then(|v| v.get("attempt").and_then(|a| a.as_i64()))
                 .unwrap_or(0);
         }
-    }
     attempt += 1;
 
     // PHP: `if ($status["attempt"] > $this->max_cache_attempts) return false;`
@@ -304,13 +301,12 @@ async fn cache_article_images(
     .unwrap_or_default();
     for url in encs {
         has_media = true;
-        if let Some(rewritten) = urlhelper::rewrite_relative(site_url, &url) {
-            if cache_url(cache, pool, article_id, &rewritten, config.max_cache_file_size as u64, config.fetch_extended_url_filtering)
+        if let Some(rewritten) = urlhelper::rewrite_relative(site_url, &url)
+            && cache_url(cache, pool, article_id, &rewritten, config.max_cache_file_size as u64, config.fetch_extended_url_filtering)
                 .await
             {
                 success = true;
             }
-        }
     }
 
     // PHP: `return $success || !$has_media;`

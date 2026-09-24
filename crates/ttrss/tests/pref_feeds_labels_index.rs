@@ -22,7 +22,7 @@ fn test_config() -> Config { common::test_config() }
 
 /// Fresh fixtures + a session carrying `uid = 1` (the fixture owner).
 async fn setup(url: &str) -> (AppState, Sess) {
-    let db: Db = common::make_db_from_url(&url).await.expect("test db");
+    let db: Db = common::make_db_from_url(url).await.expect("test db");
     let state = AppState::new(test_config(), db);
     let mut data = Session::new();
     data.set("uid", PValue::Int(1));
@@ -40,7 +40,7 @@ fn normalize(s: &str) -> String {
 
 #[tokio::test]
 async fn test_labels_index_structure() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let html = ttrss::labels::index(&state, &sess, &Map::new()).await;
     let n = normalize(&html);
@@ -78,7 +78,7 @@ async fn test_labels_index_structure() {
 
 #[tokio::test]
 async fn test_feeds_index_structure() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
     let html = ttrss::feeds::index(&state, &sess, &Map::new()).await;
     let n = normalize(&html);
@@ -150,7 +150,7 @@ async fn test_feeds_index_structure() {
 // param recalls the cached term. A non-empty term also sets autoExpand=true.
 #[tokio::test]
 async fn test_feeds_index_search_term_and_cache() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let (state, sess) = setup(&url).await;
 
     // 1. No search param → empty term, autoExpand false.

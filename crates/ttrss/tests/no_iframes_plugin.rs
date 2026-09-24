@@ -114,7 +114,7 @@ async fn pipeline(
 
 #[tokio::test]
 async fn test_pipeline_removes_iframes() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = setup(&url).await;
     let _sess = session();
 
@@ -139,7 +139,7 @@ async fn test_pipeline_removes_iframes() {
 
 #[tokio::test]
 async fn test_pipeline_noop_when_inactive() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = setup(&url).await;
     let _sess = session();
 
@@ -156,7 +156,7 @@ async fn test_pipeline_noop_when_inactive() {
 
 #[tokio::test]
 async fn test_user_enabled() {
-    let _ = with_test_db(|url| Box::pin(async move {
+    with_test_db(|url| Box::pin(async move {
     let state = setup(&url).await;
     let _sess = session();
 

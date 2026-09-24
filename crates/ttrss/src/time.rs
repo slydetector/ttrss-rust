@@ -55,12 +55,11 @@ impl TzCtx {
         }
         use chrono::{Offset as _, TimeZone as _};
         use std::str::FromStr;
-        if let Ok(tz) = chrono_tz::Tz::from_str(&self.user_tz) {
-            if let Some(utc) = DateTime::from_timestamp(unix_ts, 0) {
+        if let Ok(tz) = chrono_tz::Tz::from_str(&self.user_tz)
+            && let Some(utc) = DateTime::from_timestamp(unix_ts, 0) {
                 let off = tz.offset_from_utc_datetime(&utc.naive_utc());
                 return off.fix().local_minus_utc() as i64;
             }
-        }
         0 // unknown zone → UTC
     }
 }
