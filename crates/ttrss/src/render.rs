@@ -108,7 +108,7 @@ pub fn render_otp_challenge(
     let locale = locale.clone();
     let i18n_arc = std::sync::Arc::clone(i18n);
     env.add_function("__", move |msg: String| -> String {
-        crate::i18n::__(locale.as_deref(), &i18n_arc, &msg)
+        crate::i18n::translate(locale.as_deref(), &i18n_arc, &msg)
     });
     let template = env
         .template_from_named_str("otp_challenge.html.tpl", OTP_TEMPLATE)
@@ -171,7 +171,7 @@ pub fn render_shell(
     let locale = locale.map(|s| s.to_string());
     let i18n_arc = std::sync::Arc::clone(i18n);
     env.add_function("__", move |msg: String| -> String {
-        crate::i18n::__(locale.as_deref(), &i18n_arc, &msg)
+        crate::i18n::translate(locale.as_deref(), &i18n_arc, &msg)
     });
     env.add_filter("tojson", |v: minijinja::Value| -> minijinja::Value {
         let s = v.to_string();
@@ -236,7 +236,7 @@ pub fn render_login_page(
     let locale = locale.clone();
     let i18n_arc = std::sync::Arc::clone(i18n);
     env.add_function("__", move |msg: String| -> String {
-        crate::i18n::__(locale.as_deref(), &i18n_arc, &msg)
+        crate::i18n::translate(locale.as_deref(), &i18n_arc, &msg)
     });
     let template = env
         .template_from_named_str("login.html.tpl", include_str!("../templates/login.html.tpl"))

@@ -160,7 +160,7 @@ pub async fn view(
     };
 
     if !owned {
-        return generate_error_feed(&crate::i18n::__(
+        return generate_error_feed(&crate::i18n::translate(
             locale.as_deref(),
             &state.i18n,
             "Feed not found.",
@@ -569,7 +569,7 @@ async fn format_headlines_list(
         let feed_title_out = if let Some(t) = &vfeed_title {
             Some(t.clone())
         } else if archived {
-            Some(crate::i18n::__(locale.as_deref(), &state.i18n, "Archived articles"))
+            Some(crate::i18n::translate(locale.as_deref(), &state.i18n, "Archived articles"))
         } else {
             None
         };
@@ -704,7 +704,7 @@ async fn format_headlines_list(
         if archived && vfeed_title.is_none() {
             line.insert(
                 "feed_title".into(),
-                json!(crate::i18n::__(locale.as_deref(), &state.i18n, "Archived articles")),
+                json!(crate::i18n::translate(locale.as_deref(), &state.i18n, "Archived articles")),
             );
         }
         line.insert("labels".into(), labels);
@@ -735,7 +735,7 @@ async fn format_headlines_list(
             time::make_local_datetime(date_entered_str.as_deref(), false, &tz);
         line.insert(
             "imported".into(),
-            json!(crate::i18n::t_sprintf(
+            json!(crate::i18n::translate_sprintf(
                 locale.as_deref(),
                 &state.i18n,
                 "Imported at %s",
@@ -782,30 +782,30 @@ async fn format_headlines_list(
             query_error_override.clone()
         } else {
             match view_mode {
-                "unread" => crate::i18n::__(
+                "unread" => crate::i18n::translate(
                     locale.as_deref(),
                     &state.i18n,
                     "No unread articles found to display.",
                 ),
-                "updated" => crate::i18n::__(
+                "updated" => crate::i18n::translate(
                     locale.as_deref(),
                     &state.i18n,
                     "No updated articles found to display.",
                 ),
-                "marked" => crate::i18n::__(
+                "marked" => crate::i18n::translate(
                     locale.as_deref(),
                     &state.i18n,
                     "No starred articles found to display.",
                 ),
                 _ => {
                     if feed_num.map(|f| f < LABEL_BASE_INDEX).unwrap_or(false) {
-                        crate::i18n::__(
+                        crate::i18n::translate(
                             locale.as_deref(),
                             &state.i18n,
                             "No articles found to display. You can assign articles to labels manually from article header context menu (applies to all selected articles) or use a filter.",
                         )
                     } else {
-                        crate::i18n::__(
+                        crate::i18n::translate(
                             locale.as_deref(),
                             &state.i18n,
                             "No articles found to display.",
@@ -842,14 +842,14 @@ async fn format_headlines_list(
             msg.push_str("<p><span class=\"text-muted\">");
             let last_updated_str =
                 time::make_local_datetime(last_updated.as_deref(), false, &tz);
-            msg.push_str(&crate::i18n::t_sprintf(
+            msg.push_str(&crate::i18n::translate_sprintf(
                 locale.as_deref(),
                 &state.i18n,
                 "Feeds last updated at %s",
                 &[last_updated_str.as_str()],
             ));
             if num_errors > 0 {
-                let err_link = crate::i18n::__(
+                let err_link = crate::i18n::translate(
                     locale.as_deref(),
                     &state.i18n,
                     "Some feeds have update errors (click for details)",
@@ -1668,7 +1668,7 @@ async fn get_headlines(
     // feed title / site url / error / last updated
     let (feed_title, feed_site_url, last_error, last_updated) = if !search.is_empty() {
         (
-            crate::i18n::t_sprintf(locale, i18n, "Search results: %s", &[search]),
+            crate::i18n::translate_sprintf(locale, i18n, "Search results: %s", &[search]),
             String::new(),
             String::new(),
             None,
@@ -1713,7 +1713,7 @@ async fn get_headlines(
                 // Special/virtual feed (`f <= 0`): `feed_title_of` returns the
                 // canonical English title (PHP `Feeds::_get_title`), which we
                 // translate. Real feeds (`f > 0`) are above and stay as stored.
-                crate::i18n::__(locale, i18n, &feed_title_of(f, pool, uid).await),
+                crate::i18n::translate(locale, i18n, &feed_title_of(f, pool, uid).await),
                 String::new(),
                 String::new(),
                 None,
@@ -1969,9 +1969,9 @@ async fn cat_title(
     i18n: &crate::i18n::I18nCache,
 ) -> String {
     match cat_id {
-        CAT_UNCATEGORIZED => crate::i18n::__(locale, i18n, "Uncategorized"),
-        CAT_SPECIAL => crate::i18n::__(locale, i18n, "Special"),
-        CAT_LABELS => crate::i18n::__(locale, i18n, "Labels"),
+        CAT_UNCATEGORIZED => crate::i18n::translate(locale, i18n, "Uncategorized"),
+        CAT_SPECIAL => crate::i18n::translate(locale, i18n, "Special"),
+        CAT_LABELS => crate::i18n::translate(locale, i18n, "Labels"),
         _ => {
             let row: Option<String> = sqlx::query_scalar::<_, String>(
                 "SELECT title FROM ttrss_feed_categories WHERE id = $1 AND owner_uid = $2",

@@ -239,7 +239,10 @@ pub fn resolve_locale(
 /// Translate `msg` using the catalog for `locale`. Returns the original
 /// string if no locale is set, the locale is unknown, or no translation
 /// exists (matching PHP's gettext fallback behavior).
-pub fn __(locale: Option<&str>, cache: &I18nCache, msg: &str) -> String {
+///
+/// Internal primitive — call sites use the bare [`__`], which reads the
+/// per-request locale from the task-local (M10.2b).
+pub fn translate(locale: Option<&str>, cache: &I18nCache, msg: &str) -> String {
     let Some(locale) = locale else {
         return msg.to_string();
     };
@@ -249,10 +252,11 @@ pub fn __(locale: Option<&str>, cache: &I18nCache, msg: &str) -> String {
     catalog.gettext(msg).to_string()
 }
 
-/// Translate and format: `vsprintf(__(fmt), args)`.
-/// Matches PHP's `T_sprintf()`.
-pub fn t_sprintf(locale: Option<&str>, cache: &I18nCache, fmt: &str, args: &[&str]) -> String {
-    let translated = __(locale, cache, fmt);
+/// Translate and format: `vsprintf(translate(fmt), args)`. Matches PHP's
+/// `T_sprintf()`. Internal primitive (the bare [`t_sprintf`] reads the locale
+/// from the task-local).
+pub fn translate_sprintf(locale: Option<&str>, cache: &I18nCache, fmt: &str, args: &[&str]) -> String {
+    let translated = translate(locale, cache, fmt);
     // Replace the first %s or %d in order of appearance with each arg.
     let mut result = translated;
     for arg in args {
@@ -287,8 +291,9 @@ pub fn ngettext(
 }
 
 /// Translate (with plural) and format: `vsprintf(_ngettext(...), args)`.
-/// Matches PHP's `T_nsprintf()`.
-pub fn t_nsprintf(
+/// Matches PHP's `T_nsprintf()`. Internal primitive (the bare [`t_nsprintf`]
+/// reads the locale from the task-local).
+pub fn translate_nsprintf(
     locale: Option<&str>,
     cache: &I18nCache,
     singular: &str,
@@ -297,7 +302,61 @@ pub fn t_nsprintf(
     args: &[&str],
 ) -> String {
     let translated = ngettext(locale, cache, singular, plural, n);
-    t_sprintf(locale, cache, &translated, args)
+    translate_sprintf(locale, cache, &translated, args)
+}
+
+/// The per-request translation context: the resolved locale + the shared
+/// catalog. Stored in a task-local so call sites use the bare helpers below
+/// without threading `(locale, cache)` (M10.2b).
+pub struct I18nCtx {
+    /// `None` = English (identity translation).
+    pub locale: Option<String>,
+    /// The shared catalog (a cheap `Arc` clone).
+    pub cache: Arc<I18nCache>,
+}
+
+// The per-request `I18nCtx`. Set once at each entry point (post-auth) via
+// `I18N.scope(...)`; the bare helpers read it. (A plain comment: the
+// `task_local!` macro doesn't take a doc comment.)
+tokio::task_local! {
+    static I18N: I18nCtx;
+}
+
+/// Translate using the request's locale (from the task-local). Falls back to
+/// the original (English) string when not scoped. The only plain-translate
+/// call sites should use — the minijinja `__` is this same function.
+pub fn __(msg: &str) -> String {
+    I18N
+        .try_with(|ctx| translate(ctx.locale.as_deref(), &ctx.cache, msg))
+        .unwrap_or_else(|_| msg.to_string())
+}
+
+/// Translate + format (`T_sprintf`), using the request's locale. English
+/// fallback: format without translating.
+pub fn t_sprintf(fmt: &str, args: &[&str]) -> String {
+    I18N
+        .try_with(|ctx| translate_sprintf(ctx.locale.as_deref(), &ctx.cache, fmt, args))
+        .unwrap_or_else(|_| crate::util::t_sprintf(fmt, args))
+}
+
+/// Plural-aware translate + format (`T_nsprintf`), using the request's
+/// locale. English fallback: pick the form by `n`, then format.
+pub fn t_nsprintf(singular: &str, plural: &str, n: i64, args: &[&str]) -> String {
+    I18N
+        .try_with(|ctx| {
+            translate_nsprintf(
+                ctx.locale.as_deref(),
+                &ctx.cache,
+                singular,
+                plural,
+                n,
+                args,
+            )
+        })
+        .unwrap_or_else(|_| {
+            let form = if n == 1 { singular } else { plural };
+            crate::util::t_sprintf(form, args)
+        })
 }
 
 /// Resolve the locale for a request: reads the `USER_LANGUAGE` pref (if set
@@ -443,14 +502,14 @@ mod tests {
     #[test]
     fn test_translate_identity_for_no_locale() {
         let cache = test_cache();
-        let result = __(None, &cache, "Hello");
+        let result = translate(None, &cache, "Hello");
         assert_eq!(result, "Hello");
     }
 
     #[test]
     fn test_translate_with_locale() {
         let cache = test_cache();
-        let result = __(Some("de_DE"), &cache, "Loading, please wait...");
+        let result = translate(Some("de_DE"), &cache, "Loading, please wait...");
         assert_ne!(result, "Loading, please wait...");
     }
 
@@ -458,14 +517,14 @@ mod tests {
     fn test_translate_missing_string_falls_back() {
         let cache = test_cache();
         let msg = "This string definitely does not exist in any catalog xyzzy 12345";
-        let result = __(Some("de_DE"), &cache, msg);
+        let result = translate(Some("de_DE"), &cache, msg);
         assert_eq!(result, msg);
     }
 
     #[test]
     fn test_t_sprintf() {
         let cache = test_cache();
-        let result = t_sprintf(None, &cache, "Hello %s, you have %d items", &["world", "5"]);
+        let result = translate_sprintf(None, &cache, "Hello %s, you have %d items", &["world", "5"]);
         assert_eq!(result, "Hello world, you have 5 items");
     }
 
@@ -515,9 +574,9 @@ mod tests {
     #[test]
     fn test_t_nsprintf() {
         let cache = test_cache();
-        let result = t_nsprintf(None, &cache, "%d article", "%d articles", 5, &["5"]);
+        let result = translate_nsprintf(None, &cache, "%d article", "%d articles", 5, &["5"]);
         assert_eq!(result, "5 articles");
-        let result = t_nsprintf(None, &cache, "%d article", "%d articles", 1, &["1"]);
+        let result = translate_nsprintf(None, &cache, "%d article", "%d articles", 1, &["1"]);
         assert_eq!(result, "1 article");
     }
 }

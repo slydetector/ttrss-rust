@@ -325,7 +325,7 @@ pub async fn dry_run(
         Ok(_) => (query_part.to_string(), String::new()),
         Err(_) => (
             "false".to_string(),
-            crate::i18n::t_sprintf(
+            crate::i18n::translate_sprintf(
                 locale,
                 i18n,
                 "Incorrect search syntax: %s.",

@@ -299,7 +299,7 @@ fn render_shell(
     let locale = locale.clone();
     let i18n_arc = std::sync::Arc::clone(i18n);
     env.add_function("__", move |msg: String| -> String {
-        crate::i18n::__(locale.as_deref(), &i18n_arc, &msg)
+        crate::i18n::translate(locale.as_deref(), &i18n_arc, &msg)
     });
     let template = env
         .template_from_named_str("forgotpass.html.tpl", TEMPLATE)
