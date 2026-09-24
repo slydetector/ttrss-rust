@@ -168,16 +168,23 @@ pub fn vsprintf(fmt: &str, args: &[&str]) -> String
 
 ---
 
-### M10.3 — API response strings
+### M10.3 — API / remaining UI strings (post-M10.2b)
+
+**Status:** planned (M10.2b is done — the re-architecture is in place; this is the remaining string work).
+
+**Why it's now trivial:** M10.2b removed the `(locale, i18n)` threading. The locale lives in the `I18N` task-local (set once at the 4 entry points), so translating a string is a one-line wrap of the literal — **no signature changes, no threading**: `"…"` → `__("…")`, formatted → `t_sprintf("…", &[…])`, plural → `t_nsprintf("…", "…", n, &[…])`.
 
 **Scope:**
-- Audit all user-facing strings in API/RPC responses (error messages, status strings, the `get_headlines` `feed_title` for search results, filter descriptions, etc.).
-- Wrap them in `__()` where the PHP reference does.
-- The `HostCtx` gains a `locale: Option<String>` field (or the cache is accessible) so plugins can call `__()`.
+- Wrap the remaining user-facing string literals in the bare helpers wherever the PHP reference wraps them in `__()`/`T_sprintf()`/`T_nsprintf()`: the RPC/API error + status strings, and the prefs/users/updates/etc. surfaces.
+- **Already pulled into M10.2b** (so *not* part of this increment): the headlines path (feed titles, the "Search results: %s" feed title, "Archived articles", the empty-state messages, "Imported at", "Feeds last updated at", the feed-error link), the filter descriptions + `Unknown action` + `(%d action(s))`, `Page %d of %d`, `Current server time`, hotkey help, the search-syntax error, and the render templates (shell/login/otp/forgotpass).
+- **Target shape** (counted from the PHP reference): ~576 `__`, ~49 `t_sprintf`, ~30 `t_nsprintf` (+ ~5 pure `vsprintf`).
+- No `HostCtx` change is needed for the non-plugin strings (the task-local is already set at the entry); plugins (M10.4) read the locale via `HostCtx`.
 
-**Test:** For a few known translated strings in API responses (e.g., the search-results feed title "Search results: %s"), verify the Rust response matches the PHP translation for a given locale.
+**How to audit:** for each module, read the corresponding PHP file's `__()`/`T_sprintf()`/`T_nsprintf()` calls and wrap the matching Rust literal in the same bare helper. Work module-by-module, one green increment at a time (verify each wrap against the PHP call, not by guessing).
 
-**Size:** ~100-200 lines (scattered `__()` wrappers) + tests.
+**Test:** per surface, assert a known string matches the PHP `.mo` translation for a fixed locale (de_DE) — `shell_locale.rs` / `rpc_init_translations.rs` are the template. English/no-locale output is unchanged, so the existing suite stays green throughout.
+
+**Size:** ~100–200 lines (scattered `__()` wrappers) + a few locale tests.
 
 ---
 
