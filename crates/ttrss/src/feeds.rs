@@ -24,6 +24,7 @@ use sqlx::AssertSqlSafe;
 
 use crate::cats::{CAT_LABELS, CAT_SPECIAL};
 use crate::controls;
+use crate::i18n::{__, t_sprintf, t_nsprintf};
 use crate::util;
 
 use crate::labels::LABEL_BASE_INDEX;
@@ -449,11 +450,11 @@ fn feeds_index_env() -> &'static Environment<'static> {
 
 /// `Feeds::_get_cat_title` for the special/uncategorized ids (real category
 /// titles come from the DB rows).
-fn cat_title(cat_id: i64) -> &'static str {
+fn cat_title(cat_id: i64) -> String {
     match cat_id {
-        CAT_SPECIAL => "Special",
-        CAT_LABELS => "Labels",
-        _ => "Uncategorized",
+        CAT_SPECIAL => __("Special"),
+        CAT_LABELS => __("Labels"),
+        _ => __("Uncategorized"),
     }
 }
 
@@ -474,15 +475,15 @@ async fn special_feed(pool: &sqlx::PgPool, uid: i64, feed_id: i64, fresh_max_age
 }
 
 /// `Feeds::_get_title` for the virtual feeds.
-fn special_title(feed_id: i64) -> &'static str {
+fn special_title(feed_id: i64) -> String {
     match feed_id {
-        FEED_STARRED => "Starred articles",
-        FEED_PUBLISHED => "Published articles",
-        FEED_FRESH => "Fresh articles",
-        FEED_ALL => "All articles",
-        FEED_ARCHIVED => "Archived articles",
-        FEED_RECENTLY_READ => "Recently read",
-        _ => "",
+        FEED_STARRED => __("Starred articles"),
+        FEED_PUBLISHED => __("Published articles"),
+        FEED_FRESH => __("Fresh articles"),
+        FEED_ALL => __("All articles"),
+        FEED_ARCHIVED => __("Archived articles"),
+        FEED_RECENTLY_READ => __("Recently read"),
+        _ => String::new(),
     }
 }
 
@@ -2803,20 +2804,17 @@ pub async fn editfeed(state: &AppState, sess: &Sess, extra: &Map<String, Value>)
             ("60", "2 months old"),
             ("90", "3 months old"),
         ] {
-            m.insert(k.to_string(), Value::String(v.to_string()));
+            m.insert(k.to_string(), Value::String(__(v)));
         }
         let default_purge = prefs::resolve(prefs::PURGE_OLD_DAYS, &pref_rows, None).as_int();
         let suffix = if default_purge > 0 {
-            format!(
-                "({default_purge} day{})",
-                if default_purge == 1 { "" } else { "s" }
-            )
+            t_nsprintf("(%d day)", "(%d days)", default_purge, &[&default_purge.to_string()])
         } else {
-            "(Disabled)".to_string()
+            format!("({})", __("Disabled"))
         };
         m.insert(
             "0".to_string(),
-            Value::String(format!("Use default {suffix}")),
+            Value::String(format!("{} {suffix}", __("Use default"))),
         );
         Value::Object(m)
     } else {
@@ -2909,32 +2907,33 @@ pub async fn editfeeds(state: &AppState, sess: &Sess, extra: &Map<String, Value>
         (
             "0".to_string(),
             format!(
-                "Default interval ({})",
+                "{} ({})",
+                __("Default interval"),
                 update_interval_label(default_update)
             ),
         ),
-        ("-1".to_string(), "Disable updates".to_string()),
-        ("15".to_string(), "15 minutes".to_string()),
-        ("30".to_string(), "30 minutes".to_string()),
-        ("60".to_string(), "Hourly".to_string()),
-        ("240".to_string(), "4 hours".to_string()),
-        ("720".to_string(), "12 hours".to_string()),
-        ("1440".to_string(), "Daily".to_string()),
-        ("10080".to_string(), "Weekly".to_string()),
+        ("-1".to_string(), __("Disable updates")),
+        ("15".to_string(), __("15 minutes")),
+        ("30".to_string(), __("30 minutes")),
+        ("60".to_string(), __("Hourly")),
+        ("240".to_string(), __("4 hours")),
+        ("720".to_string(), __("12 hours")),
+        ("1440".to_string(), __("Daily")),
+        ("10080".to_string(), __("Weekly")),
     ];
     let purge_default = if default_purge > 0 {
-        format!(" ({} days)", default_purge)
+        format!(" {}", t_sprintf("(%d days)", &[&default_purge.to_string()]))
     } else {
-        " (Disabled)".to_string()
+        format!(" ({})", __("Disabled"))
     };
     let purge: Vec<(String, String)> = vec![
-        ("0".to_string(), format!("Use default{}", purge_default)),
-        ("-1".to_string(), "Never purge".to_string()),
-        ("7".to_string(), "1 week old".to_string()),
-        ("14".to_string(), "2 weeks old".to_string()),
-        ("31".to_string(), "1 month old".to_string()),
-        ("60".to_string(), "2 months old".to_string()),
-        ("90".to_string(), "3 months old".to_string()),
+        ("0".to_string(), format!("{}{}", __("Use default"), purge_default)),
+        ("-1".to_string(), __("Never purge")),
+        ("7".to_string(), __("1 week old")),
+        ("14".to_string(), __("2 weeks old")),
+        ("31".to_string(), __("1 month old")),
+        ("60".to_string(), __("2 months old")),
+        ("90".to_string(), __("3 months old")),
     ];
 
     let cat_select = select_feeds_cats(pool, uid, "cat_id", None, "disabled=\"1\"").await;
@@ -2954,7 +2953,7 @@ pub async fn editfeeds(state: &AppState, sess: &Sess, extra: &Map<String, Value>
     .map(|(name, caption)| {
         json!({
             "checkbox": controls::checkbox_tag(name, false, "", &[("disabled", "1".to_string())]),
-            "caption": *caption,
+            "caption": __(caption),
             "toggle": batch_toggle_checkbox(name),
         })
     })
@@ -3031,7 +3030,7 @@ pub async fn editfeeds(state: &AppState, sess: &Sess, extra: &Map<String, Value>
     ctx.insert("save_btn".into(), json!(controls::submit_tag("Save")));
     ctx.insert(
         "cancel_btn".into(),
-        json!(controls::cancel_dialog_tag("Cancel")),
+        json!(controls::cancel_dialog_tag(&__("Cancel"))),
     );
 
     editfeeds_env()
@@ -3049,7 +3048,7 @@ fn batch_toggle_checkbox(name: &str) -> String {
         "",
         &[
             ("data-control-for", name.to_string()),
-            ("title", "Check to enable field".to_string()),
+            ("title", __("Check to enable field")),
             (
                 "onchange",
                 "App.dialogOf(this).toggleField(this)".to_string(),
@@ -3062,15 +3061,15 @@ fn batch_toggle_checkbox(name: &str) -> String {
 /// annotation; a non-standard value yields an empty string.
 fn update_interval_label(value: i64) -> String {
     match value {
-        0 => "Default interval".to_string(),
-        -1 => "Disable updates".to_string(),
-        15 => "15 minutes".to_string(),
-        30 => "30 minutes".to_string(),
-        60 => "Hourly".to_string(),
-        240 => "4 hours".to_string(),
-        720 => "12 hours".to_string(),
-        1440 => "Daily".to_string(),
-        10080 => "Weekly".to_string(),
+        0 => __("Default interval"),
+        -1 => __("Disable updates"),
+        15 => __("15 minutes"),
+        30 => __("30 minutes"),
+        60 => __("Hourly"),
+        240 => __("4 hours"),
+        720 => __("12 hours"),
+        1440 => __("Daily"),
+        10080 => __("Weekly"),
         _ => String::new(),
     }
 }
@@ -3092,12 +3091,13 @@ fn update_intervals_with_default(default_interval: i64) -> Map<String, Value> {
         ("1440", "Daily"),
         ("10080", "Weekly"),
     ] {
-        update.insert(k.to_string(), Value::String(v.to_string()));
+        update.insert(k.to_string(), Value::String(__(v)));
     }
     update.insert(
         "0".to_string(),
         Value::String(format!(
-            "Default interval ({})",
+            "{} ({})",
+            __("Default interval"),
             update_interval_label(default_interval)
         )),
     );
