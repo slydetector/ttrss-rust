@@ -7,6 +7,7 @@
 use std::path::Path;
 
 use crate::core::config::Config;
+use crate::i18n::__;
 
 /// Max mtime (unix secs) of top-level `js/*.js` — mirrors
 /// `get_scripts_timestamp()`.
@@ -100,7 +101,7 @@ pub fn render_otp_challenge(config: &Config, return_url: &str, form: &OtpForm) -
     let scripts_ts = scripts_timestamp(config.docroot.as_path());
     let mut env = minijinja::Environment::new();
     env.add_function("__", |msg: String| -> String {
-        crate::i18n::__ (&msg)
+        __(&msg)
     });
     let template = env
         .template_from_named_str("otp_challenge.html.tpl", OTP_TEMPLATE)
@@ -159,7 +160,7 @@ pub fn render_shell(
 ) -> String {
     let mut env = minijinja::Environment::new();
     env.add_function("__", |msg: String| -> String {
-        crate::i18n::__ (&msg)
+        __(&msg)
     });
     env.add_filter("tojson", |v: minijinja::Value| -> minijinja::Value {
         let s = v.to_string();
@@ -218,7 +219,7 @@ pub fn render_login_page(config: &Config) -> String {
     let lifetime = 86400; // SESSION_COOKIE_LIFETIME default
     let mut env = minijinja::Environment::new();
     env.add_function("__", |msg: String| -> String {
-        crate::i18n::__ (&msg)
+        __(&msg)
     });
     let template = env
         .template_from_named_str("login.html.tpl", include_str!("../templates/login.html.tpl"))

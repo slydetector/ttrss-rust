@@ -26,6 +26,7 @@ use crate::feeds::{
     FEED_ALL, FEED_ARCHIVED, FEED_FRESH, FEED_PUBLISHED, FEED_RECENTLY_READ, FEED_STARRED,
 };
 use crate::labels::{feed_to_label_id, LABEL_BASE_INDEX};
+use crate::i18n::__;
 
 // `Feeds::FEED_ERROR` (functions.php): the virtual "error feed" pseudo-id.
 pub(crate) const FEED_ERROR: i64 = -7;
@@ -159,7 +160,7 @@ pub async fn view(
     };
 
     if !owned {
-        return generate_error_feed(&crate::i18n::__ (
+        return generate_error_feed(&__(
             "Feed not found.",
         ));
     }
@@ -562,7 +563,7 @@ async fn format_headlines_list(
         let feed_title_out = if let Some(t) = &vfeed_title {
             Some(t.clone())
         } else if archived {
-            Some(crate::i18n::__ ("Archived articles"))
+            Some(__("Archived articles"))
         } else {
             None
         };
@@ -697,7 +698,7 @@ async fn format_headlines_list(
         if archived && vfeed_title.is_none() {
             line.insert(
                 "feed_title".into(),
-                json!(crate::i18n::__ ("Archived articles")),
+                json!(__("Archived articles")),
             );
         }
         line.insert("labels".into(), labels);
@@ -773,22 +774,22 @@ async fn format_headlines_list(
             query_error_override.clone()
         } else {
             match view_mode {
-                "unread" => crate::i18n::__ (
+                "unread" => __(
                     "No unread articles found to display.",
                 ),
-                "updated" => crate::i18n::__ (
+                "updated" => __(
                     "No updated articles found to display.",
                 ),
-                "marked" => crate::i18n::__ (
+                "marked" => __(
                     "No starred articles found to display.",
                 ),
                 _ => {
                     if feed_num.map(|f| f < LABEL_BASE_INDEX).unwrap_or(false) {
-                        crate::i18n::__ (
+                        __(
                             "No articles found to display. You can assign articles to labels manually from article header context menu (applies to all selected articles) or use a filter.",
                         )
                     } else {
-                        crate::i18n::__ (
+                        __(
                             "No articles found to display.",
                         )
                     }
@@ -828,7 +829,7 @@ async fn format_headlines_list(
                 &[last_updated_str.as_str()],
             ));
             if num_errors > 0 {
-                let err_link = crate::i18n::__ (
+                let err_link = __(
                     "Some feeds have update errors (click for details)",
                 );
                 msg.push_str(&format!(
@@ -1681,7 +1682,7 @@ async fn get_headlines(
                 // Special/virtual feed (`f <= 0`): `feed_title_of` returns the
                 // canonical English title (PHP `Feeds::_get_title`), which we
                 // translate. Real feeds (`f > 0`) are above and stay as stored.
-                crate::i18n::__ (&feed_title_of(f, pool, uid).await),
+                __(&feed_title_of(f, pool, uid).await),
                 String::new(),
                 String::new(),
                 None,
@@ -1931,9 +1932,9 @@ pub(crate) async fn child_cats(pool: &sqlx::PgPool, uid: i64, cat: i64) -> Vec<i
 /// (PHP `Feeds.php:1315-1319`); real category titles come from the DB.
 async fn cat_title(pool: &sqlx::PgPool, uid: i64, cat_id: i64) -> String {
     match cat_id {
-        CAT_UNCATEGORIZED => crate::i18n::__ ("Uncategorized"),
-        CAT_SPECIAL => crate::i18n::__ ("Special"),
-        CAT_LABELS => crate::i18n::__ ("Labels"),
+        CAT_UNCATEGORIZED => __("Uncategorized"),
+        CAT_SPECIAL => __("Special"),
+        CAT_LABELS => __("Labels"),
         _ => {
             let row: Option<String> = sqlx::query_scalar::<_, String>(
                 "SELECT title FROM ttrss_feed_categories WHERE id = $1 AND owner_uid = $2",

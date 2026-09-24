@@ -36,6 +36,14 @@ The frozen PHP reference in `tt-rss/` (commit `2f7d831`) is the spec.
   with a one-line rationale and concrete effect).
 - **Get to root cause; no whack-a-mole** — when a fix reveals another symptom,
   find the underlying cause rather than patching one at a time.
+- **i18n helpers: import bare, no space before the paren.** Call the i18n
+  helpers unqualified — `use crate::i18n::__;` (and `t_sprintf`/`t_nsprintf`
+  as needed) at the top of the module, then `__("…")` — mirroring PHP's global
+  `__()`. Never write the fully-qualified `crate::i18n::__ (…)` form, and never
+  put a space between the name and `(` (Rust permits `f (x)`, but the port
+  disallows it). Verify inserted `__` by byte/hexdump, not the terminal echo:
+  a pipeline quirk mangles `__`'s *display* (and the str_replace tool can
+  rewrite `__` to `translate`), so build/replace them via Python `chr(95)*2`.
 - **Prefer iterative over recursive.** Refactor recursion into an explicit
   `Vec` work stack (or loop); keep it only where recursion is clearly the most
   readable form (a trivial constant-bounded case). In Rust recursion —

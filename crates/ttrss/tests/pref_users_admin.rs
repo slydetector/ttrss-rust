@@ -415,3 +415,54 @@ async fn test_admin_gate_denies_non_admin() {
         Ok(())
     })).await.unwrap();
 }
+
+/// M10.3: the `Pref_Users` index page localizes its button labels under a
+/// `de_DE` locale — the bare `__` helpers read the per-request `I18N` scope
+/// (set here directly, as the RPC entry point does). Rust-only: the frozen
+/// PHP suite has no users-page locale test.
+#[tokio::test]
+async fn test_index_localizes_de_de() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
+    let ctx = ttrss::i18n::I18nCtx {
+        locale: Some("de_DE".to_string()),
+        cache: state.i18n.clone(),
+    };
+    let html = ttrss::i18n::I18N
+        .scope(ctx, async {
+            ttrss::users::index(&state, &sess, &serde_json::Map::new()).await
+        })
+        .await;
+    assert!(
+        html.contains("Benutzer anlegen"),
+        "Create user button must be German; head: {}",
+        &html[..html.len().min(400)]
+    );
+    assert!(html.contains("Entfernen"), "Remove button must be German");
+    assert!(
+        html.contains("Passwort zur\u{fc}cksetzen"),
+        "Reset password button must be German"
+    );
+    assert!(
+        html.contains("Zum Bearbeiten klicken"),
+        "Click to edit title must be German"
+    );
+        Ok(())
+    })).await.unwrap();
+}
+
+/// Without a locale scope, the index page stays English (identity `__`).
+#[tokio::test]
+async fn test_index_english_without_scope() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
+    let html = ttrss::users::index(&state, &sess, &serde_json::Map::new()).await;
+    assert!(
+        html.contains("Create user"),
+        "English labels expected; head: {}",
+        &html[..html.len().min(400)]
+    );
+    assert!(html.contains("Reset password"), "English labels expected");
+        Ok(())
+    })).await.unwrap();
+}

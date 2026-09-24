@@ -26,6 +26,7 @@ use crate::session;
 use crate::users;
 use crate::util;
 use crate::AppState;
+use crate::i18n::__;
 
 /// The public `op=forgotpass` HTML shell.
 const TEMPLATE: &str = include_str!("../templates/forgotpass.html.tpl");
@@ -292,7 +293,7 @@ fn render_shell(config: &Config, content: &str) -> String {
     let theme_dark = render::theme_path(doc, "night.css", "themes/night.css");
     let mut env = minijinja::Environment::new();
     env.add_function("__", |msg: String| -> String {
-        crate::i18n::__ (&msg)
+        __(&msg)
     });
     let template = env
         .template_from_named_str("forgotpass.html.tpl", TEMPLATE)

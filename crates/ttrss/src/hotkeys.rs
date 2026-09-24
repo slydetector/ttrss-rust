@@ -5,6 +5,7 @@
 
 use crate::util::htmlspecialchars as html_escape;
 use serde_json::{Map, Value};
+use crate::i18n::__;
 
 /// `RPC::get_hotkeys_map()` entries — `sequence => action` in PHP declaration
 /// order (drives both the init-params `hotkeys` map and the help-dialog list).
@@ -278,7 +279,7 @@ pub fn hotkey_help() -> String {
     for &(section, actions) in HOTKEY_INFO {
         out.push_str(&format!(
             "\n<li><h3>{}</h3></li>",
-            html_escape(&crate::i18n::__ (section))
+            html_escape(&__(section))
         ));
         for &(action, desc) in actions {
             if let Some((_, seqs)) = omap.iter().find(|e| e.0 == action) {
@@ -286,13 +287,13 @@ pub fn hotkey_help() -> String {
                     out.push_str(&format!(
                         "\n<li>\n<div class='hk'><code>{}</code></div>\n<div class='desc'>{}</div>\n</li>",
                         html_escape(seq),
-                        html_escape(&crate::i18n::__ (desc))
+                        html_escape(&__(desc))
                     ));
                 }
             }
         }
     }
-    let close = crate::i18n::__ ("Close this window");
+    let close = __("Close this window");
     out.push_str(&format!(
         "\n</ul>\n<footer class='text-center'>\n<button dojoType=\"dijit.form.Button\" class=\"alt-primary\" type=\"submit\">{close}</button></footer>"
     ));

@@ -18,17 +18,18 @@ use crate::util::{
 };
 use crate::AppState;
 use serde_json::{json, Map, Value};
+use crate::i18n::__;
 
 /// `UserHelper::ACCESS_LEVEL_*` → display name (the `$access_level_names` map
 /// built in `backend.php`).
-fn access_level_name(level: i32) -> &'static str {
+fn access_level_name(level: i32) -> String {
     match level {
-        -2 => "Disabled",
-        -1 => "Read Only",
-        0 => "User",
-        5 => "Power User",
-        10 => "Administrator",
-        _ => "",
+        -2 => __("Disabled"),
+        -1 => __("Read Only"),
+        0 => __("User"),
+        5 => __("Power User"),
+        10 => __("Administrator"),
+        _ => String::new(),
     }
 }
 
@@ -58,13 +59,13 @@ const INDEX_POST: &str = r#"">
 							</div>
 
 						<button dojoType='dijit.form.Button' onclick='Users.add()'>
-							Create user						</button>
+						@CREATE_USER@						</button>
 
 						<button dojoType='dijit.form.Button' onclick='Users.removeSelected()'>
-							Remove						</button>
+						@REMOVE@						</button>
 
 						<button dojoType='dijit.form.Button' onclick='Users.resetSelected()'>
-							Reset password						</button>
+						@RESET_PW@						</button>
 						"#;
 // M7.22 item 7 — the `HOOK_PREFS_TAB_SECTION` ("prefUsersToolbar") site:
 // PHP prints the chain's output here, inside the toolbar after the
@@ -86,7 +87,7 @@ const INDEX_POST_SECTION: &str = r#"[__pref_users_toolbar__]
 							<th><a href='#' onclick="Users.reload('last_login')">Last login</a></th>
 						</tr>"#;
 
-const INDEX_ROW: &str = r#"<tr data-row-id='@ID@' onclick='Users.edit(@ID@)' title="Click to edit">
+const INDEX_ROW: &str = r#"<tr data-row-id='@ID@' onclick='Users.edit(@ID@)' title="@CLICK_EDIT@">
 									<td class='checkbox'>
 										<input onclick='Tables.onRowChecked(this); event.stopPropagation();'
 										dojoType='dijit.form.CheckBox' type='checkbox'>
@@ -155,9 +156,19 @@ pub async fn index(
     .await;
 
     let mut out = String::new();
+    let create_user = __("Create user");
+    let remove_lbl = __("Remove");
+    let reset_pw = __("Reset password");
+    let click_edit = __("Click to edit");
     out.push_str(INDEX_PRE);
     out.push_str(&htmlspecialchars(&user_search));
-    out.push_str(&INDEX_POST.replace("#[__pref_users_toolbar__]", &toolbar));
+    out.push_str(
+        &INDEX_POST
+            .replace("@CREATE_USER@", &create_user)
+            .replace("@REMOVE@", &remove_lbl)
+            .replace("@RESET_PW@", &reset_pw)
+            .replace("#[__pref_users_toolbar__]", &toolbar),
+    );
     out.push_str(INDEX_POST_SECTION);
 
     for r in &rows {
@@ -172,8 +183,9 @@ pub async fn index(
             &INDEX_ROW
                 .replace("@ID@", &id_s)
                 .replace("@LOGIN@", &htmlspecialchars(&login))
-                .replace("@LEVEL@", access_level_name(access_level))
+                .replace("@LEVEL@", &access_level_name(access_level))
                 .replace("@NUMFEEDS@", &num_feeds.to_string())
+                .replace("@CLICK_EDIT@", &click_edit)
                 .replace(
                     "@CREATED@",
                     &make_local_datetime(created.as_deref(), false, &tz),
@@ -215,7 +227,7 @@ pub async fn user_details(
     .unwrap_or(None);
 
     let Some(user) = user else {
-        return crate::util::format_error("User not found", "");
+        return crate::util::format_error(&__("User not found"), "");
     };
 
     let created: Option<String> = user.get(2);
@@ -273,11 +285,11 @@ pub async fn user_details(
 /// string keys (order preserved, but functionally a lookup map).
 fn access_level_names_json() -> Value {
     json!({
-        "-2": "Disabled",
-        "-1": "Read Only",
-        "0": "User",
-        "5": "Power User",
-        "10": "Administrator",
+        "-2": __("Disabled"),
+        "-1": __("Read Only"),
+        "0": __("User"),
+        "5": __("Power User"),
+        "10": __("Administrator"),
     })
 }
 
@@ -303,7 +315,7 @@ pub(crate) async fn reset_password(pool: &sqlx::PgPool, uid: i32, new_password: 
         .ok()
         .flatten();
     let Some(login) = row else {
-        return "User not found".to_string();
+        return __("User not found");
     };
     let new_salt = user::get_salt();
     let tmp_pwd = if new_password.is_empty() {
