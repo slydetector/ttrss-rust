@@ -19,6 +19,7 @@
 mod common;
 
 use ttrss::feeds;
+use ttrss::i18n::{I18nCache, I18nCtx, I18N};
 use test_db::template::with_test_db;
 
 /// PHP `Feeds::*` constants (mirrors `tt-rss/classes/Feeds.php`).
@@ -64,6 +65,36 @@ async fn test_get_title_special_feeds() {
         assert_eq!(
             "Recently read",
             feeds::feed_title(db.pool(), FEED_RECENTLY_READ, uid).await
+        );
+        Ok(())
+    })).await.unwrap();
+}
+
+/// Rust-only (the frozen PHP suite has no `_get_title` locale test): the port
+/// must carry the request's locale. `test_get_title_special_feeds` runs with no
+/// locale (the `__()` falls back to English); this one sets `de_DE` and checks
+/// the virtual-feed titles are actually translated, matching PHP `Feeds.php:1151-1161`.
+#[tokio::test]
+async fn test_get_title_special_feeds_translated() {
+    let _ = with_test_db(|url| Box::pin(async move {
+        let db = common::make_db_ref(&url).await;
+        let cache = std::sync::Arc::new(I18nCache::new(
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../..")
+                .join("tt-rss")
+                .join("locale"),
+        ));
+        let ctx = I18nCtx {
+            locale: Some("de_DE".into()),
+            cache,
+        };
+        let title = I18N
+            .scope(ctx, async { feeds::feed_title(db.pool(), FEED_STARRED, 1).await })
+            .await;
+        assert_eq!(
+            "Markierte Artikel",
+            title,
+            "FEED_STARRED must carry the request's locale (de_DE)"
         );
         Ok(())
     })).await.unwrap();

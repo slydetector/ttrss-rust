@@ -491,12 +491,12 @@ fn special_title(feed_id: i64) -> String {
 /// labels (with the `Unknown label (n)` fallback) and real feeds.
 pub async fn feed_title(pool: &sqlx::PgPool, id: i64, owner_uid: i64) -> String {
     match id {
-        FEED_STARRED => "Starred articles".to_string(),
-        FEED_PUBLISHED => "Published articles".to_string(),
-        FEED_FRESH => "Fresh articles".to_string(),
-        FEED_ALL => "All articles".to_string(),
-        FEED_ARCHIVED => "Archived articles".to_string(),
-        FEED_RECENTLY_READ => "Recently read".to_string(),
+        FEED_STARRED => __("Starred articles"),
+        FEED_PUBLISHED => __("Published articles"),
+        FEED_FRESH => __("Fresh articles"),
+        FEED_ALL => __("All articles"),
+        FEED_ARCHIVED => __("Archived articles"),
+        FEED_RECENTLY_READ => __("Recently read"),
         _ if id < LABEL_BASE_INDEX => {
             let label_id = crate::labels::feed_to_label_id(id);
             sqlx::query_scalar::<_, String>(
