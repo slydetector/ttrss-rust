@@ -394,7 +394,7 @@ pub async fn get_filter_tree(state: &AppState, sess: &Sess) -> Value {
         "label": "name",
         "items": [{
             "id": "root",
-            "name": "Filters",
+            "name": __("Filters"),
             "enabled": true,
             "items": items,
         }],

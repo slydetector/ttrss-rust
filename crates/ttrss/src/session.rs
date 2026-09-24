@@ -5,7 +5,8 @@
 //! handle to handlers, and persist it back after the request if it changed.
 //! Anonymous requests (no cookie) never touch the database.
 
-use crate::core::db::Db;
+use crate::core::db::Db;use crate::i18n::{__};
+
 use crate::core::phpser::Value;
 use crate::core::session::{self, Session};
 use crate::core::user;
@@ -241,14 +242,14 @@ pub async fn validate_session(pool: &PgPool, single_user: bool, sess: &mut Sessi
             if pwd_hash != sess.get_str("pwd_hash").unwrap_or("") {
                 sess.set(
                     "login_error_msg",
-                    Value::Bytes(b"Session failed to validate (password changed)".to_vec()),
+                    Value::Bytes(__("Session failed to validate (password changed)").into_bytes()),
                 );
                 return false;
             }
             if access_level == user::ACCESS_LEVEL_DISABLED {
                 sess.set(
                     "login_error_msg",
-                    Value::Bytes(b"Session failed to validate (account is disabled)".to_vec()),
+                    Value::Bytes(__("Session failed to validate (account is disabled)").into_bytes()),
                 );
                 return false;
             }
@@ -257,7 +258,7 @@ pub async fn validate_session(pool: &PgPool, single_user: bool, sess: &mut Sessi
         None => {
             sess.set(
                 "login_error_msg",
-                Value::Bytes(b"Session failed to validate (user not found)".to_vec()),
+                Value::Bytes(__("Session failed to validate (user not found)").into_bytes()),
             );
             false
         }

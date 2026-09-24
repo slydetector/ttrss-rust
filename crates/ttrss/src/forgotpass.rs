@@ -189,7 +189,7 @@ async fn do_reset(
     if !(csrf_ok && test_ok && fields_ok) {
         return format!(
             "{}{}",
-            error_html("Some of the required form parameters are missing or incorrect."),
+            error_html(&__("Some of the required form parameters are missing or incorrect.")),
             go_back_form("alt-primary")
         );
     }
@@ -237,7 +237,7 @@ async fn do_reset(
         }
         None => format!(
             "{}{}",
-            error_html("Sorry, login and email combination not found."),
+            error_html(&__("Sorry, login and email combination not found.")),
             go_back_form("")
         ),
     }

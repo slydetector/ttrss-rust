@@ -284,7 +284,7 @@ pub async fn get_profiles(db: &Db, login: &str) -> serde_json::Value {
     .await
     .unwrap_or_default();
     let mut rv: Vec<serde_json::Value> =
-        vec![serde_json::json!({ "label": "Default profile", "value": 0 })];
+        vec![serde_json::json!({ "label": __("Default profile"), "value": 0 })];
     for (title, id) in rows {
         rv.push(serde_json::json!({ "label": title, "value": id }));
     }

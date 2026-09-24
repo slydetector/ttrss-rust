@@ -8,7 +8,8 @@
 
 //!   * `/healthz`.
 
-use crate::core::phpser::Value;
+use crate::core::phpser::Value;use crate::i18n::{__};
+
 use crate::core::session as core_session;
 use crate::util::{ct_eq, now_unix};
 use sqlx::Row;
@@ -911,7 +912,7 @@ async fn login_flow(
 
     // Failure (or no plugin handled it): set the error and redirect.
     let message = ctx.login_error.unwrap_or_else(|| {
-        "Incorrect username or password".to_string()
+        __("Incorrect username or password")
     });
     let cur = sess.id();
     let sid = if cur.is_empty() {
