@@ -19,6 +19,7 @@ use std::sync::LazyLock;
 use sqlx::AssertSqlSafe;
 
 use crate::core::db::Db;
+use crate::i18n::{t_sprintf};
 
 use crate::labels;
 use crate::prefs;
@@ -323,7 +324,7 @@ pub async fn dry_run(
         Ok(_) => (query_part.to_string(), String::new()),
         Err(_) => (
             "false".to_string(),
-            crate::i18n::t_sprintf("Incorrect search syntax: %s.", &[
+            t_sprintf("Incorrect search syntax: %s.", &[
                 &words.join(" "),
             ]),
         ),

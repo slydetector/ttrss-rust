@@ -4,7 +4,7 @@ use serde_json::{json, Map, Value};
 use sqlx::Row;
 use sqlx::AssertSqlSafe;
 
-use crate::session::Sess;use crate::i18n::{__};
+use crate::session::Sess;use crate::i18n::{__, t_sprintf};
 
 use crate::time::{make_local_datetime, TzCtx};
 use crate::util::{clean_int, htmlspecialchars};
@@ -137,7 +137,7 @@ async fn log_viewer(state: &AppState, sess: &Sess, page: i64, severity: i64) -> 
 
     let p1 = (page + 1).to_string();
     let p2 = (total_pages + 1).to_string();
-    let page_label = crate::i18n::t_sprintf("Page %d of %d", &[&p1, &p2]);
+    let page_label = t_sprintf("Page %d of %d", &[&p1, &p2]);
     let prev_disabled = if page <= 0 { "disabled" } else { "" };
     let next_disabled = if page >= total_pages { "disabled" } else { "" };
 

@@ -26,7 +26,7 @@ use crate::feeds::{
     FEED_ALL, FEED_ARCHIVED, FEED_FRESH, FEED_PUBLISHED, FEED_RECENTLY_READ, FEED_STARRED,
 };
 use crate::labels::{feed_to_label_id, LABEL_BASE_INDEX};
-use crate::i18n::__;
+use crate::i18n::{__, t_sprintf};
 
 // `Feeds::FEED_ERROR` (functions.php): the virtual "error feed" pseudo-id.
 pub(crate) const FEED_ERROR: i64 = -7;
@@ -729,7 +729,7 @@ async fn format_headlines_list(
             time::make_local_datetime(date_entered_str.as_deref(), false, &tz);
         line.insert(
             "imported".into(),
-            json!(crate::i18n::t_sprintf(
+            json!(t_sprintf(
                 "Imported at %s",
                 &[imported_at.as_str()]
             )),
@@ -824,7 +824,7 @@ async fn format_headlines_list(
             msg.push_str("<p><span class=\"text-muted\">");
             let last_updated_str =
                 time::make_local_datetime(last_updated.as_deref(), false, &tz);
-            msg.push_str(&crate::i18n::t_sprintf(
+            msg.push_str(&t_sprintf(
                 "Feeds last updated at %s",
                 &[last_updated_str.as_str()],
             ));
@@ -1637,7 +1637,7 @@ async fn get_headlines(
     // feed title / site url / error / last updated
     let (feed_title, feed_site_url, last_error, last_updated) = if !search.is_empty() {
         (
-            crate::i18n::t_sprintf("Search results: %s", &[search]),
+            t_sprintf("Search results: %s", &[search]),
             String::new(),
             String::new(),
             None,
