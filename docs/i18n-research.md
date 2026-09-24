@@ -49,7 +49,8 @@
 
 - **Load once at startup** (or lazily on first use per locale): parse each `.mo` file from `docroot/locale/<locale>/LC_MESSAGES/messages.mo` into a `Catalog`.
 - **Per-request locale resolution:** `USER_LANGUAGE` pref → if set and not `"auto"`, use it. Else parse `Accept-Language` header (same algorithm as PHP: q-factors, full-locale-then-2-letter). Else English (identity).
-- **`__()` in Rust:** a function/macro that takes the resolved locale + catalog and returns the translated string. For the shell template (rendered per-request), the locale is known at render time. For API responses, same.
+- **Translation context (task-local):** the resolved locale + the shared cache are stored once per request in a `tokio::task_local!` (`I18nCtx { locale, cache }`), set at each entry point after the locale is resolved. Call sites never thread `(locale, cache)` — they use the bare helpers below, which read the task-local (English/identity fallback when not scoped). This is the per-request analog of PHP's request-global gettext domain; Rust is multi-threaded, so it can't be a process-global (`setlocale`) like `gettext-rs`/`rust-i18n` use for CLIs.
+- **`__()` in Rust:** bare helpers that read the task-local context and translate: `__(msg)`, `t_sprintf(fmt, args)`, `t_nsprintf(singular, plural, n, args)`. The minijinja `__` is the same `__` function. A pure `vsprintf(fmt, args)` formats without translating. The low-level primitives (`translate`, `translate_sprintf`) take `(locale, cache, …)` explicitly and are internal (unit-tested).
 - **`translations` RPC field:** iterate the resolved catalog's entries and build the flat map (same as PHP's `_translations_as_array`).
 
 **What gets translated:**
@@ -72,7 +73,8 @@
 |-----------|--------|-------|
 | M10.1 | ✅ Done (`6cfdb93`, `65f8fce`) | `I18nCache` (lazy `.mo`), `resolve_locale`, `resolve_request_locale`, `__`, `t_sprintf`. Wired into `AppState`. |
 | M10.2 | ✅ Done | Shell template → minijinja with `__()` ✅. `t_nsprintf` ✅. Login/OTP/forgotpass templates ✅. **`translations` RPC `init` field populated** — it was an empty `Value::Array` placeholder since M2 (the field was *present*, never *populated*, so SPA client-side i18n via `App._translations` was dead): now resolves the locale (profile-aware `USER_LANGUAGE` + `Accept-Language`) and returns the original→translated object (PHP `RPC.php:198`). Guard: `tests/rpc_init_translations.rs`. |
-| M10.3 | ⬜ Pending | API response string audit + `__()` wrappers. (The stray `getconfig` `translations` field — added in M10.2 in the wrong endpoint, where PHP sends none — was removed 2026-09-23; `tests/api_getconfig.rs` now pins its absence.) |
+| M10.2b | ⬜ Planned | **Translation-context re-architecture**: move from the explicit `(locale, i18n)` pass to the canonical task-local + bare `__()` design (increment below). Behavior-identical — no new strings, all tests stay green. Prerequisite for the rest of M10.3. |
+| M10.3 | 🔨 In progress | The interactive `view` path, `hotkeyhelp`, the search-syntax error, and the machine API + syndication already carry the resolved locale (explicit pass, since 2026-09-23; `tests/rpc_init_translations.rs::test_view_feed_not_found_translated`). M10.2b re-lands this on the task-local design, then the remaining ~400 UI/API strings get bare `__()` wrappers. (The stray `getconfig` `translations` field — added in M10.2 in the wrong endpoint, where PHP sends none — was removed 2026-09-23; `tests/api_getconfig.rs` now pins its absence.) |
 | M10.4 | ⬜ Pending | Plugin strings via `HostCtx`. |
 | M10.5 | ⬜ Deferred to M8 | CLI strings. |
 | M10.6 | ⬜ Pending | Verification & parity (5 locales end-to-end). |
@@ -110,6 +112,49 @@
 **Test:** Render the shell with locale `de_DE` and assert a known string is translated (e.g., "Loading, please wait..." → German). Verify the `translations` RPC field is non-empty for a non-English locale and empty (or identity) for English/no locale.
 
 **Size:** ~200-300 lines (mostly the template string substitutions) + tests.
+
+---
+
+### M10.2b — Translation-context re-architecture (task-local + bare `__()`)
+
+**Why:** M10.2/M10.3 threaded the resolved `(locale, i18n)` pair into every rendering function. That works, but ~576 plain-translate call sites each carry two parameters they don't need. The canonical design keeps the catalog shared on `AppState`, stores the *per-request* locale in a `tokio::task_local!`, and exposes bare helpers that read it — call sites become `__("Special")`, not `__(locale, i18n, "Special")`. This increment re-lands the existing threading on that design. **Behavior-identical:** no new strings are translated, no output changes, all current tests stay green.
+
+**The design (canonical target):**
+```rust
+// i18n.rs
+pub struct I18nCtx { pub locale: Option<String>, pub cache: Arc<I18nCache> }
+tokio::task_local! { static I18N: I18nCtx; }
+
+// public bare helpers — the ONLY thing call sites use; read I18N, English fallback when not scoped
+pub fn __(msg: &str) -> String
+pub fn t_sprintf(fmt: &str, args: &[&str]) -> String
+pub fn t_nsprintf(singular: &str, plural: &str, n: i64, args: &[&str]) -> String
+
+// internal pure primitives (renamed from the current threaded fns); unit-tested directly
+fn translate(locale: Option<&str>, cache: &I18nCache, msg: &str) -> String
+fn translate_sprintf(locale: Option<&str>, cache: &I18nCache, fmt: &str, args: &[&str]) -> String
+
+// util.rs — pure format, no i18n (was the identity `util::t_sprintf`)
+pub fn vsprintf(fmt: &str, args: &[&str]) -> String
+```
+- **Naming mirrors PHP** (`__()`/`_()`, `T_sprintf`, `T_nsprintf`/`_ngettext`, `vsprintf`); `__` compiles (single `_` is the reserved wildcard; `__` is a normal identifier). End-state call-site split (counted from the PHP reference): `__` ~576, `t_sprintf` ~49, `t_nsprintf` ~30, `vsprintf` ~5.
+- **minijinja:** `env.add_function("__", |msg| i18n::__(&msg))` — the template's `{{ __(… ) }}` *is* the Rust `__`.
+- **Scope set-points** (wrap the post-auth handling in `I18N.scope(ctx, async {…})`): `rpc::dispatch`, the `api` handler, `syndication`, and the three `http` handlers (login / shell / otp).
+
+**Inventory (every surface that must move to the bare helpers):**
+1. **Substrate (`i18n.rs`)** — add the `I18N` task-local + `I18nCtx` + bare `__`/`t_sprintf`/`t_nsprintf`; rename the current threaded primitives to internal `translate`/`translate_sprintf` (call sites stop using them). Resolution fns (`resolve_request_locale`, `resolve_user_locale`) unchanged.
+2. **Entry points (4)** — set the scope: `rpc.rs` `dispatch` (~335), `api.rs` handler (~798), `syndication.rs` (~151), `http.rs` (120 / 149 / 201).
+3. **Leaf fns — drop `(locale, i18n)` params, call bare helpers** — `hotkeys::hotkey_help` (265); `headlines::view` (68), `get_headlines_query` (1397), `cat_title` (1964), `format_headlines_list` (~738/845); `search::search_syntax_error` (~317); plus every `crate::i18n::__` / `t_sprintf` call (headlines 163/572/707/738/785/790/795/802/808/845/852/1671/1716/1972–1974; hotkeys 281/289/295; search 328).
+4. **Render path** — `render.rs` `render_shell` (111), `render_login_page` (174), the third (239) + `forgotpass.rs:302`: the `add_function("__", …)` closure becomes `|msg| i18n::__(&msg)`; drop the `(locale, i18n)` params.
+5. **Identity-formatter gaps → translating** — verify each against PHP `T_sprintf`; convert the user-facing ones to `t_sprintf(…)`, rename the pure formatter `util::t_sprintf` → `util::vsprintf`: `pref_ui.rs:571`, `system.rs:139`, `filters.rs:66/115/133/217/253`.
+6. **Tests** — `render.rs` tests (317–460) → `#[tokio::test]` + `I18N.scope(…)`; any test passing `(locale, i18n)` to a leaf fn → drop the args; `i18n.rs` primitive tests unchanged (they test `translate`/`resolve_*`); integration tests unchanged (scope set at the entry).
+7. **`HostCtx`** — unchanged (no locale field); M10.4 plugins call bare `__()`.
+
+**Verification:** behavior-identical — the whole existing suite (lib + integration) stays green; the de_DE regression tests (`test_view_feed_not_found_translated`, the shell/render `de_DE` tests) still assert the same translated output; the integration tests pass because the scope is set at each entry.
+
+**Size:** ~300–450 lines (mostly mechanical param/thread removal + the new substrate fns) + test updates.
+
+**Sequencing:** lands before continuing M10.3 — after it, translating the remaining ~400 strings is just wrapping literals in bare `__(…)`, no threading.
 
 ---
 
@@ -174,7 +219,9 @@
 | 6 | **The `translations` RPC field** | Full catalog (all entries in the `.mo`). Match PHP exactly. |
 | 7 | **CLI i18n** | Defer to M8. Operational output, not user-facing. |
 | 8 | **Plural forms in the `translations` map** | Include both singular and plural (match PHP). The frontend `ngettext()` handles selection. |
-| 9 | **Rust function name** | `__()`. Matches the PHP reference and the frozen frontend JS. A module-level `i18n::__()` function. |
+| 9 | **Rust function name** | `__()`. Matches the PHP reference and the frozen frontend JS. (See #11 for the full bare-helper scheme.) |
+| 10 | **Translation-context mechanism** | `tokio::task_local!` holding `I18nCtx { locale, cache }`, set once per request at each entry point (post-auth); call sites use the bare helpers, which read it (English/identity fallback when not scoped). Supersedes the earlier explicit `(locale, i18n)` pass (the "axum-ecosystem norm" noted in plan.md). Rationale: PHP's gettext keeps the domain in a request-global; Rust is multi-threaded, so the per-request analog is a task-local (a process-global `setlocale` à la `gettext-rs`/`rust-i18n` would race across concurrent requests). |
+| 11 | **Bare-helper naming scheme** | `__()` / `t_sprintf()` / `t_nsprintf()` (translating, read the task-local) + `vsprintf()` (pure format, no i18n) — mirrors PHP's function families (`__()`/`_()`, `T_sprintf`, `T_nsprintf`/`_ngettext`, `vsprintf`). `__` compiles (single `_` is the reserved wildcard; `__` is a normal identifier). The `(locale, cache, …)` primitives are demoted to internal `translate` / `translate_sprintf`; the identity `util::t_sprintf` becomes `util::vsprintf`. |
 ---
 
 ## What's NOT in M10
@@ -192,8 +239,9 @@
 |-----------|---------------------|
 | M10.1 | ~200 |
 | M10.2 | ~300 |
+| M10.2b | ~350 |
 | M10.3 | ~150 |
 | M10.4 | ~75 |
 | M10.5 | ~50 (deferred to M8) |
 | M10.6 | ~125 |
-| **Total** | **~1,000** |
+| **Total** | **~1,350** |
