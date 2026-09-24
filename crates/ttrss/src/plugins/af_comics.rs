@@ -36,6 +36,7 @@ use scraper::{ElementRef, Html, Selector};
 use serde_json::{Value, json};
 
 use crate::pluginhost::host::{HostCtx, PluginHost};
+use crate::i18n::{__};
 use crate::pluginhost::plugin::{About, BoxFuture, Plugin};
 use crate::pluginhost::{
     HOOK_ARTICLE_FILTER, HOOK_FETCH_FEED, HOOK_FEED_BASIC_INFO, HOOK_PREFS_TAB, HOOK_SUBSCRIBE_FEED,
@@ -723,9 +724,11 @@ impl Plugin for AfComics {
             let notice_filters = crate::controls::format_notice(
                 "Drop any updated filters into <code>filters.local</code> in plugin                  directory.",
             );
+            let comics_header = __("The following comics are currently supported:");
+            let feeds_title = __("Feeds supported by af_comics");
             host.output.push_str(&format!(
-                "<div dojoType=\"dijit.layout.AccordionPane\"                  title=\"<i class='material-icons'>photo</i> Feeds supported by af_comics\">\n\
-                 \t<h3>The following comics are currently supported:</h3>\n\
+                "<div dojoType=\"dijit.layout.AccordionPane\"                  title=\"<i class='material-icons'>photo</i> {feeds_title}\">\n\
+                 \t<h3>{comics_header}</h3>\n\
                  \t<ul class='panel panel-scrollable list list-unstyled'>\n\
                  {list}\
                  \t</ul>\n\

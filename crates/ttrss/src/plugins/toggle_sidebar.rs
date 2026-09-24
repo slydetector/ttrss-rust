@@ -11,6 +11,7 @@
 use crate::pluginhost::host::{HostCtx, PluginHost};
 use crate::pluginhost::plugin::{About, BoxFuture, Plugin};
 use crate::pluginhost::HOOK_MAIN_TOOLBAR_BUTTON;
+use crate::i18n::{__};
 
 /// The `toggle_sidebar` plugin.
 #[derive(Clone, Copy)]
@@ -54,13 +55,14 @@ Plugins.Toggle_Sidebar = {
         host: &'a mut HostCtx<'h>,
     ) -> BoxFuture<'a, ()> {
         Box::pin(async move {
-            host.output.push_str(
+            let toggle_title = __("Toggle sidebar");
+            host.output.push_str(&format!(
                 "<button dojoType=\"dijit.form.Button\" \
                  onclick=\"Plugins.Toggle_Sidebar.toggle(this)\">\
                  <i class=\"material-icons toggle-sidebar-label\"\
-                 title=\"Toggle sidebar\">chevron_left</i>\
+                 title=\"{toggle_title}\">chevron_left</i>\
                  </button>",
-            );
+            ));
         })
     }
 }

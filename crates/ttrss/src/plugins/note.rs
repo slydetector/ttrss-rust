@@ -25,6 +25,7 @@ use crate::pluginhost::host::{HostCtx, PluginHost};
 use crate::pluginhost::plugin::{About, BoxFuture, MethodOutput, Plugin, PluginError};
 use crate::pluginhost::HOOK_ARTICLE_BUTTON;
 use crate::util::clean_str;
+use crate::i18n::{__};
 
 /// PHP's `class Note extends Plugin`.
 pub struct Note;
@@ -64,10 +65,11 @@ impl Plugin for Note {
         line: &'a Value,
     ) -> BoxFuture<'a, String> {
         let id = line["id"].as_i64().unwrap_or(0);
+        let edit_note_title = __("Edit article note");
         Box::pin(async move {
             format!(
                 "<i class='material-icons' onclick=\"Plugins.Note.edit({id})\" \
-                 style='cursor : pointer' title=\"Edit article note\">note</i>"
+                 style='cursor : pointer' title=\"{edit_note_title}\">note</i>"
             )
         })
     }
@@ -136,8 +138,8 @@ async fn edit(
     }
     // The footer always prints, even with no row.
     out.push_str("<footer class='text-center'>");
-    out.push_str(&submit_tag("Save"));
-    out.push_str(&cancel_dialog_tag("Cancel"));
+    out.push_str(&submit_tag(&__("Save")));
+    out.push_str(&cancel_dialog_tag(&__("Cancel")));
     out.push_str("</footer>");
     Ok(out)
 }

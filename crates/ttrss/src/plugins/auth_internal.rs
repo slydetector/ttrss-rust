@@ -17,6 +17,7 @@
 
 use crate::auth;
 use crate::pluginhost::host::{HostCtx, PluginHost};
+use crate::i18n::{__};
 use crate::pluginhost::plugin::{About, BoxFuture, MethodOutput, Plugin, PluginError};
 use crate::pluginhost::HOOK_AUTH_USER;
 use serde_json::Value;
@@ -103,10 +104,10 @@ impl Plugin for AuthInternal {
                         .unwrap_or("");
                     match auth::change_password(host.pool, uid, old_pw, new_pw).await {
                         Some(_) => Ok(MethodOutput::Raw(
-                            "Password has been changed.".to_string(),
+                            __("Password has been changed."),
                         )),
                         None => Ok(MethodOutput::Raw(
-                            "ERROR: Old password is incorrect.".to_string(),
+                            format!("ERROR: {}", __("Old password is incorrect.")),
                         )),
                     }
                 }

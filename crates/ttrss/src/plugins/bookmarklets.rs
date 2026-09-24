@@ -22,6 +22,7 @@ use crate::pluginhost::plugin::{
 };
 use crate::pluginhost::HOOK_PREFS_TAB;
 use crate::{controls, util};
+use crate::i18n::{__};
 
 /// PHP's `class Bookmarklets extends Plugin` (stateless → `Copy`).
 #[derive(Clone, Copy)]
@@ -114,7 +115,7 @@ impl Bookmarklets {
         .unwrap_or_default();
 
         // PHP: `str_replace("'", "\'", __('Subscribe to %s in Tiny Tiny RSS?'))`
-        let confirm_str = "Subscribe to %s in Tiny Tiny RSS?";
+        let confirm_str = __("Subscribe to %s in Tiny Tiny RSS?");
         let bm_subscribe_js = format!(
             "javascript:{{if(confirm('{confirm}'.replace('%s',window.location.href)))window.location.href='{url}&feed_url='+encodeURIComponent(window.location.href)}}",
             confirm = confirm_str.replace('\'', "\\'"),
@@ -129,7 +130,7 @@ impl Bookmarklets {
         let bm_share_js = util::htmlspecialchars(&bm_share_js);
 
         let more_info_btn = controls::button_tag(
-            &format!("{} More info...", controls::icon("help")),
+            &format!("{} {}", controls::icon("help"), __("More info...")),
             "",
             &[
                 ("class", "alt-info".to_string()),
@@ -140,15 +141,20 @@ impl Bookmarklets {
             ],
         );
 
+        let bl_title = __("Bookmarklets");
+        let bl_drag = __("Drag the link below to your browser toolbar, open the feed you're interested in in your browser and click on the link to subscribe to it.");
+        let bl_sub = __("Subscribe in Tiny Tiny RSS");
+        let bl_use = __("Use this bookmarklet to publish arbitrary pages using Tiny Tiny RSS");
+        let bl_share = __("Share with Tiny Tiny RSS");
         host.output.push_str(&format!(
-            "<div dojoType=\"dijit.layout.AccordionPane\" title=\"<i class='material-icons'>bookmark</i> Bookmarklets\">\n\
-             \t<h3>Drag the link below to your browser toolbar, open the feed you're interested in in your browser and click on the link to subscribe to it.</h3>\n\
+            "<div dojoType=\"dijit.layout.AccordionPane\" title=\"<i class='material-icons'>bookmark</i> {bl_title}\">\n\
+             \t<h3>{bl_drag}</h3>\n\
              \t<label class='dijitButton'>\n\
-             \t\t<a href=\"{subscribe_js}\">Subscribe in Tiny Tiny RSS</a>\n\
+             \t\t<a href=\"{subscribe_js}\">{bl_sub}</a>\n\
              \t</label>\n\
-             \t<h3>Use this bookmarklet to publish arbitrary pages using Tiny Tiny RSS</h3>\n\
+             \t<h3>{bl_use}</h3>\n\
              \t<label class='dijitButton'>\n\
-             \t\t<a href=\"{share_js}\">Share with Tiny Tiny RSS</a>\n\
+             \t\t<a href=\"{share_js}\">{bl_share}</a>\n\
              \t</label>\n\
              \t{more_info}\n\
              </div>\n",
@@ -169,6 +175,14 @@ impl Bookmarklets {
         params: &Value,
     ) -> Result<MethodOutput, PluginError> {
         let uid = host.owner_uid.unwrap_or(0);
+        let share_popup_title = __("Share with Tiny Tiny RSS");
+        let login_label = __("Login:");
+        let password_label = __("Password:");
+        let title_label = __("Title:");
+        let url_label = __("URL:");
+        let content_label = __("Content:");
+        let labels_label = __("Labels:");
+        let published_note = __("Shared article will appear in the Published feed.");
 
         if uid == 0 {
             // Not logged in — the login form (simplified).
@@ -180,14 +194,14 @@ impl Bookmarklets {
             )
             .unwrap_or_default();
             let body = format!(
-                "<!DOCTYPE html><html><head><title>Share with Tiny Tiny RSS</title></head>\n\
+                "<!DOCTYPE html><html><head><title>{share_popup_title}</title></head>\n\
                  <body class='flat ttrss_utility share_popup css_loading'>\n\
                  <div class='content'>\n\
                  {}\n\
                  <form action=\"public.php?return={}\" method=\"post\">\n\
                  <input type=\"hidden\" name=\"op\" value=\"login\">\n\
-                 <fieldset><label>Login:</label><input name=\"login\" required=\"1\"></fieldset>\n\
-                 <fieldset><label>Password:</label><input type=\"password\" name=\"password\" required=\"1\"></fieldset>\n\
+                 <fieldset><label>{login_label}</label><input name=\"login\" required=\"1\"></fieldset>\n\
+                 <fieldset><label>{password_label}</label><input type=\"password\" name=\"password\" required=\"1\"></fieldset>\n\
                  <fieldset><label> </label><button type=\"submit\" class=\"alt-primary\">Log in</button></fieldset>\n\
                  </form>\n\
                  </div>\n\
@@ -231,7 +245,9 @@ impl Bookmarklets {
             return Ok(MethodOutput::Response {
                 status: 200,
                 content_type: "text/html; charset=utf-8",
-                body: "<!DOCTYPE html><html><head><title>Share with Tiny Tiny RSS</title></head><body><script>window.close();</script></body></html>".to_string(),
+                body: format!(
+                    "<!DOCTYPE html><html><head><title>{share_popup_title}</title></head><body><script>window.close();</script></body></html>",
+                ),
             });
         }
 
@@ -248,22 +264,22 @@ impl Bookmarklets {
             .unwrap_or_default();
 
         let form = format!(
-            "<!DOCTYPE html><html><head><title>Share with Tiny Tiny RSS</title></head>\n\
+            "<!DOCTYPE html><html><head><title>{share_popup_title}</title></head>\n\
              <body class='flat ttrss_utility share_popup css_loading'>\n\
              <div class='content'>\n\
              <form method='post' action='public.php'>\n\
              <input type='hidden' name='op' value='bookmarklets--sharepopup'>\n\
              <input type='hidden' name='csrf_token' value='{csrf}'>\n\
              <input type='hidden' name='action' value='share'>\n\
-             <fieldset><label>Title:</label><input style='width : 270px' name='title' value='{title}'></fieldset>\n\
-             <fieldset><label>URL:</label><input style='width : 270px' name='url' value='{url}'></fieldset>\n\
-             <fieldset><label>Content:</label><input style='width : 270px' name='content' value=''></fieldset>\n\
-             <fieldset><label>Labels:</label><input style='width : 270px' name='labels' id='labels_value' placeholder='Alpha, Beta, Gamma' value=''></fieldset>\n\
+             <fieldset><label>{title_label}</label><input style='width : 270px' name='title' value='{title}'></fieldset>\n\
+             <fieldset><label>{url_label}</label><input style='width : 270px' name='url' value='{url}'></fieldset>\n\
+             <fieldset><label>{content_label}</label><input style='width : 270px' name='content' value=''></fieldset>\n\
+             <fieldset><label>{labels_label}</label><input style='width : 270px' name='labels' id='labels_value' placeholder='Alpha, Beta, Gamma' value=''></fieldset>\n\
              <hr/>\n\
              <fieldset>\n\
              {share_btn}\n\
              {cancel_btn}\n\
-             <span class='text-muted small'>Shared article will appear in the Published feed.</span>\n\
+             <span class='text-muted small'>{published_note}</span>\n\
              </fieldset>\n\
              </form>\n\
              </div>\n\
@@ -271,8 +287,8 @@ impl Bookmarklets {
             title = title,
             url = url,
             csrf = csrf,
-            share_btn = controls::submit_tag("Share"),
-            cancel_btn = controls::button_tag("Cancel", "", &[("onclick", "window.close()".to_string())]),
+            share_btn = controls::submit_tag(&__("Share")),
+            cancel_btn = controls::button_tag(&__("Cancel"), "", &[("onclick", "window.close()".to_string())]),
         );
 
         Ok(MethodOutput::Response {
@@ -295,6 +311,13 @@ impl Bookmarklets {
         let uid = host.owner_uid.unwrap_or(0);
         let cfg = host.cfg;
         let pool = host.pool;
+        let subscribe_title = __("Subscribe to feed...");
+        let return_to_ttrss = __("Return to Tiny Tiny RSS");
+        let multiple_urls = __("Multiple feed URLs found:");
+        let subscribe_selected = __("Subscribe to selected feed");
+        let edit_options = __("Edit subscription options");
+        let login_label = __("Login:");
+        let password_label = __("Password:");
 
         let feed_url = util::clean_str(params.get("feed_url").and_then(|v| v.as_str()).unwrap_or(""));
         let csrf = util::clean_str(params.get("csrf_token").and_then(|v| v.as_str()).unwrap_or(""));
@@ -309,14 +332,14 @@ impl Bookmarklets {
             )
             .unwrap_or_default();
             format!(
-                "<!DOCTYPE html><html><head><title>Subscribe to feed...</title></head>\n\
+                "<!DOCTYPE html><html><head><title>{subscribe_title}</title></head>\n\
                  <body class='flat ttrss_utility share_popup css_loading'>\n\
                  <div class='content'>\n\
                  {}\n\
                  <form action=\"public.php?return={}\" method=\"post\">\n\
                  <input type=\"hidden\" name=\"op\" value=\"login\">\n\
-                 <fieldset><label>Login:</label><input name=\"login\" required=\"1\"></fieldset>\n\
-                 <fieldset><label>Password:</label><input type=\"password\" name=\"password\" required=\"1\"></fieldset>\n\
+                 <fieldset><label>{login_label}</label><input name=\"login\" required=\"1\"></fieldset>\n\
+                 <fieldset><label>{password_label}</label><input type=\"password\" name=\"password\" required=\"1\"></fieldset>\n\
                  <fieldset><label> </label><button type=\"submit\" class=\"alt-primary\">Log in</button></fieldset>\n\
                  </form>\n\
                  </div>\n\
@@ -327,16 +350,16 @@ impl Bookmarklets {
         } else if feed_url.is_empty() || csrf.is_empty() {
             // No feed URL or CSRF token — the form.
             format!(
-                "<!DOCTYPE html><html><head><title>Subscribe to feed...</title></head>\n\
+                "<!DOCTYPE html><html><head><title>{subscribe_title}</title></head>\n\
                  <body class='flat ttrss_utility share_popup css_loading'>\n\
                  <div class='content'>\n\
-                 <h1>Subscribe to feed...</h1>\n\
+                 <h1>{subscribe_title}</h1>\n\
                  <form method=\"post\" action='public.php'>\n\
                  <input type=\"hidden\" name=\"op\" value=\"bookmarklets--subscribe\">\n\
                  <input type=\"hidden\" name=\"csrf_token\" value=\"{csrf}\">\n\
                  <fieldset><label>Feed or site URL:</label><input style=\"width: 300px\" name=\"feed_url\" value=\"{feed_url_esc}\"></fieldset>\n\
                  <button class=\"alt-primary\" type=\"submit\">Subscribe</button>\n\
-                 <a href=\"index.php\">Return to Tiny Tiny RSS</a>\n\
+                 <a href=\"index.php\">{return_to_ttrss}</a>\n\
                  </form>\n\
                  </div>\n\
                  </body></html>",
@@ -394,10 +417,10 @@ impl Bookmarklets {
                             "<form method='post' action='public.php'>\n\
                              <input type='hidden' name='op' value='bookmarklets--subscribe'>\n\
                              <input type='hidden' name='csrf_token' value='{csrf}'>\n\
-                             <fieldset><label style='display : inline'>Multiple feed URLs found:</label>\
+                             <fieldset><label style='display : inline'>{multiple_urls}</label>\
                              <select name='feed_url'>{options}</select></fieldset>\n\
-                             <button class='alt-primary' type='submit'>Subscribe to selected feed</button>\n\
-                             <a href='index.php'>Return to Tiny Tiny RSS</a>\n\
+                             <button class='alt-primary' type='submit'>{subscribe_selected}</button>\n\
+                             <a href='index.php'>{return_to_ttrss}</a>\n\
                              </form>",
                             csrf = csrf,
                             options = options,
@@ -431,8 +454,8 @@ impl Bookmarklets {
                          <input type='hidden' name='tab' value='feeds'>\n\
                          <input type='hidden' name='method' value='editfeed'>\n\
                          <input type='hidden' name='methodparam' value='{feed_id}'>\n\
-                         <button class='alt-info' type='submit'>Edit subscription options</button>\n\
-                         <a href='index.php'>Return to Tiny Tiny RSS</a>\n\
+                         <button class='alt-info' type='submit'>{edit_options}</button>\n\
+                         <a href='index.php'>{return_to_ttrss}</a>\n\
                          </form>",
                     ));
                 }
@@ -441,11 +464,11 @@ impl Bookmarklets {
             if code == 4 {
                 // Already handled in the switch above.
             } else if out.is_empty() {
-                out.push_str("<a href='index.php'>Return to Tiny Tiny RSS</a>");
+                out.push_str(&format!("<a href='index.php'>{return_to_ttrss}</a>"));
             }
 
             format!(
-                "<!DOCTYPE html><html><head><title>Subscribe to feed...</title></head>\n\
+                "<!DOCTYPE html><html><head><title>{subscribe_title}</title></head>\n\
                  <body class='flat ttrss_utility share_popup css_loading'>\n\
                  <div class='content'>\n\
                  {out}\n\

@@ -23,6 +23,7 @@
 use serde_json::{json, Map, Value};
 
 use crate::controls::{pluginhandler_tags, submit_tag};
+use crate::i18n::{__};
 use crate::pluginhost::host::{HostCtx, PluginHost};
 use crate::pluginhost::plugin::{About, BoxFuture, MethodOutput, Plugin, PluginError};
 use crate::pluginhost::{
@@ -93,7 +94,7 @@ impl Plugin for NsFw {
                         .await
                         .map_err(|e| PluginError::Other(e.to_string()))?;
                     // PHP: `echo __("Configuration saved.");`
-                    Ok(MethodOutput::Raw("Configuration saved.".to_string()))
+                    Ok(MethodOutput::Raw(__("Configuration saved.")))
                 }
                 _ => Err(PluginError::UnknownMethod(method.to_string())),
             }
@@ -198,9 +199,11 @@ impl Plugin for NsFw {
                 return;
             }
             let tags = stored_tags(host, &this).await.unwrap_or_default();
+            let nsfw_title = __("NSFW Plugin");
+            let nsfw_tags_header = __("Tags to consider NSFW (comma-separated):");
             host.output.push_str(&format!(
                 "<div dojoType=\"dijit.layout.AccordionPane\" \
-                 title=\"<i class='material-icons'>extension</i> NSFW Plugin\">\n \
+                 title=\"<i class='material-icons'>extension</i> {nsfw_title}\"\n \
                  <form dojoType=\"dijit.form.Form\">\n \
                  {tags}\n \
                  <script type=\"dojo/method\" event=\"onSubmit\" args=\"evt\">\n \
@@ -212,7 +215,7 @@ impl Plugin for NsFw {
                  }})\n \
                  }}\n \
                  </script>\n \
-                 <header>Tags to consider NSFW (comma-separated):</header>\n \
+                 <header>{nsfw_tags_header}</header>\n \
                  <fieldset>\n \
                  <textarea dojoType='dijit.form.SimpleTextarea' rows='4' \
                  style='width: 500px; font-size : 12px;' \
@@ -224,7 +227,7 @@ impl Plugin for NsFw {
                  </div>",
                 tags = pluginhandler_tags("NSFW", "save"),
                 tags_escaped = escape_html(&tags),
-                save = submit_tag("Save"),
+                save = submit_tag(&__("Save")),
             ));
         })
     }
@@ -242,8 +245,9 @@ async fn rewrite_contents(
     let mut out = article.clone();
     if matches_tags(host, this, article).await? {
         let content = article.get("content").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let summary = __("Not safe for work (click to toggle)");
         out["content"] = Value::String(format!(
-            "<details class='nsfw'><summary>Not safe for work (click to toggle)</summary>{content}</details>"
+            "<details class='nsfw'><summary>{summary}</summary>{content}</details>"
         ));
     }
     Ok(out)

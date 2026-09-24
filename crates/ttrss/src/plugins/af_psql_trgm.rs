@@ -24,6 +24,7 @@
 use serde_json::{json, Value};
 
 use crate::pluginhost::host::{HostCtx, PluginHost};
+use crate::i18n::{__, t_sprintf};
 use crate::pluginhost::plugin::{About, BoxFuture, MethodOutput, Plugin, PluginError};
 use crate::pluginhost::{
     HOOK_ARTICLE_BUTTON, HOOK_ARTICLE_FILTER, HOOK_PREFS_EDIT_FEED, HOOK_PREFS_SAVE_FEED,
@@ -53,11 +54,9 @@ impl AfPsqlTrgm {
             (similarity * 100.0).round() / 100.0
         };
         let _min_len = if min_title_length < 0 { 0 } else { min_title_length };
-        format!(
-            "Data saved ({:.2}, {})",
-            sim,
-            if enable_globally { "on" } else { "off" }
-        )
+        let sim_str = format!("{:.2}", sim);
+        let global_str = if enable_globally { "on" } else { "off" };
+        t_sprintf("Data saved (%s, %d)", &[&sim_str, global_str])
     }
 
     /// The PluginHandler `showrelated` method — the "Related articles" dialog.
@@ -130,12 +129,13 @@ impl AfPsqlTrgm {
             ));
         }
 
-        html.push_str(
+        html.push_str(&format!(
             "</ul><footer class='text-center'>\
              <button dojoType='dijit.form.Button' type='submit' class='alt-primary'>\
-             Close this window</button>\
+             {close}</button>\
              </footer>",
-        );
+            close = __("Close this window"),
+        ));
 
         Ok(html)
     }
@@ -265,10 +265,11 @@ Plugins.Psql_Trgm = {
     ) -> BoxFuture<'a, String> {
         Box::pin(async move {
             let id = line.get("id").and_then(Value::as_i64).unwrap_or(0) as i32;
+            let show_related = __("Show related articles");
             format!(
                 "<i style=\"cursor : pointer\" class='material-icons' \
                  onclick=\"Plugins.Psql_Trgm.showRelated({})\" \
-                 title=\"Show related articles\">bookmark_outline</i>",
+                 title=\"{show_related}\">bookmark_outline</i>",
                 id
             )
         })
@@ -379,11 +380,12 @@ Plugins.Psql_Trgm = {
                     .ok()
                     .flatten();
 
-            host.output.push_str(
+            let tab_title = __("Mark similar articles as read (af_psql_trgm)");
+            host.output.push_str(&format!(
                 "<div dojoType=\"dijit.layout.AccordionPane\" \
                  title=\"<i class='material-icons'>extension</i> \
-                 Mark similar articles as read (af_psql_trgm)\">\n",
-            );
+                 {tab_title}\">\n",
+            ));
 
             if !has_trgm.unwrap_or(false) {
                 host.output
@@ -428,7 +430,7 @@ Plugins.Psql_Trgm = {
                 \n\t\t\t\t\t\t})\
                 \n\t\t\t\t\t}\
                 \n\t\t\t\t</script>";
-            let submit = controls::submit_tag("Save");
+            let submit = controls::submit_tag(&__("Save"));
             let enable_cb = controls::checkbox_tag("enable_globally", enable_globally, "", &[]);
 
             host.output.push_str(
@@ -443,23 +445,25 @@ Plugins.Psql_Trgm = {
                 "\t{notice}\n",
                 notice = controls::format_notice("Enable for specific feeds in the feed editor.")
             ));
+            let min_sim_label = __("Minimum similarity:");
+            let sim_tooltip = __("PostgreSQL trigram extension returns string similarity as a floating point number (0-1). Setting it too low might produce false positives, zero disables checking.");
             host.output.push_str(&format!(
-                "\t<fieldset>\n\t\t<label>Minimum similarity:</label>\n\t\t<input \
+                "\t<fieldset>\n\t\t<label>{min_sim_label}</label>\n\t\t<input \
                  dojoType=\"dijit.form.NumberSpinner\" placeholder=\"{similarity_ph}\" \
                  id='psql_trgm_similarity' required=\"1\" name=\"similarity\" value=\"{similarity_val}\">\n\
                  \t\t<div dojoType='dijit.Tooltip' connectId='psql_trgm_similarity' position='below'>\
-                 PostgreSQL trigram extension returns string similarity as a floating point \
-                 number (0-1). Setting it too low might produce false positives, zero disables \
-                 checking.</div>\n\t</fieldset>\n"
+                 {sim_tooltip}</div>\n\t</fieldset>\n"
             ));
+            let min_len_label = __("Minimum title length:");
             host.output.push_str(&format!(
-                "\t<fieldset>\n\t\t<label>Minimum title length:</label>\n\t\t<input \
+                "\t<fieldset>\n\t\t<label>{min_len_label}</label>\n\t\t<input \
                  dojoType=\"dijit.form.NumberSpinner\" placeholder=\"{min_len_ph}\" \
                  required=\"1\" name=\"min_title_length\" value=\"{min_len_val}\">\n\t</fieldset>\n"
             ));
+            let enable_all = __("Enable for all feeds.");
             host.output.push_str(&format!(
                 "\t<fieldset>\n\t\t<label class='checkbox'>\n\t\t\t{cb}\
-                 Enable for all feeds.\n\t\t</label>\n\t</fieldset>\n",
+                 {enable_all}\n\t\t</label>\n\t</fieldset>\n",
                 cb = enable_cb
             ));
             host.output.push_str(&format!("\t<hr/>\n\t{submit}\n"));
@@ -520,8 +524,9 @@ Plugins.Psql_Trgm = {
                          {title}\n\t\t\t\t</a>\n\t\t\t</li>\n"
                     ));
                 }
+                let enabled_header = __("Currently enabled for (click to edit):");
                 host.output.push_str(&format!(
-                    "\t<hr/>\n\t<h3>Currently enabled for (click to edit):</h3>\n\
+                    "\t<hr/>\n\t<h3>{enabled_header}</h3>\n\
                      \t<ul class=\"panel panel-scrollable list list-unstyled\">\n{items}\t</ul>\n"
                 ));
             }
@@ -555,12 +560,14 @@ Plugins.Psql_Trgm = {
                 .unwrap_or_default();
 
             let checked = if enabled_feeds.contains(&feed_id) { "checked=\"checked\"" } else { "" };
+            let sim_header = __("Similarity (af_psql_trgm)");
+            let mark_read = __("Mark similar articles as read");
             host.output.push_str(&format!(
-                "<header>Similarity (af_psql_trgm)</header>\n\
+                "<header>{sim_header}</header>\n\
                  <section><fieldset>\n\
                   <label class=\"checkbox\">\n\
                    <input type=\"checkbox\" name=\"trgm_similarity_enabled\" {checked}>\n\
-                   Mark similar articles as read\n\
+                   {mark_read}\n\
                   </label>\n\
                  </fieldset></section>"
             ));

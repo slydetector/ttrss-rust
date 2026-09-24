@@ -23,6 +23,7 @@ use serde_json::{json, Value};
 use sqlx::Row;
 
 use crate::controls::{button_tag, format_error, format_notice, icon, submit_tag};
+use crate::i18n::{__};
 use crate::pluginhost::host::{public_method_url, HostCtx, PluginHost};
 use crate::pluginhost::plugin::{About, BoxFuture, MethodOutput, Plugin, PluginError};
 use crate::pluginhost::{HOOK_ARTICLE_BUTTON, HOOK_PREFS_TAB_SECTION};
@@ -80,10 +81,11 @@ impl Plugin for Share {
         let is_shared = line["uuid"].as_str().is_some_and(|u| !u.is_empty());
         Box::pin(async move {
             let icon_class = if is_shared { "is-shared" } else { "" };
+            let share_title = __("Share by URL");
             format!(
                 "<i class='material-icons icon-share share-icon-{int_id} {icon_class}' \
                  style='cursor : pointer' onclick=\"Plugins.Share.shareArticle({int_id})\" \
-                 title=\"Share by URL\">link</i>"
+                 title=\"{share_title}\">link</i>"
             )
         })
     }
@@ -128,11 +130,12 @@ impl Share {
     /// `Share::hook_prefs_tab_section` (printed) — the "Unshare all articles"
     /// section on the published prefs tab.
     async fn hook_prefs_tab_section_output(&self, host: &mut HostCtx<'_>) {
+        let unshare_all = __("Unshare all articles");
         host.output.push_str(&format!(
             "<hr/>\n{}\n \
              <button class='alt-danger' dojoType='dijit.form.Button' \
              onclick=\"return Plugins.Share.clearKeys()\">\n    {}\n    \
-             Unshare all articles</button>\n",
+             {unshare_all}</button>\n",
             format_notice("You can disable all articles shared by unique URLs here."),
             icon("delete")
         ));
@@ -175,7 +178,7 @@ impl Share {
                     .map_err(|e| PluginError::Other(e.to_string()))?;
                 out.push_str(&dialog_body(&public_url(host, self, &uuid)?));
             }
-            None => out.push_str(&format_error("Article not found.")),
+            None => out.push_str(&format_error(&__("Article not found."))),
         }
 
         out.push_str(&footer());
@@ -193,8 +196,9 @@ fn public_url(host: &HostCtx<'_>, share: &Share, uuid: &str) -> Result<String, P
 /// The dialog body (header + the share URL) — PHP's `<header>…<section>…`.
 fn dialog_body(url: &str) -> String {
     let href = crate::util::htmlspecialchars(url);
+    let header_text = __("You can share this article by the following unique URL:");
     format!(
-        "<header>You can share this article by the following unique URL:</header>\n \
+        "<header>{header_text}</header>\n \
          <section>\n    <div class='panel text-center'>\n        \
          <a class='target-url' href=\"{href}\" target='_blank' rel='noopener \
          noreferrer'>{href}</a>\n    </div>\n</section>\n"
@@ -206,7 +210,7 @@ fn footer() -> String {
     format!(
         "<footer class='text-center'>{unshare}{newurl}{close}</footer>",
         unshare = button_tag(
-            "Unshare article",
+            &__("Unshare article"),
             "",
             &[
                 ("class", "alt-danger".to_string()),
@@ -214,11 +218,11 @@ fn footer() -> String {
             ],
         ),
         newurl = button_tag(
-            "Generate new URL",
+            &__("Generate new URL"),
             "",
             &[("onclick", "App.dialogOf(this).newurl()".to_string())],
         ),
-        close = submit_tag("Close this window"),
+        close = submit_tag(&__("Close this window")),
     )
 }
 
@@ -251,7 +255,7 @@ async fn unshare(host: &mut HostCtx<'_>, params: &Value) -> Result<String, Plugi
         .await
         .map_err(|e| PluginError::Other(e.to_string()))?;
 
-    Ok("Article unshared".to_string())
+    Ok(__("Article unshared"))
 }
 
 /// `Share::clearArticleKeys` — clear all of the owner's article uuids.
@@ -264,7 +268,7 @@ async fn clear_article_keys(host: &mut HostCtx<'_>) -> Result<String, PluginErro
         .await
         .map_err(|e| PluginError::Other(e.to_string()))?;
 
-    Ok("Shared URLs cleared.".to_string())
+    Ok(__("Shared URLs cleared."))
 }
 
 /// `Share::get` — the no-account public route: serve one article by key (or a
@@ -291,7 +295,7 @@ async fn get(host: &mut HostCtx<'_>, params: &Value) -> Result<MethodOutput, Plu
     Ok(MethodOutput::Response {
         status: 404,
         content_type: "text/plain; charset=utf-8",
-        body: String::from("Article not found."),
+        body: __("Article not found."),
     })
 }
 
