@@ -1,5 +1,5 @@
 <div dojoType='dijit.layout.AccordionContainer' region='center'>
-	<div dojoType='dijit.layout.AccordionPane' title="<i class='material-icons'>person</i> Personal data / Authentication">
+	<div dojoType='dijit.layout.AccordionPane' title="<i class='material-icons'>person</i> {{ pane_auth }}">
 		<script type='dojo/method' event='onSelected' args='evt'>
 			if (this.domNode.querySelector('.loading'))
 				window.setTimeout(() => {
@@ -8,9 +8,9 @@
 					});
 				}, 100);
 		</script>
-		<span class='loading'>Loading, please wait...</span>
+		<span class='loading'>{{ loading }}</span>
 	</div>
-	<div dojoType='dijit.layout.AccordionPane' selected='true' title="<i class='material-icons'>settings</i> Preferences">
+	<div dojoType='dijit.layout.AccordionPane' selected='true' title="<i class='material-icons'>settings</i> {{ pane_prefs }}">
 		<form dojoType='dijit.form.Form' id='changeSettingsForm'>
 			{{ hidden_op }}
 			{{ hidden_saveconfig }}
@@ -34,7 +34,7 @@
 
 			<div dojoType="dijit.layout.BorderContainer" gutters="false">
 				<div dojoType="dijit.layout.ContentPane" region="center" style="overflow-y : auto">
-					{% if profile_notice %}<div class="notice notice-info">Some preferences are only available in default profile.</div>{% endif %}
+					{% if profile_notice %}<div class="notice notice-info">{{ profile_notice_text }}</div>{% endif %}
 					{% for section in sections %}
 					<h2>{{ section.title }}</h2>
 					{% for item in section.items %}
@@ -53,25 +53,25 @@
 				</div>
 				<div dojoType="dijit.layout.ContentPane" region="bottom">
 					<div dojoType="fox.form.ComboButton" type="submit" class="alt-primary">
-						<span>	Save configuration</span>
+						<span>	{{ save_config }}</span>
 						<div dojoType="dijit.DropDownMenu">
-							<div dojoType="dijit.MenuItem" onclick="dijit.byId('changeSettingsForm').onSubmit(null, true)">Save and exit</div>
+							<div dojoType="dijit.MenuItem" onclick="dijit.byId('changeSettingsForm').onSubmit(null, true)">{{ save_exit }}</div>
 						</div>
 					</div>
 					<button dojoType="dijit.form.Button" onclick="return Helpers.Profiles.edit()">
 						<i class='material-icons'>settings</i>
-						Manage profiles
+						{{ manage_profiles }}
 					</button>
 					<button dojoType="dijit.form.Button" class="alt-danger" onclick="return Helpers.Prefs.confirmReset()">
 						<i class='material-icons'>clear</i>
-						Reset to defaults
+						{{ reset_defaults }}
 					</button>
 					{{ pref_prefs_outside }}
 				</div>
 			</div>
 		</form>
 	</div>
-	<div dojoType='dijit.layout.AccordionPane' style='padding : 0' title="<i class='material-icons'>extension</i> Plugins">
+	<div dojoType='dijit.layout.AccordionPane' style='padding : 0' title="<i class='material-icons'>extension</i> {{ pane_plugins }}">
 		{{ plugins_pane }}
 	</div>
 	{{ pref_prefs_tabs }}

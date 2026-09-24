@@ -427,10 +427,20 @@ fn build_control(name: &str, value: &str, ty: prefs::Type, ctx: &RenderCtx) -> S
 /// install/update buttons.
 fn plugins_pane(_state: &AppState, sess: &Sess) -> String {
     let is_admin = sess.data().access_level().unwrap_or(0) >= 10;
+    let enable_selected = __("Enable selected");
+    let reload_title = __("Reload");
+    let check_updates = __("Check for updates");
+    let install_plugin = __("Install plugin");
+    let search_btn = __("Search");
+    let select_label = __("Select");
+    let all_opt = __("All");
+    let none_opt = __("None");
+    let loading = __("Loading, please wait...");
+    let more_info = __("More info");
     let hidden_op = controls::hidden_tag("op", "Pref_Prefs");
     let hidden_setplugins = controls::hidden_tag("method", "setplugins");
     let btn_enable = controls::button_tag(
-        &format!("{} Enable selected", controls::icon("check")),
+        &format!("{} {}", controls::icon("check"), enable_selected),
         "",
         &[
             ("class", "alt-primary".to_string()),
@@ -441,7 +451,7 @@ fn plugins_pane(_state: &AppState, sess: &Sess) -> String {
         &controls::icon("refresh"),
         "",
         &[
-            ("title", "Reload".to_string()),
+            ("title", reload_title),
             ("onclick", "Helpers.Plugins.reload()".to_string()),
         ],
     );
@@ -451,7 +461,7 @@ fn plugins_pane(_state: &AppState, sess: &Sess) -> String {
         // ENABLE_PLUGIN_INSTALLER) are admin config not yet ported; render the
         // buttons an admin would see (the M7 plugin-install/update surface).
         admin_buttons = format!(
-            "<button class='alt-warning' dojoType='dijit.form.Button' onclick=\"Helpers.Plugins.update()\">{} Check for updates</button>\n<button dojoType='dijit.form.Button' onclick=\"Helpers.Plugins.install()\">{} Install plugin</button>",
+            "<button class='alt-warning' dojoType='dijit.form.Button' onclick=\"Helpers.Plugins.update()\">{} {check_updates}</button>\n<button dojoType='dijit.form.Button' onclick=\"Helpers.Plugins.install()\">{} {install_plugin}</button>",
             controls::icon("update"),
             controls::icon("add")
         );
@@ -467,15 +477,15 @@ fn plugins_pane(_state: &AppState, sess: &Sess) -> String {
 				<div class='pull-right'>
 					<input name="search" type="search" onkeyup='Helpers.Plugins.search()' dojoType="dijit.form.TextBox">
 					<button dojoType='dijit.form.Button' onclick='Helpers.Plugins.search()'>
-						Search
+						{search_btn}
 					</button>
 				</div>
 
 				<div dojoType='fox.form.DropDownButton'>
-					<span>Select</span>
+					<span>{select_label}</span>
 					<div dojoType='dijit.Menu' style='display: none'>
-						<div onclick="Lists.select('prefs-plugin-list', true)" dojoType='dijit.MenuItem'>All</div>
-						<div onclick="Lists.select('prefs-plugin-list', false)" dojoType='dijit.MenuItem'>None</div>
+						<div onclick="Lists.select('prefs-plugin-list', true)" dojoType='dijit.MenuItem'>{all_opt}</div>
+						<div onclick="Lists.select('prefs-plugin-list', false)" dojoType='dijit.MenuItem'>{none_opt}</div>
 					</div>
 				</div>
 			</div>
@@ -486,14 +496,14 @@ fn plugins_pane(_state: &AppState, sess: &Sess) -> String {
 				</script>
 
 				<ul id="prefs-plugin-list" class="prefs-plugin-list list-unstyled">
-					<li class='text-center'>Loading, please wait...</li>
+					<li class='text-center'>{loading}</li>
 				</ul>
 			</div>
 			<div dojoType="dijit.layout.ContentPane" region="bottom">
 
 				<button dojoType='dijit.form.Button' class="alt-info pull-right" onclick='window.open("https://tt-rss.org/docs/Plugins.html", "_blank", "noreferrer")'>
 					<i class='material-icons'>help</i>
-					More info
+					{more_info}
 				</button>
 
 				{btn_enable}
@@ -628,6 +638,7 @@ pub async fn index(state: &AppState, sess: &Sess) -> Result<String, sqlx::Error>
         .expect("index template")
         .render(json!({
             "profile_notice": profile.is_some(),
+            "profile_notice_text": __("Some preferences are only available in default profile."),
             "sections": sections,
             "hidden_op": hidden_op,
             "hidden_saveconfig": hidden_saveconfig,
@@ -636,6 +647,14 @@ pub async fn index(state: &AppState, sess: &Sess) -> Result<String, sqlx::Error>
             "pref_prefs_inside": prefs_inside,
             "pref_prefs_outside": prefs_outside,
             "pref_prefs_tabs": prefs_tabs,
+            "pane_auth": __("Personal data / Authentication"),
+            "pane_prefs": __("Preferences"),
+            "pane_plugins": __("Plugins"),
+            "loading": __("Loading, please wait..."),
+            "save_config": __("Save configuration"),
+            "save_exit": __("Save and exit"),
+            "manage_profiles": __("Manage profiles"),
+            "reset_defaults": __("Reset to defaults"),
         }))
         .map_err(sqlx::Error::config)?;
     Ok(rendered)
