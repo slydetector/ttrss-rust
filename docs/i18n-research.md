@@ -73,7 +73,7 @@
 |-----------|--------|-------|
 | M10.1 | ✅ Done (`6cfdb93`, `65f8fce`) | `I18nCache` (lazy `.mo`), `resolve_locale`, `resolve_request_locale`, `__`, `t_sprintf`. Wired into `AppState`. |
 | M10.2 | ✅ Done | Shell template → minijinja with `__()` ✅. `t_nsprintf` ✅. Login/OTP/forgotpass templates ✅. **`translations` RPC `init` field populated** — it was an empty `Value::Array` placeholder since M2 (the field was *present*, never *populated*, so SPA client-side i18n via `App._translations` was dead): now resolves the locale (profile-aware `USER_LANGUAGE` + `Accept-Language`) and returns the original→translated object (PHP `RPC.php:198`). Guard: `tests/rpc_init_translations.rs`. |
-| M10.2b | ⬜ Planned | **Translation-context re-architecture**: move from the explicit `(locale, i18n)` pass to the canonical task-local + bare `__()` design (increment below). Behavior-identical — no new strings, all tests stay green. Prerequisite for the rest of M10.3. |
+| M10.2b | ✅ Complete | **Translation-context re-architecture** (2026-09-26): moved from the explicit `(locale, i18n)` pass to the canonical task-local + bare `__()` design (increment below). Steps 1–4 behavior-identical (no new strings, all tests green); step 5 is the small deliberate change that localizes the 7 identity-formatter gaps PHP translates via `T_sprintf`/`_ngettext`. Prerequisite for the rest of M10.3. |
 | M10.3 | 🔨 In progress | The interactive `view` path, `hotkeyhelp`, the search-syntax error, and the machine API + syndication already carry the resolved locale (explicit pass, since 2026-09-23; `tests/rpc_init_translations.rs::test_view_feed_not_found_translated`). M10.2b re-lands this on the task-local design, then the remaining ~400 UI/API strings get bare `__()` wrappers. (The stray `getconfig` `translations` field — added in M10.2 in the wrong endpoint, where PHP sends none — was removed 2026-09-23; `tests/api_getconfig.rs` now pins its absence.) |
 | M10.4 | ⬜ Pending | Plugin strings via `HostCtx`. |
 | M10.5 | ⬜ Deferred to M8 | CLI strings. |
@@ -155,6 +155,16 @@ pub fn vsprintf(fmt: &str, args: &[&str]) -> String
 **Size:** ~300–450 lines (mostly mechanical param/thread removal + the new substrate fns) + test updates.
 
 **Sequencing:** lands before continuing M10.3 — after it, translating the remaining ~400 strings is just wrapping literals in bare `__(…)`, no threading.
+
+**Status:** ✅ Complete (2026-09-26). Executed as six green checkpoints (each compiles + the suite stays green):
+1. **Substrate** — the `I18N` task-local + `I18nCtx` + bare `__`/`t_sprintf`/`t_nsprintf`; the threaded primitives demoted to internal `translate`/`translate_sprintf`/`translate_nsprintf`.
+2. **Entry points** — set the scope (post-auth) in `rpc::dispatch`, the `api` handler, `syndication`, and the three `http` handlers.
+3. **Leaf fns** — `hotkeys::hotkey_help`, `search::search_syntax_error` (via `dry_run`), and all of `headlines` (`view`, `get_headlines`, `get_headlines_query`, `format_headlines_list`, `cat_title`) drop their `locale`/`i18n` params and call the bare helpers; callers (rpc/api/syndication) + the `get_headlines_query` integration tests updated (`common::empty_i18n` helper dropped).
+4. **Render path** — the four template `__` closures (`render_shell`/`render_login_page`/`render_otp_challenge` + forgotpass's local `render_shell`) capture nothing and read `I18N`; the two `de_DE` render tests become `#[tokio::test]` + `I18N.scope(I18nCtx{…})`.
+5. **Identity-formatter gaps → translating** — the 7 sites (`pref_ui`, `system`, `filters`) now call `crate::i18n::t_sprintf`/`t_nsprintf` (verified 1:1 against PHP `T_sprintf`/`_ngettext`). *This is the one deliberate behavior change* in M10.2b: these strings localize under a non-English locale.
+6. **`vsprintf` rename** — the identity `util::t_sprintf` → `util::vsprintf` (core → `fmt_args`, the unused identity `util::t_nsprintf` dropped, the i18n English-fallback sites + tests follow).
+
+**Verification:** lib (636) + a broad integration sweep (shell_locale, headlines_parity, search_scope, rpc_init_translations, prefs_parity, pref_system, api_getheadlines_sandbox, filter_read, article_handler_parity — 81 tests) all green; clippy adds no new warnings (the 15 flagged patterns predate M10.2b).
 
 ---
 
