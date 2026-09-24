@@ -568,7 +568,7 @@ pub async fn index(state: &AppState, sess: &Sess) -> Result<String, sqlx::Error>
                 Some(format!(
                     "{}. {}",
                     help.unwrap_or_default(),
-                    util::t_sprintf("Current server time: %s", &[ctx.server_time.as_str()])
+                    crate::i18n::t_sprintf("Current server time: %s", &[ctx.server_time.as_str()])
                 ))
             } else {
                 help.map(|s| s.to_string()).filter(|s| !s.is_empty())

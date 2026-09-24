@@ -11,7 +11,7 @@ use crate::prefs;
 use crate::session::Sess;
 use crate::time::{make_local_datetime, TzCtx};
 use crate::util;
-use crate::util::{htmlspecialchars, t_sprintf};
+use crate::util::htmlspecialchars;
 use crate::AppState;
 
 // `Pref_Filters` action / type constants.
@@ -63,7 +63,7 @@ fn filter_type_description(t: i64) -> Option<&'static str> {
 fn action_name(action_id: i64, action_param: &str) -> String {
     let base = match action_description(action_id) {
         Some(d) => d.to_string(),
-        None => t_sprintf("Unknown action: %d", &[&action_id.to_string()]),
+        None => crate::i18n::t_sprintf("Unknown action: %d", &[&action_id.to_string()]),
     };
     // (ACTION_PLUGIN is skipped — no plugin filter actions in the port.)
     if PARAM_ACTIONS.contains(&action_id) {
@@ -112,7 +112,7 @@ async fn get_rule_name(
             .and_then(Value::as_str)
             .unwrap_or("")
             .to_string();
-        let inner = t_sprintf(
+        let inner = crate::i18n::t_sprintf(
             "%s on %s in %s %s",
             &[
                 &htmlspecialchars(&reg_exp),
@@ -130,7 +130,7 @@ async fn get_rule_name(
         )
     } else {
         let reg_exp = rule.get("reg_exp").and_then(Value::as_str).unwrap_or("");
-        t_sprintf(
+        crate::i18n::t_sprintf(
             "%s on %s in %s %s",
             &[reg_exp, filter_type_desc, &feed, inverse_text],
         )
@@ -207,14 +207,14 @@ async fn filter_details(pool: &sqlx::PgPool, id: i32) -> (String, String) {
     if summary.len() > MAX_ACTIONS_TO_DISPLAY {
         let not_shown = summary.len() - MAX_ACTIONS_TO_DISPLAY;
         summary.truncate(MAX_ACTIONS_TO_DISPLAY);
-        let noun = if not_shown == 1 {
-            "(+%d action)"
-        } else {
-            "(+%d actions)"
-        };
         summary.push(format!(
             "<li class=\"text-muted\"><em>{}</em></li>",
-            t_sprintf(noun, &[&not_shown.to_string()])
+            crate::i18n::t_nsprintf(
+                "(+%d action)",
+                "(+%d actions)",
+                not_shown as i64,
+                &[&not_shown.to_string()],
+            )
         ));
     }
 
@@ -250,7 +250,7 @@ async fn rules_list(pool: &sqlx::PgPool, filter_id: i32, uid: i64) -> String {
         let desc = filter_type_description(filter_type).unwrap_or("");
         rv.push_str(&format!(
             "<li class='{inverse_class}'>{}</li>",
-            t_sprintf(
+            crate::i18n::t_sprintf(
                 "%s on %s in %s %s",
                 &[
                     &htmlspecialchars(&reg_exp),
