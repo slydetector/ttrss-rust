@@ -704,7 +704,7 @@ impl<'a> HostCtx<'a> {
     }
 
     /// The active plugins, in registration order.
-    pub fn active_plugins(&self) -> impl Iterator<Item = &dyn Plugin> + '_ {
+    pub fn active_plugins(&self) -> impl Iterator<Item = &dyn Plugin> {
         self.host
             .plugins
             .iter()
