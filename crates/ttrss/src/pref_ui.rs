@@ -21,6 +21,7 @@ use crate::session::Sess;
 use crate::settings;
 use crate::util;
 use crate::AppState;
+use crate::i18n::{__, t_sprintf};
 
 /// `Pref_Prefs::BLOCK_SEPARATOR` — the sentinel in `pref_item_map` that
 /// renders as an `<hr/>` (omitted when a non-default profile is active).
@@ -567,11 +568,15 @@ pub async fn index(state: &AppState, sess: &Sess) -> Result<String, sqlx::Error>
             let help_text = if name == prefs::DIGEST_PREFERRED_TIME {
                 Some(format!(
                     "{}. {}",
-                    help.unwrap_or_default(),
-                    crate::i18n::t_sprintf("Current server time: %s", &[ctx.server_time.as_str()])
+                    help.map(|h| __(h)).unwrap_or_default(),
+                    t_sprintf("Current server time: %s", &[ctx.server_time.as_str()])
                 ))
+            } else if name == prefs::FRESH_ARTICLE_MAX_AGE
+                || name == "RECENTLY_READ_MAX_AGE"
+            {
+                Some(format!("<strong>{}</strong>", __("hours")))
             } else {
-                help.map(|s| s.to_string()).filter(|s| !s.is_empty())
+                help.map(|s| __(s)).filter(|s| !s.is_empty())
             };
             if *ty == prefs::Type::Bool {
                 listed_boolean_prefs.push(name.to_string());
@@ -579,12 +584,12 @@ pub async fn index(state: &AppState, sess: &Sess) -> Result<String, sqlx::Error>
             items.push(json!({
                 "kind": "field",
                 "name": name,
-                "short_desc": short_desc,
+                "short_desc": __(short_desc),
                 "control": control_html,
                 "help_text": help_text,
             }));
         }
-        sections.push(json!({ "title": title, "items": items }));
+        sections.push(json!({ "title": __(title), "items": items }));
     }
 
     let hidden_op = controls::hidden_tag("op", "Pref_Prefs");

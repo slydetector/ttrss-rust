@@ -181,3 +181,39 @@ async fn test_index_profile_hides_blacklisted() {
         Ok(())
     })).await.unwrap();
 }
+
+/// M10.3: the preferences tab localizes its section titles, field labels, and
+/// the `<strong>hours</strong>` help composite under a `de_DE` locale (the bare
+/// `__`/`t_sprintf` helpers read the per-request `I18N` scope). Rust-only.
+#[tokio::test]
+async fn test_index_localizes_de_de() {
+    let _ = with_test_db(|url| Box::pin(async move {
+    let (state, sess) = setup(&url).await;
+    let ctx = ttrss::i18n::I18nCtx {
+        locale: Some("de_DE".to_string()),
+        cache: state.i18n.clone(),
+    };
+    let html = ttrss::i18n::I18N
+        .scope(ctx, async {
+            ttrss::pref_ui::index(&state, &sess).await
+        })
+        .await
+        .expect("render");
+    assert!(
+        html.contains("<h2>Allgemein</h2>"),
+        "General section must be German; head: {}",
+        &html[..html.len().min(400)]
+    );
+    assert!(html.contains("<h2>Artikel</h2>"), "Articles section must be German");
+    assert!(
+        html.contains("Aktiviere Zusammenfassung"),
+        "Enable digest label must be German"
+    );
+    assert!(html.contains("Gesperrte Tags"), "Blacklisted tags label must be German");
+    assert!(
+        html.contains("<strong>Stunden</strong>"),
+        "hours help composite must be German"
+    );
+        Ok(())
+    })).await.unwrap();
+}
