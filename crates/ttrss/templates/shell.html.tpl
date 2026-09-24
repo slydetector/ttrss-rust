@@ -213,7 +213,7 @@
 								<div dojoType="dijit.MenuItem" onclick="App.onActionSelected('qmcRemoveFeed')">{{ __("Unsubscribe") }}</div>
 								<div dojoType="dijit.MenuItem" disabled="1">{{ __("All feeds:") }}</div>
 								<div dojoType="dijit.MenuItem" onclick="App.onActionSelected('qmcCatchupAll')">{{ __("Mark as read") }}</div>
-								<div dojoType="dijit.MenuItem" onclick="App.onActionSelected('qmcShowOnlyUnread')">{{ __("Unhide read feeds") }}</div>
+								<div dojoType="dijit.MenuItem" onclick="App.onActionSelected('qmcShowOnlyUnread')">{{ __("(Un)hide read feeds") }}</div>
 								<div dojoType="dijit.MenuItem" disabled="1">{{ __("UI layout:") }}</div>
 								<div dojoType="dijit.MenuItem" id="qmcToggleCombined" onclick="App.onActionSelected('qmcToggleCombined')">{{ __("Toggle combined mode") }}</div>
 								<div dojoType="dijit.MenuItem" id="qmcToggleWidescreen" onclick="App.onActionSelected('qmcToggleWidescreen')">
