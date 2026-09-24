@@ -74,7 +74,7 @@
 | M10.1 | ✅ Done (`6cfdb93`, `65f8fce`) | `I18nCache` (lazy `.mo`), `resolve_locale`, `resolve_request_locale`, `__`, `t_sprintf`. Wired into `AppState`. |
 | M10.2 | ✅ Done | Shell template → minijinja with `__()` ✅. `t_nsprintf` ✅. Login/OTP/forgotpass templates ✅. **`translations` RPC `init` field populated** — it was an empty `Value::Array` placeholder since M2 (the field was *present*, never *populated*, so SPA client-side i18n via `App._translations` was dead): now resolves the locale (profile-aware `USER_LANGUAGE` + `Accept-Language`) and returns the original→translated object (PHP `RPC.php:198`). Guard: `tests/rpc_init_translations.rs`. |
 | M10.2b | ✅ Complete | **Translation-context re-architecture** (2026-09-26): moved from the explicit `(locale, i18n)` pass to the canonical task-local + bare `__()` design (increment below). Steps 1–4 behavior-identical (no new strings, all tests green); step 5 is the small deliberate change that localizes the 7 identity-formatter gaps PHP translates via `T_sprintf`/`_ngettext`. Prerequisite for the rest of M10.3. |
-| M10.3 | 🔨 In progress | The interactive `view` path, `hotkeyhelp`, the search-syntax error, and the machine API + syndication already carry the resolved locale (explicit pass, since 2026-09-23; `tests/rpc_init_translations.rs::test_view_feed_not_found_translated`). M10.2b re-lands this on the task-local design, then the remaining ~400 UI/API strings get bare `__()` wrappers. (The stray `getconfig` `translations` field — added in M10.2 in the wrong endpoint, where PHP sends none — was removed 2026-09-23; `tests/api_getconfig.rs` now pins its absence.) |
+| M10.3 | ✅ Complete | **Remaining UI/API strings** (2026-09-27): the remaining user-facing string literals now carry bare `__()` / `t_sprintf` / `t_nsprintf` wrappers wherever the frozen PHP wraps them — the shell/toolbar, prefs tabs, users/admin, feeds (tree + edit dialog), filters, settings/system, labels/opml, the login + session-validation errors, and the public-API cat titles. Verified module-by-module against the PHP `__()` calls (audit below). The `hotkeyhelp` + search-syntax + `view` path + machine API/syndication were already locale-aware pre-M10.3 (carried into M10.2b). |
 | M10.4 | ⬜ Pending | Plugin strings via `HostCtx`. |
 | M10.5 | ⬜ Deferred to M8 | CLI strings. |
 | M10.6 | ⬜ Pending | Verification & parity (5 locales end-to-end). |
@@ -170,7 +170,7 @@ pub fn vsprintf(fmt: &str, args: &[&str]) -> String
 
 ### M10.3 — API / remaining UI strings (post-M10.2b)
 
-**Status:** planned (M10.2b is done — the re-architecture is in place; this is the remaining string work).
+**Status:** ✅ **Complete** (2026-09-27). Every user-facing literal the PHP reference wraps is now wrapped in the bare helpers; the remaining audit hits are false positives (strings translated at their call site — `hotkeyhelp`/pref-ui/feed-option labels — non-user-facing config row labels PHP leaves untranslated, and test-module assertions). See the step log below.
 
 **Why it's now trivial:** M10.2b removed the `(locale, i18n)` threading. The locale lives in the `I18N` task-local (set once at the 4 entry points), so translating a string is a one-line wrap of the literal — **no signature changes, no threading**: `"…"` → `__("…")`, formatted → `t_sprintf("…", &[…])`, plural → `t_nsprintf("…", "…", n, &[…])`.
 
@@ -185,6 +185,20 @@ pub fn vsprintf(fmt: &str, args: &[&str]) -> String
 **Test:** per surface, assert a known string matches the PHP `.mo` translation for a fixed locale (de_DE) — `shell_locale.rs` / `rpc_init_translations.rs` are the template. English/no-locale output is unchanged, so the existing suite stays green throughout.
 
 **Size:** ~100–200 lines (scattered `__()` wrappers) + a few locale tests.
+
+**Step log (2026-09-27):**
+- `index`/`users`: the user-list + feed-debugger template strings (the toolbar `Create user` / `Remove` / `Reset password` labels, the `User not found` errors).
+- `filters`: the rule/action descriptions, the `(%s (%d rule))` plural (PHP `_ngettext`), the `Filters` tree root.
+- `feeds`: `cat_title`/`special_title` (return `String`), the update-interval + purge option lists, the two purge suffixes (the `t_nsprintf("(%d day)"/"(%d days)")` plural + the always-plural `t_sprintf("(%d days)")`), the feed-option captions, `Check to enable field`, `Cancel`. *No locale-assertion test: these msgids are untranslated in every bundled locale, so a fixed-locale assert can't distinguish wrapped from unwrapped — verified by the audit + compile instead.*
+- `pref_ui` + `prefs`: the pref labels/descriptions/help + section titles (translated at the render loop, `__(title)`/`__(short_desc)`/`__(h)`).
+- `api`: `cat_title` (PHP-faithful — `Feeds::_get_cat_title` translates even in the public API).
+- `time`: the 3 production `Never` fallbacks. `labels`: the tree root. `opml`: `Processing category: %s` (`t_sprintf`) + `Uncategorized` + `Error while parsing document.`
+- `settings` / `system`: the saved notices, `Default profile`, `Password has been changed.`, the `ERROR: ` + `__("Old password is incorrect.")` split; the log-severity options + `Send test email` (config row labels left untranslated — PHP does not translate them).
+- `auth` / `http` / `session` / `forgotpass`: the login-failure + session-validation + forgot-password errors.
+
+**Verification:** lib (636) + a broad integration sweep (shell_locale, rpc_init_translations, search_scope, headlines_parity, prefs_parity, pref_system, api_getheadlines_sandbox, filter_read, filter_i18n, article_handler_parity, opml_import, pref_index, pref_saveconfig, pref_users_admin, session_parity, pref_feeds_labels_index — 160 tests) all green; clippy adds no new warnings.
+
+**Audit method:** a script greps every quoted literal that is a `.pot` `msgid` but has no `__`/`t_sprintf`/`t_nsprintf` applied (either adjacent, or at the render call site). After this increment the only hits are the known false-positive classes above.
 
 ---
 
