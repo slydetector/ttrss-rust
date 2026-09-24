@@ -14,7 +14,8 @@
 //!     it is stored in an older one (`Auth_Internal::check_password`), and
 //!   * stamps `ttrss_users.last_login = NOW()`.
 
-use crate::core::config::SCHEMA_VERSION;
+use crate::core::config::SCHEMA_VERSION;use crate::i18n::{__};
+
 use crate::core::db::Db;
 use crate::core::phpser::Value;
 use crate::core::session::{self as core_session, Session};
@@ -71,7 +72,7 @@ pub async fn authenticate(pool: &sqlx::PgPool, login: &str, password: &str, otp:
 
     let Some(r) = row else {
         return AuthOutcome::Failure {
-            message: ERR_BAD_CREDENTIALS.into(),
+            message: __(ERR_BAD_CREDENTIALS).into(),
         };
     };
     let user = UserRow {
@@ -95,7 +96,7 @@ pub async fn authenticate(pool: &sqlx::PgPool, login: &str, password: &str, otp:
                     success(pool, &user, password).await
                 } else {
                     AuthOutcome::Failure {
-                        message: ERR_BAD_CREDENTIALS.into(),
+                        message: __(ERR_BAD_CREDENTIALS).into(),
                     }
                 }
             }
@@ -106,7 +107,7 @@ pub async fn authenticate(pool: &sqlx::PgPool, login: &str, password: &str, otp:
             if now_unix() - laa.and_utc().timestamp() < AUTH_MIN_INTERVAL {
                 let _ = stamp_last_attempt(pool, user.id).await;
                 return AuthOutcome::Failure {
-                    message: ERR_THROTTLED.into(),
+                    message: __(ERR_THROTTLED).into(),
                 };
             }
         }
@@ -115,7 +116,7 @@ pub async fn authenticate(pool: &sqlx::PgPool, login: &str, password: &str, otp:
         } else {
             let _ = stamp_last_attempt(pool, user.id).await;
             AuthOutcome::Failure {
-                message: ERR_BAD_CREDENTIALS.into(),
+                message: __(ERR_BAD_CREDENTIALS).into(),
             }
         }
     }
@@ -128,7 +129,7 @@ pub async fn authenticate(pool: &sqlx::PgPool, login: &str, password: &str, otp:
 async fn success(pool: &sqlx::PgPool, user: &UserRow, password: &str) -> AuthOutcome {
     if user.access_level == user::ACCESS_LEVEL_DISABLED {
         return AuthOutcome::Failure {
-            message: ERR_BAD_CREDENTIALS.into(),
+            message: __(ERR_BAD_CREDENTIALS).into(),
         };
     }
 

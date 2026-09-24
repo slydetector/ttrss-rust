@@ -10,7 +10,8 @@
 
 use std::collections::HashMap;
 
-use crate::core::db::Db;
+use crate::core::db::Db;use crate::i18n::{__, t_sprintf};
+
 use axum::http::StatusCode;
 use quick_xml::events::Event;
 use quick_xml::Reader;
@@ -694,12 +695,10 @@ async fn opml_import_category(db: &Db, uid: i64, nodes: &[XmlNode], root: usize,
     while let Some((outlines, cat_id, cat_title, depth)) = stack.pop() {
         // `Processing category: …` — `Uncategorized` for the root call
         // (`$root_node = null` → `$cat_title = false`).
+        let cat_display = cat_title.clone().unwrap_or_else(|| __("Uncategorized"));
         opml_notice(
             body,
-            &format!(
-                "Processing category: {}",
-                cat_title.as_deref().unwrap_or("Uncategorized")
-            ),
+            &t_sprintf("Processing category: %s", &[&cat_display]),
             depth,
         );
         for oi in outlines {
@@ -767,7 +766,7 @@ pub async fn import(state: &AppState, sess: &Sess, file: Option<&[u8]>) -> Strin
             opml_import_category(&state.db, uid, &nodes, root, &mut body).await;
         }
         Err(_) => {
-            opml_notice(&mut body, "Error while parsing document.", 0);
+            opml_notice(&mut body, &__("Error while parsing document."), 0);
         }
     }
     body

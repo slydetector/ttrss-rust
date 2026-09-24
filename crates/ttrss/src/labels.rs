@@ -8,7 +8,8 @@
 
 use std::collections::HashMap;
 
-use crate::core::db::Db;
+use crate::core::db::Db;use crate::i18n::{__};
+
 use minijinja::Environment;
 use serde_json::{json, Map, Value};
 use sqlx::Row;
@@ -148,7 +149,7 @@ pub async fn get_label_tree(pool: &sqlx::PgPool, owner_uid: i64) -> Value {
         "label": "name",
         "items": [{
             "id": "root",
-            "name": "Labels",
+            "name": __("Labels"),
             "items": items,
         }],
     })

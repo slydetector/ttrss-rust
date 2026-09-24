@@ -4,7 +4,8 @@ use serde_json::{json, Map, Value};
 use sqlx::Row;
 use sqlx::AssertSqlSafe;
 
-use crate::session::Sess;
+use crate::session::Sess;use crate::i18n::{__};
+
 use crate::time::{make_local_datetime, TzCtx};
 use crate::util::{clean_int, htmlspecialchars};
 use crate::AppState;
@@ -141,9 +142,9 @@ async fn log_viewer(state: &AppState, sess: &Sess, page: i64, severity: i64) -> 
     let next_disabled = if page >= total_pages { "disabled" } else { "" };
 
     let sev_values = [
-        (256.to_string(), "Errors".to_string()),
-        (512.to_string(), "Warnings".to_string()),
-        (1024.to_string(), "Everything".to_string()),
+        (256.to_string(), __("Errors")),
+        (512.to_string(), __("Warnings")),
+        (1024.to_string(), __("Everything")),
     ];
     let severity_select = crate::controls::select_hash(
         "severity",
@@ -278,7 +279,7 @@ pub async fn index(state: &AppState, sess: &Sess, extra: &Map<String, Value>) ->
         &[("required", "1".to_string())],
         "",
     ));
-    out.push_str(&crate::controls::submit_tag("Send test email"));
+    out.push_str(&crate::controls::submit_tag(&__("Send test email")));
     out.push_str(
         "\t\t\t\t<span style=\"display: none; margin-left : 10px\" class=\"alert alert-error\" id=\"mail-test-result\">...</span>\n",
     );

@@ -1,7 +1,8 @@
 //! `Pref_Prefs` backend read handlers (the settings/preferences UI in
 //! `backend.php?op=Pref_Prefs`).
 
-use crate::core::phpser::Value as PValue;
+use crate::core::phpser::Value as PValue;use crate::i18n::{__};
+
 use minijinja::Environment;
 use serde_json::{json, Map, Value};
 use sqlx::Row;
@@ -26,7 +27,7 @@ pub async fn get_profiles(state: &AppState, sess: &Sess) -> Value {
 
     let mut rv: Vec<Value> = Vec::new();
     rv.push(json!({
-        "title": "Default profile",
+        "title": __("Default profile"),
         "id": 0,
         "initialized": true,
         "active": active_profile == 0,
@@ -418,7 +419,7 @@ pub async fn saveconfig(state: &AppState, sess: &Sess, extra: &Map<String, Value
     if need_reload {
         "PREFS_NEED_RELOAD".to_string()
     } else {
-        "The configuration was saved.".to_string()
+        __("The configuration was saved.")
     }
 }
 
@@ -459,7 +460,7 @@ pub async fn change_personal_data(
             .execute(pool)
             .await;
     }
-    "Your personal data has been saved.".to_string()
+    __("Your personal data has been saved.")
 }
 
 /// `Pref_Prefs::changepassword`: validate the new password (cleaned, must
@@ -503,9 +504,9 @@ pub async fn changepassword(state: &AppState, sess: &Sess, extra: &Map<String, V
             // Keep the session valid across the change (`validate_session`
             // compares the stored hash to `$_SESSION["pwd_hash"]`).
             sess.with_mut(|s| s.set("pwd_hash", PValue::Bytes(new_hash.into_bytes())));
-            controls::format_notice("Password has been changed.")
+            controls::format_notice(&__("Password has been changed."))
         }
-        None => controls::format_notice("ERROR: Old password is incorrect."),
+        None => controls::format_notice(&format!("ERROR: {}", __("Old password is incorrect."))),
     }
 }
 

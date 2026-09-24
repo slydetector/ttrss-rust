@@ -12,7 +12,8 @@
 //! `getArticle`, `getPref`). Mutating methods and the plugin-API fallback land
 //! in later milestones.
 
-use crate::core::phpser::Value as PValue;
+use crate::core::phpser::Value as PValue;use crate::i18n::{__};
+
 use crate::core::user;
 use axum::body::Body;
 use axum::extract::{Extension, Request, State};
@@ -693,12 +694,12 @@ async fn get_categories(
     (STATUS_OK, Value::Array(cats))
 }
 
-fn cat_title(cat_id: i64) -> &'static str {
+fn cat_title(cat_id: i64) -> String {
     match cat_id {
-        CAT_UNCATEGORIZED => "Uncategorized",
-        CAT_SPECIAL => "Special",
-        CAT_LABELS => "Labels",
-        _ => "UNKNOWN",
+        CAT_UNCATEGORIZED => __("Uncategorized"),
+        CAT_SPECIAL => __("Special"),
+        CAT_LABELS => __("Labels"),
+        _ => "UNKNOWN".to_string(),
     }
 }
 

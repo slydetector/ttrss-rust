@@ -10,7 +10,8 @@
 //! The M2 callers never pass `no_smart_dt`, so only the smart-date path is
 //! ported here.
 
-use crate::prefs;
+use crate::prefs;use crate::i18n::{__};
+
 use chrono::{DateTime, Datelike, NaiveDateTime, Timelike, Utc};
 
 /// A `timestamp without time zone` value (stored as UTC) to its PG text
@@ -100,10 +101,10 @@ pub fn make_local_datetime(timestamp: Option<&str>, eta_min: bool, ctx: &TzCtx) 
 
     // `substr($timestamp, 0, 19)` — "Y-m-d H:i:s" (stored in UTC).
     let Some(ts19) = ts.get(..19.min(ts.len())) else {
-        return "Never".into();
+        return __("Never");
     };
     let Ok(dt) = NaiveDateTime::parse_from_str(ts19, "%Y-%m-%d %H:%M:%S") else {
-        return "Never".into();
+        return __("Never");
     };
 
     let utc_ts = dt.and_utc().timestamp();
@@ -117,7 +118,7 @@ pub fn make_local_datetime(timestamp: Option<&str>, eta_min: bool, ctx: &TzCtx) 
 fn smart_date_time(user_ts: i64, tz_offset: i64, eta_min: bool, ctx: &TzCtx) -> String {
     // `if ($timestamp - $tz_offset === 0) return __('Never');` (the epoch)
     if user_ts - tz_offset == 0 {
-        return "Never".into();
+        return __("Never");
     }
 
     let now_user = Utc::now().timestamp() + tz_offset;
