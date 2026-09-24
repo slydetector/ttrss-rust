@@ -124,7 +124,7 @@ async fn index(
                     locale: locale.clone(),
                     cache: state.i18n.clone(),
                 },
-                async { render::render_login_page(&state.config, &locale, &state.i18n) },
+                async { render::render_login_page(&state.config) },
             )
             .await;
         return axum::http::Response::builder()
@@ -177,8 +177,6 @@ async fn index(
                     &plugin_css,
                     &plugin_js,
                     &main_toolbar_buttons,
-                    locale.as_deref(),
-                    &state.i18n,
                     hide_logout,
                 )
             },
@@ -223,7 +221,7 @@ async fn prefs_page(
                     locale: locale.clone(),
                     cache: state.i18n.clone(),
                 },
-                async { render::render_login_page(&state.config, &locale, &state.i18n) },
+                async { render::render_login_page(&state.config) },
             )
             .await;
         return axum::http::Response::builder()
@@ -901,7 +899,7 @@ async fn login_flow(
                     remember_me: form.remember_me.clone().unwrap_or_default(),
                     profile: form.profile.clone().unwrap_or_default(),
                 };
-                let html = render::render_otp_challenge(&state.config, &enc, &otp_form, &None, &state.i18n);
+                let html = render::render_otp_challenge(&state.config, &enc, &otp_form);
                 return axum::http::Response::builder()
                     .status(StatusCode::OK)
                     .header(header::CONTENT_TYPE, "text/html; charset=UTF-8")

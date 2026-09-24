@@ -100,7 +100,7 @@ pub async fn forgotpass(state: &AppState, sess: &session::Sess, p: &Params<'_>) 
         String::new()
     };
 
-    let html = render_shell(&state.config, &content, &None, &state.i18n);
+    let html = render_shell(&state.config, &content);
     Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
@@ -285,21 +285,14 @@ async fn reset_link(pool: &PgPool, hash: &str, login: &str, now: i64) -> String 
 // ── small helpers ────────────────────────────────────────────────────────────
 
 /// `Handler_Public::forgotpass` shell: the template with the dynamic values.
-fn render_shell(
-    config: &Config,
-    content: &str,
-    locale: &Option<String>,
-    i18n: &std::sync::Arc<crate::i18n::I18nCache>,
-) -> String {
+fn render_shell(config: &Config, content: &str) -> String {
     let doc = config.docroot.as_path();
     let scripts_ts = render::scripts_timestamp(doc);
     let theme_light = render::theme_path(doc, "light.css", "themes/light.css");
     let theme_dark = render::theme_path(doc, "night.css", "themes/night.css");
     let mut env = minijinja::Environment::new();
-    let locale = locale.clone();
-    let i18n_arc = std::sync::Arc::clone(i18n);
-    env.add_function("__", move |msg: String| -> String {
-        crate::i18n::translate(locale.as_deref(), &i18n_arc, &msg)
+    env.add_function("__", |msg: String| -> String {
+        crate::i18n::__ (&msg)
     });
     let template = env
         .template_from_named_str("forgotpass.html.tpl", TEMPLATE)
