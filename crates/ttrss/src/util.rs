@@ -372,7 +372,7 @@ pub fn random_hex(n: usize) -> String {
 /// A PHP `vsprintf()`: consume the pre-stringified args in order for the
 /// value specifiers (`%s`/`%d`/…); `%` escapes and non-value specifiers are
 /// kept literally. Unmatched trailing args are ignored (PHP does the same).
-fn vsprintf(format: &str, args: &[String]) -> String {
+fn fmt_args(format: &str, args: &[String]) -> String {
     let mut out = String::with_capacity(format.len());
     let mut ai = 0usize;
     let mut rest = format;
@@ -422,23 +422,13 @@ fn vsprintf(format: &str, args: &[String]) -> String {
     out
 }
 
-/// PHP `T_sprintf()`: `vsprintf(__(fmt), args)` — `__()` is the identity with
-/// no catalog loaded. Args are pre-stringified (PHP coerces them to strings
-/// for `%s`/`%d` alike in the test surface).
-pub fn t_sprintf(format: &str, args: &[&str]) -> String {
-    vsprintf(
+/// PHP `vsprintf()`: format the args into `fmt` **without translating** (the
+/// identity formatter). Args are pre-stringified (PHP coerces them to strings
+/// for `%s`/`%d` alike in the test surface). The translating counterpart is
+/// `crate::i18n::t_sprintf` (translate the format string first, then format).
+pub fn vsprintf(format: &str, args: &[&str]) -> String {
+    fmt_args(
         format,
-        &args.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
-    )
-}
-
-/// PHP `T_nsprintf($singular, $plural, $number, ...args)`: picks the plural
-/// form when `$number != 1` (gettext short-circuit, no catalog loaded) and
-/// vsprintfs it.
-pub fn t_nsprintf(singular: &str, plural: &str, number: i64, args: &[&str]) -> String {
-    let chosen = if number != 1 { plural } else { singular };
-    vsprintf(
-        chosen,
         &args.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
     )
 }
@@ -728,27 +718,14 @@ mod tests {
     }
 
     #[test]
-    fn t_sprintf_matches_php() {
+    fn vsprintf_matches_php() {
         // test_t_sprintf_format
-        assert_eq!(t_sprintf("Hello, %s!", &["User"]), "Hello, User!");
+        assert_eq!(vsprintf("Hello, %s!", &["User"]), "Hello, User!");
         // test_t_sprintf_multiple_args
         assert_eq!(
-            t_sprintf("%d items for %s", &["5", "Bob"]),
+            vsprintf("%d items for %s", &["5", "Bob"]),
             "5 items for Bob"
         );
-    }
-
-    #[test]
-    fn t_nsprintf_matches_php() {
-        // test_t_nsprintf_no_placeholders — the singular/plural selection is
-        // the observable behavior (gettext short-circuits: n == 1 → singular).
-        assert_eq!(t_nsprintf("One item", "Multiple items", 1, &[]), "One item");
-        assert_eq!(
-            t_nsprintf("One item", "Multiple items", 5, &[]),
-            "Multiple items"
-        );
-        // with placeholders, both forms are vsprintfed
-        assert_eq!(t_nsprintf("%d item", "%d items", 3, &["3"]), "3 items");
     }
 
     #[test]

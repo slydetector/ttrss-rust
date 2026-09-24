@@ -336,7 +336,7 @@ pub fn __(msg: &str) -> String {
 pub fn t_sprintf(fmt: &str, args: &[&str]) -> String {
     I18N
         .try_with(|ctx| translate_sprintf(ctx.locale.as_deref(), &ctx.cache, fmt, args))
-        .unwrap_or_else(|_| crate::util::t_sprintf(fmt, args))
+        .unwrap_or_else(|_| crate::util::vsprintf(fmt, args))
 }
 
 /// Plural-aware translate + format (`T_nsprintf`), using the request's
@@ -355,7 +355,7 @@ pub fn t_nsprintf(singular: &str, plural: &str, n: i64, args: &[&str]) -> String
         })
         .unwrap_or_else(|_| {
             let form = if n == 1 { singular } else { plural };
-            crate::util::t_sprintf(form, args)
+            crate::util::vsprintf(form, args)
         })
 }
 
