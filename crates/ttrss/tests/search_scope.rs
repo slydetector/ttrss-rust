@@ -52,7 +52,7 @@ fn params(feed: &str, search: &str, search_language: &str) -> HeadlinesParams {
 
 /// The ref ids a headline query returns for `feed` + `search`.
 async fn head_ids(db: &Db, feed: &str, search: &str, lang: &str) -> Vec<i32> {
-    let q = get_headlines_query(db, &params(feed, search, lang), None, common::empty_i18n()).await;
+    let q = get_headlines_query(db, &params(feed, search, lang)).await;
     q.article_rows.iter().map(|r| r.get::<i32, _>(0)).collect()
 }
 
@@ -117,7 +117,7 @@ async fn headline_fts_empty_language_is_unexecutable() {
 
     // Default search language "" → to_tsquery('', …) → parse error in the
     // dry run → filter degrades to `false`, no rows, override message.
-    let q = get_headlines_query(&db, &params("1", "task", ""), None, common::empty_i18n()).await;
+    let q = get_headlines_query(&db, &params("1", "task", "")).await;
     assert!(q.article_rows.is_empty());
     assert_eq!(q.query_error_override, "Incorrect search syntax: task.");
     assert_eq!(q.search_words, vec!["task".to_string()]);
@@ -181,7 +181,7 @@ async fn headline_dry_run_errors() {
 
     // Unrecognized `@date` values emit a fragment that errors at execution;
     // the words carry the specific diagnostic.
-    let q = get_headlines_query(&db, &params("1", "@bogus-word", ""), None, common::empty_i18n()).await;
+    let q = get_headlines_query(&db, &params("1", "@bogus-word", "")).await;
     assert!(q.article_rows.is_empty());
     assert_eq!(
         q.query_error_override,
@@ -190,7 +190,7 @@ async fn headline_dry_run_errors() {
     );
 
     // A valid search leaves the override empty.
-    let q = get_headlines_query(&db, &params("1", "task", "english"), None, common::empty_i18n()).await;
+    let q = get_headlines_query(&db, &params("1", "task", "english")).await;
     assert!(q.query_error_override.is_empty());
     assert_eq!(q.search_words, vec!["task".to_string()]);
         Ok(())

@@ -262,7 +262,7 @@ fn hotkey_display(seq: &str) -> String {
 /// PHP `RPC::hotkeyHelp()` — the keyboard-shortcuts help dialog (raw HTML).
 /// `__()` is the identity (no catalog loaded); PluginHost hooks are no-ops
 /// (no plugin contributes hotkey info/map).
-pub fn hotkey_help(locale: Option<&str>, i18n: &crate::i18n::I18nCache) -> String {
+pub fn hotkey_help() -> String {
     // `$omap`: action → [sequence...] in map declaration order.
     let mut omap: Vec<(&str, Vec<String>)> = Vec::new();
     for (seq, action) in HOTKEYS.iter().copied() {
@@ -278,7 +278,7 @@ pub fn hotkey_help(locale: Option<&str>, i18n: &crate::i18n::I18nCache) -> Strin
     for &(section, actions) in HOTKEY_INFO {
         out.push_str(&format!(
             "\n<li><h3>{}</h3></li>",
-            html_escape(&crate::i18n::translate(locale, i18n, section))
+            html_escape(&crate::i18n::__ (section))
         ));
         for &(action, desc) in actions {
             if let Some((_, seqs)) = omap.iter().find(|e| e.0 == action) {
@@ -286,13 +286,13 @@ pub fn hotkey_help(locale: Option<&str>, i18n: &crate::i18n::I18nCache) -> Strin
                     out.push_str(&format!(
                         "\n<li>\n<div class='hk'><code>{}</code></div>\n<div class='desc'>{}</div>\n</li>",
                         html_escape(seq),
-                        html_escape(&crate::i18n::translate(locale, i18n, desc))
+                        html_escape(&crate::i18n::__ (desc))
                     ));
                 }
             }
         }
     }
-    let close = crate::i18n::translate(locale, i18n, "Close this window");
+    let close = crate::i18n::__ ("Close this window");
     out.push_str(&format!(
         "\n</ul>\n<footer class='text-center'>\n<button dojoType=\"dijit.form.Button\" class=\"alt-primary\" type=\"submit\">{close}</button></footer>"
     ));

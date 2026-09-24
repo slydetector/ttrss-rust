@@ -857,7 +857,7 @@ async fn get_headlines(
     };
     crate::i18n::I18N.scope(i18n_ctx, async {
     let q =
-        headlines::get_headlines_query(&state.db, &params, locale.as_deref(), &state.i18n).await;
+        headlines::get_headlines_query(&state.db, &params).await;
 
     // M7.6: the HOOK_SANITIZE context (no_iframes et al.) — built once for
     // the whole request (PHP's singleton; the active set is per owner).

@@ -314,8 +314,6 @@ pub async fn dry_run(
     pool: &sqlx::PgPool,
     query_part: &str,
     words: &[String],
-    locale: Option<&str>,
-    i18n: &crate::i18n::I18nCache,
 ) -> (String, String) {
     let sql = format!(
         "select {query_part}
@@ -325,12 +323,9 @@ pub async fn dry_run(
         Ok(_) => (query_part.to_string(), String::new()),
         Err(_) => (
             "false".to_string(),
-            crate::i18n::translate_sprintf(
-                locale,
-                i18n,
-                "Incorrect search syntax: %s.",
-                &[&words.join(" ")],
-            ),
+            crate::i18n::t_sprintf("Incorrect search syntax: %s.", &[
+                &words.join(" "),
+            ]),
         ),
     }
 }

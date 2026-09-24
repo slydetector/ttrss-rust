@@ -156,7 +156,7 @@ async fn generate_feed(state: &AppState, owner_uid: i64, req: &RssRequest<'_>) -
     };
     let q = crate::i18n::I18N
         .scope(i18n_ctx, async {
-            get_headlines_query(&state.db, &params, locale.as_deref(), &state.i18n).await
+            get_headlines_query(&state.db, &params).await
         })
         .await;
 

@@ -346,7 +346,7 @@ async fn dispatch(
     match op {
         "RPC" => match method {
             "hotkeyhelp" => {
-                DispatchOutput::Html(crate::hotkeys::hotkey_help(locale.as_deref(), &state.i18n))
+                DispatchOutput::Html(crate::hotkeys::hotkey_help())
             }
             _ => DispatchOutput::Json(rpc_handler(state, sess, method, extra, accept_language).await),
         },
@@ -370,7 +370,7 @@ async fn dispatch(
         },
         "Feeds" => match method {
             "view" => {
-                DispatchOutput::Json(crate::headlines::view(state, sess, extra, &locale).await)
+                DispatchOutput::Json(crate::headlines::view(state, sess, extra).await)
             }
             "search" => DispatchOutput::Json(crate::headlines::search(state, sess, extra).await),
             "updatedebugger" => DispatchOutput::TextHtml(
