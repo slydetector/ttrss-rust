@@ -12,6 +12,7 @@ use crate::session::Sess;
 use crate::time::{make_local_datetime, TzCtx};
 use crate::util;
 use crate::util::htmlspecialchars;
+use crate::i18n::{__, t_sprintf, t_nsprintf};
 use crate::AppState;
 
 // `Pref_Filters` action / type constants.
@@ -30,31 +31,31 @@ const PARAM_ACTIONS: [i64; 5] = [
 const MAX_ACTIONS_TO_DISPLAY: usize = 3;
 
 /// `Pref_Filters::$filter_actions` (action_id → description).
-fn action_description(action_id: i64) -> Option<&'static str> {
+fn action_description(action_id: i64) -> Option<String> {
     Some(match action_id {
-        1 => "Delete article",
-        2 => "Mark as read",
-        3 => "Set starred",
-        4 => "Assign tags",
-        5 => "Publish article",
-        6 => "Modify score",
-        7 => "Assign label",
-        8 => "Stop / Do nothing",
-        9 => "Invoke plugin",
-        10 => "Ignore tags",
+        1 => __("Delete article"),
+        2 => __("Mark as read"),
+        3 => __("Set starred"),
+        4 => __("Assign tags"),
+        5 => __("Publish article"),
+        6 => __("Modify score"),
+        7 => __("Assign label"),
+        8 => __("Stop / Do nothing"),
+        9 => __("Invoke plugin"),
+        10 => __("Ignore tags"),
         _ => return None,
     })
 }
 
 /// `Pref_Filters::$filter_types` (filter_type → description).
-fn filter_type_description(t: i64) -> Option<&'static str> {
+fn filter_type_description(t: i64) -> Option<String> {
     Some(match t {
-        1 => "Title",
-        2 => "Content",
-        3 => "Title or Content",
-        4 => "Link",
-        6 => "Author",
-        7 => "Article Tags",
+        1 => __("Title"),
+        2 => __("Content"),
+        3 => __("Title or Content"),
+        4 => __("Link"),
+        6 => __("Author"),
+        7 => __("Article Tags"),
         _ => return None,
     })
 }
@@ -62,8 +63,8 @@ fn filter_type_description(t: i64) -> Option<&'static str> {
 /// `Pref_Filters::_get_action_name`.
 fn action_name(action_id: i64, action_param: &str) -> String {
     let base = match action_description(action_id) {
-        Some(d) => d.to_string(),
-        None => crate::i18n::t_sprintf("Unknown action: %d", &[&action_id.to_string()]),
+        Some(d) => d,
+        None => t_sprintf("Unknown action: %d", &[&action_id.to_string()]),
     };
     // (ACTION_PLUGIN is skipped — no plugin filter actions in the port.)
     if PARAM_ACTIONS.contains(&action_id) {
@@ -97,31 +98,31 @@ async fn get_rule_name(
             feeds_fmt.push(if fid != 0 {
                 crate::feeds::feed_title(pool, fid, uid).await
             } else {
-                "All feeds".to_string()
+                __("All feeds")
             });
         }
     }
     let feed = feeds_fmt.join(", ");
     let filter_type_desc = filter_type_description(util::clean_int(rule.get("filter_type")))
-        .unwrap_or("unknown filter type");
+        .unwrap_or_else(|| "unknown filter type".to_string());
     let inverse = rule.get("inverse").is_some();
-    let inverse_text = if inverse { "(inverse)" } else { "" };
+    let inverse_text = if inverse { __("(inverse)")} else { String::new() };
     if html_format {
         let reg_exp = rule
             .get("reg_exp")
             .and_then(Value::as_str)
             .unwrap_or("")
             .to_string();
-        let inner = crate::i18n::t_sprintf(
+        let inner = t_sprintf(
             "%s on %s in %s %s",
             &[
                 &htmlspecialchars(&reg_exp),
                 &format!(
                     "<span class='field'>{}</span>",
-                    htmlspecialchars(filter_type_desc)
+                    htmlspecialchars(&filter_type_desc)
                 ),
                 &format!("<span class='feed'>{}</span>", htmlspecialchars(&feed)),
-                inverse_text,
+                &inverse_text,
             ],
         );
         format!(
@@ -130,9 +131,9 @@ async fn get_rule_name(
         )
     } else {
         let reg_exp = rule.get("reg_exp").and_then(Value::as_str).unwrap_or("");
-        crate::i18n::t_sprintf(
+        t_sprintf(
             "%s on %s in %s %s",
-            &[reg_exp, filter_type_desc, &feed, inverse_text],
+            &[reg_exp, &filter_type_desc, &feed, &inverse_text],
         )
     }
 }
@@ -147,26 +148,27 @@ async fn filter_details(pool: &sqlx::PgPool, id: i32) -> (String, String) {
     .bind(id)
     .fetch_one(pool)
     .await
-    .unwrap_or_else(|_| ("[No caption]".to_string(), false, false, 0));
+    .unwrap_or_else(|_| (__("[No caption]"), false, false, 0));
 
     let title = if title.is_empty() {
-        "[No caption]".to_string()
+        __("[No caption]")
     } else {
         title
     };
 
     // title_summary: "%s (N rule[rules])" + optional "matches any rule" / "inverse".
     let mut parts: Vec<String> = Vec::new();
-    parts.push(if num_rules == 1 {
-        format!("{title} ({num_rules} rule)")
-    } else {
-        format!("{title} ({num_rules} rules)")
-    });
+    parts.push(t_nsprintf(
+        "%s (%d rule)",
+        "%s (%d rules)",
+        num_rules,
+        &[&title, &num_rules.to_string()],
+    ));
     if match_any {
-        parts.push("matches any rule".to_string());
+        parts.push(__("matches any rule"));
     }
     if inverse {
-        parts.push("inverse".to_string());
+        parts.push(__("inverse"));
     }
     let title_summary = parts.join(", ");
 
@@ -209,7 +211,7 @@ async fn filter_details(pool: &sqlx::PgPool, id: i32) -> (String, String) {
         summary.truncate(MAX_ACTIONS_TO_DISPLAY);
         summary.push(format!(
             "<li class=\"text-muted\"><em>{}</em></li>",
-            crate::i18n::t_nsprintf(
+            t_nsprintf(
                 "(+%d action)",
                 "(+%d actions)",
                 not_shown as i64,
@@ -247,17 +249,17 @@ async fn rules_list(pool: &sqlx::PgPool, filter_id: i32, uid: i64) -> String {
             rule_where(pool, uid, feed_id, cat_filter, cat_id, match_on.as_deref()).await;
 
         let inverse_class = if inverse { "inverse" } else { "" };
-        let desc = filter_type_description(filter_type).unwrap_or("");
+        let desc = filter_type_description(filter_type).unwrap_or_default();
         rv.push_str(&format!(
             "<li class='{inverse_class}'>{}</li>",
-            crate::i18n::t_sprintf(
+            t_sprintf(
                 "%s on %s in %s %s",
                 &[
                     &htmlspecialchars(&reg_exp),
-                    desc,
+                    &desc,
                     &htmlspecialchars(&where_str),
                     &if inverse {
-                        "(inverse)".to_string()
+                        __("(inverse)")
                     } else {
                         String::new()
                     },
@@ -291,7 +293,7 @@ async fn rule_where(
                                     .await,
                             );
                         } else if fid.is_empty() {
-                            parts.push("All feeds".to_string());
+                            parts.push(__("All feeds"));
                         } else {
                             parts.push(
                                 crate::feeds::feed_title(pool, fid.parse().unwrap_or(0), uid).await,
@@ -308,7 +310,7 @@ async fn rule_where(
     } else if let Some(fid) = feed_id {
         crate::feeds::feed_title(pool, fid, uid).await
     } else {
-        "All feeds".to_string()
+        __("All feeds")
     }
 }
 
@@ -347,7 +349,7 @@ pub async fn get_filter_tree(state: &AppState, sess: &Sess) -> Value {
         }
 
         let bare_name = if title.is_empty() {
-            "[No caption]".to_string()
+            __("[No caption]")
         } else {
             title
         };
@@ -451,13 +453,13 @@ pub async fn edit(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> 
     let mut filter_types = Map::new();
     for id in [1, 2, 3, 4, 6, 7] {
         if let Some(desc) = filter_type_description(id) {
-            filter_types.insert(id.to_string(), Value::String(desc.to_string()));
+            filter_types.insert(id.to_string(), Value::String(desc));
         }
     }
     let mut action_types = Map::new();
     for id in 1..=10 {
         if let Some(desc) = action_description(id) {
-            action_types.insert(id.to_string(), Value::String(desc.to_string()));
+            action_types.insert(id.to_string(), Value::String(desc));
         }
     }
 
@@ -639,7 +641,7 @@ async fn feed_multi_select(
         } else {
             ""
         };
-        rv.push_str(&format!("<option {} value=\"0\">All feeds</option>", sel));
+        rv.push_str(&format!("<option {} value=\"0\">{}</option>", sel, __("All feeds")));
     }
 
     if enable_cats {
