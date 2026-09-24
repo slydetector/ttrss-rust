@@ -149,7 +149,16 @@ async fn generate_feed(state: &AppState, owner_uid: i64, req: &RssRequest<'_>) -
     // render in the owner's language, like PHP.
     let locale =
         crate::i18n::resolve_user_locale(state, owner_uid, None, req.accept_language).await;
-    let q = get_headlines_query(&state.db, &params, locale.as_deref(), &state.i18n).await;
+    // M10.2b: scope the request locale around the (translating) headline query.
+    let i18n_ctx = crate::i18n::I18nCtx {
+        locale: locale.clone(),
+        cache: state.i18n.clone(),
+    };
+    let q = crate::i18n::I18N
+        .scope(i18n_ctx, async {
+            get_headlines_query(&state.db, &params, locale.as_deref(), &state.i18n).await
+        })
+        .await;
 
     // `Feeds::_get_access_key($feed, false, $owner_uid)` (get-or-create).
     let key = get_or_create_access_key(pool, feed, false, owner_uid).await;

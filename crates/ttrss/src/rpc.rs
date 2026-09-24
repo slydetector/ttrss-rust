@@ -335,6 +335,14 @@ async fn dispatch(
         crate::i18n::resolve_user_locale(state, uid, profile, accept_language).await
     };
 
+    // M10.2b: make the resolved locale available to the bare translating
+    // helpers (`__`/`t_sprintf`) for the duration of the dispatch. The `async`
+    // block (and its `match` body) is left at its existing indentation.
+    let i18n_ctx = crate::i18n::I18nCtx {
+        locale: locale.clone(),
+        cache: state.i18n.clone(),
+    };
+    crate::i18n::I18N.scope(i18n_ctx, async {
     match op {
         "RPC" => match method {
             "hotkeyhelp" => {
@@ -639,6 +647,7 @@ async fn dispatch(
         },
         other => DispatchOutput::Json(unknown_method(other, method)),
     }
+    }).await
 }
 
 /// `Errors::to_json(code, params)`.

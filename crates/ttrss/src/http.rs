@@ -118,7 +118,15 @@ async fn index(
     if !data.is_logged_in() {
         // Not authenticated → login page.
         let locale = crate::i18n::resolve_request_locale(&state.i18n, headers.get(axum::http::header::ACCEPT_LANGUAGE).and_then(|v| v.to_str().ok()), None);
-        let html = render::render_login_page(&state.config, &locale, &state.i18n);
+        let html = crate::i18n::I18N
+            .scope(
+                crate::i18n::I18nCtx {
+                    locale: locale.clone(),
+                    cache: state.i18n.clone(),
+                },
+                async { render::render_login_page(&state.config, &locale, &state.i18n) },
+            )
+            .await;
         return axum::http::Response::builder()
             .status(StatusCode::OK)
             .header(header::CONTENT_TYPE, "text/html; charset=UTF-8")
@@ -154,18 +162,28 @@ async fn index(
     let hide_logout = data
         .get_bool("hide_logout")
         .unwrap_or(false);
-    let html = render::render_shell(
-        csrf,
-        ts,
-        &theme_link,
-        &user_css,
-        &plugin_css,
-        &plugin_js,
-        &main_toolbar_buttons,
-        locale.as_deref(),
-        &state.i18n,
-        hide_logout,
-    );
+    let html = crate::i18n::I18N
+        .scope(
+            crate::i18n::I18nCtx {
+                locale: locale.clone(),
+                cache: state.i18n.clone(),
+            },
+            async {
+                render::render_shell(
+                    csrf,
+                    ts,
+                    &theme_link,
+                    &user_css,
+                    &plugin_css,
+                    &plugin_js,
+                    &main_toolbar_buttons,
+                    locale.as_deref(),
+                    &state.i18n,
+                    hide_logout,
+                )
+            },
+        )
+        .await;
     let etag = format!("\"{}\"", md5_hex(&html));
     // `send_conditional_html`: 304 when the client's validator matches.
     if headers
@@ -199,7 +217,15 @@ async fn prefs_page(
     let data = sess.data();
     if !data.is_logged_in() {
         let locale = crate::i18n::resolve_request_locale(&state.i18n, headers.get(axum::http::header::ACCEPT_LANGUAGE).and_then(|v| v.to_str().ok()), None);
-        let html = render::render_login_page(&state.config, &locale, &state.i18n);
+        let html = crate::i18n::I18N
+            .scope(
+                crate::i18n::I18nCtx {
+                    locale: locale.clone(),
+                    cache: state.i18n.clone(),
+                },
+                async { render::render_login_page(&state.config, &locale, &state.i18n) },
+            )
+            .await;
         return axum::http::Response::builder()
             .status(StatusCode::OK)
             .header(header::CONTENT_TYPE, "text/html; charset=UTF-8")

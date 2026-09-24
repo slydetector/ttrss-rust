@@ -319,7 +319,7 @@ pub struct I18nCtx {
 // `I18N.scope(...)`; the bare helpers read it. (A plain comment: the
 // `task_local!` macro doesn't take a doc comment.)
 tokio::task_local! {
-    static I18N: I18nCtx;
+    pub static I18N: I18nCtx;
 }
 
 /// Translate using the request's locale (from the task-local). Falls back to

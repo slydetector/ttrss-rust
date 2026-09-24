@@ -848,6 +848,14 @@ async fn get_headlines(
         skip_first_id_check,
         ..Default::default()
     };
+    // M10.2b: scope the request locale around the (translating) headline query
+    // + row rendering. No `return`s in this tail, so the `async` block's value
+    // is the handler's `(status, content)`.
+    let i18n_ctx = crate::i18n::I18nCtx {
+        locale: locale.clone(),
+        cache: state.i18n.clone(),
+    };
+    crate::i18n::I18N.scope(i18n_ctx, async {
     let q =
         headlines::get_headlines_query(&state.db, &params, locale.as_deref(), &state.i18n).await;
 
@@ -882,6 +890,7 @@ async fn get_headlines(
     } else {
         (STATUS_OK, Value::Array(out))
     }
+    }).await
 }
 
 // Non-vfeed column layout (see `headlines.rs` SELECT).
