@@ -163,7 +163,7 @@ fn pref_help() -> Vec<(&'static str, &'static str, Option<&'static str>)> {
 
 /// `get_translations()` (`include/functions.php`): the language options for
 /// the `USER_LANGUAGE` select, in declaration order.
-fn get_translations() -> Vec<(&'static str, &'static str)> {
+pub fn get_translations() -> Vec<(&'static str, &'static str)> {
     vec![
         ("auto", "Detect automatically"),
         ("ar_SA", "العربيّة (Arabic)"),

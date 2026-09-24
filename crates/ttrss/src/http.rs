@@ -142,8 +142,8 @@ async fn index(
     let user_css = user_css_style(&state, &data).await;
     let active_plugins = resolve_active_plugins(&state, &data).await;
     let (plugin_css, plugin_js) = plugin_assets(&state.plugins, &active_plugins);
-    let main_toolbar_buttons = main_toolbar_buttons(&state, &sess).await;
-    // M10.2: resolve locale for shell translations.
+    // M10.2: resolve locale for shell translations. Resolved before the plugin
+    // toolbar so the toolbar can render inside the I18N scope (M10.4).
     let accept_language: Option<&str> = headers
         .get(header::ACCEPT_LANGUAGE)
         .and_then(|v| v.to_str().ok());
@@ -170,6 +170,10 @@ async fn index(
                 cache: state.i18n.clone(),
             },
             async {
+                // M10.4: the plugin toolbar buttons render inside the I18N
+                // scope so their strings resolve the request's locale (the
+                // `__()` in each plugin hook reads the task-local).
+                let main_toolbar_buttons = main_toolbar_buttons(&state, &sess).await;
                 render::render_shell(
                     csrf,
                     ts,
