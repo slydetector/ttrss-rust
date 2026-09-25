@@ -257,16 +257,13 @@ fn test_missing_string_falls_back_original() {
     assert_eq!(translate(Some("eo"), &cat, present), eo_save);
 }
 
-/// Plural forms: the count picks the right form. `(%d day)`/`(%d days)` —
-/// German has two forms (1 → singular, N → plural).
+/// Plural forms: the count picks the right form. `(%d day)`/`(%d days)`.
 ///
-/// NOTE: this only asserts the **two-form** (German) case. The `gettext` 0.4.0
-/// crate's Plural-Forms expression evaluator mishandles the complex
-/// nested-ternary rules that three-form languages (e.g. `ru_RU`) use — it
-/// resolves every `n` to form 0. So `ru_RU` plurals are currently always the
-/// singular form (`(%d день)`); that's a dependency limitation, not ttrss
-/// logic, and is flagged for revisit (upgrade the crate or supply a custom
-/// plural rule) rather than asserted here.
+/// German is two-form (1 → singular, N → plural), handled by the `gettext`
+/// crate. Russian is three-form (one/few/other); its gettext rule is the
+/// nested-ternary form the `gettext` 0.4.0 crate evaluates incorrectly, so
+/// ttrss picks the form via CLDR (ICU4X) instead — see
+/// `i18n::I18nCache::cldr_form_index`. Both are asserted here.
 #[test]
 fn test_plural_forms() {
     let cat = catalog();
@@ -278,6 +275,31 @@ fn test_plural_forms() {
     assert_eq!(
         ngettext(Some("de_DE"), &cat, "(%d day)", "(%d days)", 5),
         "(%d Tage)"
+    );
+    // Russian (three-form, CLDR-picked): one/few/other = день/дня/дней.
+    assert_eq!(
+        ngettext(Some("ru_RU"), &cat, "(%d day)", "(%d days)", 1),
+        "(%d день)"
+    );
+    assert_eq!(
+        ngettext(Some("ru_RU"), &cat, "(%d day)", "(%d days)", 2),
+        "(%d дня)"
+    );
+    assert_eq!(
+        ngettext(Some("ru_RU"), &cat, "(%d day)", "(%d days)", 5),
+        "(%d дней)"
+    );
+    assert_eq!(
+        ngettext(Some("ru_RU"), &cat, "(%d day)", "(%d days)", 21),
+        "(%d день)"
+    );
+    assert_eq!(
+        ngettext(Some("ru_RU"), &cat, "(%d day)", "(%d days)", 22),
+        "(%d дня)"
+    );
+    assert_eq!(
+        ngettext(Some("ru_RU"), &cat, "(%d day)", "(%d days)", 25),
+        "(%d дней)"
     );
     // No locale → the plain English forms by count.
     assert_eq!(ngettext(None, &cat, "(%d day)", "(%d days)", 1), "(%d day)");

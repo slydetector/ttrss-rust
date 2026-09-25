@@ -11,6 +11,8 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use gettext::Catalog;
+use icu_locale_core::Locale;
+use icu_plurals::{PluralCategory, PluralRules};
 
 /// A lazily-populated cache of gettext catalogs, keyed by locale.
 ///
@@ -93,11 +95,18 @@ impl I18nCache {
     /// For plural entries (msgid contains `\0`): both singular and plural forms
     /// are included as separate keys.
     pub fn translations_map(&self, locale: &str) -> Option<Vec<(String, String)>> {
+        self.load_raw_entries(locale).map(|entries| build_translations(&entries))
+    }
+
+    /// Load (and cache) the raw `(msgid, msgstr)` pairs from a locale's `.mo`
+    /// file — including the metadata entry and the NUL-delimited plural msgids
+    /// (`singular\0plural` → `form0\0form1\0…`).
+    fn load_raw_entries(&self, locale: &str) -> Option<Vec<(String, String)>> {
         // Fast path: already loaded.
         {
             let map = self.entries.lock().unwrap();
             if let Some(entries) = map.get(locale) {
-                return Some(build_translations(entries));
+                return Some(entries.clone());
             }
         }
         // Slow path: parse the .mo file.
@@ -110,10 +119,40 @@ impl I18nCache {
         let raw = parse_mo_entries(&data)?;
         let mut map = self.entries.lock().unwrap();
         if let Some(existing) = map.get(locale) {
-            return Some(build_translations(existing));
+            return Some(existing.clone());
         }
         map.insert(locale.to_string(), raw.clone());
-        Some(build_translations(&raw))
+        Some(raw)
+    }
+
+    /// The individual translated plural forms for a `(singular, plural)`
+    /// source pair, NUL-split from the `.mo` entry (`None` if absent).
+    pub fn plural_forms(&self, locale: &str, singular: &str, plural: &str) -> Option<Vec<String>> {
+        let key = format!("{singular}\0{plural}");
+        let entries = self.load_raw_entries(locale)?;
+        let entry = entries.iter().find(|(id, _)| *id == key)?;
+        Some(entry.1.split('\0').map(str::to_string).collect())
+    }
+
+    /// Pick the `.mo` form index for count `n` using CLDR, for the locales whose
+    /// 3+-form gettext rules the `gettext` crate cannot evaluate. All of tt-rss's
+    /// three-form locales (be, cs_CZ, pl_PL, ru_RU, uk_UA) are the standard
+    /// one/few/other pattern, so the form is `0` for the CLDR *one* category, `1`
+    /// for *few*, and `2` for everything else (verified against the `.mo`
+    /// `Plural-Forms`). `None` if CLDR has no rules for the locale.
+    ///
+    /// `PluralRules` holds an `Rc` and is not `Send + Sync`, so it can't be
+    /// cached in the shared [`I18nCache`]; it is built per call (cheap — a locale
+    /// parse plus a lookup in the compiled data).
+    pub fn cldr_form_index(&self, locale: &str, n: i64) -> Option<usize> {
+        let loc: Locale = locale.replace('_', "-").parse().ok()?;
+        let rules = PluralRules::try_new_cardinal(loc.into()).ok()?;
+        let category = rules.category_for(n);
+        Some(match category {
+            PluralCategory::One => 0,
+            PluralCategory::Few => 1,
+            _ => 2,
+        })
     }
 }
 
@@ -283,6 +322,18 @@ pub fn ngettext(
     let Some(catalog) = cache.catalog(locale) else {
         return if n == 1 { singular.to_string() } else { plural.to_string() };
     };
+    // For catalogs with 3+ plural forms (the Slavic be/cs/pl/ru/uk), the
+    // `gettext` crate's formula evaluator is broken — it splits on `&&`/`||`
+    // *before* the ternary `?:`, so unparenthesized 3-form rules mis-select
+    // the form (almost always the singular). Pick the form via CLDR (ICU4X)
+    // instead; see `cldr_form_index` for the category→form mapping.
+    if let Some(forms) = cache.plural_forms(locale, singular, plural)
+        && forms.len() >= 3
+        && let Some(form) = cache.cldr_form_index(locale, n)
+        && let Some(text) = forms.get(form)
+    {
+        return text.clone();
+    }
     catalog.ngettext(singular, plural, n as u64).to_string()
 }
 
@@ -394,6 +445,7 @@ mod tests {
     fn test_cache() -> I18nCache {
         I18nCache::new(PathBuf::from("../../tt-rss/locale"))
     }
+
 
     #[test]
     fn test_available_locales() {
@@ -574,5 +626,74 @@ mod tests {
         assert_eq!(result, "5 articles");
         let result = translate_nsprintf(None, &cache, "%d article", "%d articles", 1, &["1"]);
         assert_eq!(result, "1 article");
+    }
+
+    // Correct, by-hand evaluations of the actual `.mo` `Plural-Forms` for the
+    // three-form locales — the ground truth the CLDR path must match.
+    fn form_ru_be_uk(n: i64) -> usize {
+        if n % 10 == 1 && n % 100 != 11 {
+            0
+        } else if n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20) {
+            1
+        } else {
+            2
+        }
+    }
+    fn form_pl(n: i64) -> usize {
+        if n == 1 {
+            0
+        } else if n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20) {
+            1
+        } else {
+            2
+        }
+    }
+    fn form_cs(n: i64) -> usize {
+        if n == 1 {
+            0
+        } else if n >= 2 && n <= 4 {
+            1
+        } else {
+            2
+        }
+    }
+
+    /// The heart of the CLDR hybrid: for every `n` in a wide range, the form the
+    /// CLDR category maps to must equal the form the actual `.mo` formula
+    /// produces. Any disagreement is a real plural-rendering bug.
+    #[test]
+    fn test_cldr_form_index_matches_mo_formula() {
+        let cache = test_cache();
+        for n in 0..=1000 {
+            for (locale, expected) in [
+                ("ru_RU", form_ru_be_uk(n)),
+                ("be", form_ru_be_uk(n)),
+                ("uk_UA", form_ru_be_uk(n)),
+                ("pl_PL", form_pl(n)),
+                ("cs_CZ", form_cs(n)),
+            ] {
+                assert_eq!(
+                    cache.cldr_form_index(locale, n),
+                    Some(expected),
+                    "{locale} n={n}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_ngettext_three_form_uses_cldr() {
+        let cache = test_cache();
+        // ru_RU is three-form: `%d день` (one) / `%d дня` (few) / `%d дней`
+        // (other). The `gettext` crate alone returns form 0 (singular) for every
+        // n>1 (its formula-precedence bug); the CLDR path picks the right form.
+        // This test fails on the crate-only path (n=2, 22, 25 would be `день`).
+        assert_eq!(ngettext(Some("ru_RU"), &cache, "%d day", "%d days", 1), "%d день");
+        assert_eq!(ngettext(Some("ru_RU"), &cache, "%d day", "%d days", 2), "%d дня");
+        assert_eq!(ngettext(Some("ru_RU"), &cache, "%d day", "%d days", 5), "%d дней");
+        assert_eq!(ngettext(Some("ru_RU"), &cache, "%d day", "%d days", 11), "%d дней");
+        assert_eq!(ngettext(Some("ru_RU"), &cache, "%d day", "%d days", 21), "%d день");
+        assert_eq!(ngettext(Some("ru_RU"), &cache, "%d day", "%d days", 22), "%d дня");
+        assert_eq!(ngettext(Some("ru_RU"), &cache, "%d day", "%d days", 25), "%d дней");
     }
 }

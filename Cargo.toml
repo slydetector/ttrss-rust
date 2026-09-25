@@ -23,6 +23,8 @@ clap = { version = "4", features = ["derive"] }
 hex = "0.4"
 hmac = "0.12"
 iana-time-zone = "0.1"
+icu_plurals = "2"
+icu_locale_core = "2"
 md5 = "0.7"
 mime_guess = "2"
 rand = "0.8"
