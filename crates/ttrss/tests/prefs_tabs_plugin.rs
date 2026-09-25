@@ -24,6 +24,8 @@ use ttrss::session::Sess;
 use ttrss::AppState;
 use test_db::template::with_test_db;
 
+use serde_json::Value;
+
 fn test_config(plugins: &str) -> Config {
     let mut cfg = Config::for_test();
     cfg.plugins = plugins.to_string();
@@ -193,4 +195,91 @@ async fn test_tabs_empty_when_no_plugins() {
     assert!(system.contains("Event log"), "system tab intact");
         Ok(())
     })).await.unwrap();
+}
+
+// `setplugins` (the SPA's "Enable selected" save, `Pref_Prefs::setplugins`):
+// POST the checked `plugins[]` values and verify `getPluginsList` reflects the
+// flipped `user_enabled` pref — then flip it back off. Pref_Prefs read/write
+// methods (beyond `index`) are CSRF-gated, so the token is included.
+#[tokio::test]
+async fn test_setplugins_persists_enabled_set() {
+    with_test_db(|url| Box::pin(async move {
+        let state = setup(&url, "").await;
+
+        // Enable `bookmarklets` (a bundled plugin). Void method (xhr.post) →
+        // an empty body.
+        let resp = call(
+            &state,
+            "op=Pref_Prefs&method=setplugins&csrf_token=tok&plugins%5B%5D=bookmarklets",
+        )
+        .await;
+        assert!(
+            resp.is_empty(),
+            "setplugins must return an empty body: {resp:?}"
+        );
+
+        let v: Value = serde_json::from_str(
+            &call(&state, "op=Pref_Prefs&method=getPluginsList&csrf_token=tok").await,
+        )
+        .unwrap();
+        let bm = v["plugins"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|p| p["name"] == "bookmarklets")
+            .expect("bookmarklets listed");
+        assert!(
+            bm["user_enabled"].as_bool().unwrap_or(false),
+            "bookmarklets should be user-enabled"
+        );
+
+        // Disable it (no `plugins[]` posted → empty enabled set).
+        call(&state, "op=Pref_Prefs&method=setplugins&csrf_token=tok").await;
+        let v2: Value = serde_json::from_str(
+            &call(&state, "op=Pref_Prefs&method=getPluginsList&csrf_token=tok").await,
+        )
+        .unwrap();
+        let bm2 = v2["plugins"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|p| p["name"] == "bookmarklets")
+            .unwrap();
+        assert!(
+            !bm2["user_enabled"].as_bool().unwrap_or(true),
+            "bookmarklets should be disabled"
+        );
+
+        Ok(())
+    }))
+    .await
+    .unwrap();
+}
+
+// The five unported plugin-management methods each route to their own
+// `tracing::warn!` arm and return E_UNKNOWN_METHOD (a no-op) — not a silent
+// success — so the SPA's "falsely confirm" path is at least logged server-side.
+#[tokio::test]
+async fn test_unported_plugin_mgmt_methods_return_unknown_method() {
+    with_test_db(|url| Box::pin(async move {
+        let state = setup(&url, "bookmarklets").await;
+        for method in [
+            "installPlugin",
+            "uninstallPlugin",
+            "checkForPluginUpdates",
+            "updateLocalPlugins",
+            "clearPluginData",
+        ] {
+            let body = format!("op=Pref_Prefs&method={method}&csrf_token=tok");
+            let v: Value = serde_json::from_str(&call(&state, &body).await).unwrap();
+            assert_eq!(
+                v["error"]["code"],
+                Value::String("E_UNKNOWN_METHOD".into()),
+                "{method} must return E_UNKNOWN_METHOD"
+            );
+        }
+        Ok(())
+    }))
+    .await
+    .unwrap();
 }

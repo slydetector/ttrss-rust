@@ -596,16 +596,42 @@ async fn dispatch(
                 DispatchOutput::TextHtml(settings::otp_disable(state, sess, extra).await)
             }
             "customizecss" => DispatchOutput::Json(settings::customize_css(state, sess).await),
-            // TODO(port): Plugins-tab management actions are not yet ported and
-            // fall through to `unknown_method` (E_UNKNOWN_METHOD). Spec:
-            // Pref_Prefs.php — `setplugins()` (enable/disable),
-            // `installPlugin()` / `uninstallPlugin()` (file ops),
-            // `checkForPluginUpdates()` / `updateLocalPlugins()` (network),
-            // `clearPluginData()`. The SPA's `xhr.post` callers (e.g. "Enable
-            // selected") treat the error body as success, so these falsely
-            // confirm without writing anything.
             "getpluginslist" => DispatchOutput::Json(plugins::get_plugins_list(state, sess).await),
+            "setplugins" => {
+                plugins::set_plugins(state, sess, extra).await;
+                DispatchOutput::TextHtml(String::new())
+            }
             "getavailableplugins" => DispatchOutput::Json(plugins::get_available_plugins(sess)),
+            // TODO(port): Pref_Prefs::installPlugin (file ops) unported — no-op,
+            // returns E_UNKNOWN_METHOD. Spec: classes/Pref_Prefs.php installPlugin().
+            "installplugin" => {
+                tracing::warn!("Pref_Prefs::installPlugin (file ops) unported — no-op, returns E_UNKNOWN_METHOD. Spec: classes/Pref_Prefs.php installPlugin().");
+                DispatchOutput::Json(unknown_method("Pref_Prefs", method))
+            }
+            // TODO(port): Pref_Prefs::uninstallPlugin (file ops) unported — no-op,
+            // returns E_UNKNOWN_METHOD. Spec: classes/Pref_Prefs.php uninstallPlugin().
+            "uninstallplugin" => {
+                tracing::warn!("Pref_Prefs::uninstallPlugin (file ops) unported — no-op, returns E_UNKNOWN_METHOD. Spec: classes/Pref_Prefs.php uninstallPlugin().");
+                DispatchOutput::Json(unknown_method("Pref_Prefs", method))
+            }
+            // TODO(port): Pref_Prefs::checkForPluginUpdates (network) unported —
+            // no-op, returns E_UNKNOWN_METHOD. Spec: classes/Pref_Prefs.php checkForPluginUpdates().
+            "checkforpluginupdates" => {
+                tracing::warn!("Pref_Prefs::checkForPluginUpdates (network) unported — no-op, returns E_UNKNOWN_METHOD. Spec: classes/Pref_Prefs.php checkForPluginUpdates().");
+                DispatchOutput::Json(unknown_method("Pref_Prefs", method))
+            }
+            // TODO(port): Pref_Prefs::updateLocalPlugins (network) unported —
+            // no-op, returns E_UNKNOWN_METHOD. Spec: classes/Pref_Prefs.php updateLocalPlugins().
+            "updatelocalplugins" => {
+                tracing::warn!("Pref_Prefs::updateLocalPlugins (network) unported — no-op, returns E_UNKNOWN_METHOD. Spec: classes/Pref_Prefs.php updateLocalPlugins().");
+                DispatchOutput::Json(unknown_method("Pref_Prefs", method))
+            }
+            // TODO(port): Pref_Prefs::clearPluginData (file ops) unported — no-op,
+            // returns E_UNKNOWN_METHOD. Spec: classes/Pref_Prefs.php clearPluginData().
+            "clearplugindata" => {
+                tracing::warn!("Pref_Prefs::clearPluginData (file ops) unported — no-op, returns E_UNKNOWN_METHOD. Spec: classes/Pref_Prefs.php clearPluginData().");
+                DispatchOutput::Json(unknown_method("Pref_Prefs", method))
+            }
             _ => DispatchOutput::Json(unknown_method("Pref_Prefs", method)),
         },
         "Pref_System" => match method {

@@ -1,4 +1,4 @@
-//! Port of the `Pref_Prefs` plugin handlers (`getPluginsList`,
+//! Port of the `Pref_Prefs` plugin handlers (`getPluginsList`, `setplugins`,
 //! `getAvailablePlugins`) in classes/Pref_Prefs.php.
 //!
 //! `getPluginsList` enumerates the bundled plugins. Each plugin's `about()`
@@ -26,7 +26,7 @@ pub mod hotkeys_swap_jk;
 pub mod toggle_sidebar;
 pub mod shorten_expanded;
 
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 
 use crate::core::user::ACCESS_LEVEL_ADMIN;
 use crate::prefs;
@@ -261,6 +261,54 @@ pub async fn get_plugins_list(state: &AppState, sess: &Sess) -> Value {
     let is_admin = data.access_level().unwrap_or(0) >= ACCESS_LEVEL_ADMIN as i64;
 
     json!({ "plugins": rv, "is_admin": is_admin })
+}
+
+/// `Pref_Prefs::setplugins`: persist the user's enabled-plugin set.
+///
+/// PHP (`classes/Pref_Prefs.php`):
+/// ```php
+/// $plugins = array_filter($_REQUEST['plugins'] ?? [], clean(...));
+/// Prefs::set(Prefs::_ENABLED_PLUGINS, implode(',', $plugins), $uid, $profile);
+/// ```
+/// The SPA's "Enable selected" button POSTs the checked `plugins[]` values;
+/// `rpc_form_from_urlencoded` normalizes them to `extra["plugins"]` as a string
+/// array (PHP `$_REQUEST['plugins']`). Each value is trim/strip-tagged, empties
+/// are dropped, and the rest is comma-joined into the `_ENABLED_PLUGINS` pref.
+pub async fn set_plugins(state: &AppState, sess: &Sess, extra: &Map<String, Value>) {
+    let data = sess.data();
+    let uid = data.uid().unwrap_or(0);
+    let profile: Option<i32> = data.profile().map(|p| p as i32);
+
+    // `$_REQUEST['plugins']` is an array (see `rpc_form_from_urlencoded`, which
+    // turns `name[]` fields into the bare key as an array); tolerate a lone
+    // scalar too.
+    let mut chosen: Vec<&str> = Vec::new();
+    match extra.get("plugins") {
+        Some(Value::Array(vals)) => {
+            for v in vals {
+                if let Some(s) = v.as_str() {
+                    chosen.push(s);
+                }
+            }
+        }
+        Some(Value::String(s)) => chosen.push(s.as_str()),
+        _ => {}
+    }
+
+    // PHP `array_filter($_REQUEST['plugins'] ?? [], clean(...))`: trim +
+    // strip_tags each element, drop empties, then comma-join.
+    let value = chosen
+        .iter()
+        .map(|s| crate::util::strip_tags(s).trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join(",");
+
+    let _ =
+        prefs::set(&state.db, prefs::_ENABLED_PLUGINS, &value, uid, profile, true).await;
+
+    // Mirror PHP `Prefs::set`'s in-memory cache update (see settings save-config).
+    crate::prefs::invalidate(&state.prefs_cache, uid, profile);
 }
 
 /// `Pref_Prefs::getAvailablePlugins`: the installed-plugin catalog for
