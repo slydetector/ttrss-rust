@@ -57,6 +57,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use serde_json::Value;
 use sqlx::PgPool;
@@ -477,8 +478,8 @@ impl PluginHost {
 /// Built per request (web), per feed-update task (the feed owner, default
 /// profile), or per public-method dispatch (one plugin, owner 0) — see the
 /// constructors.
-pub struct HostCtx<'a> {
-    host: &'a PluginHost,
+pub struct HostCtx {
+    host: Arc<PluginHost>,
     /// Active flag per plugin index (see the gating rules in the module
     /// docs).
     active: Vec<bool>,
@@ -492,12 +493,14 @@ pub struct HostCtx<'a> {
     pub profile: Option<i32>,
     /// The session's access level (`0` outside a web session).
     pub access_level: i32,
-    pub pool: &'a PgPool,
+    /// The shared database pool (owned clone — [`PgPool`] is cheap to clone).
+    /// Access via [`HostCtx::pool`].
+    pool: PgPool,
     /// The server config (PHP's `Config` singleton; the port hands it in
     /// once per context). Plugins read individual values off it (e.g.
     /// `bookmarklets::subscribe` needs `fetch_extended_url_filtering`,
     /// `encryption_key`, `feed_fetch_timeout`, `feed_icon_dir`).
-    pub cfg: &'a crate::core::config::Config,
+    pub cfg: crate::core::config::Config,
     /// Special (plugin-provided) feeds — per-request in PHP (the singleton
     /// is per-request), so per-context here.
     special_feeds: Vec<SpecialFeed>,
@@ -533,27 +536,20 @@ pub struct HostCtx<'a> {
     pub otp_challenge: bool,
 }
 
-impl<'a> HostCtx<'a> {
+impl HostCtx {
     /// A view with no plugins active (the pre-plugin baseline).
-    pub fn empty(host: &'a PluginHost, pool: &'a PgPool, cfg: &'a crate::core::config::Config) -> Self {
-        Self::with_active(
-            host,
-            pool,
-            cfg,
-            vec![false; host.plugins.len()],
-            None,
-            None,
-            0,
-        )
+    pub fn empty(host: Arc<PluginHost>, pool: PgPool, cfg: crate::core::config::Config) -> Self {
+        let len = host.plugins.len();
+        Self::with_active(host, pool, cfg, vec![false; len], None, None, 0)
     }
 
     /// Web-request / per-owner context: `TTRSS_PLUGINS` (system) + the
     /// owner's `_ENABLED_PLUGINS` (user, `KIND_USER`).
     #[allow(clippy::too_many_arguments)] // mirrors the PHP plugin-host context construction
     pub fn for_user(
-        host: &'a PluginHost,
-        pool: &'a PgPool,
-        cfg: &'a crate::core::config::Config,
+        host: Arc<PluginHost>,
+        pool: PgPool,
+        cfg: crate::core::config::Config,
         owner_uid: Option<i32>,
         profile: Option<i32>,
         access_level: i32,
@@ -579,7 +575,7 @@ impl<'a> HostCtx<'a> {
     /// (The port's `all_plugins` mirrors the reference's bundled directory
     /// listing, so "every system plugin" = "every plugin whose
     /// `about().system` is set".)
-    pub fn system_plugins(host: &'a PluginHost, pool: &'a PgPool, cfg: &'a crate::core::config::Config) -> Self {
+    pub fn system_plugins(host: Arc<PluginHost>, pool: PgPool, cfg: crate::core::config::Config) -> Self {
         let active = host
             .plugins
             .iter()
@@ -589,7 +585,7 @@ impl<'a> HostCtx<'a> {
     }
 
     /// `Cache_Local`'s host: system plugins only (`KIND_SYSTEM`).
-    pub fn system_only(host: &'a PluginHost, pool: &'a PgPool, cfg: &'a crate::core::config::Config, system: &[&str]) -> Self {
+    pub fn system_only(host: Arc<PluginHost>, pool: PgPool, cfg: crate::core::config::Config, system: &[&str]) -> Self {
         let system: Vec<&str> = system.iter().map(|s| s.trim()).collect();
         let active = host
             .plugins
@@ -601,7 +597,7 @@ impl<'a> HostCtx<'a> {
 
     /// `Handler_Public`'s public-method host: one plugin by name
     /// (`load($plugin_name, KIND_ALL, 0)`).
-    pub fn single(host: &'a PluginHost, pool: &'a PgPool, cfg: &'a crate::core::config::Config, name: &str) -> Self {
+    pub fn single(host: Arc<PluginHost>, pool: PgPool, cfg: crate::core::config::Config, name: &str) -> Self {
         let name = name.trim().to_lowercase();
         let active = host
             .plugins
@@ -612,9 +608,9 @@ impl<'a> HostCtx<'a> {
     }
 
     fn with_active(
-        host: &'a PluginHost,
-        pool: &'a PgPool,
-        cfg: &'a crate::core::config::Config,
+        host: Arc<PluginHost>,
+        pool: PgPool,
+        cfg: crate::core::config::Config,
         active: Vec<bool>,
         owner_uid: Option<i32>,
         profile: Option<i32>,
@@ -682,8 +678,21 @@ impl<'a> HostCtx<'a> {
     }
 
     /// The shared registry.
-    pub fn host(&self) -> &'a PluginHost {
-        self.host
+    pub fn host(&self) -> &PluginHost {
+        &self.host
+    }
+
+    /// A clone of the host's `Arc<PluginHost>`. Lets a caller look up a plugin
+    /// on a *local* `Arc` so the resulting `&dyn Plugin` does not tie to this
+    /// `HostCtx` (and can coexist with a `&mut` borrow of it — e.g. the
+    /// `dispatch` helpers that pass `&mut ctx` to `invoke_method`).
+    pub fn host_arc(&self) -> Arc<PluginHost> {
+        Arc::clone(&self.host)
+    }
+
+    /// The shared database pool (an owned clone; cheap to hold).
+    pub fn pool(&self) -> &PgPool {
+        &self.pool
     }
 
     /// Whether the plugin at `idx` is active in this context.
@@ -695,10 +704,23 @@ impl<'a> HostCtx<'a> {
     /// set: PHP's per-request host only *holds* loaded plugins, so a plugin
     /// that is registered but not active for the owner (system list /
     /// `_ENABLED_PLUGINS`) is an unknown plugin on the dispatch paths.
-    pub fn get_plugin(&self, name: &str) -> Option<&'a dyn Plugin> {
+    pub fn get_plugin(&self, name: &str) -> Option<&dyn Plugin> {
         let &i = self.host.by_name.get(&name.to_lowercase())?;
         if self.active.get(i).copied().unwrap_or(false) {
             Some(self.host.plugins[i].as_ref())
+        } else {
+            None
+        }
+    }
+
+    /// Like [`Self::get_plugin`], but returns the active plugin on a *local*
+    /// `Arc<PluginHost>` (plus its index) so the resulting `&dyn Plugin` does
+    /// not tie to this context. The `dispatch` helpers need the plugin to
+    /// coexist with a `&mut` borrow of the same context for `invoke_method`.
+    pub fn get_plugin_detached(&self, name: &str) -> Option<(Arc<PluginHost>, usize)> {
+        let &i = self.host.by_name.get(&name.to_lowercase())?;
+        if self.active.get(i).copied().unwrap_or(false) {
+            Some((Arc::clone(&self.host), i))
         } else {
             None
         }
@@ -741,9 +763,9 @@ impl<'a> HostCtx<'a> {
     /// priority order; results ignored.
     pub async fn run_hooks<F>(&mut self, hook: &str, mut invoke: F)
     where
-        for<'x> F: FnMut(&'x dyn Plugin, &'x mut HostCtx<'a>) -> BoxFuture<'x, ()>,
+        for<'x> F: FnMut(&'x dyn Plugin, &'x mut HostCtx) -> BoxFuture<'x, ()>,
     {
-        let host = self.host;
+        let host = self.host.clone();
         for idx in self.hook_order(hook) {
             invoke(host.plugin(idx), self).await;
         }
@@ -760,9 +782,9 @@ impl<'a> HostCtx<'a> {
     ) -> bool
     where
         C: Fn(&R) -> bool,
-        for<'x> F: Fn(&'x dyn Plugin, &'x mut HostCtx<'a>) -> BoxFuture<'x, R>,
+        for<'x> F: Fn(&'x dyn Plugin, &'x mut HostCtx) -> BoxFuture<'x, R>,
     {
-        let host = self.host;
+        let host = self.host.clone();
         for idx in self.hook_order(hook) {
             if check(&invoke(host.plugin(idx), self).await) {
                 return true;
@@ -781,9 +803,9 @@ impl<'a> HostCtx<'a> {
     )
     where
         S: FnMut(&R, &dyn Plugin) -> bool,
-        for<'x> F: Fn(&'x dyn Plugin, &'x mut HostCtx<'a>) -> BoxFuture<'x, R>,
+        for<'x> F: Fn(&'x dyn Plugin, &'x mut HostCtx) -> BoxFuture<'x, R>,
     {
-        let host = self.host;
+        let host = self.host.clone();
         for idx in self.hook_order(hook) {
             if stop(&invoke(host.plugin(idx), self).await, host.plugin(idx)) {
                 break;
@@ -803,9 +825,9 @@ impl<'a> HostCtx<'a> {
     )
     where
         St: FnMut(&R, &dyn Plugin) -> bool,
-        for<'x> F: Fn(&'x dyn Plugin, &'x mut HostCtx<'a>, &'x mut S) -> BoxFuture<'x, R>,
+        for<'x> F: Fn(&'x dyn Plugin, &'x mut HostCtx, &'x mut S) -> BoxFuture<'x, R>,
     {
-        let host = self.host;
+        let host = self.host.clone();
         for idx in self.hook_order(hook) {
             if stop(&invoke(host.plugin(idx), self, state).await, host.plugin(idx)) {
                 break;
@@ -821,10 +843,13 @@ impl<'a> HostCtx<'a> {
     /// registers a command in the frozen reference, so this is a no-op for
     /// the stock set.
     pub async fn run_commands(&mut self, args: &Value) {
-        // Collect up front: the `&mut self` for `invoke_method` may not
-        // overlap the `self.host.get_commands()` borrow.
-        let cmds: Vec<(String, usize)> = self
-            .host
+        // Route the plugin lookup through a *local* `Arc<PluginHost>` clone: a
+        // `&dyn Plugin` borrowed from `self.host` would tie the plugin to the
+        // HostCtx's field and clash with the `&mut self` passed to
+        // `invoke_method`. The `cmds` are collected up front for the same
+        // reason (the `get_commands()` borrow may not overlap `invoke_method`).
+        let host = self.host.clone();
+        let cmds: Vec<(String, usize)> = host
             .get_commands()
             .iter()
             .map(|(k, c)| (k.clone(), c.plugin))
@@ -832,7 +857,7 @@ impl<'a> HostCtx<'a> {
         for (key, idx) in cmds {
             if args.get(key.as_str()).is_some() {
                 let method = key.trim_start_matches('-').to_string();
-                let plugin = self.host.plugin(idx);
+                let plugin = host.plugin(idx);
                 if let Err(e) = plugin.invoke_method(self, &method, args).await {
                     tracing::warn!(command = %method, error = %e, "plugin command failed");
                 }
@@ -965,13 +990,13 @@ mod tests {
                 host.add_api_method("m");
             }
         }
-        async fn hook_article_button(&self, _host: &mut HostCtx<'_>, _line: &Value) -> String {
+        async fn hook_article_button(&self, _host: &mut HostCtx, _line: &Value) -> String {
             self.calls.lock().unwrap().push(self.name.to_string());
             self.name.to_string()
         }
         async fn invoke_method(
             &self,
-            _host: &mut HostCtx<'_>,
+            _host: &mut HostCtx,
             method: &str,
             _params: &Value,
         ) -> Result<MethodOutput, PluginError> {
@@ -1000,7 +1025,7 @@ mod tests {
 
     /// Three plugins A(50) / B(10) / C(50) — invocation order must be
     /// B, A, C (priority ascending, insertion order within a priority).
-    fn host_abc() -> (PluginHost, Arc<Mutex<Vec<String>>>) {
+    fn host_abc() -> (Arc<PluginHost>, Arc<Mutex<Vec<String>>>) {
         let c = calls();
         let a = TestPlugin::new("a", false, &c);
         let mut b = TestPlugin::new("b", false, &c);
@@ -1010,7 +1035,7 @@ mod tests {
         host.register(a.boxit());
         host.register(b.boxit());
         host.register(cpl.boxit());
-        (host, c)
+        (Arc::new(host), c)
     }
 
     #[tokio::test]
@@ -1018,7 +1043,7 @@ mod tests {
         let (host, _c) = host_abc();
         let pool = lazy_pool();
         let test_cfg = crate::core::config::Config::for_test();
-        let ctx = HostCtx::for_user(&host, &pool, &test_cfg, None, None, 0, &["a", "b", "c"], &[]);
+        let ctx = HostCtx::for_user(Arc::clone(&host), pool.clone(), test_cfg.clone(), None, None, 0, &["a", "b", "c"], &[]);
         let hostref = &host;
         let order: Vec<&str> = ctx
             .hook_order(HOOK_ARTICLE_BUTTON)
@@ -1033,7 +1058,7 @@ mod tests {
         let (host, _c) = host_abc();
         let pool = lazy_pool();
         let test_cfg = crate::core::config::Config::for_test();
-        let ctx = HostCtx::for_user(&host, &pool, &test_cfg, None, None, 0, &["a", "c"], &[]);
+        let ctx = HostCtx::for_user(Arc::clone(&host), pool.clone(), test_cfg.clone(), None, None, 0, &["a", "c"], &[]);
         let hostref = &host;
         let order: Vec<&str> = ctx
             .hook_order(HOOK_ARTICLE_BUTTON)
@@ -1048,13 +1073,13 @@ mod tests {
         let (host, c) = host_abc();
         let pool = lazy_pool();
         let test_cfg = crate::core::config::Config::for_test();
-        // Shadowed as `&Value` (Copy) so the `Fn`/`FnMut` closures can hand
-        // it to their `async move` blocks without moving the `Value`.
-        let line = Value::Null;
-        let line = &line;
+        // A `&'static Value` stub (leaked, negligible in a test) so the `Fn`/
+        // `FnMut` closures can hand it to their `async move` blocks without
+        // capturing a non-`'static` borrow under `run_hooks`' `for<'x>` HRTB.
+        let line: &'static Value = Box::leak(Box::new(Value::Null));
 
         // run_hooks: all three, in order.
-        let mut ctx = HostCtx::for_user(&host, &pool, &test_cfg, None, None, 0, &["a", "b", "c"], &[]);
+        let mut ctx = HostCtx::for_user(Arc::clone(&host), pool.clone(), test_cfg.clone(), None, None, 0, &["a", "b", "c"], &[]);
         ctx
             .run_hooks(HOOK_ARTICLE_BUTTON, |_p, _h| {
                 Box::pin(async move {
@@ -1066,7 +1091,7 @@ mod tests {
 
         // run_hooks_until: stops at the first plugin whose result matches.
         c.lock().unwrap().clear();
-        let mut ctx = HostCtx::for_user(&host, &pool, &test_cfg, None, None, 0, &["a", "b", "c"], &[]);
+        let mut ctx = HostCtx::for_user(Arc::clone(&host), pool.clone(), test_cfg.clone(), None, None, 0, &["a", "b", "c"], &[]);
         let matched = ctx
             .run_hooks_until(
                 HOOK_ARTICLE_BUTTON,
@@ -1081,7 +1106,7 @@ mod tests {
 
         // No match → all invoked, false.
         c.lock().unwrap().clear();
-        let mut ctx = HostCtx::for_user(&host, &pool, &test_cfg, None, None, 0, &["a", "b", "c"], &[]);
+        let mut ctx = HostCtx::for_user(Arc::clone(&host), pool.clone(), test_cfg.clone(), None, None, 0, &["a", "b", "c"], &[]);
         let matched = ctx
             .run_hooks_until(
                 HOOK_ARTICLE_BUTTON,
@@ -1096,7 +1121,7 @@ mod tests {
 
         // run_hooks_callback: stops when the predicate holds.
         c.lock().unwrap().clear();
-        let mut ctx = HostCtx::for_user(&host, &pool, &test_cfg, None, None, 0, &["a", "b", "c"], &[]);
+        let mut ctx = HostCtx::for_user(Arc::clone(&host), pool.clone(), test_cfg.clone(), None, None, 0, &["a", "b", "c"], &[]);
         ctx
             .run_hooks_callback(
                 HOOK_ARTICLE_BUTTON,
@@ -1110,7 +1135,7 @@ mod tests {
 
         // chain_hooks_callback: threads state through, stops mid-chain.
         c.lock().unwrap().clear();
-        let mut ctx = HostCtx::for_user(&host, &pool, &test_cfg, None, None, 0, &["a", "b", "c"], &[]);
+        let mut ctx = HostCtx::for_user(Arc::clone(&host), pool.clone(), test_cfg.clone(), None, None, 0, &["a", "b", "c"], &[]);
         let mut acc = String::new();
         ctx
             .chain_hooks_callback(
@@ -1140,9 +1165,10 @@ mod tests {
         host.register(u.boxit());
         let pool = lazy_pool();
         let test_cfg = crate::core::config::Config::for_test();
+        let host = Arc::new(host);
 
         // System list [s] + user list [u]: both active.
-        let ctx = HostCtx::for_user(&host, &pool, &test_cfg, Some(1), None, 0, &["s"], &["u"]);
+        let ctx = HostCtx::for_user(Arc::clone(&host), pool.clone(), test_cfg.clone(), Some(1), None, 0, &["s"], &["u"]);
         assert_eq!(
             ctx.active_plugins().map(|p| p.name()).collect::<Vec<_>>(),
             vec!["s", "u"]
@@ -1151,18 +1177,18 @@ mod tests {
 
         // A system plugin not in the system list is never active (KIND_USER
         // skips system plugins).
-        let ctx = HostCtx::for_user(&host, &pool, &test_cfg, Some(1), None, 0, &[], &["s"]);
+        let ctx = HostCtx::for_user(Arc::clone(&host), pool.clone(), test_cfg.clone(), Some(1), None, 0, &[], &["s"]);
         assert!(ctx.active_plugins().count() == 0);
 
         // A user plugin in the system list is active (KIND_ALL registers it).
-        let ctx = HostCtx::for_user(&host, &pool, &test_cfg, Some(1), None, 0, &["s", "u"], &[]);
+        let ctx = HostCtx::for_user(Arc::clone(&host), pool.clone(), test_cfg.clone(), Some(1), None, 0, &["s", "u"], &[]);
         assert_eq!(
             ctx.active_plugins().map(|p| p.name()).collect::<Vec<_>>(),
             vec!["s", "u"]
         );
 
         // Whitespace is trimmed (PHP's array_map(trim, explode(...))).
-        let ctx = HostCtx::for_user(&host, &pool, &test_cfg, Some(1), None, 0, &[" s "], &["u"]);
+        let ctx = HostCtx::for_user(Arc::clone(&host), pool.clone(), test_cfg.clone(), Some(1), None, 0, &[" s "], &["u"]);
         assert_eq!(
             ctx.active_plugins().map(|p| p.name()).collect::<Vec<_>>(),
             vec!["s", "u"]
@@ -1179,14 +1205,15 @@ mod tests {
         host.register(u.boxit());
         let pool = lazy_pool();
         let test_cfg = crate::core::config::Config::for_test();
+        let host = Arc::new(host);
 
-        let ctx = HostCtx::system_only(&host, &pool, &test_cfg, &["s", "u"]);
+        let ctx = HostCtx::system_only(Arc::clone(&host), pool.clone(), test_cfg.clone(), &["s", "u"]);
         assert_eq!(
             ctx.active_plugins().map(|p| p.name()).collect::<Vec<_>>(),
             vec!["s"]
         );
 
-        let ctx = HostCtx::single(&host, &pool, &test_cfg, "u");
+        let ctx = HostCtx::single(Arc::clone(&host), pool.clone(), test_cfg.clone(), "u");
         assert_eq!(
             ctx.active_plugins().map(|p| p.name()).collect::<Vec<_>>(),
             vec!["u"]
@@ -1301,7 +1328,8 @@ mod tests {
         host.register(p.boxit());
         let pool = lazy_pool();
         let test_cfg = crate::core::config::Config::for_test();
-        let mut ctx = HostCtx::for_user(&host, &pool, &test_cfg, None, None, 0, &["virt"], &[]);
+        let host = Arc::new(host);
+        let mut ctx = HostCtx::for_user(Arc::clone(&host), pool.clone(), test_cfg.clone(), None, None, 0, &["virt"], &[]);
         let plugin = host.get_plugin("virt").unwrap();
 
         assert!(ctx.add_feed(5, "t", "i", plugin).is_none()); // not CATEGORY_SPECIAL
@@ -1340,7 +1368,8 @@ mod tests {
         assert_eq!(host.get_plugin("a").unwrap().name(), "a");
         let pool = lazy_pool();
         let test_cfg = crate::core::config::Config::for_test();
-        let ctx = HostCtx::for_user(&host, &pool, &test_cfg, None, None, 0, &["a"], &[]);
+        let host = Arc::new(host);
+        let ctx = HostCtx::for_user(Arc::clone(&host), pool.clone(), test_cfg.clone(), None, None, 0, &["a"], &[]);
         assert!(ctx.hook_order(HOOK_ARTICLE_BUTTON).is_empty());
     }
 }

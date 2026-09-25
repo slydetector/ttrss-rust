@@ -829,8 +829,9 @@ async fn login_flow(
         .with_server_env(server_env.to_vec());
     let mut uid: Option<i32> = None;
     let mut auth_module: Option<&str> = None;
+    let host = ctx.host_arc();
     for idx in ctx.hook_order(crate::pluginhost::HOOK_AUTH_USER) {
-        let plugin = ctx.host().plugin(idx);
+        let plugin = host.plugin(idx);
         match plugin.authenticate(&mut ctx, &login, &password, "").await {
             Some(id) => {
                 uid = Some(id);
@@ -855,7 +856,7 @@ async fn login_flow(
                 "SELECT login, access_level, pwd_hash FROM ttrss_users WHERE id = $1",
             )
             .bind(id)
-            .fetch_optional(ctx.pool)
+            .fetch_optional(ctx.pool())
             .await
             .ok()
             .flatten();

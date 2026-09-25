@@ -63,7 +63,7 @@ impl Plugin for Note {
     /// and visible text.)
     async fn hook_article_button(
         &self,
-        _host: &mut HostCtx<'_>,
+        _host: &mut HostCtx,
         line: &Value,
     ) -> String {
         let id = line["id"].as_i64().unwrap_or(0);
@@ -82,7 +82,7 @@ impl Plugin for Note {
 
     async fn invoke_method(
         &self,
-        host: &mut HostCtx<'_>,
+        host: &mut HostCtx,
         method: &str,
         params: &Value,
     ) -> Result<MethodOutput, PluginError> {
@@ -98,7 +98,7 @@ impl Plugin for Note {
 /// `ttrss_user_entries` row (the row appears when the article is first
 /// read); `$_SESSION['uid']` scopes the read.
 async fn edit(
-    host: &mut HostCtx<'_>,
+    host: &mut HostCtx,
     params: &Value,
 ) -> Result<String, PluginError> {
     let id = clean_str(params.get("id").and_then(|v| v.as_str()).unwrap_or(""));
@@ -112,7 +112,7 @@ async fn edit(
     )
     .bind(&id)
     .bind(owner)
-    .fetch_optional(host.pool)
+    .fetch_optional(host.pool())
     .await
     .map_err(|e| PluginError::Other(e.to_string()))?
     .map(|row| row.try_get::<Option<String>, _>(0).unwrap_or_default());
@@ -146,7 +146,7 @@ async fn edit(
 /// note on an article with no `ttrss_user_entries` row is a no-op, as in
 /// PHP). Echoes `json_encode([id, note])` — PHP's insertion order, id then
 /// note (serde_json's BTreeMap happens to sort them the same).
-async fn set_note(host: &mut HostCtx<'_>, params: &Value) -> Result<Value, PluginError> {
+async fn set_note(host: &mut HostCtx, params: &Value) -> Result<Value, PluginError> {
     let id = php_int_cast(&clean_str(params.get("id").and_then(|v| v.as_str()).unwrap_or("")));
     let note = clean_str(params.get("note").and_then(|v| v.as_str()).unwrap_or(""));
     let owner = host.owner_uid.unwrap_or(0);
@@ -157,7 +157,7 @@ async fn set_note(host: &mut HostCtx<'_>, params: &Value) -> Result<Value, Plugi
     .bind(&note)
     .bind(id)
     .bind(owner)
-    .execute(host.pool)
+    .execute(host.pool())
     .await
     .map_err(|e| PluginError::Other(e.to_string()))?;
 

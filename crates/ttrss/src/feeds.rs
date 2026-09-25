@@ -1336,7 +1336,7 @@ pub async fn updatedebugger(
         let _ = crate::updates::fetch_one_feed(
             pool,
             &state.config,
-            state.plugins.as_ref(),
+            state.plugins.clone(),
             feed_id as i32,
             &flags,
             Some(&mut log),
@@ -1781,7 +1781,8 @@ async fn editsaveops(
         {
             let mut host_ctx = crate::pluginhost::dispatch::session_ctx(state, sess).await;
             host_ctx.run_hooks(HOOK_PREFS_SAVE_FEED, |plugin, host| {
-                Box::pin(async move { plugin.hook_prefs_save_feed(host, feed_id, &Value::Object(extra.clone())).await; })
+                let extra = extra.clone();
+                Box::pin(async move { plugin.hook_prefs_save_feed(host, feed_id, &Value::Object(extra)).await; })
             })
             .await;
         }

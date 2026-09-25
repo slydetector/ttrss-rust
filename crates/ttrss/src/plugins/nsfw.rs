@@ -73,7 +73,7 @@ impl Plugin for NsFw {
 
     async fn invoke_method(
         &self,
-        host: &mut HostCtx<'_>,
+        host: &mut HostCtx,
         method: &str,
         params: &Value,
     ) -> Result<MethodOutput, PluginError> {
@@ -105,7 +105,7 @@ impl Plugin for NsFw {
 
     async fn hook_render_article(
         &self,
-        host: &mut HostCtx<'_>,
+        host: &mut HostCtx,
         article: &mut Value,
     ) -> Value {
         let this = *self;
@@ -122,7 +122,7 @@ impl Plugin for NsFw {
 
     async fn hook_render_article_cdm(
         &self,
-        host: &mut HostCtx<'_>,
+        host: &mut HostCtx,
         article: &mut Value,
     ) -> Value {
         let this = *self;
@@ -142,7 +142,7 @@ impl Plugin for NsFw {
     /// returned, as in the reference.
     async fn hook_render_article_api(
         &self,
-        host: &mut HostCtx<'_>,
+        host: &mut HostCtx,
         params: &Value,
     ) -> Value {
         let this = *self;
@@ -164,7 +164,7 @@ impl Plugin for NsFw {
 
     async fn hook_article_image(
         &self,
-        host: &mut HostCtx<'_>,
+        host: &mut HostCtx,
         _enclosures: &Value,
         content: &str,
         _site_url: &str,
@@ -184,7 +184,7 @@ impl Plugin for NsFw {
 
     // -- HOOK_PREFS_TAB ------------------------------------------------------
 
-    async fn hook_prefs_tab(&self, host: &mut HostCtx<'_>, tab: &str) -> () {
+    async fn hook_prefs_tab(&self, host: &mut HostCtx, tab: &str) -> () {
         let this = *self;
         if tab != "prefPrefs" {
             return;
@@ -228,7 +228,7 @@ impl Plugin for NsFw {
 /// PHP's `NSFW::rewrite_contents($article)` — wrap `content` when the stored
 /// tag list intersects the article's tags.
 async fn rewrite_contents(
-    host: &mut HostCtx<'_>,
+    host: &mut HostCtx,
     this: &NsFw,
     article: &Value,
 ) -> Result<Value, PluginError> {
@@ -246,7 +246,7 @@ async fn rewrite_contents(
 /// PHP's `$tags = explode(",", $this->host->get($this, "tags"))` followed by
 /// `count(array_intersect($tags, $article["tags"])) > 0`.
 async fn matches_tags(
-    host: &mut HostCtx<'_>,
+    host: &mut HostCtx,
     this: &NsFw,
     article: &Value,
 ) -> Result<bool, PluginError> {
@@ -263,7 +263,7 @@ async fn matches_tags(
 
 /// The stored tag list (PHP `get($this, "tags")` — unset reads as `false`,
 /// which `explode` coerces to `""`).
-async fn stored_tags(host: &mut HostCtx<'_>, this: &NsFw) -> Result<String, PluginError> {
+async fn stored_tags(host: &mut HostCtx, this: &NsFw) -> Result<String, PluginError> {
     let v = host
         .storage_get(this, "tags", PValue::Null)
         .await
@@ -281,6 +281,7 @@ fn escape_html(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
     use super::*;
     use crate::pluginhost::PluginHost;
 
@@ -316,13 +317,13 @@ mod tests {
     /// each of the five hooks.
     #[tokio::test]
     async fn init_registers_the_five_hooks() {
-        let host = PluginHost::startup(&crate::pluginhost::all_plugins());
+        let host = Arc::new(PluginHost::startup(&crate::pluginhost::all_plugins()));
         let pool = sqlx::postgres::PgPoolOptions::new()
             .connect_lazy("postgres://ttrss:ttrss@localhost/ttrss_test")
             .unwrap();
         let test_cfg = crate::core::config::Config::for_test();
         let ctx =
-        HostCtx::for_user(&host, &pool, &test_cfg, Some(1), None, 0, &[], &["nsfw"]);
+        HostCtx::for_user(Arc::clone(&host), pool.clone(), test_cfg.clone(), Some(1), None, 0, &[], &["nsfw"]);
         for h in [
             HOOK_RENDER_ARTICLE,
             HOOK_RENDER_ARTICLE_CDM,

@@ -10,6 +10,7 @@
 mod common;
 
 use test_db::template::with_test_db;
+use std::sync::Arc;
 use async_trait::async_trait;
 
 use ttrss::core::phpser::{self, Key, Value as PValue};
@@ -66,9 +67,9 @@ async fn test_set_and_get() {
     // PHP: test_set_and_get
     let pool = setup_pool(&url).await;
     let uid = seed_owner(&pool, "alice").await;
-    let host = PluginHost::new();
+    let host = Arc::new(PluginHost::new());
     let test_cfg = ttrss::core::config::Config::for_test();
-    let mut ctx = HostCtx::for_user(&host, &pool, &test_cfg, Some(uid), None, 0, &[], &[]);
+    let mut ctx = HostCtx::for_user(Arc::clone(&host), pool.clone(), test_cfg.clone(), Some(uid), None, 0, &[], &[]);
     let p = TestStoragePlugin;
 
     ctx.storage_set(&p, "key1", s(b"value1")).await.unwrap();
@@ -87,9 +88,9 @@ async fn test_get_returns_default_when_missing() {
     // PHP: test_get_returns_default_when_missing
     let pool = setup_pool(&url).await;
     let uid = seed_owner(&pool, "alice").await;
-    let host = PluginHost::new();
+    let host = Arc::new(PluginHost::new());
     let test_cfg = ttrss::core::config::Config::for_test();
-    let mut ctx = HostCtx::for_user(&host, &pool, &test_cfg, Some(uid), None, 0, &[], &[]);
+    let mut ctx = HostCtx::for_user(Arc::clone(&host), pool.clone(), test_cfg.clone(), Some(uid), None, 0, &[], &[]);
     let p = TestStoragePlugin;
 
     assert_eq!(
@@ -110,9 +111,9 @@ async fn test_set_array() {
     // PHP: test_set_array
     let pool = setup_pool(&url).await;
     let uid = seed_owner(&pool, "alice").await;
-    let host = PluginHost::new();
+    let host = Arc::new(PluginHost::new());
     let test_cfg = ttrss::core::config::Config::for_test();
-    let mut ctx = HostCtx::for_user(&host, &pool, &test_cfg, Some(uid), None, 0, &[], &[]);
+    let mut ctx = HostCtx::for_user(Arc::clone(&host), pool.clone(), test_cfg.clone(), Some(uid), None, 0, &[], &[]);
     let p = TestStoragePlugin;
 
     ctx.storage_set_array(
@@ -139,9 +140,9 @@ async fn test_get_array() {
     // PHP: test_get_array
     let pool = setup_pool(&url).await;
     let uid = seed_owner(&pool, "alice").await;
-    let host = PluginHost::new();
+    let host = Arc::new(PluginHost::new());
     let test_cfg = ttrss::core::config::Config::for_test();
-    let mut ctx = HostCtx::for_user(&host, &pool, &test_cfg, Some(uid), None, 0, &[], &[]);
+    let mut ctx = HostCtx::for_user(Arc::clone(&host), pool.clone(), test_cfg.clone(), Some(uid), None, 0, &[], &[]);
     let p = TestStoragePlugin;
 
     ctx.storage_set(&p, "mylist", PValue::Array(vec![bytes("x", PValue::Int(10)), bytes("y", PValue::Int(20))]))
@@ -173,9 +174,9 @@ async fn test_get_all() {
     // PHP: test_get_all
     let pool = setup_pool(&url).await;
     let uid = seed_owner(&pool, "alice").await;
-    let host = PluginHost::new();
+    let host = Arc::new(PluginHost::new());
     let test_cfg = ttrss::core::config::Config::for_test();
-    let mut ctx = HostCtx::for_user(&host, &pool, &test_cfg, Some(uid), None, 0, &[], &[]);
+    let mut ctx = HostCtx::for_user(Arc::clone(&host), pool.clone(), test_cfg.clone(), Some(uid), None, 0, &[], &[]);
     let p = TestStoragePlugin;
 
     ctx.storage_set(&p, "k1", s(b"v1")).await.unwrap();
@@ -194,9 +195,9 @@ async fn test_clear_data_removes_from_db() {
     // PHP: test_clear_data_removes_from_db
     let pool = setup_pool(&url).await;
     let uid = seed_owner(&pool, "alice").await;
-    let host = PluginHost::new();
+    let host = Arc::new(PluginHost::new());
     let test_cfg = ttrss::core::config::Config::for_test();
-    let mut ctx = HostCtx::for_user(&host, &pool, &test_cfg, Some(uid), None, 0, &[], &[]);
+    let mut ctx = HostCtx::for_user(Arc::clone(&host), pool.clone(), test_cfg.clone(), Some(uid), None, 0, &[], &[]);
     let p = TestStoragePlugin;
 
     ctx.storage_set(&p, "to_remove", s(b"value")).await.unwrap();
@@ -229,14 +230,14 @@ async fn test_owner_isolation() {
     let pool = setup_pool(&url).await;
     let uid1 = seed_owner(&pool, "alice").await;
     let uid2 = seed_owner(&pool, "bob").await;
-    let host = PluginHost::new();
+    let host = Arc::new(PluginHost::new());
     let test_cfg = ttrss::core::config::Config::for_test();
     let p = TestStoragePlugin;
 
-    let mut ctx1 = HostCtx::for_user(&host, &pool, &test_cfg, Some(uid1), None, 0, &[], &[]);
+    let mut ctx1 = HostCtx::for_user(Arc::clone(&host), pool.clone(), test_cfg.clone(), Some(uid1), None, 0, &[], &[]);
     ctx1.storage_set(&p, "shared_key", s(b"alice-value")).await.unwrap();
 
-    let mut ctx2 = HostCtx::for_user(&host, &pool, &test_cfg, Some(uid2), None, 0, &[], &[]);
+    let mut ctx2 = HostCtx::for_user(Arc::clone(&host), pool.clone(), test_cfg.clone(), Some(uid2), None, 0, &[], &[]);
     assert_eq!(
         ctx2.storage_get(&p, "shared_key", PValue::Bool(false)).await.unwrap(),
         PValue::Bool(false)
@@ -248,7 +249,7 @@ async fn test_owner_isolation() {
     );
 
     // A context with no owner never touches the DB (PHP's truthiness gate).
-    let mut ctx0 = HostCtx::for_user(&host, &pool, &test_cfg, None, None, 0, &[], &[]);
+    let mut ctx0 = HostCtx::for_user(Arc::clone(&host), pool.clone(), test_cfg.clone(), None, None, 0, &[], &[]);
     ctx0.storage_set(&p, "shared_key", s(b"orphan")).await.unwrap(); // no-op
     assert_eq!(
         ctx1.storage_get(&p, "shared_key", PValue::Bool(false)).await.unwrap(),
@@ -263,12 +264,12 @@ async fn test_profile_scoping() {
     with_test_db(|url| Box::pin(async move {
     let pool = setup_pool(&url).await;
     let uid = seed_owner(&pool, "alice").await;
-    let host = PluginHost::new();
+    let host = Arc::new(PluginHost::new());
     let test_cfg = ttrss::core::config::Config::for_test();
     let p = TestStoragePlugin;
 
     // No profile: profile_set/profile_get delegate to the plain set/get.
-    let mut ctx_default = HostCtx::for_user(&host, &pool, &test_cfg, Some(uid), None, 0, &[], &[]);
+    let mut ctx_default = HostCtx::for_user(Arc::clone(&host), pool.clone(), test_cfg.clone(), Some(uid), None, 0, &[], &[]);
     ctx_default
         .storage_profile_set(&p, "pref", s(b"plain"))
         .await
@@ -288,7 +289,7 @@ async fn test_profile_scoping() {
     // A profile request that *loads first* (a prior get in the same request)
     // nests the profile value under its int-keyed slot, preserving the plain
     // key.
-    let mut ctx_p1 = HostCtx::for_user(&host, &pool, &test_cfg, Some(uid), Some(1), 0, &[], &[]);
+    let mut ctx_p1 = HostCtx::for_user(Arc::clone(&host), pool.clone(), test_cfg.clone(), Some(uid), Some(1), 0, &[], &[]);
     assert_eq!(
         ctx_p1
             .storage_profile_get(&p, "other", PValue::Bool(false))
@@ -315,9 +316,9 @@ async fn test_profile_scoping() {
     // PHP's documented quirk: a context with **no prior get** replaces the
     // whole row (profile_set does not call load_data) — the plain value is
     // clobbered, matching the reference.
-    let mut ctx_p2 = HostCtx::for_user(&host, &pool, &test_cfg, Some(uid), Some(2), 0, &[], &[]);
+    let mut ctx_p2 = HostCtx::for_user(Arc::clone(&host), pool.clone(), test_cfg.clone(), Some(uid), Some(2), 0, &[], &[]);
     ctx_p2.storage_profile_set(&p, "only", s(b"v2")).await.unwrap();
-    let fresh = HostCtx::for_user(&host, &pool, &test_cfg, Some(uid), Some(2), 0, &[], &[]);
+    let fresh = HostCtx::for_user(Arc::clone(&host), pool.clone(), test_cfg.clone(), Some(uid), Some(2), 0, &[], &[]);
     let mut fresh = fresh;
     assert_eq!(
         fresh
@@ -354,9 +355,9 @@ async fn test_php_written_row_decode() {
         .await
         .unwrap();
 
-    let host = PluginHost::new();
+    let host = Arc::new(PluginHost::new());
     let test_cfg = ttrss::core::config::Config::for_test();
-    let mut ctx = HostCtx::for_user(&host, &pool, &test_cfg, Some(uid), None, 0, &[], &[]);
+    let mut ctx = HostCtx::for_user(Arc::clone(&host), pool.clone(), test_cfg.clone(), Some(uid), None, 0, &[], &[]);
     let p = PhpPlugin;
 
     assert_eq!(ctx.storage_get(&p, "id", PValue::Bool(false)).await.unwrap(), PValue::Int(7));
@@ -419,10 +420,10 @@ async fn test_get_all_without_load() {
         .await
         .unwrap();
 
-    let host = PluginHost::new();
+    let host = Arc::new(PluginHost::new());
     let test_cfg = ttrss::core::config::Config::for_test();
     let p = PhpPlugin;
-    let ctx = HostCtx::for_user(&host, &pool, &test_cfg, Some(uid), None, 0, &[], &[]);
+    let ctx = HostCtx::for_user(Arc::clone(&host), pool.clone(), test_cfg.clone(), Some(uid), None, 0, &[], &[]);
     assert_eq!(ctx.storage_get_all(&p), PValue::Array(Vec::new()));
         Ok(())
     })).await.unwrap();

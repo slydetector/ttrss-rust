@@ -25,7 +25,6 @@
 use crate::core::user::{get_salt, hash_password, ALGO_SSHA512};
 use async_trait::async_trait;
 use crate::pluginhost::host::{HostCtx, PluginHost};
-use crate::core::config::Config;
 use crate::pluginhost::plugin::{About, Plugin};
 use crate::pluginhost::{HOOK_AUTH_USER, HOOK_POST_LOGOUT};
 use serde_json::Value;
@@ -83,7 +82,7 @@ impl Plugin for AuthRemote {
     /// password seeds only a new auto-created account).
     async fn authenticate(
         &self,
-        host: &mut HostCtx<'_>,
+        host: &mut HostCtx,
         _login: &str,
         password: &str,
         _service: &str,
@@ -121,7 +120,7 @@ impl Plugin for AuthRemote {
                 let _ = sqlx::query("UPDATE ttrss_users SET full_name = $1 WHERE id = $2")
                     .bind(fullname)
                     .bind(uid)
-                    .execute(host.pool)
+                    .execute(host.pool())
                     .await;
             }
             if let Some(email) = host
@@ -132,7 +131,7 @@ impl Plugin for AuthRemote {
                 let _ = sqlx::query("UPDATE ttrss_users SET email = $1 WHERE id = $2")
                     .bind(email)
                     .bind(uid)
-                    .execute(host.pool)
+                    .execute(host.pool())
                     .await;
             }
         }
@@ -144,7 +143,7 @@ impl Plugin for AuthRemote {
     /// configured redirect URL.
     async fn hook_post_logout(
         &self,
-        host: &mut HostCtx<'_>,
+        host: &mut HostCtx,
         _login: &str,
         _user_id: i32,
     ) -> Value {
@@ -156,13 +155,13 @@ impl Plugin for AuthRemote {
 /// `Auth_Base::auto_create_user($login, $password)`: the login's user id —
 /// the existing account, or a fresh one (salt + random password, access 0)
 /// when `AUTH_AUTO_CREATE` is on and the login is unknown.
-async fn auto_create_user(host: &mut HostCtx<'_>, login: &str, password: &str) -> Option<i32> {
-    let cfg: &Config = host.cfg;
+async fn auto_create_user(host: &mut HostCtx, login: &str, password: &str) -> Option<i32> {
+    let cfg = &host.cfg;
     if !login.is_empty() && cfg.auth_auto_create {
         let existing: Option<i32> =
             sqlx::query_scalar("SELECT id FROM ttrss_users WHERE login = $1")
                 .bind(login)
-                .fetch_optional(host.pool)
+                .fetch_optional(host.pool())
                 .await
                 .ok()
                 .flatten();
@@ -182,7 +181,7 @@ async fn auto_create_user(host: &mut HostCtx<'_>, login: &str, password: &str) -
                 .bind(&salt)
                 .bind(login)
                 .bind(hash)
-                .fetch_optional(host.pool)
+                .fetch_optional(host.pool())
                 .await
                 .ok()
                 .flatten();
@@ -194,7 +193,7 @@ async fn auto_create_user(host: &mut HostCtx<'_>, login: &str, password: &str) -
     }
     sqlx::query_scalar("SELECT id FROM ttrss_users WHERE login = $1")
         .bind(login)
-        .fetch_optional(host.pool)
+        .fetch_optional(host.pool())
         .await
         .ok()
         .flatten()
@@ -205,7 +204,7 @@ async fn auto_create_user(host: &mut HostCtx<'_>, login: &str, password: &str) -
 /// fingerprint (`Pref_Prefs::_get_ssl_certificate_id`: the sha1 of the
 /// mod_ssl serial/start/end/subject-`DN` concatenation, the
 /// `REDIRECT_*` (subrequest) pair tried first).
-async fn get_login_by_ssl_certificate(host: &mut HostCtx<'_>) -> String {
+async fn get_login_by_ssl_certificate(host: &mut HostCtx) -> String {
     let serial = {
         for prefix in ["REDIRECT_SSL_CLIENT_", "SSL_CLIENT_"] {
             let serial = host
@@ -239,7 +238,7 @@ async fn get_login_by_ssl_certificate(host: &mut HostCtx<'_>) -> String {
          p.owner_uid = u.id",
     )
     .bind(&serial)
-    .fetch_optional(host.pool)
+    .fetch_optional(host.pool())
     .await
     .ok()
     .flatten()

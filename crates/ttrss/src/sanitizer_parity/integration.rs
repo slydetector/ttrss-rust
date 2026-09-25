@@ -6,6 +6,7 @@
 
 use super::{san, san_force, san_hw, san_sandbox, san_strip};
 use crate::sanitizer::iframe_whitelisted;
+use std::sync::Arc;
 
 // ──────────────────────────────────────────────────────────────────────
 // A. Input Handling & Edge Cases
@@ -586,12 +587,12 @@ fn test_pass_whitelisted_iframe() {
 
 #[tokio::test]
 async fn test_iframe_whitelisted_returns_false_with_no_src() {
-    let host = crate::pluginhost::PluginHost::startup(&[]);
+    let host = Arc::new(crate::pluginhost::PluginHost::startup(&[]));
     let pool = sqlx::postgres::PgPoolOptions::new()
         .connect_lazy("postgres://ttrss:ttrss@localhost/ttrss_test")
         .unwrap();
     let test_cfg = crate::core::config::Config::for_test();
-    let mut ctx = crate::pluginhost::host::HostCtx::empty(&host, &pool, &test_cfg);
+    let mut ctx = crate::pluginhost::host::HostCtx::empty(Arc::clone(&host), pool.clone(), test_cfg.clone());
     assert!(!iframe_whitelisted(&mut ctx, "").await);
 }
 
@@ -602,12 +603,12 @@ async fn test_iframe_whitelisted_runs_hooks() {
     // port has no such plugin, so this asserts the no-hook path returns false.
     // The hook-firing path — a plugin's `true` is honored — is covered
     // end-to-end by `af_youtube_embed::youtube_iframe_keeps_loose_sandbox`.)
-    let host = crate::pluginhost::PluginHost::startup(&[]);
+    let host = Arc::new(crate::pluginhost::PluginHost::startup(&[]));
     let pool = sqlx::postgres::PgPoolOptions::new()
         .connect_lazy("postgres://ttrss:ttrss@localhost/ttrss_test")
         .unwrap();
     let test_cfg = crate::core::config::Config::for_test();
-    let mut ctx = crate::pluginhost::host::HostCtx::empty(&host, &pool, &test_cfg);
+    let mut ctx = crate::pluginhost::host::HostCtx::empty(Arc::clone(&host), pool.clone(), test_cfg.clone());
     assert!(!iframe_whitelisted(&mut ctx, "http://example.com").await);
 }
 

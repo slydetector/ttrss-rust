@@ -108,7 +108,7 @@ fn profile_map_get<'v>(v: &'v Value, profile: i64, key: &str) -> Option<&'v Valu
         .map(|(_, v)| v)
 }
 
-impl<'a> HostCtx<'a> {
+impl HostCtx {
     // -- the lazy owner data map (PHP's `load_data` / `save_data`) ---------
 
     /// `PluginHost::load_data()` — load the owner's rows once, into
@@ -119,7 +119,7 @@ impl<'a> HostCtx<'a> {
                 let rows = sqlx::query("SELECT name, content FROM ttrss_plugin_storage \
                      WHERE owner_uid = $1")
                     .bind(uid)
-                    .fetch_all(self.pool)
+                    .fetch_all(self.pool())
                     .await?;
                 for row in rows {
                     let name: String = row.try_get("name").unwrap();
@@ -153,7 +153,7 @@ impl<'a> HostCtx<'a> {
             SqlxError::Protocol(format!("plugin storage: non-UTF-8 form: {e}"))
         })?;
 
-        let mut tx = self.pool.begin().await?;
+        let mut tx = self.pool().begin().await?;
         let exists: Option<i32> =
             sqlx::query_scalar("SELECT id FROM ttrss_plugin_storage WHERE owner_uid = $1 \
                                 AND name = $2")
@@ -308,7 +308,7 @@ impl<'a> HostCtx<'a> {
         sqlx::query("DELETE FROM ttrss_plugin_storage WHERE name = $1 AND owner_uid = $2")
             .bind(idx)
             .bind(uid)
-            .execute(self.pool)
+            .execute(self.pool())
             .await?;
         Ok(())
     }

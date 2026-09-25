@@ -319,7 +319,7 @@ pub async fn get_enclosures(pool: &sqlx::PgPool, id: i32) -> Vec<Map<String, Val
 /// fallback parse uses the last plugin's content (nsfw returns `"nsfw"` on
 /// a match — the parse is skipped anyway once an image is set).
 pub async fn get_image(
-    host: &mut crate::pluginhost::host::HostCtx<'_>,
+    host: &mut crate::pluginhost::host::HostCtx,
     enclosures: &[Map<String, Value>],
     content: &str,
     site_url: &str,

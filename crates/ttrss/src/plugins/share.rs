@@ -79,7 +79,7 @@ impl Plugin for Share {
 
     async fn hook_article_button(
         &self,
-        _host: &mut HostCtx<'_>,
+        _host: &mut HostCtx,
         line: &Value,
     ) -> String {
         // PHP uses `int_id` (not `id`) for the icon suffix and the onclick
@@ -97,7 +97,7 @@ impl Plugin for Share {
 
     async fn hook_prefs_tab_section(
         &self,
-        host: &mut HostCtx<'_>,
+        host: &mut HostCtx,
         section: &str,
     ) -> () {
         let this = *self;
@@ -111,7 +111,7 @@ impl Plugin for Share {
     /// `get` — the dynamic method dispatch.
     async fn invoke_method(
         &self,
-        host: &mut HostCtx<'_>,
+        host: &mut HostCtx,
         method: &str,
         params: &Value,
     ) -> Result<MethodOutput, PluginError> {
@@ -130,7 +130,7 @@ impl Plugin for Share {
 impl Share {
     /// `Share::hook_prefs_tab_section` (printed) — the "Unshare all articles"
     /// section on the published prefs tab.
-    async fn hook_prefs_tab_section_output(&self, host: &mut HostCtx<'_>) {
+    async fn hook_prefs_tab_section_output(&self, host: &mut HostCtx) {
         let unshare_all = __("Unshare all articles");
         host.output.push_str(&format!(
             "<hr/>\n{}\n \
@@ -146,7 +146,7 @@ impl Share {
     /// uuid (by `int_id` + `owner_uid`); when the row exists but the uuid is
     /// empty, a fresh one is generated + stored. The footer always prints
     /// (Unshare / Generate-new-URL / Close).
-    async fn share_dialog(&self, host: &mut HostCtx<'_>, params: &Value) -> Result<String, PluginError> {
+    async fn share_dialog(&self, host: &mut HostCtx, params: &Value) -> Result<String, PluginError> {
         let id = php_int_cast(&clean_str(
             params.get("id").and_then(|v| v.as_str()).unwrap_or("0"),
         ));
@@ -157,7 +157,7 @@ impl Share {
              WHERE int_id = $1 AND owner_uid = $2")
             .bind(id)
             .bind(owner)
-            .fetch_optional(host.pool)
+            .fetch_optional(host.pool())
             .await
             .map_err(|e| PluginError::Other(e.to_string()))?
             .map(|r| r.try_get::<String, _>(0).unwrap_or_default());
@@ -174,7 +174,7 @@ impl Share {
                     .bind(&uuid)
                     .bind(id)
                     .bind(owner)
-                    .execute(host.pool)
+                    .execute(host.pool())
                     .await
                     .map_err(|e| PluginError::Other(e.to_string()))?;
                 out.push_str(&dialog_body(&public_url(host, self, &uuid)?));
@@ -189,7 +189,7 @@ impl Share {
 
 /// The public method URL for the `get` method (PHP
 /// `$this->host->get_public_method_url($this, "get", ["key" => $uuid])`).
-fn public_url(host: &HostCtx<'_>, share: &Share, uuid: &str) -> Result<String, PluginError> {
+fn public_url(host: &HostCtx, share: &Share, uuid: &str) -> Result<String, PluginError> {
     public_method_url(&host.self_url, share, "get", &[("key".into(), uuid.to_string())])
         .ok_or_else(|| PluginError::Other("get is not a public method".to_string()))
 }
@@ -228,7 +228,7 @@ fn footer() -> String {
 }
 
 /// `Share::newkey` — mint a fresh uuid for the article, echo `{"link": …}`.
-async fn new_key(host: &mut HostCtx<'_>, params: &Value) -> Result<Value, PluginError> {
+async fn new_key(host: &mut HostCtx, params: &Value) -> Result<Value, PluginError> {
     let id: i32 = clean_str(params.get("id").and_then(|v| v.as_str()).unwrap_or("")).parse().map_err(|_| PluginError::Other("invalid article id".to_string()))?;
     let owner = host.owner_uid.unwrap_or(0);
     let uuid = uniqid_short();
@@ -237,7 +237,7 @@ async fn new_key(host: &mut HostCtx<'_>, params: &Value) -> Result<Value, Plugin
         .bind(&uuid)
         .bind(id)
         .bind(owner)
-        .execute(host.pool)
+        .execute(host.pool())
         .await
         .map_err(|e| PluginError::Other(e.to_string()))?;
 
@@ -245,14 +245,14 @@ async fn new_key(host: &mut HostCtx<'_>, params: &Value) -> Result<Value, Plugin
 }
 
 /// `Share::unshare` — clear the article's uuid, echo "Article unshared".
-async fn unshare(host: &mut HostCtx<'_>, params: &Value) -> Result<String, PluginError> {
+async fn unshare(host: &mut HostCtx, params: &Value) -> Result<String, PluginError> {
     let id: i32 = clean_str(params.get("id").and_then(|v| v.as_str()).unwrap_or("")).parse().map_err(|_| PluginError::Other("invalid article id".to_string()))?;
     let owner = host.owner_uid.unwrap_or(0);
 
     sqlx::query("UPDATE ttrss_user_entries SET uuid = '' WHERE int_id = $1 AND owner_uid = $2")
         .bind(id)
         .bind(owner)
-        .execute(host.pool)
+        .execute(host.pool())
         .await
         .map_err(|e| PluginError::Other(e.to_string()))?;
 
@@ -260,12 +260,12 @@ async fn unshare(host: &mut HostCtx<'_>, params: &Value) -> Result<String, Plugi
 }
 
 /// `Share::clearArticleKeys` — clear all of the owner's article uuids.
-async fn clear_article_keys(host: &mut HostCtx<'_>) -> Result<String, PluginError> {
+async fn clear_article_keys(host: &mut HostCtx) -> Result<String, PluginError> {
     let owner = host.owner_uid.unwrap_or(0);
 
     sqlx::query("UPDATE ttrss_user_entries SET uuid = '' WHERE owner_uid = $1")
         .bind(owner)
-        .execute(host.pool)
+        .execute(host.pool())
         .await
         .map_err(|e| PluginError::Other(e.to_string()))?;
 
@@ -274,14 +274,14 @@ async fn clear_article_keys(host: &mut HostCtx<'_>) -> Result<String, PluginErro
 
 /// `Share::get` — the no-account public route: serve one article by key (or a
 /// 404).
-async fn get(host: &mut HostCtx<'_>, params: &Value) -> Result<MethodOutput, PluginError> {
+async fn get(host: &mut HostCtx, params: &Value) -> Result<MethodOutput, PluginError> {
     let uuid = clean_str(params.get("key").and_then(|v| v.as_str()).unwrap_or(""));
     if !uuid.is_empty() {
         let row: Option<(i32, i32)> = sqlx::query_as(
             "SELECT ref_id, owner_uid FROM ttrss_user_entries WHERE uuid = $1",
         )
         .bind(&uuid)
-        .fetch_optional(host.pool)
+        .fetch_optional(host.pool())
         .await
         .map_err(|e| PluginError::Other(e.to_string()))?;
         if let Some((ref_id, owner_uid)) = row {
@@ -301,7 +301,7 @@ async fn get(host: &mut HostCtx<'_>, params: &Value) -> Result<MethodOutput, Plu
 }
 
 /// `Share::format_article` — the article page (PHP's private `format_article`).
-async fn format_article(host: &mut HostCtx<'_>, id: i32, owner_uid: i32) -> Result<String, PluginError> {
+async fn format_article(host: &mut HostCtx, id: i32, owner_uid: i32) -> Result<String, PluginError> {
     let row: Option<ArticleRow> = sqlx::query_as(
         "SELECT id, title, link, content, feed_id, lang,\n\
          (SELECT site_url FROM ttrss_feeds WHERE id = feed_id) as site_url,\n\
@@ -313,7 +313,7 @@ async fn format_article(host: &mut HostCtx<'_>, id: i32, owner_uid: i32) -> Resu
     )
     .bind(id)
     .bind(owner_uid)
-    .fetch_optional(host.pool)
+    .fetch_optional(host.pool())
     .await
     .map_err(|e| PluginError::Other(e.to_string()))?;
 
@@ -337,7 +337,7 @@ async fn format_article(host: &mut HostCtx<'_>, id: i32, owner_uid: i32) -> Resu
     // the public shared-article page runs the per-article render hooks (nsfw
     // wraps the content in a toggle). The article map is the row the PHP
     // `$line` carries for this route: the selected fields + `tags`.
-    let tags = crate::article::get_tags(host.pool, owner_uid as i64, id, Some(owner_uid as i64), None).await;
+    let tags = crate::article::get_tags(host.pool(), owner_uid as i64, id, Some(owner_uid as i64), None).await;
     let mut article = serde_json::Map::new();
     article.insert("id".into(), serde_json::json!(id));
     article.insert("title".into(), serde_json::json!(title.clone()));
@@ -374,7 +374,7 @@ async fn format_article(host: &mut HostCtx<'_>, id: i32, owner_uid: i32) -> Resu
         .unwrap_or("")
         .to_string();
 
-    let enclosures = crate::article::get_enclosures(host.pool, id).await;
+    let enclosures = crate::article::get_enclosures(host.pool(), id).await;
     let (og_image, _og_stream, _og_kind) =
         crate::article::get_image(host, &enclosures, &content_out, site_url.as_deref().unwrap_or(""), &article_val).await;
     let og_image = if og_image.is_empty() {
@@ -388,7 +388,7 @@ async fn format_article(host: &mut HostCtx<'_>, id: i32, owner_uid: i32) -> Resu
             "SELECT COALESCE(author, ''), TO_CHAR(updated AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI') FROM ttrss_entries WHERE id = $1",
         )
         .bind(id)
-        .fetch_one(host.pool)
+        .fetch_one(host.pool())
         .await
         .map_err(|e| PluginError::Other(e.to_string()))?
         .try_get::<(String, String), _>(0)

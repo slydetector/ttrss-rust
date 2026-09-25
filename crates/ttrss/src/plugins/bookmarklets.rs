@@ -66,7 +66,7 @@ impl Plugin for Bookmarklets {
     /// with the two bookmarklet links + the "More info…" button.
     async fn hook_prefs_tab(
         &self,
-        host: &mut HostCtx<'_>,
+        host: &mut HostCtx,
         tab: &str,
     ) -> () {
         let this = *self;
@@ -79,7 +79,7 @@ impl Plugin for Bookmarklets {
     /// `Bookmarklets::sharepopup` — the public method dispatch.
     async fn invoke_method(
         &self,
-        host: &mut HostCtx<'_>,
+        host: &mut HostCtx,
         method: &str,
         params: &Value,
     ) -> Result<MethodOutput, PluginError> {
@@ -94,7 +94,7 @@ impl Plugin for Bookmarklets {
 
 impl Bookmarklets {
     /// `Bookmarklets::hook_prefs_tab` (printed) — the `prefFeeds` AccordionPane.
-    async fn hook_prefs_tab_output(&self, host: &mut HostCtx<'_>) {
+    async fn hook_prefs_tab_output(&self, host: &mut HostCtx) {
         let bm_subscribe_url = crate::pluginhost::host::public_method_url(
             &host.self_url,
             self,
@@ -167,7 +167,7 @@ impl Bookmarklets {
     /// returns the form (or the login form when unauthenticated).
     async fn sharepopup(
         &self,
-        host: &mut HostCtx<'_>,
+        host: &mut HostCtx,
         params: &Value,
     ) -> Result<MethodOutput, PluginError> {
         let uid = host.owner_uid.unwrap_or(0);
@@ -229,7 +229,7 @@ impl Bookmarklets {
             ));
 
             crate::article::create_published_article(
-                host.pool,
+                host.pool(),
                 &title,
                 &url,
                 &content,
@@ -301,12 +301,12 @@ impl Bookmarklets {
     /// the "Edit subscription options" link).
     async fn subscribe(
         &self,
-        host: &mut HostCtx<'_>,
+        host: &mut HostCtx,
         params: &Value,
     ) -> Result<MethodOutput, PluginError> {
         let uid = host.owner_uid.unwrap_or(0);
-        let cfg = host.cfg;
-        let pool = host.pool;
+        let cfg = &host.cfg;
+        let pool = host.pool();
         let subscribe_title = __("Subscribe to feed...");
         let return_to_ttrss = __("Return to Tiny Tiny RSS");
         let multiple_urls = __("Multiple feed URLs found:");

@@ -17,6 +17,7 @@
 mod common;
 
 use ttrss::core::config::Config;
+use std::sync::Arc;
 use ttrss::core::db::Db;
 use ttrss::pluginhost::PluginHost;
 use ttrss::updates::{fetch_one_feed, FeedUpdateFlags};
@@ -211,7 +212,7 @@ async fn test_batch_smoke() {
     // Replay the batch through the M6c.2 workhorse (fetch → pipeline).
     let mut total_new = 0;
     for feed_id in [feed_a, feed_b, feed_c] {
-        let outcome = fetch_one_feed(db.pool(), &cfg, &no_plugins(), feed_id, &FeedUpdateFlags::default(), None).await.expect("fetch");
+        let outcome = fetch_one_feed(db.pool(), &cfg, Arc::new(no_plugins()), feed_id, &FeedUpdateFlags::default(), None).await.expect("fetch");
         assert!(outcome.success, "feed {feed_id} failed: {:?}", outcome.error);
         total_new += outcome.new_articles;
     }

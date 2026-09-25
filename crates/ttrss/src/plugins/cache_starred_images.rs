@@ -90,7 +90,7 @@ impl Plugin for CacheStarredImages {
     /// port; the PHP passes a `DOMDocument`).
     async fn hook_sanitize(
         &self,
-        host: &mut HostCtx<'_>,
+        host: &mut HostCtx,
         doc: &mut String,
         site_url: &str,
         _allowed_elements: &[String],
@@ -110,7 +110,7 @@ impl Plugin for CacheStarredImages {
     /// `content_url` to the local cache URL when a cached copy exists.
     async fn hook_enclosure_entry(
         &self,
-        host: &mut HostCtx<'_>,
+        host: &mut HostCtx,
         entry: &mut Value,
         id: i32,
         _rv: &Value,

@@ -4,6 +4,7 @@
 mod common;
 
 use test_db::template::with_test_db;
+use std::sync::Arc;
 
 use serde_json::json;
 use ttrss::core::config::Config;
@@ -65,11 +66,11 @@ async fn setup(url: &str, plugins: &str) -> AppState {
 
 /// A `HostCtx` for user 1 with the `bookmarklets` plugin active + the
 /// `self_url` set (needed for the bookmarklet URL construction).
-fn ctx(state: &AppState) -> HostCtx<'_> {
+fn ctx(state: &AppState) -> HostCtx {
     HostCtx::for_user(
-        &state.plugins,
-        state.db.pool(),
-        &state.config,
+        Arc::clone(&state.plugins),
+        state.db.pool().clone(),
+        state.config.clone(),
         Some(1),
         None,
         0,

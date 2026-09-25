@@ -51,7 +51,7 @@ impl Plugin for NoIframes {
     /// are part of the hook contract; this plugin ignores them, as PHP does.
     async fn hook_sanitize(
         &self,
-        host: &mut HostCtx<'_>,
+        host: &mut HostCtx,
         doc: &mut String,
         _site_url: &str,
         _allowed_elements: &[String],
@@ -88,9 +88,9 @@ impl Plugin for NoIframes {
                 // `hook_order` — the generic runner's per-call HRTB
                 // closure cannot borrow this per-iframe local.
                 let mut w = false;
+                let plugin_host = host.host_arc();
                 for idx in host.hook_order(HOOK_IFRAME_WHITELISTED) {
-                    if host
-                        .host()
+                    if plugin_host
                         .plugin(idx)
                         .hook_iframe_whitelisted(host, &host_)
                         .await
@@ -147,6 +147,7 @@ fn tag_attr(tag: &str, name: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
     use super::*;
 
     #[test]
@@ -175,14 +176,16 @@ mod tests {
     /// empty here (no whitelisting plugin registered), so every iframe goes.
     #[tokio::test]
     async fn removes_all_iframes_without_whitelist() {
-        let host = PluginHost::startup(&[|| Box::new(NoIframes) as Box<dyn Plugin>]);
+        let host = Arc::new(PluginHost::startup(&[|| Box::new(NoIframes) as Box<dyn Plugin>]));
         let pool = sqlx::postgres::PgPoolOptions::new()
             .connect_lazy("postgres://ttrss:ttrss@localhost/ttrss_test")
             .unwrap();
         let test_cfg = crate::core::config::Config::for_test();
         let mut ctx =
-        HostCtx::for_user(&host, &pool, &test_cfg, Some(1), None, 0, &[], &["no_iframes"]);
-        let plugin = ctx.get_plugin("no_iframes").expect("active");
+        HostCtx::for_user(Arc::clone(&host), pool.clone(), test_cfg.clone(), Some(1), None, 0, &[], &["no_iframes"]);
+        let host = ctx.host_arc();
+
+        let plugin = host.get_plugin("no_iframes").expect("active");
 
         let mut doc = "<p>a</p><iframe src=\"https://y/x\" width=\"1\"></iframe><p>b</p><iframe src=\"https://y/2\"></iframe>".to_string();
         plugin
@@ -216,7 +219,7 @@ mod tests {
             }
             async fn hook_iframe_whitelisted(
                 &self,
-                _host: &mut HostCtx<'_>,
+                _host: &mut HostCtx,
                 url: &str,
             ) -> bool {
                 let keep = url.contains("youtube");
@@ -224,17 +227,19 @@ mod tests {
             }
         }
 
-        let host = PluginHost::startup(&[
+        let host = Arc::new(PluginHost::startup(&[
             || Box::new(NoIframes) as Box<dyn Plugin>,
             || Box::new(YtWhitelist) as Box<dyn Plugin>,
-        ]);
+        ]));
         let pool = sqlx::postgres::PgPoolOptions::new()
             .connect_lazy("postgres://ttrss:ttrss@localhost/ttrss_test")
             .unwrap();
         let test_cfg = crate::core::config::Config::for_test();
         let mut ctx =
-        HostCtx::for_user(&host, &pool, &test_cfg, Some(1), None, 0, &[], &["no_iframes", "yt_wl"]);
-        let plugin = ctx.get_plugin("no_iframes").expect("active");
+        HostCtx::for_user(Arc::clone(&host), pool.clone(), test_cfg.clone(), Some(1), None, 0, &[], &["no_iframes", "yt_wl"]);
+        let host = ctx.host_arc();
+
+        let plugin = host.get_plugin("no_iframes").expect("active");
 
         let mut doc =
             "<iframe src=\"https://www.youtube.com/embed/1\"></iframe><iframe src=\"https://evil/x\"></iframe>"

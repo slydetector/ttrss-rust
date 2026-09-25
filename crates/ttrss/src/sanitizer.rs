@@ -619,14 +619,14 @@ fn process_iframes(root: &NodeRef, admitted: Option<&BTreeSet<String>>) {
 /// `parse_url($src, PHP_URL_HOST)` — the host, which `af_youtube_embed` matches
 /// against its `YOUTUBE_HOSTS` list). A `src` with no host can't be a
 /// whitelisted iframe, so it short-circuits to false.
-pub async fn iframe_whitelisted(plugins: &mut HostCtx<'_>, src: &str) -> bool {
+pub async fn iframe_whitelisted(plugins: &mut HostCtx, src: &str) -> bool {
     let host = url_host(src);
     if host.is_empty() {
         return false;
     }
+    let plugin_host = plugins.host_arc();
     for idx in plugins.hook_order(HOOK_IFRAME_WHITELISTED) {
-        if plugins
-            .host()
+        if plugin_host
             .plugin(idx)
             .hook_iframe_whitelisted(plugins, &host)
             .await
@@ -700,7 +700,7 @@ pub async fn sanitize(
     site_url: Option<&str>,
     highlight_words_opt: Option<&[String]>,
     article_id: i32,
-    mut plugins: Option<&mut HostCtx<'_>>,
+    mut plugins: Option<&mut HostCtx>,
 ) -> String {
     // M7.11 — compute the `HOOK_IFRAME_WHITELISTED` decisions (the admitted
     // host set) before the core runs. The srcs are plain `String`s, so no
@@ -730,9 +730,10 @@ pub async fn sanitize(
             let site = site_url.unwrap_or("").to_string();
             let allowed: Vec<String> = ALLOWED_ELEMENTS.iter().map(|s| s.to_string()).collect();
             let disallowed: Vec<String> = DISALLOWED_ATTRIBUTES.iter().map(|s| s.to_string()).collect();
+            let host = plugins.host_arc();
             for idx in order {
                 let mut d = std::mem::take(&mut out);
-                plugins.host().plugin(idx).hook_sanitize(
+                host.plugin(idx).hook_sanitize(
                     plugins,
                     &mut d,
                     &site,

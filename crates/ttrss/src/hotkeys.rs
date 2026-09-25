@@ -78,7 +78,7 @@ const HOTKEYS: &[(&str, &str)] = &[
 /// M7.22 item 2: the `HOOK_HOTKEY_MAP` chain (PHP `RPC.php:629`) runs over
 /// the base map **before** the prefixes are computed, so plugins can add or
 /// redefine keys (hotkeys_swap_jk, hotkeys_noscroll).
-pub async fn hotkeys_map(host: &mut crate::pluginhost::host::HostCtx<'_>) -> (Vec<String>, Map<String, Value>) {
+pub async fn hotkeys_map(host: &mut crate::pluginhost::host::HostCtx) -> (Vec<String>, Map<String, Value>) {
     let mut map: Map<String, Value> = Map::new();
     for (seq, action) in HOTKEYS {
         map.insert((*seq).to_string(), Value::from((*action).to_string()));
@@ -301,6 +301,7 @@ pub fn hotkey_help() -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
     use crate::pluginhost::host::HostCtx;
     use serde_json::json;
 
@@ -310,14 +311,14 @@ mod tests {
     #[tokio::test]
     async fn hotkeys_map_runs_hook_chain() {
         let host =
-            crate::pluginhost::PluginHost::startup(&crate::pluginhost::all_plugins());
+            Arc::new(crate::pluginhost::PluginHost::startup(&crate::pluginhost::all_plugins()));
         let pool = sqlx::postgres::PgPoolOptions::new()
             .connect_lazy("postgres://ttrss:ttrss@localhost/ttrss_test")
             .unwrap();
         let test_cfg = crate::core::config::Config::for_test();
 
         // No plugins: base map, prefix order from the table (c, a, f, g).
-        let mut ctx = HostCtx::for_user(&host, &pool, &test_cfg, Some(1), None, 0, &[], &[]);
+        let mut ctx = HostCtx::for_user(Arc::clone(&host), pool.clone(), test_cfg.clone(), Some(1), None, 0, &[], &[]);
         let (prefixes, map) = crate::hotkeys::hotkeys_map(&mut ctx).await;
         assert_eq!(prefixes, vec!["c", "a", "f", "g"]);
         assert_eq!(map["s"], json!("toggle_mark"));
@@ -327,9 +328,9 @@ mod tests {
 
         // hotkeys_swap_jk: j/k (re)defined to the vi pairs.
         let mut ctx = HostCtx::for_user(
-            &host,
-            &pool,
-            &test_cfg,
+            Arc::clone(&host),
+            pool.clone(),
+            test_cfg.clone(),
             Some(1),
             None,
             0,
@@ -345,9 +346,9 @@ mod tests {
 
         // hotkeys_noscroll: arrows + n/p remapped to the noscroll actions.
         let mut ctx = HostCtx::for_user(
-            &host,
-            &pool,
-            &test_cfg,
+            Arc::clone(&host),
+            pool.clone(),
+            test_cfg.clone(),
             Some(1),
             None,
             0,

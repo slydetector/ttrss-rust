@@ -59,12 +59,12 @@ impl Plugin for AuthInternal {
     /// OTP challenge page) and returns `None`.
     async fn authenticate(
         &self,
-        host: &mut HostCtx<'_>,
+        host: &mut HostCtx,
         login: &str,
         password: &str,
         _service: &str,
     ) -> Option<i32> {
-        let outcome = auth::authenticate(host.pool, login, password, None).await;
+        let outcome = auth::authenticate(host.pool(), login, password, None).await;
         match outcome {
             auth::AuthOutcome::Success { id, .. } => Some(id),
             auth::AuthOutcome::OtpChallenge => {
@@ -86,7 +86,7 @@ impl Plugin for AuthInternal {
 
     async fn invoke_method(
         &self,
-        host: &mut HostCtx<'_>,
+        host: &mut HostCtx,
         method: &str,
         params: &Value,
     ) -> Result<MethodOutput, PluginError> {
@@ -101,7 +101,7 @@ impl Plugin for AuthInternal {
                     .get("new_password")
                     .and_then(|v| v.as_str())
                     .unwrap_or("");
-                match auth::change_password(host.pool, uid, old_pw, new_pw).await {
+                match auth::change_password(host.pool(), uid, old_pw, new_pw).await {
                     Some(_) => Ok(MethodOutput::Raw(
                         __("Password has been changed."),
                     )),

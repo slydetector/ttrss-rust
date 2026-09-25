@@ -39,7 +39,7 @@ impl Plugin for HotkeysSwapJk {
     /// `hook_hotkey_map($hotkeys)` — swap j/k to J/K (vi-style navigation).
     async fn hook_hotkey_map(
         &self,
-        _host: &mut HostCtx<'_>,
+        _host: &mut HostCtx,
         hotkeys: &Value,
     ) -> Value {
         let mut m = hotkeys.clone();
@@ -54,6 +54,7 @@ impl Plugin for HotkeysSwapJk {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
     use super::*;
     use serde_json::json;
 
@@ -67,14 +68,16 @@ mod tests {
 
     #[tokio::test]
     async fn swaps_jk() {
-        let host = PluginHost::startup(&[|| Box::new(HotkeysSwapJk) as Box<dyn Plugin>]);
+        let host = Arc::new(PluginHost::startup(&[|| Box::new(HotkeysSwapJk) as Box<dyn Plugin>]));
         let pool = sqlx::postgres::PgPoolOptions::new()
             .connect_lazy("postgres://ttrss:ttrss@localhost/ttrss_test")
             .unwrap();
         let cfg = crate::core::config::Config::for_test();
         let mut ctx =
-            HostCtx::for_user(&host, &pool, &cfg, Some(1), None, 0, &[], &["hotkeys_swap_jk"]);
-        let plugin = ctx.get_plugin("hotkeys_swap_jk").unwrap();
+            HostCtx::for_user(Arc::clone(&host), pool.clone(), cfg.clone(), Some(1), None, 0, &[], &["hotkeys_swap_jk"]);
+        let host = ctx.host_arc();
+
+        let plugin = host.get_plugin("hotkeys_swap_jk").unwrap();
 
         let result = plugin
             .hook_hotkey_map(&mut ctx, &json!({}))

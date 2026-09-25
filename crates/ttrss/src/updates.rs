@@ -154,7 +154,7 @@ pub struct FeedUpdateResult {
 pub async fn process_feed(
     pool: &PgPool,
     cfg: &Config,
-    plugins: &PluginHost,
+    plugins: Arc<PluginHost>,
     feed: &FeedRow,
     feed_data: &str,
     flags: &FeedUpdateFlags,
@@ -314,7 +314,12 @@ pub async fn process_feed(
         .filter(|s| !s.is_empty())
         .collect();
     let mut ctx = crate::pluginhost::dispatch::owner_ctx_from(
-        plugins, pool, cfg, &system, &cfg.self_url, feed.owner_uid,
+        plugins,
+        pool.clone(),
+        cfg.clone(),
+        &system,
+        &cfg.self_url,
+        feed.owner_uid,
     )
     .await;
     let mut new_articles = 0;
@@ -356,7 +361,7 @@ pub async fn process_feed(
 pub async fn update_rss_feed(
     pool: &PgPool,
     cfg: &Config,
-    plugins: &PluginHost,
+    plugins: Arc<PluginHost>,
     feed_id: i32,
     feed_data: &str,
     flags: &FeedUpdateFlags,
@@ -471,7 +476,7 @@ pub struct FeedFetchOutcome {
 pub async fn fetch_one_feed(
     pool: &PgPool,
     cfg: &Config,
-    plugins: &PluginHost,
+    plugins: Arc<PluginHost>,
     feed_id: i32,
     flags: &FeedUpdateFlags,
     mut log: Option<&mut FeedDebugLog>,
@@ -936,7 +941,7 @@ async fn upsert_article(
     filters: &[EvalFilter],
     blacklisted: &std::collections::BTreeSet<String>,
     flags: &FeedUpdateFlags,
-    ctx: &mut HostCtx<'_>,
+    ctx: &mut HostCtx,
     mut log: Option<&mut FeedDebugLog>,
 ) -> Result<i32> {
     let owner = feed.owner_uid;
@@ -1174,13 +1179,10 @@ async fn upsert_article(
         },
     });
     let mut entry_plugin_data = String::new();
+    let host = ctx.host_arc();
     for idx in ctx.hook_order(HOOK_ARTICLE_FILTER) {
-        let cls = ctx.host().plugin(idx).class_name().to_lowercase();
-        article = ctx
-            .host()
-            .plugin(idx)
-            .hook_article_filter(ctx, &mut article)
-            .await;
+        let cls = host.plugin(idx).class_name().to_lowercase();
+        article = host.plugin(idx).hook_article_filter(ctx, &mut article).await;
         entry_plugin_data.push_str(&format!("{cls},"));
     }
     // Re-read the (possibly-rewritten) fields; these shadow the raw locals for the rest
@@ -1754,7 +1756,7 @@ pub async fn daemon_loop(pool: &PgPool, cfg: &Config, plugins: Arc<PluginHost>, 
                     let outcome = fetch_one_feed(
                         &pool,
                         &cfg,
-                        plugins.as_ref(),
+                        plugins,
                         id,
                         &FeedUpdateFlags::default(),
                         None,

@@ -15,6 +15,7 @@
 mod common;
 
 use ttrss::core::config::Config;
+use std::sync::Arc;
 use ttrss::core::db::Db;
 use ttrss::core::phpser::Value as PValue;
 use ttrss::core::session::Session;
@@ -123,16 +124,18 @@ async fn test_prefs_tab_nsfw_pane() {
     let state = setup(&url, "nsfw").await;
     {
         let mut c = HostCtx::for_user(
-            &state.plugins,
-            state.db.pool(),
-            &state.config,
+            Arc::clone(&state.plugins),
+            state.db.pool().clone(),
+            state.config.clone(),
             Some(1),
             None,
             0,
             &["nsfw"],
             &[],
         );
-        let plugin = c.get_plugin("nsfw").expect("nsfw active");
+        let host = c.host_arc();
+
+        let plugin = host.get_plugin("nsfw").expect("nsfw active");
         c.storage_set(plugin, "tags", PValue::Bytes(b"nsfw".to_vec()))
             .await
             .unwrap();

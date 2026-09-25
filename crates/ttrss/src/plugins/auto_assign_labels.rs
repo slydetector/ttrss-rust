@@ -52,10 +52,10 @@ impl Plugin for AutoAssignLabels {
     /// article (whole-word, case-insensitive) to the article's label list.
     async fn hook_article_filter(
         &self,
-        host: &mut HostCtx<'_>,
+        host: &mut HostCtx,
         article: &mut Value,
     ) -> Value {
-        let pool = host.pool;
+        let pool = host.pool();
         let owner: i32 = article
             .get("owner_uid")
             .and_then(Value::as_i64)

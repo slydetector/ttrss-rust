@@ -54,7 +54,7 @@ Plugins.Toggle_Sidebar = {
 
     async fn hook_main_toolbar_button(
         &self,
-        host: &mut HostCtx<'_>,
+        host: &mut HostCtx,
     ) -> () {
         let toggle_title = __("Toggle sidebar");
         host.output.push_str(&format!(

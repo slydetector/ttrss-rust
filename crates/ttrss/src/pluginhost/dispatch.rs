@@ -24,6 +24,8 @@
 
 use serde_json::{json, Map, Value};
 
+use std::sync::Arc;
+
 use super::host::{HostCtx, PluginHost};
 use sqlx::PgPool;
 use super::plugin::{MethodOutput, PluginError};
@@ -67,15 +69,15 @@ fn request_map(op: &str, method: &str, csrf: &str, extra: &Map<String, Value>) -
 /// `HOOK_POST_LOGOUT` chain run over exactly this set (per-user plugins
 /// never participate in auth; the port's `TTRSS_PLUGINS` env var stays
 /// meaningful for the non-auth hooks as in PHP).
-pub(crate) fn login_ctx<'a>(state: &'a AppState) -> HostCtx<'a> {
+pub(crate) fn login_ctx(state: &AppState) -> HostCtx {
     HostCtx::system_plugins(
-        &state.plugins,
-        state.db.pool(),
-        &state.config,
+        Arc::clone(&state.plugins),
+        state.db.pool().clone(),
+        state.config.clone(),
     )
 }
 
-pub(crate) async fn session_ctx<'a>(state: &'a AppState, sess: &'a Sess) -> HostCtx<'a> {
+pub(crate) async fn session_ctx(state: &AppState, sess: &Sess) -> HostCtx {
     let data = sess.data();
     let uid_i64 = data.uid().unwrap_or(0);
     let uid = Some(uid_i64 as i32);
@@ -99,9 +101,9 @@ pub(crate) async fn session_ctx<'a>(state: &'a AppState, sess: &'a Sess) -> Host
     let sys: Vec<&str> = system.iter().map(|s| s.as_str()).collect();
     let usr: Vec<&str> = user.iter().map(|s| s.as_str()).collect();
     HostCtx::for_user(
-        &state.plugins,
-        state.db.pool(),
-        &state.config,
+        Arc::clone(&state.plugins),
+        state.db.pool().clone(),
+        state.config.clone(),
         uid,
         profile,
         access,
@@ -115,7 +117,7 @@ pub(crate) async fn session_ctx<'a>(state: &'a AppState, sess: &'a Sess) -> Host
 /// The owner-scoped context without a web session (feed output, M7.6):
 /// default profile, access 0, user list = the owner's `_ENABLED_PLUGINS`
 /// (default profile).
-pub(crate) async fn owner_ctx<'a>(state: &'a AppState, owner_uid: i32) -> HostCtx<'a> {
+pub(crate) async fn owner_ctx(state: &AppState, owner_uid: i32) -> HostCtx {
     let system: Vec<String> = state
         .config
         .plugins
@@ -133,7 +135,16 @@ pub(crate) async fn owner_ctx<'a>(state: &'a AppState, owner_uid: i32) -> HostCt
         .collect();
     let sys: Vec<&str> = system.iter().map(|s| s.as_str()).collect();
     let usr: Vec<&str> = user.iter().map(|s| s.as_str()).collect();
-    HostCtx::for_user(&state.plugins, state.db.pool(), &state.config, Some(owner_uid), None, 0, &sys, &usr)
+    HostCtx::for_user(
+        Arc::clone(&state.plugins),
+        state.db.pool().clone(),
+        state.config.clone(),
+        Some(owner_uid),
+        None,
+        0,
+        &sys,
+        &usr,
+    )
         .with_self_url(state.config.self_url.clone())
         .with_cache_dir(state.config.base_cache_dir())
 }
@@ -143,15 +154,15 @@ pub(crate) async fn owner_ctx<'a>(state: &'a AppState, owner_uid: i32) -> HostCt
 /// The update pipeline (M7.9) has `pool` + `Config` + the registry but not an
 /// `AppState` (which the HTTP layer owns). Mirrors [`owner_ctx`]: system plugins
 /// (config) + the owner's `_ENABLED_PLUGINS` (default profile, access 0).
-pub(crate) async fn owner_ctx_from<'a>(
-    host: &'a PluginHost,
-    pool: &'a PgPool,
-    cfg: &'a crate::core::config::Config,
+pub(crate) async fn owner_ctx_from(
+    host: Arc<PluginHost>,
+    pool: PgPool,
+    cfg: crate::core::config::Config,
     system: &[String],
     self_url: &str,
     owner_uid: i32,
-) -> HostCtx<'a> {
-    let pref_rows = crate::prefs::load_rows_pool(pool, owner_uid as i64, None).await;
+) -> HostCtx {
+    let pref_rows = crate::prefs::load_rows_pool(&pool, owner_uid as i64, None).await;
     let enabled =
         crate::prefs::resolve(crate::prefs::_ENABLED_PLUGINS, &pref_rows, None).as_str().to_string();
     let user: Vec<String> = enabled
@@ -183,9 +194,10 @@ pub async fn pluginhandler(
     // before `catchall` runs — a plugin not active for this user is an
     // unknown plugin.
     let mut ctx = session_ctx(state, sess).await;
-    let Some(plugin) = ctx.get_plugin(&plugin_name) else {
+    let Some((host, idx)) = ctx.get_plugin_detached(&plugin_name) else {
         return Ok(MethodOutput::Json(err("E_UNKNOWN_PLUGIN")));
     };
+    let plugin = host.plugin(idx);
     if !plugin.has_public_method(method) {
         return Ok(MethodOutput::Json(err("E_UNKNOWN_METHOD")));
     }
@@ -207,13 +219,19 @@ pub(crate) async fn prefs_chain<'a>(
     hook: &str,
     id: &str,
 ) -> String {
+    // Clone the captures the future needs (`id`) so the `async move` *owns*
+    // them — the `run_hooks` `for<'x>` bound requires the returned future to
+    // be valid for any `'x`, which a borrowed `&str` capture can't satisfy.
+    let id = id.to_string();
     let mut ctx = session_ctx(state, sess).await;
     ctx
-        .run_hooks(hook, |plugin, host| match hook {
-            crate::pluginhost::HOOK_PREFS_TAB => {
-                plugin.hook_prefs_tab(host, id)
+        .run_hooks(hook, |plugin, host| {
+            let id = id.clone();
+            if hook == crate::pluginhost::HOOK_PREFS_TAB {
+                Box::pin(async move { plugin.hook_prefs_tab(host, &id).await })
+            } else {
+                Box::pin(async move { plugin.hook_prefs_tab_section(host, &id).await })
             }
-            _ => plugin.hook_prefs_tab_section(host, id),
         })
         .await;
     std::mem::take(&mut ctx.output)
@@ -249,9 +267,9 @@ pub async fn public_dispatch(
         .filter(|s| !s.is_empty())
         .collect();
     let mut ctx = HostCtx::for_user(
-        &state.plugins,
-        state.db.pool(),
-        &state.config,
+        Arc::clone(&state.plugins),
+        state.db.pool().clone(),
+        state.config.clone(),
         Some(0),
         None,
         0,
@@ -260,11 +278,12 @@ pub async fn public_dispatch(
     )
     .with_self_url(state.config.self_url.clone())
     .with_cache_dir(state.config.base_cache_dir());
-    let Some(plugin) = ctx.get_plugin(&name) else {
+    let Some((host, idx)) = ctx.get_plugin_detached(&name) else {
         let mut params = Map::new();
         params.insert("plugin".into(), Value::String(name));
         return Ok(MethodOutput::Json(err_with("E_UNKNOWN_PLUGIN", params)));
     };
+    let plugin = host.plugin(idx);
     if !plugin.has_public_method(&method) {
         return Ok(MethodOutput::Json(err("E_UNKNOWN_METHOD")));
     }

@@ -267,7 +267,7 @@ Plugins.Psql_Trgm = {
 
     async fn hook_article_button(
         &self,
-        _host: &mut HostCtx<'_>,
+        _host: &mut HostCtx,
         line: &Value,
     ) -> String {
         let id = line.get("id").and_then(Value::as_i64).unwrap_or(0) as i32;
@@ -282,7 +282,7 @@ Plugins.Psql_Trgm = {
 
     async fn hook_article_filter(
         &self,
-        host: &mut HostCtx<'_>,
+        host: &mut HostCtx,
         article: &mut Value,
     ) -> Value {
         // Extract the fields from the article.
@@ -344,7 +344,7 @@ Plugins.Psql_Trgm = {
             .unwrap_or(DEFAULT_MIN_LENGTH);
 
         let should_catchup = AfPsqlTrgm::filter(
-            host.pool,
+            host.pool(),
             &title,
             &guid_hashed,
             owner_uid,
@@ -365,19 +365,21 @@ Plugins.Psql_Trgm = {
 
     async fn hook_prefs_tab(
         &self,
-        host: &mut HostCtx<'_>,
+        host: &mut HostCtx,
         tab: &str,
     ) -> () {
         if tab != "prefFeeds" {
             return;
         }
 
-        let pool = host.pool;
+        // Clone the pool (an owned `PgPool`) so it does not borrow `host` —
+        // this method mutates `host.output` after querying.
+        let pool = host.pool().clone();
 
         // Check pg_trgm availability.
         let has_trgm: Option<bool> =
             sqlx::query_scalar("SELECT 'similarity'::regproc IS NOT NULL")
-                .fetch_optional(pool)
+                .fetch_optional(&pool)
                 .await
                 .ok()
                 .flatten();
@@ -497,7 +499,7 @@ Plugins.Psql_Trgm = {
             )
             .bind(*fid as i64)
             .bind(owner_uid)
-            .fetch_optional(pool)
+            .fetch_optional(&pool)
             .await
             .ok()
             .flatten();
@@ -519,7 +521,7 @@ Plugins.Psql_Trgm = {
         if !pruned.is_empty() {
             let mut items = String::new();
             for fid in &pruned {
-                let title = crate::feeds::feed_title(pool, *fid as i64, owner_uid).await;
+                let title = crate::feeds::feed_title(&pool, *fid as i64, owner_uid).await;
                 items.push_str(&format!(
                     "\t\t\t\t<li>\n\t\t\t\t\t<i class='material-icons'>rss_feed</i>\
                      \n\t\t\t\t\t<a href='#'\tonclick=\"CommonDialogs.editFeed({fid})\">\
@@ -537,7 +539,7 @@ Plugins.Psql_Trgm = {
 
     async fn hook_prefs_edit_feed(
         &self,
-        host: &mut HostCtx<'_>,
+        host: &mut HostCtx,
         feed_id: i32,
     ) -> () {
         // Read the enabled_feeds from storage (PHP: host->get_array).
@@ -578,7 +580,7 @@ Plugins.Psql_Trgm = {
     /// storage. PHP: `hook_prefs_save_feed` (L240).
     async fn hook_prefs_save_feed(
         &self,
-        host: &mut HostCtx<'_>,
+        host: &mut HostCtx,
         feed_id: i32,
         params: &Value,
     ) -> () {
@@ -631,7 +633,7 @@ Plugins.Psql_Trgm = {
     }
     async fn invoke_method(
         &self,
-        host: &mut HostCtx<'_>,
+        host: &mut HostCtx,
         method: &str,
         params: &Value,
     ) -> Result<MethodOutput, PluginError> {
@@ -673,7 +675,7 @@ Plugins.Psql_Trgm = {
             "showrelated" => {
                 let id = params.get("id").and_then(Value::as_i64).unwrap_or(0) as i32;
                 let uid = host.owner_uid.unwrap_or(0);
-                let html = AfPsqlTrgm::showrelated(host.pool, uid, id).await?;
+                let html = AfPsqlTrgm::showrelated(host.pool(), uid, id).await?;
                 Ok(MethodOutput::Raw(html))
             }
             _ => Err(PluginError::UnknownMethod(method.to_string())),

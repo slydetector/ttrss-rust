@@ -13,6 +13,7 @@
 mod common;
 
 use test_db::template::with_test_db;
+use std::sync::Arc;
 
 use ttrss::core::config::Config;
 use ttrss::core::db::Db;
@@ -97,7 +98,7 @@ async fn pipeline(
     input: &str,
 ) -> String {
     let mut c =
-        HostCtx::for_user(&state.plugins, state.db.pool(), &state.config, Some(1), None, 0, system, user);
+        HostCtx::for_user(Arc::clone(&state.plugins), state.db.pool().clone(), state.config.clone(), Some(1), None, 0, system, user);
     sanitizer::sanitize(
         input,
         false,

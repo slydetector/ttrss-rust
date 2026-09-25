@@ -11,6 +11,7 @@
 mod common;
 
 use test_db::template::with_test_db;
+use std::sync::Arc;
 
 use serde_json::{json, Map, Value};
 use ttrss::core::config::Config;
@@ -108,13 +109,14 @@ fn code(v: &MethodOutput) -> &str {
 }
 
 /// A dispatch-equivalent context (nsfw active for owner 1).
-fn ctx(state: &AppState) -> HostCtx<'_> {
-    HostCtx::for_user(&state.plugins, state.db.pool(), &state.config, Some(1), None, 0, &[], &["nsfw"])
+fn ctx(state: &AppState) -> HostCtx {
+    HostCtx::for_user(Arc::clone(&state.plugins), state.db.pool().clone(), state.config.clone(), Some(1), None, 0, &[], &["nsfw"])
 }
 
 /// The stored `tags` value (raw plugin-storage read).
-async fn stored_tags(ctx: &mut HostCtx<'_>) -> String {
-    let plugin = ctx.get_plugin("nsfw").expect("nsfw active");
+async fn stored_tags(ctx: &mut HostCtx) -> String {
+    let host = ctx.host_arc();
+    let plugin = host.get_plugin("nsfw").expect("nsfw active");
     ctx.storage_get(plugin, "tags", PValue::Null)
         .await
         .unwrap()
@@ -155,7 +157,8 @@ async fn test_render_wrap() {
     // Seed the stored tag list directly (as `save` would).
     {
         let mut c = ctx(&state);
-        let plugin = c.get_plugin("nsfw").expect("nsfw active");
+        let host = c.host_arc();
+        let plugin = host.get_plugin("nsfw").expect("nsfw active");
         c.storage_set(plugin, "tags", PValue::Bytes(b"nsfw, adult".to_vec()))
             .await
             .unwrap();
@@ -191,7 +194,9 @@ async fn test_render_api_fallback() {
     let state = setup(&url).await;
     {
         let mut c = ctx(&state);
-        let plugin = c.get_plugin("nsfw").expect("nsfw active");
+        let host = c.host_arc();
+
+        let plugin = host.get_plugin("nsfw").expect("nsfw active");
         c.storage_set(plugin, "tags", PValue::Bytes(b"nsfw".to_vec()))
             .await
             .unwrap();
@@ -229,7 +234,9 @@ async fn test_image_hook() {
     let state = setup(&url).await;
     {
         let mut c = ctx(&state);
-        let plugin = c.get_plugin("nsfw").expect("nsfw active");
+        let host = c.host_arc();
+
+        let plugin = host.get_plugin("nsfw").expect("nsfw active");
         c.storage_set(plugin, "tags", PValue::Bytes(b"nsfw".to_vec()))
             .await
             .unwrap();
@@ -264,7 +271,9 @@ async fn test_prefs_tab() {
     let state = setup(&url).await;
     {
         let mut c = ctx(&state);
-        let plugin = c.get_plugin("nsfw").expect("nsfw active");
+        let host = c.host_arc();
+
+        let plugin = host.get_plugin("nsfw").expect("nsfw active");
         c.storage_set(plugin, "tags", PValue::Bytes(b"a, b".to_vec()))
             .await
             .unwrap();
@@ -347,7 +356,9 @@ async fn test_get_image_runs_article_image_chain() {
     let state = setup(&url).await;
     {
         let mut c = ctx(&state);
-        let plugin = c.get_plugin("nsfw").expect("nsfw active");
+        let host = c.host_arc();
+
+        let plugin = host.get_plugin("nsfw").expect("nsfw active");
         c.storage_set(plugin, "tags", PValue::Bytes(b"nsfw".to_vec()))
             .await
             .unwrap();
@@ -384,7 +395,9 @@ async fn test_cdm_view_runs_render_article_chain() {
     let state = setup(&url).await;
     {
         let mut c = ctx(&state);
-        let plugin = c.get_plugin("nsfw").expect("nsfw active");
+        let host = c.host_arc();
+
+        let plugin = host.get_plugin("nsfw").expect("nsfw active");
         c.storage_set(plugin, "tags", PValue::Bytes(b"nsfw".to_vec()))
             .await
             .unwrap();

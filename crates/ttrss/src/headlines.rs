@@ -858,7 +858,7 @@ async fn format_headlines_list(
 /// appends `data-plugin-name` (the plugin's class name) and normalizes the
 /// markup (attribute order preserved, double quotes); invalid XML is skipped
 /// with a warning, like PHP's `user_error`.
-async fn article_buttons<'h>(host: &mut crate::pluginhost::host::HostCtx<'h>, line: &Value) -> String {
+async fn article_buttons<'h>(host: &mut crate::pluginhost::host::HostCtx, line: &Value) -> String {
     // The PHP callback appends EACH plugin's (round-tripped) result — the
     // `FnMut` stop predicate of `run_hooks_callback` sees every
     // (result, plugin) pair; it always returns `false` (no short-circuit).
@@ -1037,7 +1037,7 @@ fn xml_escape_body(s: &str) -> String {
 /// supply the inline HTML while `HOOK_ENCLOSURE_ENTRY` (cache_starred_images)
 /// rewrites the entry map.
 async fn format_enclosures<'h>(
-    host: &mut crate::pluginhost::host::HostCtx<'h>,
+    host: &mut crate::pluginhost::host::HostCtx,
     id: i32,
     always_display_enclosures: bool,
     article_content: &str,
@@ -1050,7 +1050,7 @@ async fn format_enclosures<'h>(
          FROM ttrss_enclosures WHERE post_id = $1",
     )
     .bind(id)
-    .fetch_all(host.pool)
+    .fetch_all(host.pool())
     .await
     .unwrap_or_default();
 
@@ -1951,6 +1951,7 @@ async fn feed_title_of(feed: i64, pool: &sqlx::PgPool, uid: i64) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
     use super::*;
 
     #[test]
@@ -2061,15 +2062,15 @@ mod tests {
     #[tokio::test]
     async fn article_buttons_chain_matches_oracle() {
         use crate::pluginhost::host::HostCtx;
-        let host = crate::pluginhost::PluginHost::startup(&crate::pluginhost::all_plugins());
+        let host = Arc::new(crate::pluginhost::PluginHost::startup(&crate::pluginhost::all_plugins()));
         let pool = sqlx::postgres::PgPoolOptions::new()
             .connect_lazy("postgres://ttrss:ttrss@localhost/ttrss_test")
             .unwrap();
         let test_cfg = crate::core::config::Config::for_test();
         let mut ctx = HostCtx::for_user(
-            &host,
-            &pool,
-            &test_cfg,
+            Arc::clone(&host),
+            pool.clone(),
+            test_cfg.clone(),
             Some(1),
             None,
             0,
@@ -2077,7 +2078,7 @@ mod tests {
             &["af_psql_trgm", "note", "share"],
         );
         // No active plugins → no buttons.
-        let mut empty = HostCtx::for_user(&host, &pool, &test_cfg, Some(1), None, 0, &[], &[]);
+        let mut empty = HostCtx::for_user(Arc::clone(&host), pool.clone(), test_cfg.clone(), Some(1), None, 0, &[], &[]);
         let line = serde_json::json!({ "id": 1, "uuid": "" });
         assert_eq!(article_buttons(&mut empty, &line).await, "");
 

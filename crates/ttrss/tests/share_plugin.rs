@@ -13,6 +13,7 @@
 mod common;
 
 use test_db::template::with_test_db;
+use std::sync::Arc;
 
 use serde_json::{json, Map, Value};
 use ttrss::core::config::Config;
@@ -321,16 +322,18 @@ async fn test_get_public_route_render_chain_seam() {
     let state = setup(&url, "share,nsfw").await;
     {
         let mut c = ttrss::pluginhost::host::HostCtx::for_user(
-            &state.plugins,
-            state.db.pool(),
-            &state.config,
+            Arc::clone(&state.plugins),
+            state.db.pool().clone(),
+            state.config.clone(),
             Some(1),
             None,
             0,
             &["share", "nsfw"],
             &[],
         );
-        let plugin = c.get_plugin("nsfw").expect("nsfw active");
+        let host = c.host_arc();
+
+        let plugin = host.get_plugin("nsfw").expect("nsfw active");
         c.storage_set(plugin, "tags", PValue::Bytes(b"nsfw".to_vec()))
             .await
             .unwrap();
@@ -351,9 +354,9 @@ async fn test_get_public_route_render_chain_seam() {
         .filter(|s| !s.is_empty())
         .collect();
     let route_ctx = ttrss::pluginhost::host::HostCtx::for_user(
-        &state.plugins,
-        state.db.pool(),
-        &state.config,
+        Arc::clone(&state.plugins),
+        state.db.pool().clone(),
+        state.config.clone(),
         Some(0),
         None,
         0,
@@ -361,9 +364,9 @@ async fn test_get_public_route_render_chain_seam() {
         &["share"],
     );
     let old_model = ttrss::pluginhost::host::HostCtx::single(
-        &state.plugins,
-        state.db.pool(),
-        &state.config,
+        Arc::clone(&state.plugins),
+        state.db.pool().clone(),
+        state.config.clone(),
         "share",
     );
     assert!(

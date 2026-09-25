@@ -63,7 +63,7 @@ impl Plugin for DispatchPlugin {
     }
     async fn invoke_method(
         &self,
-        ctx: &mut HostCtx<'_>,
+        ctx: &mut HostCtx,
         method: &str,
         params: &Value,
     ) -> Result<MethodOutput, PluginError> {

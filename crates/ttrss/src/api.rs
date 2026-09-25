@@ -935,7 +935,7 @@ async fn api_headline_row(
     include_attachments: bool,
     excerpt_length: i64,
     state: &AppState,
-    pctx: &mut crate::pluginhost::host::HostCtx<'_>,
+    pctx: &mut crate::pluginhost::host::HostCtx,
 ) -> Value {
     let pool = state.db.pool();
     let id: i32 = r.get(H_ID);
@@ -1365,7 +1365,7 @@ pub async fn update_feed(
     let _ = crate::updates::fetch_one_feed(
         pool,
         &state.config,
-        state.plugins.as_ref(),
+        state.plugins.clone(),
         feed_id,
         &crate::updates::FeedUpdateFlags::default(),
         None,

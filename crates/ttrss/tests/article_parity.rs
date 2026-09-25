@@ -14,6 +14,7 @@
 mod common;
 
 use chrono::NaiveDateTime;
+use std::sync::Arc;
 use serde_json::{json, Value};
 use ttrss::article::{
     self, CATCHUP_MODE_MARK_AS_READ, CATCHUP_MODE_MARK_AS_UNREAD, CATCHUP_MODE_TOGGLE,
@@ -497,12 +498,12 @@ async fn get_image_stock(
     site_url: &str,
 ) -> (String, String, i32) {
     use ttrss::pluginhost::host::HostCtx;
-    let ph = ttrss::pluginhost::PluginHost::startup(&ttrss::pluginhost::all_plugins());
+    let ph = Arc::new(ttrss::pluginhost::PluginHost::startup(&ttrss::pluginhost::all_plugins()));
     let pool = sqlx::postgres::PgPoolOptions::new()
         .connect_lazy("postgres://ttrss:ttrss@localhost/ttrss_test")
         .unwrap();
     let cfg = ttrss::core::config::Config::for_test();
-    let mut ctx = HostCtx::for_user(&ph, &pool, &cfg, Some(1), None, 0, &[], &[]);
+    let mut ctx = HostCtx::for_user(Arc::clone(&ph), pool.clone(), cfg.clone(), Some(1), None, 0, &[], &[]);
     article::get_image(&mut ctx, encs, content, site_url, &json!({})).await
 }
 

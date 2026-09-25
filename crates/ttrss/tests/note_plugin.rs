@@ -14,6 +14,7 @@
 mod common;
 
 use test_db::template::with_test_db;
+use std::sync::Arc;
 
 use serde_json::{json, Map, Value};
 use ttrss::core::config::Config;
@@ -310,7 +311,7 @@ async fn test_button_row() {
     with_test_db(|url| Box::pin(async move {
     let state = setup(&url, "note").await;
     let plugin = state.plugins.get_plugin("note").expect("note registered");
-    let mut ctx = HostCtx::empty(&state.plugins, state.db.pool(), &state.config);
+    let mut ctx = HostCtx::empty(Arc::clone(&state.plugins), state.db.pool().clone(), state.config.clone());
 
     let row = plugin
         .hook_article_button(&mut ctx, &json!({ "id": 42 }))
