@@ -1073,17 +1073,17 @@ mod tests {
         let (host, c) = host_abc();
         let pool = lazy_pool();
         let test_cfg = crate::core::config::Config::for_test();
-        // A `&'static Value` stub (leaked, negligible in a test) so the `Fn`/
-        // `FnMut` closures can hand it to their `async move` blocks without
-        // capturing a non-`'static` borrow under `run_hooks`' `for<'x>` HRTB.
-        let line: &'static Value = Box::leak(Box::new(Value::Null));
+        // Each invoke closure owns its `Value` stub inside its `async move`
+        // block, so no non-`'static` borrow is captured under `run_hooks`'
+        // `for<'x>` HRTB.
 
         // run_hooks: all three, in order.
         let mut ctx = HostCtx::for_user(Arc::clone(&host), pool.clone(), test_cfg.clone(), None, None, 0, &["a", "b", "c"], &[]);
         ctx
             .run_hooks(HOOK_ARTICLE_BUTTON, |_p, _h| {
                 Box::pin(async move {
-                    let _ = _p.hook_article_button(_h, line).await;
+                    let line = Value::Null;
+                    let _ = _p.hook_article_button(_h, &line).await;
                 })
             })
             .await;
@@ -1097,7 +1097,10 @@ mod tests {
                 HOOK_ARTICLE_BUTTON,
                 |r: &String| r == "a",
                 |p, h| {
-                    Box::pin(async move { p.hook_article_button(h, line).await })
+                    Box::pin(async move {
+                        let line = Value::Null;
+                        p.hook_article_button(h, &line).await
+                    })
                 },
             )
             .await;
@@ -1112,7 +1115,10 @@ mod tests {
                 HOOK_ARTICLE_BUTTON,
                 |r: &String| r == "zzz",
                 |p, h| {
-                    Box::pin(async move { p.hook_article_button(h, line).await })
+                    Box::pin(async move {
+                        let line = Value::Null;
+                        p.hook_article_button(h, &line).await
+                    })
                 },
             )
             .await;
@@ -1126,7 +1132,10 @@ mod tests {
             .run_hooks_callback(
                 HOOK_ARTICLE_BUTTON,
                 |p, h| {
-                    Box::pin(async move { p.hook_article_button(h, line).await })
+                    Box::pin(async move {
+                        let line = Value::Null;
+                        p.hook_article_button(h, &line).await
+                    })
                 },
                 |r: &String, _p| *r == "a",
             )
@@ -1143,7 +1152,8 @@ mod tests {
                 &mut acc,
                 |p, h, s| {
                     Box::pin(async move {
-                        let r = p.hook_article_button(h, line).await;
+                        let line = Value::Null;
+                        let r = p.hook_article_button(h, &line).await;
                         s.push_str(r.as_str());
                         r
                     })
