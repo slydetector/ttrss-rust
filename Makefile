@@ -18,8 +18,8 @@ SERVER_BIN  := ./target/$(PROFILE)/ttrss
 
 # Canonical Rust server values (the oracle web is on 8280; the Rust server on
 # 8281 so the diff can compare them as the same app on different ports).
-RUST_PORT := 8281
-BASE_URL  := http://127.0.0.1:$(RUST_PORT)/tt-rss/
+SERVER_PORT := 8281
+BASE_URL  := http://127.0.0.1:$(SERVER_PORT)/tt-rss/
 ORACLE_URL := http://127.0.0.1:8280/tt-rss/
 SCENARIOS := oracle/corpus/scenarios.template.toml
 VARS      := oracle/data/ids.json
@@ -97,7 +97,7 @@ run: build-server ## run the (release by default) Rust server (canonical env, po
 	TTRSS_DB_HOST=127.0.0.1 TTRSS_DB_PORT=5432 \
 	TTRSS_DB_USER=$(DB_USER) TTRSS_DB_NAME=$(DB_NAME) TTRSS_DB_PASS=$(DB_PASS) \
 	TTRSS_PLUGINS=$(PLUGINS) TTRSS_ENCRYPTION_KEY=$(ENC_KEY) \
-	TTRSS_SELF_URL_PATH=$(BASE_URL) TTRSS_LISTEN_PORT=127.0.0.1:$(RUST_PORT) \
+	TTRSS_SELF_URL_PATH=$(BASE_URL) TTRSS_LISTEN_PORT=127.0.0.1:$(SERVER_PORT) \
 	TTRSS_DOCROOT=$(CURDIR)/tt-rss TTRSS_CACHE_DIR=$(CURDIR)/oracle/data \
 $(SERVER_BIN)
 
@@ -130,24 +130,24 @@ demo-start: build-server demo-db ## start the (release) Rust server on 0.0.0.0:8
 		echo "stopping previous demo instance (pid $$(cat $(DEMO_PID)))..."; \
 		kill "$$(cat $(DEMO_PID))" 2>/dev/null || true; sleep 1; \
 	fi
-	@echo "starting $(SERVER_BIN) on 0.0.0.0:$(RUST_PORT) (self url http://$(LAN_IP):$(RUST_PORT)/tt-rss/)"
+	@echo "starting $(SERVER_BIN) on 0.0.0.0:$(SERVER_PORT) (self url http://$(LAN_IP):$(SERVER_PORT)/tt-rss/)"
 	@TTRSS_DB_HOST=127.0.0.1 TTRSS_DB_PORT=5432 \
 	TTRSS_DB_USER=$(DB_USER) TTRSS_DB_NAME=$(DB_NAME) TTRSS_DB_PASS=$(DB_PASS) \
 	TTRSS_PLUGINS=$(PLUGINS) TTRSS_ENCRYPTION_KEY=$(ENC_KEY) \
-	TTRSS_SELF_URL_PATH=http://$(LAN_IP):$(RUST_PORT)/tt-rss/ TTRSS_LISTEN_PORT=0.0.0.0:$(RUST_PORT) \
+	TTRSS_SELF_URL_PATH=http://$(LAN_IP):$(SERVER_PORT)/tt-rss/ TTRSS_LISTEN_PORT=0.0.0.0:$(SERVER_PORT) \
 	TTRSS_DOCROOT=$(CURDIR)/tt-rss TTRSS_CACHE_DIR=$(CURDIR)/oracle/data \
 	RUST_LOG=$(RUST_LOG) nohup $(SERVER_BIN) > $(DEMO_LOG) 2>&1 & echo $$! > $(DEMO_PID)
 	@for i in $$(seq 1 30); do \
-		if resp=$$(curl -sf http://127.0.0.1:$(RUST_PORT)/tt-rss/healthz 2>/dev/null) && [ "$$resp" = "OK" ]; then break; fi; \
+		if resp=$$(curl -sf http://127.0.0.1:$(SERVER_PORT)/tt-rss/healthz 2>/dev/null) && [ "$$resp" = "OK" ]; then break; fi; \
 		sleep 1; \
 	done
-	@if curl -sf http://127.0.0.1:$(RUST_PORT)/tt-rss/healthz >/dev/null 2>&1; then \
+	@if curl -sf http://127.0.0.1:$(SERVER_PORT)/tt-rss/healthz >/dev/null 2>&1; then \
 		echo ""; \
-		echo "ttrss (Rust, release) is serving: http://$(LAN_IP):$(RUST_PORT)/tt-rss/"; \
+		echo "ttrss (Rust, release) is serving: http://$(LAN_IP):$(SERVER_PORT)/tt-rss/"; \
 		echo "  pid $$(cat $(DEMO_PID))  |  log: $(DEMO_LOG)  |  stop: make demo-stop  |  fresh baseline: make demo-reset"; \
 		echo "  logins: admin/admin  |  otpuser/otppass (TOTP)  |  readonly/readpass  |  testuser/testpass"; \
 	else \
-		echo "error: server did not answer healthz on :$(RUST_PORT) — check $(DEMO_LOG)" >&2; exit 1; \
+		echo "error: server did not answer healthz on :$(SERVER_PORT) — check $(DEMO_LOG)" >&2; exit 1; \
 	fi
 
 .PHONY: demo-stop
