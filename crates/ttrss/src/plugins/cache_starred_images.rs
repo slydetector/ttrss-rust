@@ -22,6 +22,7 @@
 //!   pins them to the defaults (`@hourly` / `@daily`).
 
 use std::path::PathBuf;
+use async_trait::async_trait;
 
 use serde_json::Value;
 
@@ -54,6 +55,7 @@ const CACHE_STATUS_NAME: &str = "starred-images.status-files";
 #[derive(Clone, Copy)]
 pub struct CacheStarredImages;
 
+#[async_trait]
 impl Plugin for CacheStarredImages {
     fn name(&self) -> &'static str {
         "cache_starred_images"
@@ -86,47 +88,43 @@ impl Plugin for CacheStarredImages {
     /// `<img>`/`<source>`/`<video>` `src` to the local cache URL (dropping `srcset`)
     /// when a cached copy exists. `doc` is the article HTML (a `&mut String` in the
     /// port; the PHP passes a `DOMDocument`).
-    fn hook_sanitize<'a, 'h: 'a>(
-        &'a self,
-        host: &'a mut HostCtx<'h>,
-        doc: &'a mut String,
-        site_url: &'a str,
-        _allowed_elements: &'a [String],
-        _disallowed_attributes: &'a [String],
+    async fn hook_sanitize(
+        &self,
+        host: &mut HostCtx<'_>,
+        doc: &mut String,
+        site_url: &str,
+        _allowed_elements: &[String],
+        _disallowed_attributes: &[String],
         article_id: i32,
-    ) -> BoxFuture<'a, ()> {
-        Box::pin(async move {
-            if article_id == 0 {
-                return;
-            }
-            let cache = DiskCache::new(&host.cache_dir, CACHE_NAME, &host.self_url);
-            *doc = rewrite_sanitized_media(doc, site_url, article_id, &cache);
-        })
+    ) -> () {
+        if article_id == 0 {
+            return;
+        }
+        let cache = DiskCache::new(&host.cache_dir, CACHE_NAME, &host.self_url);
+        *doc = rewrite_sanitized_media(doc, site_url, article_id, &cache);
     }
 
     // -- HOOK_ENCLOSURE_ENTRY -----------------------------------------------
 
     /// PHP's `hook_enclosure_entry($entry, $article_id, $rv)` — rewrite the enclosure
     /// `content_url` to the local cache URL when a cached copy exists.
-    fn hook_enclosure_entry<'a, 'h: 'a>(
-        &'a self,
-        host: &'a mut HostCtx<'h>,
-        entry: &'a mut Value,
+    async fn hook_enclosure_entry(
+        &self,
+        host: &mut HostCtx<'_>,
+        entry: &mut Value,
         id: i32,
-        _rv: &'a Value,
-    ) -> BoxFuture<'a, Value> {
-        Box::pin(async move {
-            let mut out = entry.clone();
-            if id != 0
-                && let Some(url) = out.get("content_url").and_then(|v| v.as_str()) {
-                    let cache = DiskCache::new(&host.cache_dir, CACHE_NAME, &host.self_url);
-                    let local = format!("{}-{}", id, sha1_hex(url));
-                    if cache.exists(&local) {
-                        out["content_url"] = Value::String(cache.get_url(&local));
-                    }
+        _rv: &Value,
+    ) -> Value {
+        let mut out = entry.clone();
+        if id != 0
+            && let Some(url) = out.get("content_url").and_then(|v| v.as_str()) {
+                let cache = DiskCache::new(&host.cache_dir, CACHE_NAME, &host.self_url);
+                let local = format!("{}-{}", id, sha1_hex(url));
+                if cache.exists(&local) {
+                    out["content_url"] = Value::String(cache.get_url(&local));
                 }
-            out
-        })
+            }
+        out
     }
 }
 

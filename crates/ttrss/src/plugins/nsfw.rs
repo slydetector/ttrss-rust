@@ -21,11 +21,12 @@
 //! arriving space-trimmed; `save`'s normalization makes round-trips match).
 
 use serde_json::{json, Map, Value};
+use async_trait::async_trait;
 
 use crate::controls::{pluginhandler_tags, submit_tag};
 use crate::i18n::{__};
 use crate::pluginhost::host::{HostCtx, PluginHost};
-use crate::pluginhost::plugin::{About, BoxFuture, MethodOutput, Plugin, PluginError};
+use crate::pluginhost::plugin::{About, MethodOutput, Plugin, PluginError};
 use crate::pluginhost::{
     HOOK_ARTICLE_IMAGE, HOOK_PREFS_TAB, HOOK_RENDER_ARTICLE, HOOK_RENDER_ARTICLE_API,
     HOOK_RENDER_ARTICLE_CDM,
@@ -37,6 +38,7 @@ use crate::util::normalize_categories;
 #[derive(Clone, Copy)]
 pub struct NsFw;
 
+#[async_trait]
 impl Plugin for NsFw {
     fn name(&self) -> &'static str {
         "nsfw"
@@ -69,167 +71,155 @@ impl Plugin for NsFw {
         method.eq_ignore_ascii_case("save")
     }
 
-    fn invoke_method<'a, 'h: 'a>(
-        &'a self,
-        host: &'a mut HostCtx<'h>,
-        method: &'a str,
-        params: &'a Value,
-    ) -> BoxFuture<'a, Result<MethodOutput, PluginError>> {
+    async fn invoke_method(
+        &self,
+        host: &mut HostCtx<'_>,
+        method: &str,
+        params: &Value,
+    ) -> Result<MethodOutput, PluginError> {
         let this = *self;
-        Box::pin(async move {
-            match method.to_ascii_lowercase().as_str() {
-                "save" => {
-                    let tags =
-                        normalize_categories(
-                            &params
-                                .get("tags")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("")
-                                .split(',')
-                                .map(|s| s.to_string())
-                                .collect::<Vec<_>>(),
-                        )
-                        .join(", ");
-                    host.storage_set(&this, "tags", PValue::Bytes(tags.into_bytes()))
-                        .await
-                        .map_err(|e| PluginError::Other(e.to_string()))?;
-                    // PHP: `echo __("Configuration saved.");`
-                    Ok(MethodOutput::Raw(__("Configuration saved.")))
-                }
-                _ => Err(PluginError::UnknownMethod(method.to_string())),
+        match method.to_ascii_lowercase().as_str() {
+            "save" => {
+                let tags =
+                    normalize_categories(
+                        &params
+                            .get("tags")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .split(',')
+                            .map(|s| s.to_string())
+                            .collect::<Vec<_>>(),
+                    )
+                    .join(", ");
+                host.storage_set(&this, "tags", PValue::Bytes(tags.into_bytes()))
+                    .await
+                    .map_err(|e| PluginError::Other(e.to_string()))?;
+                // PHP: `echo __("Configuration saved.");`
+                Ok(MethodOutput::Raw(__("Configuration saved.")))
             }
-        })
+            _ => Err(PluginError::UnknownMethod(method.to_string())),
+        }
     }
 
     // -- HOOK_RENDER_ARTICLE / _CDM / _API -------------------------------
 
-    fn hook_render_article<'a, 'h: 'a>(
-        &'a self,
-        host: &'a mut HostCtx<'h>,
-        article: &'a mut Value,
-    ) -> BoxFuture<'a, Value> {
+    async fn hook_render_article(
+        &self,
+        host: &mut HostCtx<'_>,
+        article: &mut Value,
+    ) -> Value {
         let this = *self;
-        Box::pin(async move {
-            match rewrite_contents(host, &this, article).await {
-                Ok(v) => v,
-                // The PHP runner's per-invocation try/catch: log, continue
-                // with the article unchanged.
-                Err(e) => {
-                    tracing::error!(error = %e, "nsfw: rewrite_contents failed");
-                    article.clone()
-                }
+        match rewrite_contents(host, &this, article).await {
+            Ok(v) => v,
+            // The PHP runner's per-invocation try/catch: log, continue
+            // with the article unchanged.
+            Err(e) => {
+                tracing::error!(error = %e, "nsfw: rewrite_contents failed");
+                article.clone()
             }
-        })
+        }
     }
 
-    fn hook_render_article_cdm<'a, 'h: 'a>(
-        &'a self,
-        host: &'a mut HostCtx<'h>,
-        article: &'a mut Value,
-    ) -> BoxFuture<'a, Value> {
+    async fn hook_render_article_cdm(
+        &self,
+        host: &mut HostCtx<'_>,
+        article: &mut Value,
+    ) -> Value {
         let this = *self;
-        Box::pin(async move {
-            match rewrite_contents(host, &this, article).await {
-                Ok(v) => v,
-                // The PHP runner's per-invocation try/catch: log, continue
-                // with the article unchanged.
-                Err(e) => {
-                    tracing::error!(error = %e, "nsfw: rewrite_contents failed");
-                    article.clone()
-                }
+        match rewrite_contents(host, &this, article).await {
+            Ok(v) => v,
+            // The PHP runner's per-invocation try/catch: log, continue
+            // with the article unchanged.
+            Err(e) => {
+                tracing::error!(error = %e, "nsfw: rewrite_contents failed");
+                article.clone()
             }
-        })
+        }
     }
 
     /// PHP's `hook_render_article_api($row)`: `$article = $row['headline'] ??
     /// $row['article']` — the *article* (not the row) is rewritten and
     /// returned, as in the reference.
-    fn hook_render_article_api<'a, 'h: 'a>(
-        &'a self,
-        host: &'a mut HostCtx<'h>,
-        params: &'a Value,
-    ) -> BoxFuture<'a, Value> {
+    async fn hook_render_article_api(
+        &self,
+        host: &mut HostCtx<'_>,
+        params: &Value,
+    ) -> Value {
         let this = *self;
-        Box::pin(async move {
-            let fallback = Value::Object(Map::new());
-            let article = params
-                .get("headline")
-                .or_else(|| params.get("article"))
-                .unwrap_or(&fallback);
-            match rewrite_contents(host, &this, article).await {
-                Ok(v) => v,
-                Err(e) => {
-                    tracing::error!(error = %e, "nsfw: rewrite_contents failed");
-                    article.clone()
-                }
+        let fallback = Value::Object(Map::new());
+        let article = params
+            .get("headline")
+            .or_else(|| params.get("article"))
+            .unwrap_or(&fallback);
+        match rewrite_contents(host, &this, article).await {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::error!(error = %e, "nsfw: rewrite_contents failed");
+                article.clone()
             }
-        })
+        }
     }
 
     // -- HOOK_ARTICLE_IMAGE ------------------------------------------------
 
-    fn hook_article_image<'a, 'h: 'a>(
-        &'a self,
-        host: &'a mut HostCtx<'h>,
-        _enclosures: &'a Value,
-        content: &'a str,
-        _site_url: &'a str,
-        article: &'a Value,
-    ) -> BoxFuture<'a, Value> {
+    async fn hook_article_image(
+        &self,
+        host: &mut HostCtx<'_>,
+        _enclosures: &Value,
+        content: &str,
+        _site_url: &str,
+        article: &Value,
+    ) -> Value {
         let this = *self;
-        Box::pin(async move {
-            if matches_tags(host, &this, article).await.unwrap_or(false) {
-                Value::Array(vec![
-                    json!(format!("{}{}", host.self_url, "/plugins/nsfw/nsfw.png")),
-                    json!(""),
-                    json!("nsfw"),
-                ])
-            } else {
-                Value::Array(vec![json!(""), json!(""), json!(content)])
-            }
-        })
+        if matches_tags(host, &this, article).await.unwrap_or(false) {
+            Value::Array(vec![
+                json!(format!("{}{}", host.self_url, "/plugins/nsfw/nsfw.png")),
+                json!(""),
+                json!("nsfw"),
+            ])
+        } else {
+            Value::Array(vec![json!(""), json!(""), json!(content)])
+        }
     }
 
     // -- HOOK_PREFS_TAB ------------------------------------------------------
 
-    fn hook_prefs_tab<'a, 'h: 'a>(&'a self, host: &'a mut HostCtx<'h>, tab: &'a str) -> BoxFuture<'a, ()> {
+    async fn hook_prefs_tab(&self, host: &mut HostCtx<'_>, tab: &str) -> () {
         let this = *self;
-        Box::pin(async move {
-            if tab != "prefPrefs" {
-                return;
-            }
-            let tags = stored_tags(host, &this).await.unwrap_or_default();
-            let nsfw_title = __("NSFW Plugin");
-            let nsfw_tags_header = __("Tags to consider NSFW (comma-separated):");
-            host.output.push_str(&format!(
-                "<div dojoType=\"dijit.layout.AccordionPane\" \
-                 title=\"<i class='material-icons'>extension</i> {nsfw_title}\"\n \
-                 <form dojoType=\"dijit.form.Form\">\n \
-                 {tags}\n \
-                 <script type=\"dojo/method\" event=\"onSubmit\" args=\"evt\">\n \
-                 evt.preventDefault();\n \
-                 if (this.validate()) {{\n \
-                 Notify.progress('Saving data...', true);\n \
-                 xhr.post(\"backend.php\", this.getValues(), (reply) => {{\n \
-                 Notify.info(reply);\n \
-                 }})\n \
-                 }}\n \
-                 </script>\n \
-                 <header>{nsfw_tags_header}</header>\n \
-                 <fieldset>\n \
-                 <textarea dojoType='dijit.form.SimpleTextarea' rows='4' \
-                 style='width: 500px; font-size : 12px;' \
-                 name='tags'>{tags_escaped}</textarea>\n \
-                 </fieldset>\n \
-                 <hr/>\n \
-                 {save}\n \
-                 </form>\n \
-                 </div>",
-                tags = pluginhandler_tags("NSFW", "save"),
-                tags_escaped = escape_html(&tags),
-                save = submit_tag(&__("Save")),
-            ));
-        })
+        if tab != "prefPrefs" {
+            return;
+        }
+        let tags = stored_tags(host, &this).await.unwrap_or_default();
+        let nsfw_title = __("NSFW Plugin");
+        let nsfw_tags_header = __("Tags to consider NSFW (comma-separated):");
+        host.output.push_str(&format!(
+            "<div dojoType=\"dijit.layout.AccordionPane\" \
+             title=\"<i class='material-icons'>extension</i> {nsfw_title}\"\n \
+             <form dojoType=\"dijit.form.Form\">\n \
+             {tags}\n \
+             <script type=\"dojo/method\" event=\"onSubmit\" args=\"evt\">\n \
+             evt.preventDefault();\n \
+             if (this.validate()) {{\n \
+             Notify.progress('Saving data...', true);\n \
+             xhr.post(\"backend.php\", this.getValues(), (reply) => {{\n \
+             Notify.info(reply);\n \
+             }})\n \
+             }}\n \
+             </script>\n \
+             <header>{nsfw_tags_header}</header>\n \
+             <fieldset>\n \
+             <textarea dojoType='dijit.form.SimpleTextarea' rows='4' \
+             style='width: 500px; font-size : 12px;' \
+             name='tags'>{tags_escaped}</textarea>\n \
+             </fieldset>\n \
+             <hr/>\n \
+             {save}\n \
+             </form>\n \
+             </div>",
+            tags = pluginhandler_tags("NSFW", "save"),
+            tags_escaped = escape_html(&tags),
+            save = submit_tag(&__("Save")),
+        ));
     }
 }
 

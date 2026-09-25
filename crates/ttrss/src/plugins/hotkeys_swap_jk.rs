@@ -8,7 +8,8 @@
 //! which has `j` = next article, `k` = prev article).
 
 use crate::pluginhost::host::{HostCtx, PluginHost};
-use crate::pluginhost::plugin::{About, BoxFuture, Plugin};
+use async_trait::async_trait;
+use crate::pluginhost::plugin::{About, Plugin};
 use crate::pluginhost::HOOK_HOTKEY_MAP;
 use serde_json::{json, Value};
 
@@ -16,6 +17,7 @@ use serde_json::{json, Value};
 #[derive(Clone, Copy)]
 pub struct HotkeysSwapJk;
 
+#[async_trait]
 impl Plugin for HotkeysSwapJk {
     fn name(&self) -> &'static str {
         "hotkeys_swap_jk"
@@ -35,20 +37,18 @@ impl Plugin for HotkeysSwapJk {
     }
 
     /// `hook_hotkey_map($hotkeys)` — swap j/k to J/K (vi-style navigation).
-    fn hook_hotkey_map<'a, 'h: 'a>(
-        &'a self,
-        _host: &'a mut HostCtx<'h>,
-        hotkeys: &'a Value,
-    ) -> BoxFuture<'a, Value> {
-        Box::pin(async move {
-            let mut m = hotkeys.clone();
-            let obj = m.as_object_mut().unwrap();
-            obj.insert("j".into(), json!("next_feed"));
-            obj.insert("J".into(), json!("next_unread_feed"));
-            obj.insert("k".into(), json!("prev_feed"));
-            obj.insert("K".into(), json!("prev_unread_feed"));
-            m
-        })
+    async fn hook_hotkey_map(
+        &self,
+        _host: &mut HostCtx<'_>,
+        hotkeys: &Value,
+    ) -> Value {
+        let mut m = hotkeys.clone();
+        let obj = m.as_object_mut().unwrap();
+        obj.insert("j".into(), json!("next_feed"));
+        obj.insert("J".into(), json!("next_unread_feed"));
+        obj.insert("k".into(), json!("prev_feed"));
+        obj.insert("K".into(), json!("prev_unread_feed"));
+        m
     }
 }
 

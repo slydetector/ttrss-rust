@@ -16,10 +16,9 @@
 //! started carrying `&Config`.
 
 use serde_json::Value;
+use async_trait::async_trait;
 use crate::pluginhost::host::{HostCtx, PluginHost};
-use crate::pluginhost::plugin::{
-    About, BoxFuture, MethodOutput, Plugin, PluginError,
-};
+use crate::pluginhost::plugin::{About, MethodOutput, Plugin, PluginError, };
 use crate::pluginhost::HOOK_PREFS_TAB;
 use crate::{controls, util};
 use crate::i18n::{__};
@@ -28,6 +27,7 @@ use crate::i18n::{__};
 #[derive(Clone, Copy)]
 pub struct Bookmarklets;
 
+#[async_trait]
 impl Plugin for Bookmarklets {
     fn name(&self) -> &'static str {
         "bookmarklets"
@@ -64,35 +64,31 @@ impl Plugin for Bookmarklets {
 
     /// `Bookmarklets::hook_prefs_tab($tab)` — the `prefFeeds` AccordionPane
     /// with the two bookmarklet links + the "More info…" button.
-    fn hook_prefs_tab<'a, 'h: 'a>(
-        &'a self,
-        host: &'a mut HostCtx<'h>,
-        tab: &'a str,
-    ) -> BoxFuture<'a, ()> {
+    async fn hook_prefs_tab(
+        &self,
+        host: &mut HostCtx<'_>,
+        tab: &str,
+    ) -> () {
         let this = *self;
-        Box::pin(async move {
-            if tab != "prefFeeds" {
-                return;
-            }
-            this.hook_prefs_tab_output(host).await;
-        })
+        if tab != "prefFeeds" {
+            return;
+        }
+        this.hook_prefs_tab_output(host).await;
     }
 
     /// `Bookmarklets::sharepopup` — the public method dispatch.
-    fn invoke_method<'a, 'h: 'a>(
-        &'a self,
-        host: &'a mut HostCtx<'h>,
-        method: &'a str,
-        params: &'a Value,
-    ) -> BoxFuture<'a, Result<MethodOutput, PluginError>> {
+    async fn invoke_method(
+        &self,
+        host: &mut HostCtx<'_>,
+        method: &str,
+        params: &Value,
+    ) -> Result<MethodOutput, PluginError> {
         let this = *self;
-        Box::pin(async move {
-            match method.to_ascii_lowercase().as_str() {
-                "sharepopup" => this.sharepopup(host, params).await,
-                "subscribe" => this.subscribe(host, params).await,
-                _ => Err(PluginError::UnknownMethod(method.to_string())),
-            }
-        })
+        match method.to_ascii_lowercase().as_str() {
+            "sharepopup" => this.sharepopup(host, params).await,
+            "subscribe" => this.subscribe(host, params).await,
+            _ => Err(PluginError::UnknownMethod(method.to_string())),
+        }
     }
 }
 

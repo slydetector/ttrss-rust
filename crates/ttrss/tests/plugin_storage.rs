@@ -10,6 +10,7 @@
 mod common;
 
 use test_db::template::with_test_db;
+use async_trait::async_trait;
 
 use ttrss::core::phpser::{self, Key, Value as PValue};
 use ttrss::pluginhost::host::HostCtx;
@@ -19,6 +20,7 @@ use ttrss::pluginhost::PluginHost;
 /// Test plugin — its class name is the storage key (see the module docs).
 struct TestStoragePlugin;
 
+#[async_trait]
 impl Plugin for TestStoragePlugin {
     fn name(&self) -> &'static str {
         "teststorage"
@@ -373,6 +375,7 @@ async fn test_php_written_row_decode() {
 }
 
 struct PhpPlugin;
+#[async_trait]
 impl Plugin for PhpPlugin {
     fn name(&self) -> &'static str {
         "phpplugin"

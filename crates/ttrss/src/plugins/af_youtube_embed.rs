@@ -10,10 +10,11 @@
 //! `UrlHelper::url_to_youtube_vid` is the port's [`crate::headlines::url_to_youtube_vid`].
 
 use serde_json::Value;
+use async_trait::async_trait;
 
 use crate::pluginhost::host::{HostCtx, PluginHost};
 use crate::pluginhost::{HOOK_IFRAME_WHITELISTED, HOOK_RENDER_ENCLOSURE};
-use crate::pluginhost::plugin::{About, BoxFuture, Plugin};
+use crate::pluginhost::plugin::{About, Plugin};
 
 /// The `af_youtube_embed` plugin (the PHP's `Af_Youtube_Embed`).
 #[derive(Clone, Copy)]
@@ -28,6 +29,7 @@ const YOUTUBE_HOSTS: &[&str] = &[
     "youtu.be",
 ];
 
+#[async_trait]
 impl Plugin for AfYoutubeEmbed {
     fn name(&self) -> &'static str {
         "af_youtube_embed"
@@ -48,31 +50,29 @@ impl Plugin for AfYoutubeEmbed {
 
     /// `hook_iframe_whitelisted($src)` — `$src` is the iframe's src *host* (the
     /// sanitizer extracts it); true when it is a YouTube host.
-    fn hook_iframe_whitelisted<'a, 'h: 'a>(
-        &'a self,
-        _host: &'a mut HostCtx<'h>,
-        src: &'a str,
-    ) -> BoxFuture<'a, bool> {
-        Box::pin(async move { YOUTUBE_HOSTS.contains(&src) })
+    async fn hook_iframe_whitelisted(
+        &self,
+        _host: &mut HostCtx<'_>,
+        src: &str,
+    ) -> bool {
+ YOUTUBE_HOSTS.contains(&src) 
     }
 
     /// `hook_render_enclosure($entry, $id, $rv)` — render a YouTube enclosure as
     /// an embedded-player iframe, or `""` when the `content_url` is not YouTube
     /// (the caller then falls back to the default enclosure entry).
-    fn hook_render_enclosure<'a, 'h: 'a>(
-        &'a self,
-        _host: &'a mut HostCtx<'h>,
-        entry: &'a Value,
+    async fn hook_render_enclosure(
+        &self,
+        _host: &mut HostCtx<'_>,
+        entry: &Value,
         _article_id: i32,
-        _rv: &'a Value,
-    ) -> BoxFuture<'a, String> {
-        Box::pin(async move {
-            let url = entry.get("content_url").and_then(Value::as_str).unwrap_or("");
-            match crate::headlines::url_to_youtube_vid(url) {
-                Some(vid) => embed_markup(&vid),
-                None => String::new(),
-            }
-        })
+        _rv: &Value,
+    ) -> String {
+        let url = entry.get("content_url").and_then(Value::as_str).unwrap_or("");
+        match crate::headlines::url_to_youtube_vid(url) {
+            Some(vid) => embed_markup(&vid),
+            None => String::new(),
+        }
     }
 }
 

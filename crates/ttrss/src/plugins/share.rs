@@ -20,12 +20,13 @@
 //! behavior coverage (key lifecycle, profile scoping, public route).
 
 use serde_json::{json, Value};
+use async_trait::async_trait;
 use sqlx::Row;
 
 use crate::controls::{button_tag, format_error, format_notice, icon, submit_tag};
 use crate::i18n::{__};
 use crate::pluginhost::host::{public_method_url, HostCtx, PluginHost};
-use crate::pluginhost::plugin::{About, BoxFuture, MethodOutput, Plugin, PluginError};
+use crate::pluginhost::plugin::{About, MethodOutput, Plugin, PluginError};
 use crate::pluginhost::{HOOK_ARTICLE_BUTTON, HOOK_PREFS_TAB_SECTION};
 use crate::util::{clean_str, uniqid_short};
 
@@ -39,6 +40,7 @@ type ArticleRow = (
 #[derive(Clone, Copy)]
 pub struct Share;
 
+#[async_trait]
 impl Plugin for Share {
     fn name(&self) -> &'static str {
         "share"
@@ -75,59 +77,53 @@ impl Plugin for Share {
         include_str!("../../../../tt-rss/plugins/share/share_prefs.js").to_string()
     }
 
-    fn hook_article_button<'a, 'h: 'a>(
-        &'a self,
-        _host: &'a mut HostCtx<'h>,
-        line: &'a Value,
-    ) -> BoxFuture<'a, String> {
+    async fn hook_article_button(
+        &self,
+        _host: &mut HostCtx<'_>,
+        line: &Value,
+    ) -> String {
         // PHP uses `int_id` (not `id`) for the icon suffix and the onclick
         // argument, and keeps the space before an empty `$icon_class`.
         let int_id = line["int_id"].as_i64().unwrap_or(0);
         let is_shared = line["uuid"].as_str().is_some_and(|u| !u.is_empty());
-        Box::pin(async move {
-            let icon_class = if is_shared { "is-shared" } else { "" };
-            let share_title = __("Share by URL");
-            format!(
-                "<i class='material-icons icon-share share-icon-{int_id} {icon_class}' \
-                 style='cursor : pointer' onclick=\"Plugins.Share.shareArticle({int_id})\" \
-                 title=\"{share_title}\">link</i>"
-            )
-        })
+        let icon_class = if is_shared { "is-shared" } else { "" };
+        let share_title = __("Share by URL");
+        format!(
+            "<i class='material-icons icon-share share-icon-{int_id} {icon_class}' \
+             style='cursor : pointer' onclick=\"Plugins.Share.shareArticle({int_id})\" \
+             title=\"{share_title}\">link</i>"
+        )
     }
 
-    fn hook_prefs_tab_section<'a, 'h: 'a>(
-        &'a self,
-        host: &'a mut HostCtx<'h>,
-        section: &'a str,
-    ) -> BoxFuture<'a, ()> {
+    async fn hook_prefs_tab_section(
+        &self,
+        host: &mut HostCtx<'_>,
+        section: &str,
+    ) -> () {
         let this = *self;
-        Box::pin(async move {
-            if section != "prefFeedsPublishedGenerated" {
-                return;
-            }
-            this.hook_prefs_tab_section_output(host).await;
-        })
+        if section != "prefFeedsPublishedGenerated" {
+            return;
+        }
+        this.hook_prefs_tab_section_output(host).await;
     }
 
     /// `Share::newkey` / `unshare` / `clearArticleKeys` / `shareDialog` /
     /// `get` — the dynamic method dispatch.
-    fn invoke_method<'a, 'h: 'a>(
-        &'a self,
-        host: &'a mut HostCtx<'h>,
-        method: &'a str,
-        params: &'a Value,
-    ) -> BoxFuture<'a, Result<MethodOutput, PluginError>> {
+    async fn invoke_method(
+        &self,
+        host: &mut HostCtx<'_>,
+        method: &str,
+        params: &Value,
+    ) -> Result<MethodOutput, PluginError> {
         let this = *self;
-        Box::pin(async move {
-            match method.to_ascii_lowercase().as_str() {
-                "newkey" => Ok(MethodOutput::Json(new_key(host, params).await?)),
-                "unshare" => Ok(MethodOutput::Raw(unshare(host, params).await?)),
-                "cleararticlekeys" => Ok(MethodOutput::Raw(clear_article_keys(host).await?)),
-                "sharedialog" => Ok(MethodOutput::Raw(this.share_dialog(host, params).await?)),
-                "get" => get(host, params).await,
-                _ => Err(PluginError::UnknownMethod(method.to_string())),
-            }
-        })
+        match method.to_ascii_lowercase().as_str() {
+            "newkey" => Ok(MethodOutput::Json(new_key(host, params).await?)),
+            "unshare" => Ok(MethodOutput::Raw(unshare(host, params).await?)),
+            "cleararticlekeys" => Ok(MethodOutput::Raw(clear_article_keys(host).await?)),
+            "sharedialog" => Ok(MethodOutput::Raw(this.share_dialog(host, params).await?)),
+            "get" => get(host, params).await,
+            _ => Err(PluginError::UnknownMethod(method.to_string())),
+        }
     }
 }
 

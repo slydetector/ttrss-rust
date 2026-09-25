@@ -17,7 +17,8 @@
 //! matching a reference install without `af_youtube_embed`.
 
 use crate::pluginhost::host::{HostCtx, PluginHost};
-use crate::pluginhost::plugin::{About, BoxFuture, Plugin};
+use async_trait::async_trait;
+use crate::pluginhost::plugin::{About, Plugin};
 use crate::pluginhost::HOOK_IFRAME_WHITELISTED;
 use crate::pluginhost::HOOK_SANITIZE;
 
@@ -25,6 +26,7 @@ use crate::pluginhost::HOOK_SANITIZE;
 #[derive(Clone, Copy)]
 pub struct NoIframes;
 
+#[async_trait]
 impl Plugin for NoIframes {
     fn name(&self) -> &'static str {
         "no_iframes"
@@ -47,80 +49,78 @@ impl Plugin for NoIframes {
     /// `Sanitizer::iframe_whitelisted` — no host means not whitelisted).
     /// `site_url`/`allowed_elements`/`disallowed_attributes`/`article_id`
     /// are part of the hook contract; this plugin ignores them, as PHP does.
-    fn hook_sanitize<'a, 'h: 'a>(
-        &'a self,
-        host: &'a mut HostCtx<'h>,
-        doc: &'a mut String,
-        _site_url: &'a str,
-        _allowed_elements: &'a [String],
-        _disallowed_attributes: &'a [String],
+    async fn hook_sanitize(
+        &self,
+        host: &mut HostCtx<'_>,
+        doc: &mut String,
+        _site_url: &str,
+        _allowed_elements: &[String],
+        _disallowed_attributes: &[String],
         _article_id: i32,
-    ) -> BoxFuture<'a, ()> {
-        Box::pin(async move {
-            let mut out = String::with_capacity(doc.len());
-            let mut rest = doc.as_str();
-            while let Some(pos) = rest.find("<iframe") {
-                let tag_start = pos;
-                let Some(rel) = rest[tag_start..].find('>') else {
-                    break;
-                };
-                let tag_end = tag_start + rel;
-                let tag = &rest[tag_start..=tag_end];
-                // `<iframe` must be a real tag name (not `<iframeish`).
-                let after_name = &tag[7..]; // `<iframe` is 7 chars
-                if !matches!(
-                    after_name.as_bytes().first(),
-                    Some(b' ') | Some(b'\t') | Some(b'\n') | Some(b'\r') | Some(b'>') | Some(b'/')
-                ) {
-                    rest = &rest[tag_start + 1..];
-                    continue;
-                }
-                let src = tag_attr(tag, "src");
-                let host_ = crate::sanitizer::url_host(&src);
-                let whitelisted = if host_.is_empty() {
-                    // PHP: `parse_url($src, PHP_URL_HOST)` empty → false.
-                    false
-                } else {
-                    // `run_hooks_until(HOOK_IFRAME_WHITELISTED, true, host)`
-                    // (PHP `Sanitizer::iframe_whitelisted`): the first
-                    // whitelisting plugin decides. A direct loop over
-                    // `hook_order` — the generic runner's per-call HRTB
-                    // closure cannot borrow this per-iframe local.
-                    let mut w = false;
-                    for idx in host.hook_order(HOOK_IFRAME_WHITELISTED) {
-                        if host
-                            .host()
-                            .plugin(idx)
-                            .hook_iframe_whitelisted(host, &host_)
-                            .await
-                        {
-                            w = true;
-                            break;
-                        }
-                    }
-                    w
-                };
-                if !whitelisted {
-                    out.push_str(&rest[..tag_start]);
-                    let after = &rest[tag_end + 1..];
-                    // Drop the element body too (PHP removes the DOM node).
-                    if let Some(close_rel) = after.find("</iframe") {
-                        let mut end = close_rel + "</iframe".len();
-                        while end < after.len() && after.as_bytes()[end] != b'>' {
-                            end += 1;
-                        }
-                        rest = if end < after.len() { &after[end + 1..] } else { "" };
-                    } else {
-                        rest = after;
-                    }
-                } else {
-                    out.push_str(&rest[..=tag_end]);
-                    rest = &rest[tag_end + 1..];
-                }
+    ) -> () {
+        let mut out = String::with_capacity(doc.len());
+        let mut rest = doc.as_str();
+        while let Some(pos) = rest.find("<iframe") {
+            let tag_start = pos;
+            let Some(rel) = rest[tag_start..].find('>') else {
+                break;
+            };
+            let tag_end = tag_start + rel;
+            let tag = &rest[tag_start..=tag_end];
+            // `<iframe` must be a real tag name (not `<iframeish`).
+            let after_name = &tag[7..]; // `<iframe` is 7 chars
+            if !matches!(
+                after_name.as_bytes().first(),
+                Some(b' ') | Some(b'\t') | Some(b'\n') | Some(b'\r') | Some(b'>') | Some(b'/')
+            ) {
+                rest = &rest[tag_start + 1..];
+                continue;
             }
-            out.push_str(rest);
-            *doc = out;
-        })
+            let src = tag_attr(tag, "src");
+            let host_ = crate::sanitizer::url_host(&src);
+            let whitelisted = if host_.is_empty() {
+                // PHP: `parse_url($src, PHP_URL_HOST)` empty → false.
+                false
+            } else {
+                // `run_hooks_until(HOOK_IFRAME_WHITELISTED, true, host)`
+                // (PHP `Sanitizer::iframe_whitelisted`): the first
+                // whitelisting plugin decides. A direct loop over
+                // `hook_order` — the generic runner's per-call HRTB
+                // closure cannot borrow this per-iframe local.
+                let mut w = false;
+                for idx in host.hook_order(HOOK_IFRAME_WHITELISTED) {
+                    if host
+                        .host()
+                        .plugin(idx)
+                        .hook_iframe_whitelisted(host, &host_)
+                        .await
+                    {
+                        w = true;
+                        break;
+                    }
+                }
+                w
+            };
+            if !whitelisted {
+                out.push_str(&rest[..tag_start]);
+                let after = &rest[tag_end + 1..];
+                // Drop the element body too (PHP removes the DOM node).
+                if let Some(close_rel) = after.find("</iframe") {
+                    let mut end = close_rel + "</iframe".len();
+                    while end < after.len() && after.as_bytes()[end] != b'>' {
+                        end += 1;
+                    }
+                    rest = if end < after.len() { &after[end + 1..] } else { "" };
+                } else {
+                    rest = after;
+                }
+            } else {
+                out.push_str(&rest[..=tag_end]);
+                rest = &rest[tag_end + 1..];
+            }
+        }
+        out.push_str(rest);
+        *doc = out;
     }
 }
 
@@ -197,6 +197,7 @@ mod tests {
     async fn keeps_whitelisted_iframes() {
         #[derive(Clone, Copy)]
         struct YtWhitelist;
+        #[async_trait]
         impl Plugin for YtWhitelist {
             fn name(&self) -> &'static str {
                 "yt_wl"
@@ -213,13 +214,13 @@ mod tests {
             fn init(&self, host: &mut PluginHost) {
                 host.add_hook_default(HOOK_IFRAME_WHITELISTED);
             }
-            fn hook_iframe_whitelisted<'a, 'h: 'a>(
-                &'a self,
-                _host: &'a mut HostCtx<'h>,
-                url: &'a str,
-            ) -> BoxFuture<'a, bool> {
+            async fn hook_iframe_whitelisted(
+                &self,
+                _host: &mut HostCtx<'_>,
+                url: &str,
+            ) -> bool {
                 let keep = url.contains("youtube");
-                Box::pin(async move { keep })
+ keep 
             }
         }
 

@@ -888,6 +888,8 @@ mod tests {
     use sqlx::postgres::PgPoolOptions;
 
     use super::*;
+    use async_trait::async_trait;
+
     use crate::pluginhost::PluginError;
     use crate::pluginhost::plugin::{About, MethodOutput, Plugin};
     use crate::pluginhost::HOOK_ARTICLE_BUTTON;
@@ -929,6 +931,7 @@ mod tests {
         }
     }
 
+    #[async_trait]
     impl Plugin for TestPlugin {
         fn name(&self) -> &'static str {
             self.name
@@ -962,29 +965,21 @@ mod tests {
                 host.add_api_method("m");
             }
         }
-        fn hook_article_button<'a, 'h: 'a>(
-            &'a self,
-            _host: &'a mut HostCtx<'h>,
-            _line: &'a Value,
-        ) -> BoxFuture<'a, String> {
-            Box::pin(async move {
-                self.calls.lock().unwrap().push(self.name.to_string());
-                self.name.to_string()
-            })
+        async fn hook_article_button(&self, _host: &mut HostCtx<'_>, _line: &Value) -> String {
+            self.calls.lock().unwrap().push(self.name.to_string());
+            self.name.to_string()
         }
-        fn invoke_method<'a, 'h: 'a>(
-            &'a self,
-            _host: &'a mut HostCtx<'h>,
-            method: &'a str,
-            _params: &'a Value,
-        ) -> BoxFuture<'a, Result<MethodOutput, PluginError>> {
-            Box::pin(async move {
-                if method == "my_cmd" {
-                    Ok(MethodOutput::Json(serde_json::json!({ "called": self.name })))
-                } else {
-                    Err(PluginError::UnknownMethod(method.to_string()))
-                }
-            })
+        async fn invoke_method(
+            &self,
+            _host: &mut HostCtx<'_>,
+            method: &str,
+            _params: &Value,
+        ) -> Result<MethodOutput, PluginError> {
+            if method == "my_cmd" {
+                Ok(MethodOutput::Json(serde_json::json!({ "called": self.name })))
+            } else {
+                Err(PluginError::UnknownMethod(method.to_string()))
+            }
         }
     }
 

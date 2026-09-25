@@ -23,9 +23,10 @@
 //!   handler's redirect target (validated; empty → the default index).
 
 use crate::core::user::{get_salt, hash_password, ALGO_SSHA512};
+use async_trait::async_trait;
 use crate::pluginhost::host::{HostCtx, PluginHost};
 use crate::core::config::Config;
-use crate::pluginhost::plugin::{About, BoxFuture, Plugin};
+use crate::pluginhost::plugin::{About, Plugin};
 use crate::pluginhost::{HOOK_AUTH_USER, HOOK_POST_LOGOUT};
 use serde_json::Value;
 use sqlx::Row;
@@ -42,6 +43,7 @@ const PROXY_USER_HEADERS: [&str; 4] = [
 #[derive(Clone, Copy)]
 pub struct AuthRemote;
 
+#[async_trait]
 impl Plugin for AuthRemote {
     fn name(&self) -> &'static str {
         "auth_remote"
@@ -79,79 +81,75 @@ impl Plugin for AuthRemote {
     /// `Auth_Remote::authenticate($login, $password, $service)` — the
     /// proxy/cert login. The form's `login`/`password` are unused (the
     /// password seeds only a new auto-created account).
-    fn authenticate<'a, 'h: 'a>(
-        &'a self,
-        host: &'a mut HostCtx<'h>,
-        _login: &'a str,
-        password: &'a str,
-        _service: &'a str,
-    ) -> BoxFuture<'a, Option<i32>> {
-        Box::pin(async move {
-            let mut try_login = String::new();
-            for name in PROXY_USER_HEADERS {
-                if let Some(v) = host.server(name).filter(|v| !v.is_empty()) {
-                    try_login = v.to_ascii_lowercase();
-                    break;
-                }
+    async fn authenticate(
+        &self,
+        host: &mut HostCtx<'_>,
+        _login: &str,
+        password: &str,
+        _service: &str,
+    ) -> Option<i32> {
+        let mut try_login = String::new();
+        for name in PROXY_USER_HEADERS {
+            if let Some(v) = host.server(name).filter(|v| !v.is_empty()) {
+                try_login = v.to_ascii_lowercase();
+                break;
             }
-            if try_login.is_empty() {
-                try_login = get_login_by_ssl_certificate(host).await;
+        }
+        if try_login.is_empty() {
+            try_login = get_login_by_ssl_certificate(host).await;
+        }
+        if try_login.is_empty() {
+            return None;
+        }
+
+        let uid = auto_create_user(host, &try_login, password).await?;
+
+        // The fake-login session markers (PHP `$_SESSION[...] = …`):
+        // the port sets them on the session the caller builds from the
+        // returned uid — see `login_flow`'s post-auth hook. Model it
+        // here on the HostCtx so the caller can copy them.
+        host.fake_login = Some(try_login.clone());
+
+        // LemonLDAP extras (only with auto-create on, PHP:
+        // `Config::get(Config::AUTH_AUTO_CREATE)`).
+        if host.cfg.auth_auto_create {
+            if let Some(fullname) = host
+                .server("HTTP_USER_NAME")
+                .or_else(|| host.server("AUTHENTICATE_CN"))
+                .filter(|v| !v.is_empty())
+            {
+                let _ = sqlx::query("UPDATE ttrss_users SET full_name = $1 WHERE id = $2")
+                    .bind(fullname)
+                    .bind(uid)
+                    .execute(host.pool)
+                    .await;
             }
-            if try_login.is_empty() {
-                return None;
+            if let Some(email) = host
+                .server("HTTP_USER_MAIL")
+                .or_else(|| host.server("AUTHENTICATE_MAIL"))
+                .filter(|v| !v.is_empty())
+            {
+                let _ = sqlx::query("UPDATE ttrss_users SET email = $1 WHERE id = $2")
+                    .bind(email)
+                    .bind(uid)
+                    .execute(host.pool)
+                    .await;
             }
+        }
 
-            let uid = auto_create_user(host, &try_login, password).await?;
-
-            // The fake-login session markers (PHP `$_SESSION[...] = …`):
-            // the port sets them on the session the caller builds from the
-            // returned uid — see `login_flow`'s post-auth hook. Model it
-            // here on the HostCtx so the caller can copy them.
-            host.fake_login = Some(try_login.clone());
-
-            // LemonLDAP extras (only with auto-create on, PHP:
-            // `Config::get(Config::AUTH_AUTO_CREATE)`).
-            if host.cfg.auth_auto_create {
-                if let Some(fullname) = host
-                    .server("HTTP_USER_NAME")
-                    .or_else(|| host.server("AUTHENTICATE_CN"))
-                    .filter(|v| !v.is_empty())
-                {
-                    let _ = sqlx::query("UPDATE ttrss_users SET full_name = $1 WHERE id = $2")
-                        .bind(fullname)
-                        .bind(uid)
-                        .execute(host.pool)
-                        .await;
-                }
-                if let Some(email) = host
-                    .server("HTTP_USER_MAIL")
-                    .or_else(|| host.server("AUTHENTICATE_MAIL"))
-                    .filter(|v| !v.is_empty())
-                {
-                    let _ = sqlx::query("UPDATE ttrss_users SET email = $1 WHERE id = $2")
-                        .bind(email)
-                        .bind(uid)
-                        .execute(host.pool)
-                        .await;
-                }
-            }
-
-            Some(uid)
-        })
+        Some(uid)
     }
 
     /// `Auth_Remote::hook_post_logout($login, $user_id)` — `[0]` is the
     /// configured redirect URL.
-    fn hook_post_logout<'a, 'h: 'a>(
-        &'a self,
-        host: &'a mut HostCtx<'h>,
-        _login: &'a str,
+    async fn hook_post_logout(
+        &self,
+        host: &mut HostCtx<'_>,
+        _login: &str,
         _user_id: i32,
-    ) -> BoxFuture<'a, Value> {
-        Box::pin(async move {
-            let url = host.cfg.auth_remote_post_logout_url.clone();
-            Value::Array(vec![Value::String(url)])
-        })
+    ) -> Value {
+        let url = host.cfg.auth_remote_post_logout_url.clone();
+        Value::Array(vec![Value::String(url)])
     }
 }
 

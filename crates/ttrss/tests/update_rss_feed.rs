@@ -10,11 +10,11 @@
 mod common;
 
 use sqlx::Row;
+use async_trait::async_trait;
 use ttrss::core::config::Config;
 use ttrss::core::db::Db;
 use serde_json::Value;
 use ttrss::pluginhost::host::HostCtx;
-use ttrss::pluginhost::plugin::BoxFuture;
 use ttrss::pluginhost::{About, HOOK_ARTICLE_FILTER, Plugin, PluginHost};
 use ttrss::updates::{update_rss_feed, FeedUpdateFlags};
 use test_db::template::with_test_db;
@@ -624,6 +624,7 @@ async fn test_label_action_assigns_label() {
 #[derive(Clone, Copy)]
 struct HookRewriter;
 
+#[async_trait]
 impl Plugin for HookRewriter {
     fn name(&self) -> &'static str {
         "hook_rewriter"
@@ -640,17 +641,15 @@ impl Plugin for HookRewriter {
     fn init(&self, host: &mut PluginHost) {
         host.add_hook_default(HOOK_ARTICLE_FILTER);
     }
-    fn hook_article_filter<'a, 'h: 'a>(
-        &'a self,
-        _host: &'a mut HostCtx<'h>,
-        article: &'a mut Value,
-    ) -> BoxFuture<'a, Value> {
-        Box::pin(async move {
-            if let Some(c) = article.get("content").and_then(Value::as_str) {
-                article["content"] = Value::String(format!("HOOKED:{c}"));
-            }
-            article.clone()
-        })
+    async fn hook_article_filter(
+        &self,
+        _host: &mut HostCtx<'_>,
+        article: &mut Value,
+    ) -> Value {
+        if let Some(c) = article.get("content").and_then(Value::as_str) {
+            article["content"] = Value::String(format!("HOOKED:{c}"));
+        }
+        article.clone()
     }
 }
 

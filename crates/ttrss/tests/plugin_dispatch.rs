@@ -12,6 +12,7 @@
 mod common;
 
 use test_db::template::with_test_db;
+use async_trait::async_trait;
 
 use std::sync::Arc;
 
@@ -21,7 +22,7 @@ use ttrss::core::db::Db;
 use ttrss::core::phpser::Value as PValue;
 use ttrss::core::session::Session;
 use ttrss::pluginhost::host::{HostCtx, PluginHost};
-use ttrss::pluginhost::plugin::{About, BoxFuture, MethodOutput, Plugin, PluginError};
+use ttrss::pluginhost::plugin::{About, MethodOutput, Plugin, PluginError};
 use ttrss::session::Sess;
 use ttrss::AppState;
 
@@ -36,6 +37,7 @@ struct DispatchPlugin {
     methods: Vec<&'static str>,
 }
 
+#[async_trait]
 impl Plugin for DispatchPlugin {
     fn name(&self) -> &'static str {
         "dispatchtest"
@@ -59,26 +61,24 @@ impl Plugin for DispatchPlugin {
     fn has_public_method(&self, method: &str) -> bool {
         self.methods.contains(&method)
     }
-    fn invoke_method<'a, 'h: 'a>(
-        &'a self,
-        ctx: &'a mut HostCtx<'h>,
-        method: &'a str,
-        params: &'a Value,
-    ) -> BoxFuture<'a, Result<MethodOutput, PluginError>> {
-        Box::pin(async move {
-            if !self.methods.contains(&method) {
-                return Err(PluginError::UnknownMethod(method.to_string()));
-            }
-            if method == "raw" {
-                return Ok(MethodOutput::Raw("<b>hi</b>".to_string()));
-            }
-            Ok(MethodOutput::Json(json!({
-                "plugin": self.name(),
-                "method": method,
-                "owner_uid": ctx.owner_uid,
-                "params": params,
-            })))
-        })
+    async fn invoke_method(
+        &self,
+        ctx: &mut HostCtx<'_>,
+        method: &str,
+        params: &Value,
+    ) -> Result<MethodOutput, PluginError> {
+        if !self.methods.contains(&method) {
+            return Err(PluginError::UnknownMethod(method.to_string()));
+        }
+        if method == "raw" {
+            return Ok(MethodOutput::Raw("<b>hi</b>".to_string()));
+        }
+        Ok(MethodOutput::Json(json!({
+            "plugin": self.name(),
+            "method": method,
+            "owner_uid": ctx.owner_uid,
+            "params": params,
+        })))
     }
 }
 

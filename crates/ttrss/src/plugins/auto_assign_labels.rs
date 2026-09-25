@@ -13,12 +13,13 @@
 //! port's [`crate::labels::label_to_feed_id`].
 
 use regex::Regex;
+use async_trait::async_trait;
 use serde_json::{Value, json};
 use sqlx::Row;
 
 use crate::labels;
 use crate::pluginhost::host::{HostCtx, PluginHost};
-use crate::pluginhost::plugin::{About, BoxFuture, Plugin};
+use crate::pluginhost::plugin::{About, Plugin};
 use crate::pluginhost::HOOK_ARTICLE_FILTER;
 use crate::util::strip_tags;
 
@@ -26,6 +27,7 @@ use crate::util::strip_tags;
 #[derive(Clone, Copy)]
 pub struct AutoAssignLabels;
 
+#[async_trait]
 impl Plugin for AutoAssignLabels {
     fn name(&self) -> &'static str {
         "auto_assign_labels"
@@ -48,53 +50,51 @@ impl Plugin for AutoAssignLabels {
 
     /// `hook_article_filter` — add each owner label whose caption matches the
     /// article (whole-word, case-insensitive) to the article's label list.
-    fn hook_article_filter<'a, 'h: 'a>(
-        &'a self,
-        host: &'a mut HostCtx<'h>,
-        article: &'a mut Value,
-    ) -> BoxFuture<'a, Value> {
+    async fn hook_article_filter(
+        &self,
+        host: &mut HostCtx<'_>,
+        article: &mut Value,
+    ) -> Value {
         let pool = host.pool;
-        Box::pin(async move {
-            let owner: i32 = article
-                .get("owner_uid")
-                .and_then(Value::as_i64)
-                .unwrap_or(0) as i32;
-            let all_labels = get_all_labels(pool, owner).await;
-            if all_labels.is_empty() {
-                return article.clone();
-            }
-            let tags_str = article
-                .get("tags")
-                .and_then(Value::as_array)
-                .map(|arr| {
-                    arr.iter()
-                        .filter_map(|v| v.as_str().map(str::to_owned))
-                        .collect::<Vec<_>>()
-                        .join(",")
-                })
-                .unwrap_or_default();
-            let content = article.get("content").and_then(Value::as_str).unwrap_or("");
-            let title = article.get("title").and_then(Value::as_str).unwrap_or("");
-            // The PHP's `"$tags_str " . strip_tags($article["content"]) . " " . $article["title"]`.
-            let haystack = format!("{tags_str} {} {}", strip_tags(content), title);
+        let owner: i32 = article
+            .get("owner_uid")
+            .and_then(Value::as_i64)
+            .unwrap_or(0) as i32;
+        let all_labels = get_all_labels(pool, owner).await;
+        if all_labels.is_empty() {
+            return article.clone();
+        }
+        let tags_str = article
+            .get("tags")
+            .and_then(Value::as_array)
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(str::to_owned))
+                    .collect::<Vec<_>>()
+                    .join(",")
+            })
+            .unwrap_or_default();
+        let content = article.get("content").and_then(Value::as_str).unwrap_or("");
+        let title = article.get("title").and_then(Value::as_str).unwrap_or("");
+        // The PHP's `"$tags_str " . strip_tags($article["content"]) . " " . $article["title"]`.
+        let haystack = format!("{tags_str} {} {}", strip_tags(content), title);
 
-            let mut cur = article
-                .get("labels")
-                .cloned()
-                .unwrap_or_else(|| Value::Array(Vec::new()));
-            for label in &all_labels {
-                let caption = label.get(1).and_then(Value::as_str).unwrap_or("");
-                if caption.is_empty() || labels_contains_caption(&cur, caption) {
-                    continue;
-                }
-                if caption_word_match(caption, &haystack)
-                    && let Some(arr) = cur.as_array_mut() {
-                        arr.push(label.clone());
-                    }
+        let mut cur = article
+            .get("labels")
+            .cloned()
+            .unwrap_or_else(|| Value::Array(Vec::new()));
+        for label in &all_labels {
+            let caption = label.get(1).and_then(Value::as_str).unwrap_or("");
+            if caption.is_empty() || labels_contains_caption(&cur, caption) {
+                continue;
             }
-            article["labels"] = cur;
-            article.clone()
-        })
+            if caption_word_match(caption, &haystack)
+                && let Some(arr) = cur.as_array_mut() {
+                    arr.push(label.clone());
+                }
+        }
+        article["labels"] = cur;
+        article.clone()
     }
 }
 

@@ -14,12 +14,14 @@
 //! M7.8's own bar is that `get_js` returns the reference bytes verbatim.
 
 use crate::pluginhost::host::PluginHost;
+use async_trait::async_trait;
 use crate::pluginhost::plugin::{About, Plugin};
 
 /// PHP's `class Af_Zz_VidMute extends Plugin`.
 #[derive(Clone, Copy)]
 pub struct AfZzVidMute;
 
+#[async_trait]
 impl Plugin for AfZzVidMute {
     fn name(&self) -> &'static str {
         "af_zz_vidmute"

@@ -17,12 +17,13 @@
 //! data-driven.
 
 use serde_json::{json, Value};
+use async_trait::async_trait;
 
 use sqlx::Row;
 
 use crate::controls::{cancel_dialog_tag, hidden_tag, pluginhandler_tags, submit_tag};
 use crate::pluginhost::host::{HostCtx, PluginHost};
-use crate::pluginhost::plugin::{About, BoxFuture, MethodOutput, Plugin, PluginError};
+use crate::pluginhost::plugin::{About, MethodOutput, Plugin, PluginError};
 use crate::pluginhost::HOOK_ARTICLE_BUTTON;
 use crate::util::clean_str;
 use crate::i18n::{__};
@@ -30,6 +31,7 @@ use crate::i18n::{__};
 /// PHP's `class Note extends Plugin`.
 pub struct Note;
 
+#[async_trait]
 impl Plugin for Note {
     fn name(&self) -> &'static str {
         "note"
@@ -59,19 +61,17 @@ impl Plugin for Note {
     /// indent between `onclick` and `style`; the DOM round-trip normalizes
     /// it, so the port emits the single-line form — same attributes, order,
     /// and visible text.)
-    fn hook_article_button<'a, 'h: 'a>(
-        &'a self,
-        _host: &'a mut HostCtx<'h>,
-        line: &'a Value,
-    ) -> BoxFuture<'a, String> {
+    async fn hook_article_button(
+        &self,
+        _host: &mut HostCtx<'_>,
+        line: &Value,
+    ) -> String {
         let id = line["id"].as_i64().unwrap_or(0);
         let edit_note_title = __("Edit article note");
-        Box::pin(async move {
-            format!(
-                "<i class='material-icons' onclick=\"Plugins.Note.edit({id})\" \
-                 style='cursor : pointer' title=\"{edit_note_title}\">note</i>"
-            )
-        })
+        format!(
+            "<i class='material-icons' onclick=\"Plugins.Note.edit({id})\" \
+             style='cursor : pointer' title=\"{edit_note_title}\">note</i>"
+        )
     }
 
     /// PHP's `method_exists`/method dispatch is case-insensitive; the RPC
@@ -80,19 +80,17 @@ impl Plugin for Note {
         method.eq_ignore_ascii_case("edit") || method.eq_ignore_ascii_case("setnote")
     }
 
-    fn invoke_method<'a, 'h: 'a>(
-        &'a self,
-        host: &'a mut HostCtx<'h>,
-        method: &'a str,
-        params: &'a Value,
-    ) -> BoxFuture<'a, Result<MethodOutput, PluginError>> {
-        Box::pin(async move {
-            match method.to_ascii_lowercase().as_str() {
-                "edit" => Ok(MethodOutput::Raw(edit(host, params).await?)),
-                "setnote" => Ok(MethodOutput::Json(set_note(host, params).await?)),
-                _ => Err(PluginError::UnknownMethod(method.to_string())),
-            }
-        })
+    async fn invoke_method(
+        &self,
+        host: &mut HostCtx<'_>,
+        method: &str,
+        params: &Value,
+    ) -> Result<MethodOutput, PluginError> {
+        match method.to_ascii_lowercase().as_str() {
+            "edit" => Ok(MethodOutput::Raw(edit(host, params).await?)),
+            "setnote" => Ok(MethodOutput::Json(set_note(host, params).await?)),
+            _ => Err(PluginError::UnknownMethod(method.to_string())),
+        }
     }
 }
 

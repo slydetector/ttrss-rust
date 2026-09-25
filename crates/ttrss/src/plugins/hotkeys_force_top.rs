@@ -8,12 +8,14 @@
 //! (instead of preserving the previous scroll position).
 
 use crate::pluginhost::host::PluginHost;
+use async_trait::async_trait;
 use crate::pluginhost::plugin::{About, Plugin};
 
 /// PHP's `class Hotkeys_Force_Top extends Plugin`.
 #[derive(Clone, Copy)]
 pub struct HotkeysForceTop;
 
+#[async_trait]
 impl Plugin for HotkeysForceTop {
     fn name(&self) -> &'static str {
         "hotkeys_force_top"

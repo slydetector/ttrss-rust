@@ -32,6 +32,7 @@
 //! default-initialization), so `Default` is intentionally absent.
 
 use regex::Regex;
+use async_trait::async_trait;
 use scraper::{ElementRef, Html, Selector};
 use serde_json::{Value, json};
 
@@ -590,6 +591,7 @@ impl ComicFilter for ComicPress {
 #[derive(Clone, Copy)]
 pub struct AfComics;
 
+#[async_trait]
 impl Plugin for AfComics {
     fn name(&self) -> &'static str {
         "af_comics"
@@ -613,130 +615,120 @@ impl Plugin for AfComics {
 
     /// `hook_article_filter` — run each filter's `process`; the first `true`
     /// stops the chain (the PHP returns `$article` either way).
-    fn hook_article_filter<'a, 'h: 'a>(
-        &'a self,
-        _host: &'a mut HostCtx<'h>,
-        article: &'a mut Value,
-    ) -> BoxFuture<'a, Value> {
-        Box::pin(async move {
-            for f in all_filters() {
-                if f.process(article).await {
-                    break;
-                }
+    async fn hook_article_filter(
+        &self,
+        _host: &mut HostCtx<'_>,
+        article: &mut Value,
+    ) -> Value {
+        for f in all_filters() {
+            if f.process(article).await {
+                break;
             }
-            article.clone()
-        })
+        }
+        article.clone()
     }
 
     /// `hook_fetch_feed` — run each filter's `on_fetch`; the first `Some`
     /// replaces the feed data, else the original.
-    fn hook_fetch_feed<'a, 'h: 'a>(
-        &'a self,
-        _host: &'a mut HostCtx<'h>,
-        feed_data: &'a str,
-        fetch_url: &'a str,
+    async fn hook_fetch_feed(
+        &self,
+        _host: &mut HostCtx<'_>,
+        feed_data: &str,
+        fetch_url: &str,
         _owner_uid: i32,
         _feed: i32,
         _last_article_timestamp: i32,
-        _auth_login: &'a str,
-        _auth_pass: &'a str,
-    ) -> BoxFuture<'a, String> {
-        Box::pin(async move {
-            for f in all_filters() {
-                if let Some(replacement) = f.on_fetch(fetch_url).await {
-                    return replacement;
-                }
+        _auth_login: &str,
+        _auth_pass: &str,
+    ) -> String {
+        for f in all_filters() {
+            if let Some(replacement) = f.on_fetch(fetch_url).await {
+                return replacement;
             }
-            feed_data.to_string()
-        })
+        }
+        feed_data.to_string()
     }
 
     /// `hook_subscribe_feed` — run each filter's `on_subscribe`; the first
     /// `Some` replaces the content, else the original.
-    fn hook_subscribe_feed<'a, 'h: 'a>(
-        &'a self,
-        _host: &'a mut HostCtx<'h>,
-        contents: &'a str,
-        url: &'a str,
-        _auth_login: &'a str,
-        _auth_pass: &'a str,
-    ) -> BoxFuture<'a, String> {
-        Box::pin(async move {
-            for f in all_filters() {
-                if let Some(replacement) = f.on_subscribe(url).await {
-                    return replacement;
-                }
+    async fn hook_subscribe_feed(
+        &self,
+        _host: &mut HostCtx<'_>,
+        contents: &str,
+        url: &str,
+        _auth_login: &str,
+        _auth_pass: &str,
+    ) -> String {
+        for f in all_filters() {
+            if let Some(replacement) = f.on_subscribe(url).await {
+                return replacement;
             }
-            contents.to_string()
-        })
+        }
+        contents.to_string()
     }
 
     /// `hook_feed_basic_info` — run each filter's `on_basic_info`; the first
     /// `Some` replaces the info, else the original.
-    fn hook_feed_basic_info<'a, 'h: 'a>(
-        &'a self,
-        _host: &'a mut HostCtx<'h>,
-        basic_info: &'a mut Value,
-        fetch_url: &'a str,
+    async fn hook_feed_basic_info(
+        &self,
+        _host: &mut HostCtx<'_>,
+        basic_info: &mut Value,
+        fetch_url: &str,
         _owner_uid: i32,
         _feed_id: i32,
-        _auth_login: &'a str,
-        _auth_pass: &'a str,
-    ) -> BoxFuture<'a, Value> {
-        Box::pin(async move {
-            for f in all_filters() {
-                if let Some(info) = f.on_basic_info(fetch_url).await {
-                    return json!({
-                        "title": info.title,
-                        "site_url": info.site_url,
-                    });
-                }
+        _auth_login: &str,
+        _auth_pass: &str,
+    ) -> Value {
+        for f in all_filters() {
+            if let Some(info) = f.on_basic_info(fetch_url).await {
+                return json!({
+                    "title": info.title,
+                    "site_url": info.site_url,
+                });
             }
-            basic_info.clone()
-        })
+        }
+        basic_info.clone()
     }
 
     /// `hook_prefs_tab` — list the supported comics in the `prefFeeds` pane
     /// (the PHP's `<?php ?>` block).
-    fn hook_prefs_tab<'a, 'h: 'a>(
-        &'a self,
-        host: &'a mut HostCtx<'h>,
-        tab: &'a str,
-    ) -> BoxFuture<'a, ()> {
-        Box::pin(async move {
-            if tab != "prefFeeds" {
-                return;
+    async fn hook_prefs_tab(
+        &self,
+        host: &mut HostCtx<'_>,
+        tab: &str,
+    ) -> () {
+        if tab != "prefFeeds" {
+            return;
+        }
+        let mut comics: Vec<String> = Vec::new();
+        for f in all_filters() {
+            for name in f.supported() {
+                comics.push(name.to_string());
             }
-            let mut comics: Vec<String> = Vec::new();
-            for f in all_filters() {
-                for name in f.supported() {
-                    comics.push(name.to_string());
-                }
-            }
-            comics.sort();
-            let list: String = comics
-                .iter()
-                .map(|c| format!("<li>{}</li>", crate::util::htmlspecialchars(c)))
-                .collect();
-            let notice_gocomics = crate::controls::format_notice(
-                "To subscribe to GoComics use the comic's regular web page as the                  feed URL (e.g. for the <em>Garfield</em> comic use                  <code>http://www.gocomics.com/garfield</code>).",
-            );
-            let notice_filters = crate::controls::format_notice(
-                "Drop any updated filters into <code>filters.local</code> in plugin                  directory.",
-            );
-            let comics_header = __("The following comics are currently supported:");
-            let feeds_title = __("Feeds supported by af_comics");
-            host.output.push_str(&format!(
-                "<div dojoType=\"dijit.layout.AccordionPane\"                  title=\"<i class='material-icons'>photo</i> {feeds_title}\">\n\
-                 \t<h3>{comics_header}</h3>\n\
-                 \t<ul class='panel panel-scrollable list list-unstyled'>\n\
-                 {list}\
-                 \t</ul>\n\
-                 \t{notice_gocomics}\n\
-                 \t{notice_filters}\n\
-                 </div>\n",
-            ));
-        })
+        }
+        comics.sort();
+        let list: String = comics
+            .iter()
+            .map(|c| format!("<li>{}</li>", crate::util::htmlspecialchars(c)))
+            .collect();
+        let notice_gocomics = crate::controls::format_notice(
+            "To subscribe to GoComics use the comic's regular web page as the                  feed URL (e.g. for the <em>Garfield</em> comic use                  <code>http://www.gocomics.com/garfield</code>).",
+        );
+        let notice_filters = crate::controls::format_notice(
+            "Drop any updated filters into <code>filters.local</code> in plugin                  directory.",
+        );
+        let comics_header = __("The following comics are currently supported:");
+        let feeds_title = __("Feeds supported by af_comics");
+        host.output.push_str(&format!(
+            "<div dojoType=\"dijit.layout.AccordionPane\"                  title=\"<i class='material-icons'>photo</i> {feeds_title}\">\n\
+             \t<h3>{comics_header}</h3>\n\
+             \t<ul class='panel panel-scrollable list list-unstyled'>\n\
+             {list}\
+             \t</ul>\n\
+             \t{notice_gocomics}\n\
+             \t{notice_filters}\n\
+             </div>\n",
+        ));
     }
 }
 

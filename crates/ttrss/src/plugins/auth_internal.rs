@@ -16,9 +16,10 @@
 //! this plugin wraps it in the `Plugin::authenticate` contract.
 
 use crate::auth;
+use async_trait::async_trait;
 use crate::pluginhost::host::{HostCtx, PluginHost};
 use crate::i18n::{__};
-use crate::pluginhost::plugin::{About, BoxFuture, MethodOutput, Plugin, PluginError};
+use crate::pluginhost::plugin::{About, MethodOutput, Plugin, PluginError};
 use crate::pluginhost::HOOK_AUTH_USER;
 use serde_json::Value;
 
@@ -26,6 +27,7 @@ use serde_json::Value;
 #[derive(Clone, Copy)]
 pub struct AuthInternal;
 
+#[async_trait]
 impl Plugin for AuthInternal {
     fn name(&self) -> &'static str {
         "auth_internal"
@@ -55,27 +57,25 @@ impl Plugin for AuthInternal {
     /// Returns `Some(uid)` on success. On failure, sets `host.login_error`
     /// (the message to display) and/or `host.otp_challenge` (render the
     /// OTP challenge page) and returns `None`.
-    fn authenticate<'a, 'h: 'a>(
-        &'a self,
-        host: &'a mut HostCtx<'h>,
-        login: &'a str,
-        password: &'a str,
-        _service: &'a str,
-    ) -> BoxFuture<'a, Option<i32>> {
-        Box::pin(async move {
-            let outcome = auth::authenticate(host.pool, login, password, None).await;
-            match outcome {
-                auth::AuthOutcome::Success { id, .. } => Some(id),
-                auth::AuthOutcome::OtpChallenge => {
-                    host.otp_challenge = true;
-                    None
-                }
-                auth::AuthOutcome::Failure { message } => {
-                    host.login_error = Some(message);
-                    None
-                }
+    async fn authenticate(
+        &self,
+        host: &mut HostCtx<'_>,
+        login: &str,
+        password: &str,
+        _service: &str,
+    ) -> Option<i32> {
+        let outcome = auth::authenticate(host.pool, login, password, None).await;
+        match outcome {
+            auth::AuthOutcome::Success { id, .. } => Some(id),
+            auth::AuthOutcome::OtpChallenge => {
+                host.otp_challenge = true;
+                None
             }
-        })
+            auth::AuthOutcome::Failure { message } => {
+                host.login_error = Some(message);
+                None
+            }
+        }
     }
 
     /// `IAuthModule2::change_password` — dispatched via the `PluginHandler`
@@ -84,35 +84,33 @@ impl Plugin for AuthInternal {
         method.eq_ignore_ascii_case("changepassword")
     }
 
-    fn invoke_method<'a, 'h: 'a>(
-        &'a self,
-        host: &'a mut HostCtx<'h>,
-        method: &'a str,
-        params: &'a Value,
-    ) -> BoxFuture<'a, Result<MethodOutput, PluginError>> {
-        Box::pin(async move {
-            match method.to_ascii_lowercase().as_str() {
-                "changepassword" => {
-                    let uid = host.owner_uid.unwrap_or(0);
-                    let old_pw = params
-                        .get("old_password")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("");
-                    let new_pw = params
-                        .get("new_password")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("");
-                    match auth::change_password(host.pool, uid, old_pw, new_pw).await {
-                        Some(_) => Ok(MethodOutput::Raw(
-                            __("Password has been changed."),
-                        )),
-                        None => Ok(MethodOutput::Raw(
-                            format!("ERROR: {}", __("Old password is incorrect.")),
-                        )),
-                    }
+    async fn invoke_method(
+        &self,
+        host: &mut HostCtx<'_>,
+        method: &str,
+        params: &Value,
+    ) -> Result<MethodOutput, PluginError> {
+        match method.to_ascii_lowercase().as_str() {
+            "changepassword" => {
+                let uid = host.owner_uid.unwrap_or(0);
+                let old_pw = params
+                    .get("old_password")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                let new_pw = params
+                    .get("new_password")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                match auth::change_password(host.pool, uid, old_pw, new_pw).await {
+                    Some(_) => Ok(MethodOutput::Raw(
+                        __("Password has been changed."),
+                    )),
+                    None => Ok(MethodOutput::Raw(
+                        format!("ERROR: {}", __("Old password is incorrect.")),
+                    )),
                 }
-                _ => Err(PluginError::UnknownMethod(method.to_string())),
             }
-        })
+            _ => Err(PluginError::UnknownMethod(method.to_string())),
+        }
     }
 }

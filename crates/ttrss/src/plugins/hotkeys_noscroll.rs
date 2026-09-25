@@ -7,7 +7,8 @@
 //! articles without scrolling the page).
 
 use crate::pluginhost::host::{HostCtx, PluginHost};
-use crate::pluginhost::plugin::{About, BoxFuture, Plugin};
+use async_trait::async_trait;
+use crate::pluginhost::plugin::{About, Plugin};
 use crate::pluginhost::HOOK_HOTKEY_MAP;
 use serde_json::{json, Value};
 
@@ -15,6 +16,7 @@ use serde_json::{json, Value};
 #[derive(Clone, Copy)]
 pub struct HotkeysNoscroll;
 
+#[async_trait]
 impl Plugin for HotkeysNoscroll {
     fn name(&self) -> &'static str {
         "hotkeys_noscroll"
@@ -37,20 +39,18 @@ impl Plugin for HotkeysNoscroll {
     }
 
     /// `hook_hotkey_map($hotkeys)` — map arrow keys + n/p to noscroll actions.
-    fn hook_hotkey_map<'a, 'h: 'a>(
-        &'a self,
-        _host: &'a mut HostCtx<'h>,
-        hotkeys: &'a Value,
-    ) -> BoxFuture<'a, Value> {
-        Box::pin(async move {
-            let mut m = hotkeys.clone();
-            let obj = m.as_object_mut().unwrap();
-            obj.insert("(40)|Down".into(), json!("next_article_noscroll"));
-            obj.insert("(38)|Up".into(), json!("prev_article_noscroll"));
-            obj.insert("n".into(), json!("next_article_noscroll"));
-            obj.insert("p".into(), json!("prev_article_noscroll"));
-            m
-        })
+    async fn hook_hotkey_map(
+        &self,
+        _host: &mut HostCtx<'_>,
+        hotkeys: &Value,
+    ) -> Value {
+        let mut m = hotkeys.clone();
+        let obj = m.as_object_mut().unwrap();
+        obj.insert("(40)|Down".into(), json!("next_article_noscroll"));
+        obj.insert("(38)|Up".into(), json!("prev_article_noscroll"));
+        obj.insert("n".into(), json!("next_article_noscroll"));
+        obj.insert("p".into(), json!("prev_article_noscroll"));
+        m
     }
 }
 

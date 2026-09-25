@@ -14,12 +14,14 @@
 //! M7.7's own bar is that these methods return the reference bytes verbatim.
 
 use crate::pluginhost::host::PluginHost;
+use async_trait::async_trait;
 use crate::pluginhost::plugin::{About, Plugin};
 
 /// PHP's `class Shorten_Expanded extends Plugin`.
 #[derive(Clone, Copy)]
 pub struct ShortenExpanded;
 
+#[async_trait]
 impl Plugin for ShortenExpanded {
     fn name(&self) -> &'static str {
         "shorten_expanded"
