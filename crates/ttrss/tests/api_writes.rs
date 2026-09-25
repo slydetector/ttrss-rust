@@ -26,45 +26,14 @@ use test_db::template::with_test_db;
 fn test_config() -> Config {
     Config {
         db_host: "127.0.0.1".into(),
-        db_port: 5432,
-        db_user: "postgres".into(),
         db_pass: "postgres".into(),
-        db_name: "postgres".into(),
         db_sslmode: "disable".into(),
-        db_max_connections: 10,
         self_url: "http://127.0.0.1:8280/tt-rss/".into(),
-        encryption_key: None,
-        single_user_mode: false,
-        forbid_password_changes: false,
-        disable_login_form: false,
-        auth_auto_create: true,
-        auth_remote_post_logout_url: String::new(),
-        plugins: "auth_internal".into(),
         listen: "127.0.0.1:8281".parse().unwrap(),
-        docroot: std::path::PathBuf::from("tt-rss"),
-        feed_icon_dir: std::path::PathBuf::from("no-such-test-icon-dir"),
-        max_favicon_file_size: 1024 * 1024,
-        max_cache_file_size: 64 * 1024 * 1024,
-        force_article_purge: 0,
-        feed_fetch_timeout: 45,
-        feed_fetch_no_cache_timeout: 15,
-        max_conditional_interval: 43200,
+        cache_dir: std::path::PathBuf::from("no-such-test-icon-dir"),
         http_429_throttle_interval: 3600,
-        daemon_unsuccessful_days_limit: 30,
-        fetch_extended_url_filtering: true,
         daemon_sleep_interval: 60,
-        daemon_max_jobs: 2,
-        daemon_feed_limit: 50,
-        daemon_update_login_limit: 30,
-        cache_max_days: 7,
-        schedule_purge_orphans: String::from("@daily"),
-        schedule_disk_cache_expire_all: String::from("@daily"),
-        schedule_disable_failed_feeds: String::from("@daily"),
-        schedule_cleanup_feed_icons: String::from("@daily"),
-        schedule_log_daemon_update_login_limit_users: String::from("@daily"),
-        schedule_expire_error_log: String::from("@hourly"),
-        schedule_expire_lock_files: String::from("@hourly"),
-        schedule_send_headlines_digests: String::from("@hourly"),
+    ..Default::default()
     }
 }
 
@@ -651,15 +620,15 @@ async fn test_share_to_published_updates_existing() {
 fn icon_dir(tag: &str) -> std::path::PathBuf {
     let dir = std::env::temp_dir().join(format!("ttrss-feed-icon-{tag}"));
     let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).expect("create icon dir");
+    std::fs::create_dir_all(dir.join("feed-icons")).expect("create icon dir");
     dir
 }
 
-/// A uid-1 `AppState` + `Sess` whose `feed_icon_dir` points at `dir`.
+/// A uid-1 `AppState` + `Sess` whose `cache_dir` is `dir` (icons at `dir/feed-icons`).
 async fn setup_icon(url: &str, dir: std::path::PathBuf) -> (AppState, Sess) {
     let db = common::make_db_from_url(url).await.expect("test db");
     let mut config = test_config();
-    config.feed_icon_dir = dir;
+    config.cache_dir = dir;
     let state = AppState::new(config, db);
     let mut data = Session::new();
     data.set("uid", PValue::Int(1));
@@ -713,7 +682,7 @@ async fn test_get_feed_icon_found_png() {
     with_test_db(|url| Box::pin(async move {
     let dir = icon_dir("png");
     let png = vec![0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 1, 2, 3];
-    std::fs::write(dir.join("55"), &png).expect("write icon");
+    std::fs::write(dir.join("feed-icons").join("55"), &png).expect("write icon");
     let (state, sess) = setup_icon(&url, dir).await;
     enable_api(&state.db).await;
     let body = request(&[("id", json!(55))]);
@@ -734,7 +703,7 @@ async fn test_get_feed_icon_found_jpeg() {
     with_test_db(|url| Box::pin(async move {
     let dir = icon_dir("jpeg");
     let jpeg = vec![0xFF, 0xD8, 0xFF, 0xE0, 1, 2, 3];
-    std::fs::write(dir.join("7"), &jpeg).expect("write icon");
+    std::fs::write(dir.join("feed-icons").join("7"), &jpeg).expect("write icon");
     let (state, sess) = setup_icon(&url, dir).await;
     enable_api(&state.db).await;
     let body = request(&[("id", json!(7))]);

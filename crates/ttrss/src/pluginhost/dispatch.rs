@@ -111,7 +111,7 @@ pub(crate) async fn session_ctx(state: &AppState, sess: &Sess) -> HostCtx {
         &usr,
     )
     .with_self_url(state.config.self_url.clone())
-    .with_cache_dir(state.config.base_cache_dir())
+    .with_cache_dir(state.config.cache_dir.clone())
 }
 
 /// The owner-scoped context without a web session (feed output, M7.6):
@@ -146,7 +146,7 @@ pub(crate) async fn owner_ctx(state: &AppState, owner_uid: i32) -> HostCtx {
         &usr,
     )
         .with_self_url(state.config.self_url.clone())
-        .with_cache_dir(state.config.base_cache_dir())
+        .with_cache_dir(state.config.cache_dir.clone())
 }
 
 /// Build an owner-scoped [`HostCtx`] from the pipeline pieces — no `AppState` /
@@ -277,7 +277,7 @@ pub async fn public_dispatch(
         &[name.as_str()],
     )
     .with_self_url(state.config.self_url.clone())
-    .with_cache_dir(state.config.base_cache_dir());
+    .with_cache_dir(state.config.cache_dir.clone());
     let Some((host, idx)) = ctx.get_plugin_detached(&name) else {
         let mut params = Map::new();
         params.insert("plugin".into(), Value::String(name));

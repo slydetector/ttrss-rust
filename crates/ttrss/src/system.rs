@@ -407,7 +407,7 @@ pub fn get_php_info(state: &AppState) -> String {
     row(
         &mut out,
         "Feed icons dir",
-        &c.feed_icon_dir.display().to_string(),
+        &c.feed_icon_dir().display().to_string(),
     );
     row(
         &mut out,

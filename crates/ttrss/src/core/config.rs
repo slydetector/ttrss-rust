@@ -20,6 +20,12 @@ pub const SCHEMA_VERSION: i64 = 151;
 /// from git/CI at runtime; the port pins the frozen reference's value.
 pub const VERSION: &str = "26.08-2f7d831f";
 
+/// `Config::PLUGINS` (T_STRING, default "auth_internal"): the built-in
+/// `auth_internal` auth module is the only *system* plugin enabled by default;
+/// the rest are enabled per-user (`_ENABLED_PLUGINS`). Single source of truth
+/// for the `TTRSS_PLUGINS` default (replaces `pluginhost::default_plugins()`).
+pub const DEFAULT_PLUGINS: &str = "auth_internal";
+
 /// tt-rss configuration (the fields the M1 server needs).
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -30,12 +36,6 @@ pub struct Config {
     pub db_pass: String,
     pub db_name: String,
     pub db_sslmode: String,
-
-    /// Max shared-`PgPool` connections (the D3 = b single-pool knob). The
-    /// daemon's `Semaphore(N)` bounds concurrent workhorse jobs (D4 = 2), so a
-    /// pool size comfortably above `N` + the web-server's concurrent queries
-    /// avoids pool exhaustion. Default 10 (the pre-knob hardcoded value).
-    pub db_max_connections: u32,
 
     /// Self URL (Config.php SELF_URL_PATH), e.g. `http://127.0.0.1:8280/tt-rss`.
     pub self_url: String,
@@ -63,6 +63,10 @@ pub struct Config {
     /// default ""): the URL the logout handler redirects to (the
     /// `HOOK_POST_LOGOUT` chain's target) when set (`.env`
     /// `TTRSS_AUTH_REMOTE_POST_LOGOUT_URL`, as in the reference's comment).
+    // TODO(soc): plugin-scoped knob (PHP owns the const in the `auth_remote`
+    // plugin, read via `Config::get(self::AUTH_REMOTE_POST_LOGOUT_URL)`),
+    // hoisted into the global Config. Move to a dedicated plugin-config layer
+    // when a second plugin knob motivates it (tracked in docs/plan.md).
     pub auth_remote_post_logout_url: String,
 
     /// `Config::PLUGINS` (T_STRING): the comma-separated list of
@@ -74,14 +78,14 @@ pub struct Config {
     pub listen: SocketAddr,
     /// Root of the static/web tree to serve byte-for-byte.
     pub docroot: PathBuf,
-    /// Directory holding fetched feed favicons (`<feed_id>` files) — the
-    /// `feed-icons` DiskCache. Determines which feeds have an `icon` in the
-    /// feed tree. (Upstream lives under the app cache dir; here it's a
-    /// deployment artifact, overridable via `TTRSS_RUST_FEED_ICONS_DIR`.)
-    pub feed_icon_dir: PathBuf,
+    /// The disk-cache root (PHP `Config::CACHE_DIR`, default `"cache"`): a
+    /// writable sibling of the (read-only/static) docroot, CWD-relative. All
+    /// disk caches are fixed subdirs under it — `feed-icons` (favicons) and
+    /// `images` (downloaded media). Overridable via `TTRSS_CACHE_DIR`.
+    pub cache_dir: PathBuf,
     /// `Config::MAX_FAVICON_FILE_SIZE` (T_INT): the max size of an uploaded
     /// custom favicon, in bytes (default 1 MiB). Overridable via
-    /// `TTRSS_RUST_MAX_FAVICON_FILE_SIZE`.
+    /// `TTRSS_MAX_FAVICON_FILE_SIZE`.
     pub max_favicon_file_size: usize,
     /// `Config::MAX_CACHE_FILE_SIZE` (T_INT, default 64 MiB): the maximum bytes
     /// a single media file may occupy when downloaded to the cache.
@@ -111,11 +115,6 @@ pub struct Config {
     /// a feed (set `update_interval = -1`) when it has not succeeded for this
     /// many days.
     pub daemon_unsuccessful_days_limit: i64,
-    /// `Config::RSS_EXTENDED_URL_FILTERING` (T_BOOL, default true): when true,
-    /// feed URLs are extended-validated (the SSRF guard rejects loopback /
-    /// private / reserved addresses). The daemon sets this from
-    /// `$config['rss_extended_url_filtering']`.
-    pub fetch_extended_url_filtering: bool,
 
     // -- M6c.3 daemon/scheduler (Config.php, T_INT) ------------------------
     /// `Config::DAEMON_SLEEP_INTERVAL` (T_INT, default 120): the daemon loop's
@@ -155,19 +154,67 @@ pub struct Config {
     pub schedule_log_daemon_update_login_limit_users: String,
     /// `Config::SCHEDULE_EXPIRE_ERROR_LOG` (cron, default `@hourly`).
     pub schedule_expire_error_log: String,
-    /// `Config::SCHEDULE_EXPIRE_LOCK_FILES` (cron, default `@hourly`).
-    pub schedule_expire_lock_files: String,
     /// `Config::SCHEDULE_SEND_HEADLINES_DIGESTS` (cron, default `@hourly`).
     pub schedule_send_headlines_digests: String,
 }
 
+/// The spec-faithful defaults (the `from_env` values, matching the frozen PHP
+/// `_DEFAULTS`). Tests override only the fields that differ (DB, `listen`, …)
+/// via `Config { .., ..Default::default() }` — see review §4.4.
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            db_host: "db".into(),
+            db_port: 5432,
+            db_user: "postgres".into(),
+            db_pass: String::new(),
+            db_name: "postgres".into(),
+            db_sslmode: "prefer".into(),
+            self_url: "https://example.com/tt-rss".into(),
+            encryption_key: None,
+            single_user_mode: false,
+            forbid_password_changes: false,
+            disable_login_form: false,
+            auth_auto_create: true,
+            auth_remote_post_logout_url: String::new(),
+            plugins: DEFAULT_PLUGINS.to_string(),
+            listen: "127.0.0.1:8280".parse().unwrap(),
+            docroot: PathBuf::from("tt-rss"),
+            cache_dir: PathBuf::from("cache"),
+            max_favicon_file_size: 1048576,
+            max_cache_file_size: 67108864,
+            force_article_purge: 0,
+            feed_fetch_timeout: 45,
+            feed_fetch_no_cache_timeout: 15,
+            max_conditional_interval: 43200,
+            http_429_throttle_interval: 3600,
+            daemon_unsuccessful_days_limit: 30,
+            daemon_sleep_interval: 120,
+            daemon_max_jobs: 2,
+            daemon_feed_limit: 50,
+            daemon_update_login_limit: 30,
+            cache_max_days: 7,
+            schedule_purge_orphans: "@daily".into(),
+            schedule_disk_cache_expire_all: "@daily".into(),
+            schedule_disable_failed_feeds: "@daily".into(),
+            schedule_cleanup_feed_icons: "@daily".into(),
+            schedule_log_daemon_update_login_limit_users: "@daily".into(),
+            schedule_expire_error_log: "@hourly".into(),
+            schedule_send_headlines_digests: "@hourly".into(),
+        }
+    }
+}
+
 impl Config {
-    /// The base media-cache dir (PHP `Config::get_cache_dir()`): the parent of
-    /// [`feed_icon_dir`](Self::feed_icon_dir) — the established port pattern
-    /// (upstream's `feed-icons` DiskCache lives under it). Falls back to the
-    /// empty path when `feed_icon_dir` has no parent.
-    pub fn base_cache_dir(&self) -> PathBuf {
-        self.feed_icon_dir.parent().map(|p| p.to_path_buf()).unwrap_or_default()
+    /// The feed-favicon cache dir (`<cache_dir>/feed-icons`, PHP
+    /// `DiskCache::instance("feed-icons")`).
+    pub fn feed_icon_dir(&self) -> PathBuf {
+        self.cache_dir.join("feed-icons")
+    }
+    /// The downloaded-media cache dir (`<cache_dir>/images`, PHP
+    /// `DiskCache::instance("images")`).
+    pub fn images_dir(&self) -> PathBuf {
+        self.cache_dir.join("images")
     }
     /// Build a [`Config`] from the environment (with upstream defaults).
     pub fn from_env() -> Result<Self> {
@@ -190,7 +237,6 @@ impl Config {
             db_pass: std::env::var("TTRSS_DB_PASS").unwrap_or_default(),
             db_name,
             db_sslmode: std::env::var("TTRSS_DB_SSLMODE").unwrap_or_else(|_| "prefer".into()),
-            db_max_connections: env("TTRSS_DB_MAX_CONNECTIONS", "10")?,
             self_url: std::env::var("TTRSS_SELF_URL_PATH")
                 .unwrap_or_else(|_| "http://127.0.0.1:8280/tt-rss/".into()),
             encryption_key: match std::env::var("TTRSS_ENCRYPTION_KEY") {
@@ -211,25 +257,22 @@ impl Config {
             ),
             auth_remote_post_logout_url:
                 std::env::var("TTRSS_AUTH_REMOTE_POST_LOGOUT_URL").unwrap_or_default(),
-            plugins: std::env::var("TTRSS_PLUGINS").unwrap_or_else(|_| crate::pluginhost::default_plugins()),
-            listen: env("TTRSS_RUST_LISTEN", "127.0.0.1:8281")?,
-            docroot: std::env::var("TTRSS_RUST_DOCROOT")
+            plugins: std::env::var("TTRSS_PLUGINS").unwrap_or_else(|_| DEFAULT_PLUGINS.to_string()),
+            listen: env("TTRSS_LISTEN_PORT", "127.0.0.1:8280")?,
+            docroot: std::env::var("TTRSS_DOCROOT")
                 .map(PathBuf::from)
                 .unwrap_or_else(|_| PathBuf::from("tt-rss")),
-            feed_icon_dir: std::env::var("TTRSS_RUST_FEED_ICONS_DIR")
+            cache_dir: std::env::var("TTRSS_CACHE_DIR")
                 .map(PathBuf::from)
-                .unwrap_or_else(|_| PathBuf::from("tt-rss/cache/feed-icons")),
-            max_favicon_file_size: env("TTRSS_RUST_MAX_FAVICON_FILE_SIZE", "1048576")?,
-            max_cache_file_size: env("TTRSS_RUST_MAX_CACHE_FILE_SIZE", "67108864")?,
-            force_article_purge: env("TTRSS_RUST_FORCE_ARTICLE_PURGE", "0")?,
+                .unwrap_or_else(|_| PathBuf::from("cache")),
+            max_favicon_file_size: env("TTRSS_MAX_FAVICON_FILE_SIZE", "1048576")?,
+            max_cache_file_size: env("TTRSS_MAX_CACHE_FILE_SIZE", "67108864")?,
+            force_article_purge: env("TTRSS_FORCE_ARTICLE_PURGE", "0")?,
             feed_fetch_timeout: env("TTRSS_FEED_FETCH_TIMEOUT", "45")?,
             feed_fetch_no_cache_timeout: env("TTRSS_FEED_FETCH_NO_CACHE_TIMEOUT", "15")?,
             max_conditional_interval: env("TTRSS_MAX_CONDITIONAL_INTERVAL", "43200")?,
             http_429_throttle_interval: env("TTRSS_HTTP_429_THROTTLE_INTERVAL", "3600")?,
             daemon_unsuccessful_days_limit: env("TTRSS_DAEMON_UNSUCCESSFUL_DAYS_LIMIT", "30")?,
-            fetch_extended_url_filtering: sql_bool_to_bool(
-                &std::env::var("TTRSS_EXTENDED_URL_FILTERING").unwrap_or_default(),
-            ),
             daemon_sleep_interval: env("TTRSS_DAEMON_SLEEP_INTERVAL", "120")?,
             daemon_max_jobs: env("TTRSS_DAEMON_MAX_JOBS", "2")?,
             daemon_feed_limit: env("TTRSS_DAEMON_FEED_LIMIT", "50")?,
@@ -250,8 +293,6 @@ impl Config {
             )
             .unwrap_or_else(|_| "@daily".into()),
             schedule_expire_error_log: std::env::var("TTRSS_SCHEDULE_EXPIRE_ERROR_LOG")
-                .unwrap_or_else(|_| "@hourly".into()),
-            schedule_expire_lock_files: std::env::var("TTRSS_SCHEDULE_EXPIRE_LOCK_FILES")
                 .unwrap_or_else(|_| "@hourly".into()),
             schedule_send_headlines_digests: std::env::var(
                 "TTRSS_SCHEDULE_SEND_HEADLINES_DIGESTS",
@@ -291,45 +332,15 @@ impl Config {
     pub fn for_test() -> Self {
         Self {
             db_host: "127.0.0.1".into(),
-            db_port: 5432,
-            db_user: "postgres".into(),
             db_pass: "postgres".into(),
-            db_name: "postgres".into(),
             db_sslmode: "disable".into(),
-            db_max_connections: 10,
             self_url: "http://127.0.0.1:8280/tt-rss/".into(),
-            encryption_key: None,
-            single_user_mode: false,
-            forbid_password_changes: false,
-            disable_login_form: false,
-            auth_auto_create: true,
-            auth_remote_post_logout_url: String::new(),
             plugins: String::new(),
             listen: "127.0.0.1:8281".parse().unwrap(),
-            docroot: std::path::PathBuf::from("tt-rss"),
-            feed_icon_dir: std::path::PathBuf::from("no-such-test-icon-dir"),
-            max_favicon_file_size: 1024 * 1024,
-            max_cache_file_size: 64 * 1024 * 1024,
-            force_article_purge: 0,
-            feed_fetch_timeout: 45,
-            feed_fetch_no_cache_timeout: 15,
-            max_conditional_interval: 43200,
-            http_429_throttle_interval: 3600,
-            daemon_max_jobs: 2,
-            daemon_unsuccessful_days_limit: 30,
-            schedule_cleanup_feed_icons: String::from("@daily"),
-            schedule_expire_lock_files: String::from("@hourly"),
-            fetch_extended_url_filtering: false,
+            cache_dir: std::path::PathBuf::from("no-such-test-icon-dir"),
             daemon_sleep_interval: 60,
-            daemon_feed_limit: 50,
-            daemon_update_login_limit: 30,
-            cache_max_days: 7,
-            schedule_purge_orphans: String::from("@daily"),
-            schedule_disk_cache_expire_all: String::from("@daily"),
-            schedule_disable_failed_feeds: String::from("@daily"),
             schedule_log_daemon_update_login_limit_users: String::from("@hourly"),
-            schedule_expire_error_log: String::from("@hourly"),
-            schedule_send_headlines_digests: String::from("@hourly"),
+            ..Default::default()
         }
     }
 }
@@ -383,45 +394,11 @@ mod tests {
     fn cfg(self_url: &str) -> Config {
         Config {
             db_host: "127.0.0.1".into(),
-            db_port: 5432,
-            db_user: "postgres".into(),
             db_pass: "password".into(),
-            db_name: "postgres".into(),
-            db_sslmode: "prefer".into(),
-            db_max_connections: 10,
             self_url: self_url.into(),
-            encryption_key: None,
-            single_user_mode: false,
-            forbid_password_changes: false,
-            auth_auto_create: true,
-            auth_remote_post_logout_url: String::new(),
-            disable_login_form: false,
-            plugins: "auth_internal".into(),
             listen: "127.0.0.1:8281".parse().unwrap(),
-            docroot: PathBuf::from("tt-rss"),
-            feed_icon_dir: PathBuf::from("tt-rss/cache/feed-icons"),
-            max_favicon_file_size: 1024 * 1024,
-            max_cache_file_size: 64 * 1024 * 1024,
-            force_article_purge: 0,
-            feed_fetch_timeout: 45,
-            feed_fetch_no_cache_timeout: 15,
-            max_conditional_interval: 43200,
-            http_429_throttle_interval: 3600,
-            daemon_unsuccessful_days_limit: 30,
-            fetch_extended_url_filtering: true,
-            daemon_sleep_interval: 120,
-            daemon_max_jobs: 2,
-            daemon_feed_limit: 50,
-            daemon_update_login_limit: 30,
-            cache_max_days: 7,
-            schedule_purge_orphans: String::from("@daily"),
-            schedule_disk_cache_expire_all: String::from("@daily"),
-            schedule_disable_failed_feeds: String::from("@daily"),
-            schedule_cleanup_feed_icons: String::from("@daily"),
-            schedule_log_daemon_update_login_limit_users: String::from("@daily"),
-            schedule_expire_error_log: String::from("@hourly"),
-            schedule_expire_lock_files: String::from("@hourly"),
-            schedule_send_headlines_digests: String::from("@hourly"),
+            cache_dir: PathBuf::from("tt-rss/cache/feed-icons"),
+            ..Default::default()
         }
     }
 

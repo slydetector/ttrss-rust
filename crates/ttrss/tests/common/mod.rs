@@ -86,12 +86,10 @@ pub async fn make_db_from_url(url: &str) -> anyhow::Result<Db> {
 
 // ── Consolidated test helpers (replaces per-file test_config + setup) ──────
 
-/// Standard test [`Config`]: `Config::for_test()` with the default test
-/// plugin + URL filtering enabled.
+/// Standard test [`Config`]: `Config::for_test()` with the default test plugin.
 pub fn test_config() -> ttrss::core::config::Config {
     let mut cfg = ttrss::core::config::Config::for_test();
     cfg.plugins = "auth_internal".into();
-    cfg.fetch_extended_url_filtering = true;
     cfg
 }
 

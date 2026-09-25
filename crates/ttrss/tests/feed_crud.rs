@@ -21,49 +21,18 @@ use ttrss::session::Sess;
 use ttrss::AppState;
 use test_db::template::with_test_db;
 
-/// A test-only config (the handlers only need `db` + `feed_icon_dir`).
+/// A test-only config (the handlers only need `db` + `cache_dir`).
 fn test_config() -> Config {
     Config {
         db_host: "127.0.0.1".into(),
-        db_port: 5432,
-        db_user: "postgres".into(),
         db_pass: "postgres".into(),
-        db_name: "postgres".into(),
         db_sslmode: "disable".into(),
-        db_max_connections: 10,
         self_url: "http://127.0.0.1:8280/tt-rss/".into(),
-        encryption_key: None,
-        single_user_mode: false,
-        forbid_password_changes: false,
-        disable_login_form: false,
-        auth_auto_create: true,
-        auth_remote_post_logout_url: String::new(),
-        plugins: "auth_internal".into(),
         listen: "127.0.0.1:8281".parse().unwrap(),
-        docroot: std::path::PathBuf::from("tt-rss"),
-        feed_icon_dir: std::path::PathBuf::from("no-such-test-icon-dir"),
-        max_favicon_file_size: 1024 * 1024,
-        max_cache_file_size: 64 * 1024 * 1024,
-        force_article_purge: 0,
-        feed_fetch_timeout: 45,
-        feed_fetch_no_cache_timeout: 15,
-        max_conditional_interval: 43200,
+        cache_dir: std::path::PathBuf::from("no-such-test-icon-dir"),
         http_429_throttle_interval: 3600,
-        daemon_unsuccessful_days_limit: 30,
-        fetch_extended_url_filtering: true,
         daemon_sleep_interval: 60,
-        daemon_max_jobs: 2,
-        daemon_feed_limit: 50,
-        daemon_update_login_limit: 30,
-        cache_max_days: 7,
-        schedule_purge_orphans: String::from("@daily"),
-        schedule_disk_cache_expire_all: String::from("@daily"),
-        schedule_disable_failed_feeds: String::from("@daily"),
-        schedule_cleanup_feed_icons: String::from("@daily"),
-        schedule_log_daemon_update_login_limit_users: String::from("@daily"),
-        schedule_expire_error_log: String::from("@hourly"),
-        schedule_expire_lock_files: String::from("@hourly"),
-        schedule_send_headlines_digests: String::from("@hourly"),
+    ..Default::default()
     }
 }
 
@@ -799,9 +768,9 @@ async fn test_remove_icon() {
     let db = &state.db;
     // A real, writable icon dir for this test.
     let icon_dir = std::env::temp_dir().join(format!("ttrss-feedicon-{}", std::process::id()));
-    std::fs::create_dir_all(&icon_dir).unwrap();
+    std::fs::create_dir_all(icon_dir.join("feed-icons")).unwrap();
     let mut cfg = test_config();
-    cfg.feed_icon_dir = icon_dir.clone();
+    cfg.cache_dir = icon_dir.clone();
     let state = AppState::new(cfg, state.db.clone());
 
     // Mark feed 1 as a custom favicon and drop a cache file for it.
@@ -812,11 +781,11 @@ async fn test_remove_icon() {
     .execute(db.pool())
     .await
     .unwrap();
-    std::fs::write(icon_dir.join("1"), b"fake-favicon").unwrap();
+    std::fs::write(icon_dir.join("feed-icons").join("1"), b"fake-favicon").unwrap();
 
     let _ = ttrss::feeds::remove_icon(&state, &sess, &request(&[("feed_id", json!("1"))])).await;
 
-    assert!(!icon_dir.join("1").exists(), "icon file should be removed");
+    assert!(!icon_dir.join("feed-icons").join("1").exists(), "icon file should be removed");
     let row = sqlx::query(
         "SELECT favicon_avg_color, favicon_last_checked, favicon_is_custom FROM ttrss_feeds WHERE id = 1",
     )
@@ -846,9 +815,9 @@ async fn test_upload_icon() {
     let (state, sess) = setup_from_url(&url).await;
     let db = &state.db;
     let icon_dir = std::env::temp_dir().join(format!("ttrss-feedicon-up-{}", std::process::id()));
-    std::fs::create_dir_all(&icon_dir).unwrap();
+    std::fs::create_dir_all(icon_dir.join("feed-icons")).unwrap();
     let mut cfg = test_config();
-    cfg.feed_icon_dir = icon_dir.clone();
+    cfg.cache_dir = icon_dir.clone();
     let state = AppState::new(cfg, state.db.clone());
 
     // Success: upload a small icon for feed 1.
@@ -864,7 +833,7 @@ async fn test_upload_icon() {
         Some("E_ICON_UPLOAD_SUCCESS"),
         "res: {res}"
     );
-    assert!(icon_dir.join("1").is_file(), "icon file written");
+    assert!(icon_dir.join("feed-icons").join("1").is_file(), "icon file written");
     let row =
         sqlx::query("SELECT favicon_avg_color, favicon_is_custom FROM ttrss_feeds WHERE id = 1")
             .fetch_one(db.pool())
@@ -885,7 +854,7 @@ async fn test_upload_icon() {
 
     // File too large: a 10-byte upload with a 4-byte cap.
     let mut cfg2 = test_config();
-    cfg2.feed_icon_dir = icon_dir.clone();
+    cfg2.cache_dir = icon_dir.clone();
     cfg2.max_favicon_file_size = 4;
     let state2 = AppState::new(cfg2, state.db.clone());
     let res2 = ttrss::feeds::upload_icon(
@@ -901,7 +870,7 @@ async fn test_upload_icon() {
         "res2: {res2}"
     );
     assert!(
-        !icon_dir.join("2").exists(),
+        !icon_dir.join("feed-icons").join("2").exists(),
         "no file written for too-large upload"
     );
 

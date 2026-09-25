@@ -98,7 +98,7 @@ pub async fn update_favicon(cfg: &Config, site_url: &str, feed_id: i32) -> bool 
         }
 
         // Save to the feed-icon cache directory.
-        let dir = &cfg.feed_icon_dir;
+        let dir = &cfg.feed_icon_dir();
         if std::fs::create_dir_all(dir).is_err() {
             return false;
         }

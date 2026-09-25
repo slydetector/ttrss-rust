@@ -828,7 +828,7 @@ pub async fn catchup_feed(state: &AppState, sess: &Sess, extra: &Map<String, Val
         uid,
         profile,
         &rows,
-        &state.config.feed_icon_dir,
+        &state.config.feed_icon_dir(),
         client_tz_offset,
         None,
         None,
@@ -1077,7 +1077,7 @@ pub async fn subscribe(
         } else {
             Some(auth_pass.to_string())
         },
-        filtering: Some(cfg.fetch_extended_url_filtering),
+        filtering: Some(false), // TODO(scope): per-feed rss_extended_url_filtering not plumbed (was removed global).
         ..Default::default()
     })
     .await;
@@ -1519,7 +1519,7 @@ fn feed_node(state: &AppState, f: &FeedRow, tz: &TzCtx) -> Value {
 /// `Feeds::_get_icon_url(feed_id)` — the `public.php?op=feed_icon` URL if the
 /// favicon exists, else `""`.
 fn feed_icon_url(state: &AppState, feed_id: i64) -> String {
-    let dir = &state.config.feed_icon_dir;
+    let dir = &state.config.feed_icon_dir();
     if dir.join(feed_id.to_string()).is_file() {
         format!(
             "{}/public.php?op=feed_icon&id={feed_id}",
@@ -2008,7 +2008,7 @@ pub async fn remove_feed(state: &AppState, id: i32, uid: i64) {
             .ok();
         tx.commit().await.expect("commit");
         // Best-effort favicon-cache removal (PHP: `DiskCache('feed-icons')->remove`).
-        let _ = std::fs::remove_file(state.config.feed_icon_dir.join(id.to_string()));
+        let _ = std::fs::remove_file(state.config.feed_icon_dir().join(id.to_string()));
     } else {
         let label_id = crate::labels::feed_to_label_id(id as i64);
         let _ = crate::labels::remove(&state.db, label_id as i32, uid, Some(uid)).await;
@@ -2480,7 +2480,7 @@ pub async fn remove_icon(state: &AppState, sess: &Sess, extra: &Map<String, Valu
             .ok()
             .flatten();
     if let Some(fid) = feed {
-        let cache_file = state.config.feed_icon_dir.join(fid.to_string());
+        let cache_file = state.config.feed_icon_dir().join(fid.to_string());
         if cache_file.exists() && fs::remove_file(&cache_file).is_ok() {
             sqlx::query(
                 "UPDATE ttrss_feeds SET favicon_avg_color = NULL, \
@@ -2525,7 +2525,7 @@ pub async fn upload_icon(
 
     if let (Some(fid), Some(bytes)) = (feed, file) {
         if bytes.len() < state.config.max_favicon_file_size {
-            let dir = &state.config.feed_icon_dir;
+            let dir = &state.config.feed_icon_dir();
             let cache_file = dir.join(fid.to_string());
             let written = fs::create_dir_all(dir)
                 .ok()

@@ -739,7 +739,7 @@ async fn format_headlines_list(
         );
         line.insert(
             "has_icon".into(),
-            json!(has_icon(&state.config.feed_icon_dir, feed_id)),
+            json!(has_icon(&state.config.feed_icon_dir(), feed_id)),
         );
         line.insert(
             "feed_bg_color".into(),

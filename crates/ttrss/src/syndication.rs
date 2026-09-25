@@ -179,13 +179,8 @@ async fn generate_feed(state: &AppState, owner_uid: i64, req: &RssRequest<'_>) -
     let rows = prefs::load_rows(&state.db, owner_uid, None).await;
     let strip_images = prefs::resolve(prefs::STRIP_IMAGES, &rows, None).as_bool();
     let note_style = "color: #9a8c59; background-color: #fff7d5; border: 1px dashed #e7d796; padding: 5px; margin-bottom: 1em;";
-    // `DiskCache::instance("images")` → `<CACHE_DIR>/images/`.
-    let image_cache_dir = state
-        .config
-        .feed_icon_dir
-        .parent()
-        .map(|d| d.join("images"))
-        .unwrap_or_default();
+    // `DiskCache::instance("images")` → `<cache_dir>/images/`.
+    let image_cache_dir = state.config.images_dir();
 
     // Column 0 of the shared article-row layout; the remaining indices are
     // imported from `headlines` (same query shape).

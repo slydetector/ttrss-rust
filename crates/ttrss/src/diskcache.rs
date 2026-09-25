@@ -140,14 +140,13 @@ pub fn send_file(path: &Path) -> Response {
 /// `Handler_Public::cached()`: `file` is `<subdir>/<filename>`; the filename
 /// has its dots stripped ("we do not allow files with extensions"). The cache
 /// base is the parent of the feed-icons dir (the app `CACHE_DIR`).
-pub fn resolve_cached(feed_icon_dir: &Path, file: &str) -> Option<PathBuf> {
+pub fn resolve_cached(cache_dir: &Path, file: &str) -> Option<PathBuf> {
     let (subdir, raw_name) = file.split_once('/')?;
-    let base = feed_icon_dir.parent()?;
     let name = raw_name.replace('.', "").trim().to_string();
     if name.is_empty() {
         return None;
     }
-    Some(base.join(subdir.trim()).join(name))
+    Some(cache_dir.join(subdir.trim()).join(name))
 }
 
 /// `DiskCache::rewrite_urls($str)` — rewrite image `src`/`srcset`/`poster`
@@ -438,7 +437,7 @@ mod tests {
 
     #[test]
     fn cached_path_resolution() {
-        let dir = Path::new("/app/cache/feed-icons");
+        let dir = Path::new("/app/cache");
         assert_eq!(
             resolve_cached(dir, "feed-icons/1").as_deref(),
             Some(Path::new("/app/cache/feed-icons/1"))

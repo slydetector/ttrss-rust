@@ -26,8 +26,8 @@ COPY --from=build /src/target/release/ttrss /usr/local/bin/ttrss
 # The frontend docroot the Rust server serves byte-for-byte (frozen reference).
 COPY tt-rss /opt/ttrss-web
 # Server defaults; compose/env can override these.
-ENV TTRSS_RUST_DOCROOT=/opt/ttrss-web \
-    TTRSS_RUST_LISTEN=0.0.0.0:80 \
-    TTRSS_RUST_FEED_ICONS_DIR=/opt/feed-icons
+ENV TTRSS_DOCROOT=/opt/ttrss-web \
+    TTRSS_LISTEN_PORT=0.0.0.0:80 \
+    TTRSS_CACHE_DIR=/opt
 EXPOSE 80
 ENTRYPOINT ["ttrss"]

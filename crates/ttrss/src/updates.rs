@@ -239,7 +239,7 @@ pub async fn process_feed(
         }
 
         // Compute avg color if the icon exists and we don't have one yet.
-        let icon_path = cfg.feed_icon_dir.join(feed.id.to_string());
+        let icon_path = cfg.feed_icon_dir().join(feed.id.to_string());
         let needs_color = feed
             .favicon_avg_color
             .as_deref()
@@ -574,7 +574,7 @@ pub async fn fetch_one_feed(
         } else {
             Some(feed.last_modified.clone())
         },
-        filtering: Some(cfg.fetch_extended_url_filtering),
+        filtering: Some(false), // TODO(scope): per-feed rss_extended_url_filtering not plumbed (was removed global).
         ..Default::default()
     })
     .await;

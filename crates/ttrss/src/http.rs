@@ -502,7 +502,7 @@ async fn public_handler(
         "feed_icon" => match query
             .id
             .as_deref()
-            .map(|id| state.config.feed_icon_dir.join(id.trim()))
+            .map(|id| state.config.feed_icon_dir().join(id.trim()))
         {
             Some(path) if path.file_name().is_some() => diskcache::send_file(&path),
             _ => StatusCode::NOT_FOUND.into_response(),
@@ -548,7 +548,7 @@ async fn public_handler(
 
 /// `Handler_Public::cached()`: `?file=<subdir>/<name>` from the app cache dir.
 fn cached_file(state: &AppState, file: Option<&str>) -> Response {
-    match file.and_then(|f| diskcache::resolve_cached(&state.config.feed_icon_dir, f)) {
+    match file.and_then(|f| diskcache::resolve_cached(&state.config.cache_dir, f)) {
         Some(path) => diskcache::send_file(&path),
         None => StatusCode::NOT_FOUND.into_response(),
     }

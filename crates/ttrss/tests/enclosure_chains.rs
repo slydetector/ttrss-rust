@@ -23,16 +23,16 @@ use ttrss::util::sha1_hex;
 use ttrss::AppState;
 use test_db::template::with_test_db;
 
-fn test_config(plugins: &str, feed_icon_dir: PathBuf) -> Config {
+fn test_config(plugins: &str, icons_dir: PathBuf) -> Config {
     let mut cfg = Config::for_test();
     cfg.plugins = plugins.to_string();
     cfg.self_url = "http://127.0.0.1:8280/tt-rss/".to_string();
-    cfg.feed_icon_dir = feed_icon_dir;
+    cfg.cache_dir = icons_dir.parent().map(PathBuf::from).unwrap_or_default();
     cfg
 }
 
-/// The view flow builds its plugin ctx from `feed_icon_dir.parent()` — so
-/// the test's DiskCache files must live under `icons/..` exactly.
+/// The view flow's plugin cache roots at `config.cache_dir` (the parent of the
+/// icons dir) — so the test's DiskCache files must live under that root exactly.
 fn cache_dirs() -> (PathBuf, PathBuf) {
     let base =
         std::env::temp_dir().join(format!("ttrss-enc-chains-{}", std::process::id()));

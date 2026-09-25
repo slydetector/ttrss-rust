@@ -71,10 +71,6 @@ pub fn system_tasks(cfg: &Config) -> Vec<ScheduledTask> {
             cron_expression: cfg.schedule_expire_error_log.clone(),
         },
         ScheduledTask {
-            name: "expire_lock_files",
-            cron_expression: cfg.schedule_expire_lock_files.clone(),
-        },
-        ScheduledTask {
             name: "send_headlines_digests",
             cron_expression: cfg.schedule_send_headlines_digests.clone(),
         },
@@ -265,10 +261,7 @@ async fn run_task_inner(pool: &PgPool, cfg: &Config, name: &str) -> Result<i32> 
             expire_error_log(pool).await?;
             Ok(0)
         }
-        // NOTE(M6c.4): the PHP's `expire_lock_files` deletes stale `*.lock`
-        // files in the lock directory. This port is strictly single-process
-        // (D1 = B) and uses no lock files, so the task is a no-op.
-        "expire_lock_files" => Ok(0),
+
         // NOTE(M6c.4): the PHP's `Digest::send_headlines_digests` sends the
         // pending headline digests by email. The digest *body* is ported
         // (`crate::digest::prepare_headlines_digest`); the mailer (SMTP send)
@@ -349,7 +342,7 @@ pub async fn disable_failed_feeds(pool: &PgPool, cfg: &Config) -> Result<i64> {
 /// updated) if the feed still exists, otherwise deleted. Returns the number
 /// of files removed.
 pub async fn cleanup_feed_icons(pool: &PgPool, cfg: &Config) -> std::io::Result<i64> {
-    let dir = &cfg.feed_icon_dir;
+    let dir = &cfg.feed_icon_dir();
     if !dir.is_dir() {
         return Ok(0);
     }

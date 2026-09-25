@@ -259,7 +259,7 @@ pub async fn user_details(
         let fid: i32 = f.get(0);
         let title: String = f.get(1);
         let site_url: Option<String> = f.get(2);
-        let icon_url = if state.config.feed_icon_dir.join(fid.to_string()).exists() {
+        let icon_url = if state.config.feed_icon_dir().join(fid.to_string()).exists() {
             format!(
                 "{}/public.php?op=feed_icon&id={}",
                 state.config.self_url_rtrim(),

@@ -139,7 +139,7 @@ fn run_cache_starred_images(
 ) -> BoxFuture<'static, ()> {
     Box::pin(async move {
         let Some(owner_uid) = owner_uid else { return };
-        let cache_dir = config.base_cache_dir();
+        let cache_dir = config.cache_dir.clone();
         let cache = DiskCache::new(&cache_dir, CACHE_NAME, &config.self_url);
         let cache_status =
             DiskCache::new(&cache_dir, CACHE_STATUS_NAME, &config.self_url);
@@ -189,7 +189,7 @@ fn run_expire_caches(
     config: Config,
 ) -> BoxFuture<'static, ()> {
     Box::pin(async move {
-        let cache_dir = config.base_cache_dir();
+        let cache_dir = config.cache_dir.clone();
         let cache = DiskCache::new(&cache_dir, CACHE_NAME, &config.self_url);
         let cache_status = DiskCache::new(&cache_dir, CACHE_STATUS_NAME, &config.self_url);
 
@@ -281,7 +281,7 @@ async fn cache_article_images(
     let mut success = false;
     for url in extract_media_urls(content, site_url) {
         has_media = true;
-        if cache_url(cache, pool, article_id, &url, config.max_cache_file_size as u64, config.fetch_extended_url_filtering)
+        if cache_url(cache, pool, article_id, &url, config.max_cache_file_size as u64, false) // TODO(scope): was removed global
             .await
         {
             success = true;
@@ -300,7 +300,7 @@ async fn cache_article_images(
     for url in encs {
         has_media = true;
         if let Some(rewritten) = urlhelper::rewrite_relative(site_url, &url)
-            && cache_url(cache, pool, article_id, &rewritten, config.max_cache_file_size as u64, config.fetch_extended_url_filtering)
+            && cache_url(cache, pool, article_id, &rewritten, config.max_cache_file_size as u64, false) // TODO(scope): was removed global
                 .await
             {
                 success = true;

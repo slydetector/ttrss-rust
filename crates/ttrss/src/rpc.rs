@@ -1000,7 +1000,7 @@ async fn make_init_params(state: &AppState, sess: &Sess, uid: i64, profile: Opti
     out.insert("theme".into(), Value::from(theme));
     out.insert(
         "plugins".into(),
-        Value::from(plugin_names(&state.config.docroot)),
+        Value::from(plugin_names(&state.config.docroot, &state.config.plugins)),
     );
     out.insert("php_platform".into(), Value::from("Linux"));
     out.insert("php_version".into(), Value::from("8.5.9"));
@@ -1127,12 +1127,13 @@ fn check_for_updates() -> bool {
         .unwrap_or(true)
 }
 
-/// `PluginHost::get_plugin_names` for the web session: the `TTRSS_PLUGINS`
-/// init list (KIND_ALL) — the same list is loaded for every request, so the
+/// `PluginHost::get_plugin_names` for the web session: the configured plugin
+/// init list (KIND_ALL, `Config::plugins` — the single source of truth for the
+/// `TTRSS_PLUGINS` value) — the same list is loaded for every request, so the
 /// per-user enabled subset only re-registers (order is fixed by the init list).
-fn plugin_names(docroot: &std::path::Path) -> String {
-    let list = std::env::var("TTRSS_PLUGINS").unwrap_or_else(|_| crate::pluginhost::default_plugins());
-    list.split(',')
+fn plugin_names(docroot: &std::path::Path, plugins: &str) -> String {
+    plugins
+        .split(',')
         .map(|d| d.trim())
         .filter(|d| !d.is_empty())
         .filter_map(|d| plugin_class_name(docroot, d))

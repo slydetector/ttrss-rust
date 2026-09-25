@@ -41,9 +41,9 @@ services:
       TTRSS_DB_NAME: ${TTRSS_DB_NAME:-shadow}
       TTRSS_DB_PASS: ${TTRSS_DB_PASS:-shadow}
       TTRSS_SELF_URL_PATH: ${TTRSS_SELF_URL_PATH:-http://127.0.0.1:8282/tt-rss/}
-      TTRSS_RUST_LISTEN: 0.0.0.0:80
-      TTRSS_RUST_DOCROOT: /opt/ttrss-web
-      TTRSS_RUST_FEED_ICONS_DIR: /opt/feed-icons
+      TTRSS_LISTEN_PORT: 0.0.0.0:80
+      TTRSS_DOCROOT: /opt/ttrss-web
+      TTRSS_CACHE_DIR: /opt
       TTRSS_ENCRYPTION_KEY: ${TTRSS_ENCRYPTION_KEY:-9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08}
       RUST_LOG: ${RUST_LOG:-info}
     ports:

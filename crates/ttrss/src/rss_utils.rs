@@ -190,7 +190,7 @@ pub async fn update_basic_info(pool: &PgPool, cfg: &Config, feed_id: i32) {
             Some(auth_pass_plaintext)
         },
         timeout: Some(std::time::Duration::from_secs(cfg.feed_fetch_timeout)),
-        filtering: Some(cfg.fetch_extended_url_filtering),
+        filtering: Some(false), // TODO(scope): per-feed rss_extended_url_filtering not plumbed (was removed global).
         ..Default::default()
     })
     .await;

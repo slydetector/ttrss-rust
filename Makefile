@@ -97,8 +97,8 @@ run: build-server ## run the (release by default) Rust server (canonical env, po
 	TTRSS_DB_HOST=127.0.0.1 TTRSS_DB_PORT=5432 \
 	TTRSS_DB_USER=$(DB_USER) TTRSS_DB_NAME=$(DB_NAME) TTRSS_DB_PASS=$(DB_PASS) \
 	TTRSS_PLUGINS=$(PLUGINS) TTRSS_ENCRYPTION_KEY=$(ENC_KEY) \
-	TTRSS_SELF_URL_PATH=$(BASE_URL) TTRSS_RUST_LISTEN=127.0.0.1:$(RUST_PORT) \
-	TTRSS_RUST_DOCROOT=$(CURDIR)/tt-rss TTRSS_RUST_FEED_ICONS_DIR=$(CURDIR)/oracle/data/feed-icons \
+	TTRSS_SELF_URL_PATH=$(BASE_URL) TTRSS_LISTEN_PORT=127.0.0.1:$(RUST_PORT) \
+	TTRSS_DOCROOT=$(CURDIR)/tt-rss TTRSS_CACHE_DIR=$(CURDIR)/oracle/data \
 $(SERVER_BIN)
 
 # --- demo (LAN poking) ------------------------------------------------------
@@ -134,8 +134,8 @@ demo-start: build-server demo-db ## start the (release) Rust server on 0.0.0.0:8
 	@TTRSS_DB_HOST=127.0.0.1 TTRSS_DB_PORT=5432 \
 	TTRSS_DB_USER=$(DB_USER) TTRSS_DB_NAME=$(DB_NAME) TTRSS_DB_PASS=$(DB_PASS) \
 	TTRSS_PLUGINS=$(PLUGINS) TTRSS_ENCRYPTION_KEY=$(ENC_KEY) \
-	TTRSS_SELF_URL_PATH=http://$(LAN_IP):$(RUST_PORT)/tt-rss/ TTRSS_RUST_LISTEN=0.0.0.0:$(RUST_PORT) \
-	TTRSS_RUST_DOCROOT=$(CURDIR)/tt-rss TTRSS_RUST_FEED_ICONS_DIR=$(CURDIR)/oracle/data/feed-icons \
+	TTRSS_SELF_URL_PATH=http://$(LAN_IP):$(RUST_PORT)/tt-rss/ TTRSS_LISTEN_PORT=0.0.0.0:$(RUST_PORT) \
+	TTRSS_DOCROOT=$(CURDIR)/tt-rss TTRSS_CACHE_DIR=$(CURDIR)/oracle/data \
 	RUST_LOG=$(RUST_LOG) nohup $(SERVER_BIN) > $(DEMO_LOG) 2>&1 & echo $$! > $(DEMO_PID)
 	@for i in $$(seq 1 30); do \
 		if resp=$$(curl -sf http://127.0.0.1:$(RUST_PORT)/tt-rss/healthz 2>/dev/null) && [ "$$resp" = "OK" ]; then break; fi; \

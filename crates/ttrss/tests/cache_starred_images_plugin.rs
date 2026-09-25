@@ -20,8 +20,8 @@ use ttrss::AppState;
 
 static COUNTER: AtomicUsize = AtomicUsize::new(0);
 
-/// A unique, writable base dir for the plugin's DiskCache instances, so
-/// [`Config::base_cache_dir`] (the parent of `feed_icon_dir`) resolves to it.
+/// A unique, writable base dir; the plugin roots its DiskCache instances at
+/// `config.cache_dir` (set to this), so the cached media land here.
 fn cache_base() -> PathBuf {
     let n = COUNTER.fetch_add(1, Ordering::SeqCst);
     let dir = std::env::temp_dir().join(format!("ttrss_csi_{}_{}", std::process::id(), n));
@@ -32,53 +32,24 @@ fn cache_base() -> PathBuf {
 fn test_config() -> Config {
     Config {
         db_host: "127.0.0.1".into(),
-        db_port: 5432,
-        db_user: "postgres".into(),
         db_pass: "postgres".into(),
-        db_name: "postgres".into(),
         db_sslmode: "disable".into(),
-        db_max_connections: 10,
         self_url: "http://127.0.0.1:8280/tt-rss/".into(),
-        encryption_key: None,
-        single_user_mode: false,
-        forbid_password_changes: false,
-        disable_login_form: false,
-        auth_auto_create: true,
-        auth_remote_post_logout_url: String::new(),
         plugins: "cache_starred_images".into(),
         listen: "127.0.0.1:8282".parse().unwrap(),
-        docroot: PathBuf::from("tt-rss"),
-        feed_icon_dir: PathBuf::from("no-such-test-icon-dir"),
-        max_favicon_file_size: 1024 * 1024,
-        max_cache_file_size: 64 * 1024 * 1024,
-        force_article_purge: 0,
-        feed_fetch_timeout: 45,
-        feed_fetch_no_cache_timeout: 15,
-        max_conditional_interval: 43200,
+        cache_dir: PathBuf::from("no-such-test-icon-dir"),
         http_429_throttle_interval: 3600,
-        daemon_max_jobs: 2,
-        daemon_unsuccessful_days_limit: 30,
-        schedule_cleanup_feed_icons: String::from("@daily"),
-        schedule_expire_lock_files: String::from("@hourly"),
-        fetch_extended_url_filtering: false,
         daemon_sleep_interval: 60,
-        daemon_feed_limit: 50,
-        daemon_update_login_limit: 30,
-        cache_max_days: 7,
-        schedule_purge_orphans: String::from("@daily"),
-        schedule_disk_cache_expire_all: String::from("@daily"),
-        schedule_disable_failed_feeds: String::from("@daily"),
         schedule_log_daemon_update_login_limit_users: String::from("@hourly"),
-        schedule_expire_error_log: String::from("@hourly"),
-        schedule_send_headlines_digests: String::from("@hourly"),
+    ..Default::default()
     }
 }
 
 async fn setup(url: &str, base: PathBuf) -> AppState {
     let db: Db = common::make_db_from_url(url).await.expect("test db");
     let mut config = test_config();
-    // `base_cache_dir()` is `feed_icon_dir.parent()` → the temp base.
-    config.feed_icon_dir = base.join("feed-icons");
+    // The plugin roots its DiskCache at `config.cache_dir` (the temp base).
+    config.cache_dir = base;
     AppState::new(config, db)
 }
 

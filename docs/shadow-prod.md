@@ -24,8 +24,8 @@ PHP, no nginx, no updater. See "The stack" below.
 - **The Rust server is a single self-contained process.** It serves the
   frontend static assets byte-for-byte *and* handles the dynamic routes
   (login, `do.php`/API, the SPA shell) in-process. Everything server-specific
-  is env (`TTRSS_DB_*`, `TTRSS_SELF_URL_PATH`, `TTRSS_RUST_LISTEN`,
-  `TTRSS_RUST_DOCROOT`, `TTRSS_RUST_FEED_ICONS_DIR`, `TTRSS_ENCRYPTION_KEY`,
+  is env (`TTRSS_DB_*`, `TTRSS_SELF_URL_PATH`, `TTRSS_LISTEN_PORT`,
+  `TTRSS_DOCROOT`, `TTRSS_CACHE_DIR`, `TTRSS_ENCRYPTION_KEY`,
   `TTRSS_DAEMON`). So "start everything" = **Postgres (shadow) + the server
   container**.
 - **Tools are present:** local `pg_dump`/`psql`/`pg_restore` are **18.6**
@@ -55,7 +55,7 @@ the prod snapshot stays frozen (no background feed updates during poking).
 
 - **build** — `rust:1.98-trixie` compiles `target/release/ttrss` from `crates/`.
 - **runtime** — `debian:trixie-slim` + the binary + the `tt-rss` frontend
-  docroot (served byte-for-byte via `TTRSS_RUST_DOCROOT`).
+  docroot (served byte-for-byte via `TTRSS_DOCROOT`).
 
 Compiling inside the same debian family (trixie) as the runtime guarantees the
 binary's glibc matches — no host-binary drop-in, no glibc surprises. First

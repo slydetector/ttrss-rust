@@ -311,8 +311,8 @@ async fn test_cleanup_feed_icons() {
     // A temp dir to act as the feed-icon cache.
     let dir = std::env::temp_dir().join(format!("ttrss_icons_test_{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).expect("create icon dir");
-    cfg.feed_icon_dir = dir.clone();
+    std::fs::create_dir_all(dir.join("feed-icons")).expect("create icon dir");
+    cfg.cache_dir = dir.clone();
 
     // A feed that EXISTS (icon should be kept/refreshed) and a feed id that does
     // NOT exist (icon should be deleted).
@@ -320,9 +320,9 @@ async fn test_cleanup_feed_icons() {
     let missing_feed_id = 99999;
 
     // Write two icon files and age them to 10 days (past cache_max_days).
-    let existing_icon = dir.join(existing_feed.to_string());
+    let existing_icon = dir.join("feed-icons").join(existing_feed.to_string());
     std::fs::write(&existing_icon, b"icon-existing").expect("write existing icon");
-    let missing_icon = dir.join(missing_feed_id.to_string());
+    let missing_icon = dir.join("feed-icons").join(missing_feed_id.to_string());
     std::fs::write(&missing_icon, b"icon-missing").expect("write missing icon");
     let old = std::time::SystemTime::now() - std::time::Duration::from_secs(86400 * 10);
     set_mtime(&existing_icon, old);

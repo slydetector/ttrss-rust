@@ -411,7 +411,7 @@ pub async fn get_feed_icon(
     }
 
     let id = clean_int(body.get("id"));
-    let path = state.config.feed_icon_dir.join(id.to_string());
+    let path = state.config.feed_icon_dir().join(id.to_string());
     match tokio::fs::read(&path).await {
         Ok(bytes) if !bytes.is_empty() => {
             let len = bytes.len();
@@ -462,7 +462,7 @@ async fn get_feeds(state: &AppState, uid: Option<i64>, body: &Map<String, Value>
     let limit = clean_int(body.get("limit"));
     let offset = clean_int(body.get("offset"));
     let include_nested = param_to_bool(body.get("include_nested"));
-    let icon_dir = &state.config.feed_icon_dir;
+    let icon_dir = &state.config.feed_icon_dir();
 
     let mut feeds: Vec<Value> = Vec::new();
 

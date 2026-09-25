@@ -121,14 +121,4 @@ pub fn all_plugins() -> Vec<fn() -> Box<dyn Plugin>> {
     ]
 }
 
-/// The `TTRSS_PLUGINS` default (unset env var): the built-in `auth_internal`
-/// auth module plus every dynamically registered bundled plugin. PHP's
-/// `load_all` globs `plugins/*` — every bundled directory is a system
-/// candidate and each user's `_ENABLED_PLUGINS` pref (default: all) decides
-/// activation, so a fresh install ships every bundled plugin enabled.
-pub fn default_plugins() -> String {
-    // The PHP's `Config::PLUGINS` default is `"auth_internal"` — only the
-    // auth module is a system plugin by default; other plugins are enabled
-    // per-user via the `_ENABLED_PLUGINS` preference.
-    "auth_internal".to_string()
-}
+

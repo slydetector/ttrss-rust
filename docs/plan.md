@@ -458,8 +458,8 @@ clean** on the golden dataset. Done so far:
   `error`, `updates_disabled`. Feed favicons: `Feeds::_get_icon_url` checks the
   `feed-icons` DiskCache (`<feed_icon_dir>/<id>` file exists →
   `public.php?op=feed_icon&id=<id>`, else `""`); the 32 golden icons are a
-  deployment artifact copied to `oracle/data/feed-icons/` (gitignored),
-  pointed at via `TTRSS_RUST_FEED_ICONS_DIR`.
+  deployment artifact copied to `oracle/data/feed-icons/` (gitignored), under
+  the cache root pointed at by `TTRSS_CACHE_DIR`.
 - **Dispatcher:** now routes `op=Pref_Feeds` (CSRF-ignored for `getfeedtree`/`index`)
   with the `Handler_Protected::before` (logged-in user) check generalized; the
   CSRF gate (`validate_csrf || csrf_ignored`) is applied per handler in
@@ -468,7 +468,7 @@ clean** on the golden dataset. Done so far:
   (CSRF-free GET, `mode=2`); the readonly user (uid 2, 0 feeds) yields just the
   Special category — a nice empty-tree edge case. `feed_tree_tech_news` stays a
   mode-0 GET (`category_id` is ignored by the PHP).
-- **Setup:** the Rust test server must run with `TTRSS_PLUGINS` + `TTRSS_RUST_FEED_ICONS_DIR`
+- **Setup:** the Rust test server must run with `TTRSS_PLUGINS` + `TTRSS_CACHE_DIR`
   matching the oracle and the doc root containing `plugins.local/nginx_xaccel`
   (deployment artifacts), so `plugins` + feed icons match.
 - **Verified:** `rpc_sanity_check`, `rpc_runtime_info`, and all three feed-tree
@@ -1355,6 +1355,7 @@ A parking lot for small, known, not-now items (not milestone blockers):
 - **`getFeedIcon` response headers simplified.** The port emits only `Content-Type` + `Content-Length`, skipping `DiskCache::send`'s conditional-request caching headers (304 / If-Modified-Since, ETag, Last-Modified, Content-Disposition, `CACHE_MAX_DAYS` expiry). Low priority to revisit: the corpus doesn't exercise `getFeedIcon` and these are caching optimizations, not behavior. Revisit if conditional-request / caching semantics for favicons are wanted.
 - **`getFeedIcon` MIME detection + no content-type gate.** The content-type is detected from magic bytes (PNG/JPEG/GIF/WebP, defaulting to `image/png`) rather than `finfo`, and the port does not replicate PHP's SVG-blocklist / non-image 400 gate. Low priority to revisit: the feed-icons cache only holds favicons. Revisit if a hostile / non-image file could land in the cache.
 - **`send_headlines_digests` scheduler task is a no-op (SMTP / `Mailer` not ported).** The M6c.4 cron scheduler runs the task and records it in `ttrss_scheduled_tasks`, but sends nothing: only the digest *body* is ported (`ttrss::digest::prepare_headlines_digest`); the actual send is the `Mailer` (`lettre`, replacing PHP `mail()`) that ships with the M6 digest milestone (the M6 scope "Digest" line, `LOG_SENT_MAIL` event logging). Revisit once the `Mailer` lands — until then, scheduled headline-digest emails won't be sent.
+- **Plugin-scoped config knobs live in the global `Config` (`// TODO(soc)`).** `Config::auth_remote_post_logout_url` is the `auth_remote` plugin's `AUTH_REMOTE_POST_LOGOUT_URL` — PHP owns the const *in the plugin* (`auth_remote::AUTH_REMOTE_POST_LOGOUT_URL`, read via `Config::get(self::…)`), but the port hoisted it into the top-level `Config` struct where it reads like a server setting. The port has **no plugin-config layer**: `HostCtx` hands every plugin the whole `Config` (`host.rs` `cfg` field), and the only per-test override surface is mutating that `Config` (`make_state`). A proper fix is a dedicated plugin-config surface (e.g. an `AppState`-level plugin-env/override map plumbed through `make_state` → `AppState` → `HostCtx`, populated from `TTRSS_*`). Not done now: it's over-weighted for a single knob and would change the port's "plugins read `Config`" convention. Revisit when a **second** plugin-scoped knob motivates the layer. (Decision C, logged 2026.)
 
 ---
 
