@@ -1,7 +1,10 @@
 //! OPML import/export — port of the PHP `OPML` class.
 //!
-//! **Export** (`export` + `opml_export`): builds a typed tree and serializes it
-//! with `quick-xml` (2-space indent, matching the PHP `DOMDocument` pretty-printing).
+//! **Export** (`export` + `opml_export`): builds a typed feed tree and serializes it
+//! with `quick-xml` (2-space indent, matching the PHP `DOMDocument` pretty-printing);
+//! with `include_settings` it also appends the `tt-rss-prefs` / `tt-rss-labels` /
+//! `tt-rss-filters` settings blocks, mirroring the PHP export (the filter payload is a
+//! CDATA section of native-typed JSON, so it round-trips through both imports).
 //! **Import** (`import` + `opml_import`): parses an uploaded OPML file (quick-xml pull
 //! parser) and recreates the user's feed categories + feeds (deduped by `feed_url`),
 //! plus the `tt-rss-prefs` / `tt-rss-labels` / `tt-rss-filters` settings sections.
@@ -10,7 +13,9 @@
 
 use std::collections::HashMap;
 
+use crate::core::config::SCHEMA_VERSION;
 use crate::core::db::Db;use crate::i18n::{__, t_sprintf};
+use crate::feeds::{category_title, feed_title};
 
 use axum::http::StatusCode;
 use quick_xml::events::Event;
@@ -241,7 +246,6 @@ pub async fn build_opml(pool: &sqlx::PgPool, uid: i64, include_settings: bool) -
         .format("%a, %d %b %Y %H:%M:%S %z")
         .to_string();
 
-    // TODO(opml): settings section (tt-rss-prefs/labels/filters) when `include_settings`.
     let doc = Doc {
         version: "1.0".into(),
         head: Head {
@@ -256,7 +260,223 @@ pub async fn build_opml(pool: &sqlx::PgPool, uid: i64, include_settings: bool) -
     ser.indent(' ', 2);
     doc.serialize(ser).expect("serialize opml");
 
-    format!("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n{buf}\n")
+    let mut out = format!("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n{buf}\n");
+    if include_settings {
+        // The settings blocks become the children of `<body>`. A non-empty body ends in
+        // a 2-space-indented `</body>`; the blocks use 4/6 spaces, so inserting them
+        // right before `  </body>` keeps them aligned with the feed-tree outlines. An
+        // empty body serializes as a self-closing `<body/>`, which is expanded to hold
+        // the blocks (a feed-less export can still carry labels/prefs/filters).
+        let settings = build_settings_section(pool, uid).await;
+        if let Some(idx) = out.rfind("  </body>") {
+            let (before, after) = out.split_at(idx);
+            out = format!("{before}{settings}{after}");
+        } else {
+            // Empty body: expand the self-closing `<body/>` to hold the blocks.
+            out = out.replace("<body/>", &format!("<body>\n{settings}  </body>\n"));
+        }
+    }
+    out
+}
+
+/// Build the three settings `<outline>` blocks (`tt-rss-prefs` / `tt-rss-labels` /
+/// `tt-rss-filters`) as a raw XML string, indented to sit as the last children of
+/// `<body>` (blocks at 4 spaces, leaves at 6). A raw string (not the serde `Outline`
+/// model) so the filter payload can be a real CDATA section: the JSON may contain
+/// `&`/`<`/`>`, which must NOT be entity-escaped (the import reads CDATA verbatim,
+/// and `Event::Text` is not entity-decoded). `OPML.php:118-222`.
+async fn build_settings_section(pool: &sqlx::PgPool, uid: i64) -> String {
+    let mut out = String::new();
+
+    // tt-rss-prefs — the `profile IS NULL` user prefs, by name.
+    out.push_str(&format!("    <outline text=\"tt-rss-prefs\" schema-version=\"{SCHEMA_VERSION}\">\n"));
+    let prefs = sqlx::query(
+        "SELECT pref_name, value FROM ttrss_user_prefs2 \
+         WHERE profile IS NULL AND owner_uid = $1 ORDER BY pref_name",
+    )
+    .bind(uid)
+    .fetch_all(pool)
+    .await
+    .expect("fetch prefs");
+    for r in &prefs {
+        out.push_str(&format!(
+            "      <outline pref-name=\"{}\" value=\"{}\"/>\n",
+            htmlspecialchars(&r.get::<String, _>(0)),
+            htmlspecialchars(&r.get::<String, _>(1))
+        ));
+    }
+    out.push_str("    </outline>\n");
+
+    // tt-rss-labels — every label with its colors.
+    out.push_str(&format!("    <outline text=\"tt-rss-labels\" schema-version=\"{SCHEMA_VERSION}\">\n"));
+    let labels = sqlx::query("SELECT caption, fg_color, bg_color FROM ttrss_labels2 WHERE owner_uid = $1")
+        .bind(uid)
+        .fetch_all(pool)
+        .await
+        .expect("fetch labels");
+    for r in &labels {
+        out.push_str(&format!(
+            "      <outline label-name=\"{}\" label-fg-color=\"{}\" label-bg-color=\"{}\"/>\n",
+            htmlspecialchars(&r.get::<String, _>(0)),
+            htmlspecialchars(&r.get::<String, _>(1)),
+            htmlspecialchars(&r.get::<String, _>(2))
+        ));
+    }
+    out.push_str("    </outline>\n");
+
+    // tt-rss-filters — one CDATA outline per filter (a JSON snapshot).
+    out.push_str(&format!("    <outline text=\"tt-rss-filters\" schema-version=\"{SCHEMA_VERSION}\">\n"));
+    let filters = sqlx::query("SELECT id FROM ttrss_filters2 WHERE owner_uid = $1 ORDER BY id")
+        .bind(uid)
+        .fetch_all(pool)
+        .await
+        .expect("fetch filters");
+    for r in &filters {
+        let filter_id: i64 = r.get::<i32, _>(0) as i64;
+        out.push_str(&format!(
+            "      <outline filter-type=\"2\"><![CDATA[{}]]></outline>\n",
+            build_filter_json(pool, filter_id, uid).await
+        ));
+    }
+    out.push_str("    </outline>\n");
+
+    out
+}
+
+/// The JSON snapshot of one filter: its columns (minus `id`/`owner_uid`) plus its
+/// `rules` (feed matches rendered as portable titles) and `actions`, in the same key
+/// order as the PHP export (`OPML.php:182-215`). Native JSON types (bools/integers)
+/// so the payload round-trips losslessly.
+async fn build_filter_json(pool: &sqlx::PgPool, filter_id: i64, uid: i64) -> String {
+    let f = sqlx::query(
+        "SELECT match_any_rule, inverse, title, order_id, last_triggered, enabled \
+         FROM ttrss_filters2 WHERE id = $1 AND owner_uid = $2",
+    )
+    .bind(filter_id as i32)
+    .bind(uid)
+    .fetch_one(pool)
+    .await
+    .expect("filter row");
+
+    let mut obj = Map::new();
+    obj.insert("match_any_rule".into(), Value::Bool(f.get::<bool, _>(0)));
+    obj.insert("inverse".into(), Value::Bool(f.get::<bool, _>(1)));
+    obj.insert("title".into(), Value::String(f.get::<String, _>(2)));
+    obj.insert("order_id".into(), Value::from(f.get::<i32, _>(3)));
+    match f.get::<Option<chrono::NaiveDateTime>, _>(4) {
+        Some(ts) => obj.insert(
+            "last_triggered".into(),
+            Value::String(ts.format("%Y-%m-%d %H:%M:%S").to_string()),
+        ),
+        None => obj.insert("last_triggered".into(), Value::Null),
+    };
+    obj.insert("enabled".into(), Value::Bool(f.get::<bool, _>(5)));
+
+    // --- rules ---
+    let mut rules: Vec<Value> = Vec::new();
+    let rrows = sqlx::query(
+        "SELECT reg_exp, inverse, filter_type, feed_id, cat_id, match_on, cat_filter \
+         FROM ttrss_filters2_rules WHERE filter_id = $1",
+    )
+    .bind(filter_id as i32)
+    .fetch_all(pool)
+    .await
+    .expect("filter rules");
+    for r in &rrows {
+        let reg_exp = r.get::<String, _>(0);
+        let inverse: bool = r.get(1);
+        let filter_type: i32 = r.get(2);
+        let feed_id: Option<i32> = r.get(3);
+        let cat_id: Option<i32> = r.get(4);
+        let match_on: Option<String> = r.get(5);
+        let cat_filter: bool = r.get(6);
+
+        let mut rule = Map::new();
+        rule.insert("reg_exp".into(), Value::String(reg_exp));
+        rule.insert("inverse".into(), Value::Bool(inverse));
+        rule.insert("filter_type".into(), Value::from(filter_type));
+        rule.insert("cat_filter".into(), Value::Bool(cat_filter));
+
+        let (is_match, match_on_str) = match &match_on {
+            Some(m) if !m.trim().is_empty() => (true, m.clone()),
+            _ => (false, String::new()),
+        };
+        if is_match {
+            // `match` triples `[name, is_cat, is_id]`; a missing id's placeholder is the
+            // STRING "0" (not the number 0) so the PHP and Rust imports agree.
+            let items: Vec<String> = serde_json::from_str(&match_on_str).unwrap_or_default();
+            let mut triples = Vec::new();
+            for item in items {
+                if let Some(cat_part) = item.strip_prefix("CAT:") {
+                    let cid: i64 = cat_part.parse().unwrap_or(0);
+                    if cid != 0 {
+                        let t = category_title(pool, cid, uid).await;
+                        triples.push(Value::Array(vec![
+                            Value::String(t),
+                            Value::Bool(true),
+                            Value::Bool(false),
+                        ]));
+                    } else {
+                        triples.push(Value::Array(vec![
+                            Value::String("0".into()),
+                            Value::Bool(true),
+                            Value::Bool(true),
+                        ]));
+                    }
+                } else {
+                    let fid: i64 = item.parse().unwrap_or(0);
+                    if fid != 0 {
+                        let t = feed_title(pool, fid, uid).await;
+                        triples.push(Value::Array(vec![
+                            Value::String(t),
+                            Value::Bool(false),
+                            Value::Bool(false),
+                        ]));
+                    } else {
+                        triples.push(Value::Array(vec![
+                            Value::String("0".into()),
+                            Value::Bool(false),
+                            Value::Bool(true),
+                        ]));
+                    }
+                }
+            }
+            rule.insert("match".into(), Value::Array(triples));
+        } else {
+            // Legacy: `feed` = the feed (or category, when `cat_filter`) title, or "" if
+            // the referenced id is missing — PHP: `(cat_filter && cat_id) || feed_id`.
+            let has = (cat_filter && cat_id.is_some_and(|c| c != 0)) || feed_id.is_some_and(|f| f != 0);
+            let title = if has {
+                if cat_filter {
+                    category_title(pool, cat_id.unwrap_or(0) as i64, uid).await
+                } else {
+                    feed_title(pool, feed_id.unwrap_or(0) as i64, uid).await
+                }
+            } else {
+                String::new()
+            };
+            rule.insert("feed".into(), Value::String(title));
+        }
+        rules.push(Value::Object(rule));
+    }
+    obj.insert("rules".into(), Value::Array(rules));
+
+    // --- actions ---
+    let mut actions: Vec<Value> = Vec::new();
+    let arows = sqlx::query("SELECT action_id, action_param FROM ttrss_filters2_actions WHERE filter_id = $1")
+        .bind(filter_id as i32)
+        .fetch_all(pool)
+        .await
+        .expect("filter actions");
+    for a in &arows {
+        let mut action = Map::new();
+        action.insert("action_id".into(), Value::from(a.get::<i32, _>(0)));
+        action.insert("action_param".into(), Value::String(a.get::<String, _>(1)));
+        actions.push(Value::Object(action));
+    }
+    obj.insert("actions".into(), Value::Array(actions));
+
+    serde_json::to_string(&Value::Object(obj)).unwrap_or_else(|_| "{}".to_string())
 }
 
 /// `OPML::export` — the HTTP handler: builds the OPML for download.

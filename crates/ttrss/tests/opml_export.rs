@@ -135,3 +135,130 @@ async fn test_export_retains_empty_category() {
         Ok(())
     })).await.unwrap();
 }
+
+/// Settings round trip: export owner 1's prefs/labels/filters with
+/// `include_settings`, import the result back as owner 1, and assert the settings
+/// survive. This is the interop bar the Rust export must meet — the export mirrors
+/// the PHP export, so the same file is equally consumable by PHP. The filter rule's
+/// `reg_exp` carries `&`/`<`/`>` on purpose: it proves the payload is a real CDATA
+/// section (an entity-escaped payload would corrupt it, since the import's
+/// `Event::Text` handler is not entity-decoded).
+#[tokio::test]
+async fn test_export_import_settings_roundtrip() {
+    with_test_db(|url| Box::pin(async move {
+      let state = common::make_app_state(&url).await;
+      let pool = state.db.pool();
+
+      // Seed known settings for owner 1 (unique names keep the assertions precise).
+      sqlx::query(
+          "INSERT INTO ttrss_labels2 (owner_uid, caption, fg_color, bg_color) VALUES (1, 'RT Label', '#111111', '#222222')",
+      )
+      .execute(pool)
+      .await
+      .expect("label");
+      sqlx::query(
+          "INSERT INTO ttrss_user_prefs2 (owner_uid, pref_name, profile, value) VALUES (1, 'RT_TEST_PREF', NULL, 'rt_value')",
+      )
+      .execute(pool)
+      .await
+      .expect("pref");
+      let fid: i32 = sqlx::query_scalar(
+          "INSERT INTO ttrss_filters2 (owner_uid, title, enabled, match_any_rule, inverse) VALUES (1, 'RT Filter', true, false, false) RETURNING id",
+      )
+      .fetch_one(pool)
+      .await
+      .expect("filter");
+      sqlx::query(
+          "INSERT INTO ttrss_filters2_rules (filter_id, reg_exp, filter_type, feed_id, cat_filter, inverse) VALUES ($1, 'rt<&regex>', 1, 1, false, false)",
+      )
+      .bind(fid)
+      .execute(pool)
+      .await
+      .expect("rule");
+      sqlx::query("INSERT INTO ttrss_filters2_actions (filter_id, action_id, action_param) VALUES ($1, 1, '')")
+          .bind(fid)
+          .execute(pool)
+      .await
+      .expect("action");
+
+      // 1. Export owner 1 with settings.
+      let opml = ttrss::opml::build_opml(pool, 1, true).await;
+
+      // The three settings blocks, each carrying the schema version.
+      assert!(opml.contains("text=\"tt-rss-prefs\" schema-version=\"151\""), "prefs block: {opml}");
+      assert!(opml.contains("text=\"tt-rss-labels\" schema-version=\"151\""), "labels block: {opml}");
+      assert!(opml.contains("text=\"tt-rss-filters\" schema-version=\"151\""), "filters block: {opml}");
+      assert!(opml.contains("pref-name=\"RT_TEST_PREF\" value=\"rt_value\""), "pref row: {opml}");
+      assert!(opml.contains("label-name=\"RT Label\" label-fg-color=\"#111111\" label-bg-color=\"#222222\""), "label row: {opml}");
+      // The filter is a CDATA section (not entity-escaped), with native JSON types
+      // and the feed match rendered as its portable title.
+      assert!(opml.contains("<![CDATA[{\""), "filter CDATA: {opml}");
+      assert!(opml.contains("\"title\":\"RT Filter\""), "filter title: {opml}");
+      assert!(opml.contains("\"match_any_rule\":false"), "native bool: {opml}");
+      assert!(opml.contains("\"enabled\":true"), "native bool: {opml}");
+      assert!(opml.contains("\"reg_exp\":\"rt<&regex>\""), "CDATA keeps &/< verbatim: {opml}");
+      assert!(opml.contains("\"feed\":\"Hacker News\""), "feed match -> title: {opml}");
+      assert!(opml.contains("\"action_id\":1"), "native int: {opml}");
+
+      // 2. Import the export back as owner 1.
+      let mut data = ttrss::core::session::Session::new();
+      data.set("uid", ttrss::core::phpser::Value::Int(1));
+      data.set("name", ttrss::core::phpser::Value::Bytes(b"admin".to_vec()));
+      let sess = Sess::new("test-sid".to_string());
+      sess.replace("test-sid".to_string(), data);
+      let _ = ttrss::opml::import(&state, &sess, Some(opml.as_bytes())).await;
+
+      // 3. The settings came back.
+      // Label (deduped by caption; the seeded row keeps its colors).
+      let (fg, bg): (String, String) = sqlx::query_as(
+          "SELECT fg_color, bg_color FROM ttrss_labels2 WHERE owner_uid = 1 AND caption = 'RT Label'",
+      )
+      .fetch_one(pool)
+      .await
+      .expect("label round-tripped");
+      assert_eq!(fg, "#111111");
+      assert_eq!(bg, "#222222");
+      // Pref (upserted by name).
+      let pref: Option<String> = sqlx::query_scalar(
+          "SELECT value FROM ttrss_user_prefs2 WHERE owner_uid = 1 AND pref_name = 'RT_TEST_PREF' AND profile IS NULL",
+      )
+      .fetch_optional(pool)
+      .await
+      .expect("pref query");
+      assert_eq!(pref, Some("rt_value".to_string()));
+      // Filter (not deduped: a new 'RT Filter' row, rule re-resolved, action added).
+      let n_filters: i64 = sqlx::query_scalar(
+          "SELECT count(*) FROM ttrss_filters2 WHERE owner_uid = 1 AND title = 'RT Filter'",
+      )
+      .fetch_one(pool)
+      .await
+      .expect("filter count");
+      assert_eq!(n_filters, 2, "original + imported filter");
+      let n_rules: i64 = sqlx::query_scalar(
+          "SELECT count(*) FROM ttrss_filters2_rules r JOIN ttrss_filters2 f ON f.id = r.filter_id WHERE f.owner_uid = 1 AND f.title = 'RT Filter'",
+      )
+      .fetch_one(pool)
+      .await
+      .expect("rule count");
+      assert_eq!(n_rules, 2, "original + imported rule");
+      let (reg_exp, ftype, feed_id): (String, i32, Option<i32>) = sqlx::query_as(
+          "SELECT r.reg_exp, r.filter_type, r.feed_id FROM ttrss_filters2_rules r JOIN ttrss_filters2 f ON f.id = r.filter_id WHERE f.owner_uid = 1 AND f.title = 'RT Filter' LIMIT 1",
+      )
+      .fetch_optional(pool)
+      .await
+      .expect("rule row")
+      .expect("rule exists");
+      assert_eq!(reg_exp, "rt<&regex>", "CDATA payload not corrupted");
+      assert_eq!(ftype, 1);
+      assert_eq!(feed_id, Some(1), "feed title re-resolved to Hacker News");
+      let n_actions: i64 = sqlx::query_scalar(
+          "SELECT count(*) FROM ttrss_filters2_actions a JOIN ttrss_filters2 f ON f.id = a.filter_id WHERE f.owner_uid = 1 AND f.title = 'RT Filter' AND a.action_id = 1",
+      )
+      .fetch_one(pool)
+      .await
+      .expect("action count");
+      assert_eq!(n_actions, 2, "original + imported action");
+          Ok(())
+      })).await.unwrap();
+  }
+
