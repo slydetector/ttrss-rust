@@ -54,7 +54,7 @@ use crate::rss_utils::{calculate_article_hash, make_guid_from_title, make_guid_h
 use crate::urlhelper::{fetch, FetchOptions, rewrite_relative};
 use crate::util::{clean_str, normalize_categories, php_int_cast, sha1_hex, strip_tags};
 use crate::pluginhost::host::HostCtx;
-use crate::pluginhost::{HOOK_ARTICLE_FILTER, PluginHost};
+use crate::pluginhost::{HOOK_ARTICLE_FILTER, HOOK_FETCH_FEED, PluginHost};
 
 /// The subset of `ttrss_feeds` the pipeline reads.
 #[derive(Debug, Clone)]
@@ -549,6 +549,73 @@ pub async fn fetch_one_feed(
 
     // The feed's auth (the `auth_pass` is decrypted from its stored envelope).
     let auth_pass = decrypt_feed_pass(&feed.auth_pass, cfg.encryption_key.as_ref());
+
+    // HOOK_FETCH_FEED (M7.22 item 8): a plugin may substitute the feed data,
+    // skipping the fetch. PHP `RSSUtils` fetch flow (RSSUtils:449) —
+    // `chain_hooks_callback(HOOK_FETCH_FEED, …)` threads `$feed_data` (initially
+    // empty) through each hook; a non-empty result means a plugin provided the
+    // data. No shipped plugin does this (af_comics's `on_fetch` returns `false`),
+    // so it's a no-op for the stock set.
+    let plugin_feed_data: String = {
+        let system: Vec<String> = cfg
+            .plugins
+            .split(',')
+            .map(|s| s.trim().to_lowercase())
+            .filter(|s| !s.is_empty())
+            .collect();
+        let mut ctx = crate::pluginhost::dispatch::owner_ctx_from(
+            Arc::clone(&plugins),
+            pool.clone(),
+            cfg.clone(),
+            &system,
+            &cfg.self_url,
+            feed.owner_uid,
+        )
+        .await;
+        let host = ctx.host_arc();
+        let mut data = String::new();
+        for idx in ctx.hook_order(HOOK_FETCH_FEED) {
+            data = host
+                .plugin(idx)
+                .hook_fetch_feed(
+                    &mut ctx,
+                    &data,
+                    &feed.feed_url,
+                    feed.owner_uid,
+                    feed_id,
+                    0,
+                    &feed.auth_login,
+                    &auth_pass,
+                )
+                .await;
+        }
+        data
+    };
+
+    // A plugin supplied the feed data — skip the fetch and parse it directly.
+    if !plugin_feed_data.trim().is_empty() {
+        dlog(
+            log.as_deref_mut(),
+            DEBUG_LEVEL_VERBOSE,
+            "feed data has been modified by a plugin.".into(),
+        );
+        let feed_data = plugin_feed_data.trim().to_string();
+        let result = process_feed(
+            pool,
+            cfg,
+            Arc::clone(&plugins),
+            &feed,
+            &feed_data,
+            flags,
+            log.as_deref_mut(),
+        )
+        .await?;
+        return Ok(FeedFetchOutcome {
+            success: result.parse_error.is_none(),
+            new_articles: result.new_articles,
+            error: result.parse_error,
+        });
+    }
 
     let res = fetch(&FetchOptions {
         url: feed.feed_url.clone(),

@@ -1399,6 +1399,7 @@ pub async fn subscribe_to_feed(
     let rc = crate::feeds::subscribe(
         &state.config,
         pool,
+        &state.plugins,
         uid,
         access_level,
         &feed_url,

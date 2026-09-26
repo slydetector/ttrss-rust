@@ -364,9 +364,11 @@ impl Bookmarklets {
             )
         } else {
             // Subscribe to the feed.
+            let host_arc = host.host_arc();
             let rc = crate::feeds::subscribe(
                 cfg,
                 pool,
+                &host_arc,
                 uid as i64,
                 host.access_level,
                 &feed_url,

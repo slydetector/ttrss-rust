@@ -15,14 +15,17 @@
 //! header): detect it by magic bytes, then decompress.
 
 use std::io::Read;
+use std::sync::Arc;
 
 use regex::Regex;
+use serde_json::Value;
 
 use sqlx::{PgPool, Row};
 
 use crate::core::config::Config;
 use crate::core::feed::FeedParser;
 use crate::feeds::decrypt_feed_pass;
+use crate::pluginhost::PluginHost;
 use crate::urlhelper::{fetch, FetchOptions, rewrite_relative};
 use crate::util::clean_str;
 
@@ -148,16 +151,21 @@ pub fn labels_contains_caption(labels: &[Label], caption: &str) -> bool {
     labels.iter().any(|l| l.caption == caption)
 }
 
-/// `RSSUtils::update_basic_info($feed_id)` — fetch the feed and, on a
-/// successful parse, fill in the feed's `title` (only if empty or `[Unknown]`)
-/// and `site_url` (only if it changed). The PHP first runs the
-/// `HOOK_FEED_BASIC_INFO` plugin hooks to populate `$basic_info`; those are the
-/// M8 plugin layer (not ported), so this goes straight to the fetch + parse
-/// fallback. A no-op when the feed does not exist, the fetch returns nothing,
-/// or the XML does not parse.
-pub async fn update_basic_info(pool: &PgPool, cfg: &Config, feed_id: i32) {
+/// `RSSUtils::update_basic_info($feed_id)` — populate the feed's `title` (only
+/// if empty or `[Unknown]`) and `site_url` (only if it changed). The PHP first
+/// runs the `HOOK_FEED_BASIC_INFO` plugin hooks to populate `$basic_info`,
+/// short-circuiting on the first hook that returns a non-empty `title` or
+/// `site_url`; only when none does falls back to the fetch + parse. A no-op
+/// when the feed does not exist and, on the fetch fallback, when the fetch
+/// returns nothing or the XML does not parse.
+pub async fn update_basic_info(
+    pool: &PgPool,
+    cfg: &Config,
+    plugins: &Arc<PluginHost>,
+    feed_id: i32,
+) {
     let row = sqlx::query(
-        "SELECT feed_url, auth_login, title, site_url, auth_pass \
+        "SELECT feed_url, auth_login, title, site_url, auth_pass, owner_uid \
          FROM ttrss_feeds WHERE id = $1",
     )
     .bind(feed_id)
@@ -174,49 +182,115 @@ pub async fn update_basic_info(pool: &PgPool, cfg: &Config, feed_id: i32) {
     let title = row.get::<String, _>(2);
     let site_url = row.get::<String, _>(3);
     let auth_pass = row.get::<String, _>(4);
+    let owner_uid = row.get::<i32, _>(5);
 
     let auth_pass_plaintext = decrypt_feed_pass(&auth_pass, cfg.encryption_key.as_ref());
 
-    let res = fetch(&FetchOptions {
-        url: feed_url.clone(),
-        login: if auth_login.trim().is_empty() {
-            None
-        } else {
-            Some(auth_login)
-        },
-        pass: if auth_pass_plaintext.is_empty() {
-            None
-        } else {
-            Some(auth_pass_plaintext)
-        },
-        timeout: Some(std::time::Duration::from_secs(cfg.feed_fetch_timeout)),
-        filtering: Some(false), // TODO(scope): per-feed rss_extended_url_filtering not plumbed (was removed global).
-        ..Default::default()
-    })
-    .await;
+    // HOOK_FEED_BASIC_INFO (M7.22 item 8): a plugin may supply the feed's
+    // title/site_url, skipping the fetch. PHP `RSSUtils::update_basic_info`
+    // (RSSUtils:311) — `run_hooks_callback(HOOK_FEED_BASIC_INFO, …)` short-circuits
+    // on the first hook returning a non-empty `title` or `site_url`. No shipped
+    // plugin implements it (af_comics's filters' `on_basic_info` returns
+    // `false`), so it's a no-op for the stock set; the call site exists so a
+    // community plugin works.
+    let hook_basic: Option<(String, String)> = {
+        let system: Vec<String> = cfg
+            .plugins
+            .split(',')
+            .map(|s| s.trim().to_lowercase())
+            .filter(|s| !s.is_empty())
+            .collect();
+        let mut ctx = crate::pluginhost::dispatch::owner_ctx_from(
+            Arc::clone(plugins),
+            pool.clone(),
+            cfg.clone(),
+            &system,
+            &cfg.self_url,
+            owner_uid,
+        )
+        .await;
+        let host = ctx.host_arc();
+        let mut out = None;
+        for idx in ctx.hook_order(crate::pluginhost::HOOK_FEED_BASIC_INFO) {
+            let mut bi = Value::Object(serde_json::Map::new());
+            let result = host
+                .plugin(idx)
+                .hook_feed_basic_info(
+                    &mut ctx,
+                    &mut bi,
+                    &feed_url,
+                    owner_uid,
+                    feed_id,
+                    &auth_login,
+                    &auth_pass_plaintext,
+                )
+                .await;
+            let t = result
+                .get("title")
+                .and_then(Value::as_str)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string);
+            let s = result
+                .get("site_url")
+                .and_then(Value::as_str)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string);
+            if t.is_some() || s.is_some() {
+                out = Some((t.unwrap_or_default(), s.unwrap_or_default()));
+                break;
+            }
+        }
+        out
+    };
 
-    let body = res
-        .body
-        .as_deref()
-        .map_or(String::new(), |b| String::from_utf8_lossy(b).into_owned());
-    let feed_data = body.trim();
-    if feed_data.is_empty() {
-        return;
-    }
+    // The basic info: from the hook (above) or, failing that, the fetch + parse.
+    let (bi_title, bi_site_url): (String, String) = match hook_basic {
+        Some((t, s)) => (t, s),
+        None => {
+            let res = fetch(&FetchOptions {
+                url: feed_url.clone(),
+                login: if auth_login.trim().is_empty() {
+                    None
+                } else {
+                    Some(auth_login)
+                },
+                pass: if auth_pass_plaintext.is_empty() {
+                    None
+                } else {
+                    Some(auth_pass_plaintext)
+                },
+                timeout: Some(std::time::Duration::from_secs(cfg.feed_fetch_timeout)),
+                filtering: Some(false), // TODO(scope): per-feed rss_extended_url_filtering not plumbed (was removed global).
+                ..Default::default()
+            })
+            .await;
 
-    let mut parser = FeedParser::new(feed_data);
-    if !parser.init() {
-        return;
-    }
+            let body = res
+                .body
+                .as_deref()
+                .map_or(String::new(), |b| String::from_utf8_lossy(b).into_owned());
+            let feed_data = body.trim();
+            if feed_data.is_empty() {
+                return;
+            }
 
-    // `mb_substr(clean($rss->get_title()), 0, 199)` /
-    // `mb_substr(rewrite_relative($feed_url, clean($rss->get_link())), 0, 245)`.
-    let bi_title: String = clean_str(&parser.get_title()).chars().take(199).collect();
-    let bi_site_url: String = rewrite_relative(&feed_url, &clean_str(&parser.get_link()))
-        .unwrap_or_default()
-        .chars()
-        .take(245)
-        .collect();
+            let mut parser = FeedParser::new(feed_data);
+            if !parser.init() {
+                return;
+            }
+
+            // `mb_substr(clean($rss->get_title()), 0, 199)` /
+            // `mb_substr(rewrite_relative($feed_url, clean($rss->get_link())), 0, 245)`.
+            (
+                clean_str(&parser.get_title()).chars().take(199).collect(),
+                rewrite_relative(&feed_url, &clean_str(&parser.get_link()))
+                    .unwrap_or_default()
+                    .chars()
+                    .take(245)
+                    .collect(),
+            )
+        }
+    };
 
     // `!empty($basic_info['title']) && (!$feed->title || $feed->title == '[Unknown]')`.
     let new_title = if !bi_title.is_empty() && (title.is_empty() || title == "[Unknown]") {

@@ -8,9 +8,12 @@
 
 mod common;
 
+use std::sync::Arc;
+
 use serde_json::{json, Map, Value};
 use ttrss::api::update_feed;
 use ttrss::core::config::Config;
+use ttrss::pluginhost::PluginHost;
 use ttrss::core::db::Db;
 use ttrss::core::phpser::Value as PValue;
 use ttrss::core::session::Session;
@@ -126,9 +129,11 @@ async fn test_subscribe_first_update() {
     let mock = atom_mock();
     let uid = create_user(&db, 300, 0).await;
 
+    let host = Arc::new(PluginHost::startup(&[]));
     let rc = subscribe(
         &cfg,
         db.pool(),
+        &host,
         uid as i64,
         0,
         &mock.url("/feed"),
@@ -161,9 +166,11 @@ async fn test_subscribe_existing_feed() {
     let uid = create_user(&db, 301, 0).await;
     let feed_id = create_feed(&db, 301, uid, &mock.url("/feed")).await;
 
+    let host = Arc::new(PluginHost::startup(&[]));
     let rc = subscribe(
         &cfg,
         db.pool(),
+        &host,
         uid as i64,
         0,
         &mock.url("/feed"),

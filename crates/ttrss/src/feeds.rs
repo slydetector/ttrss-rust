@@ -10,6 +10,7 @@
 
 use std::collections::HashMap;
 use std::fs;
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use axum::http::StatusCode;
@@ -32,7 +33,9 @@ use crate::prefs;
 use crate::session::Sess;
 use crate::time::TzCtx;
 use crate::AppState;
-use crate::pluginhost::{HOOK_PREFS_EDIT_FEED, HOOK_PREFS_SAVE_FEED};
+use crate::pluginhost::{
+    PluginHost, HOOK_PREFS_EDIT_FEED, HOOK_PREFS_SAVE_FEED, HOOK_SUBSCRIBE_FEED,
+};
 
 // `Feeds::*` virtual-feed pseudo-ids (functions.php).
 pub(crate) const FEED_ARCHIVED: i64 = 0;
@@ -1040,12 +1043,16 @@ pub fn get_feeds_from_html(url: &str, content: &str) -> Vec<(String, String)> {
 /// `API::subscribeToFeed`. Validates + fetches the URL, discovers the feed from
 /// an HTML page if needed, parses it, and inserts the feed (title `[Unknown]`)
 /// — then runs the immediate first update (`RSSUtils::update_basic_info`).
-/// Returns the PHP's `{code, …}` array. The `HOOK_PRE_SUBSCRIBE` /
-/// `HOOK_SUBSCRIBE_FEED` plugin hooks (M8) are not ported.
+/// Returns the PHP's `{code, …}` array. The `HOOK_SUBSCRIBE_FEED` plugin hooks
+/// (M7.22 item 8) fire after the fetch, transforming the content before it's
+/// parsed (no shipped plugin does this — af_comics's `on_subscribe` returns
+/// `false` — so it's a no-op for the stock set). `HOOK_PRE_SUBSCRIBE` remains
+/// unported.
 #[allow(clippy::too_many_arguments)] // mirrors `Feeds::_subscribe`'s parameter list
 pub async fn subscribe(
     cfg: &crate::core::config::Config,
     pool: &sqlx::PgPool,
+    plugins: &Arc<PluginHost>,
     uid: i64,
     access_level: i32,
     url: &str,
@@ -1082,10 +1089,41 @@ pub async fn subscribe(
     })
     .await;
 
-    let contents = res
+    let mut contents = res
         .body
         .as_deref()
         .map_or(String::new(), |b| String::from_utf8_lossy(b).into_owned());
+
+    // HOOK_SUBSCRIBE_FEED (M7.22 item 8): a plugin may transform the fetched
+    // content before it's parsed. PHP `Feeds::_subscribe` (Feeds:1003) —
+    // `chain_hooks_callback(HOOK_SUBSCRIBE_FEED, …)` threads `$contents` through
+    // each hook after the fetch, before the empty check. No shipped plugin does
+    // this (af_comics's `on_subscribe` returns `false`), so it's a no-op for the
+    // stock set.
+    {
+        let system: Vec<String> = cfg
+            .plugins
+            .split(',')
+            .map(|s| s.trim().to_lowercase())
+            .filter(|s| !s.is_empty())
+            .collect();
+        let mut ctx = crate::pluginhost::dispatch::owner_ctx_from(
+            Arc::clone(plugins),
+            pool.clone(),
+            cfg.clone(),
+            &system,
+            &cfg.self_url,
+            uid as i32,
+        )
+        .await;
+        let host = ctx.host_arc();
+        for idx in ctx.hook_order(HOOK_SUBSCRIBE_FEED) {
+            contents = host
+                .plugin(idx)
+                .hook_subscribe_feed(&mut ctx, &contents, &url, auth_login, auth_pass)
+                .await;
+        }
+    }
 
     // `if (empty($contents)) return ["code" => 5, "message" => …]`.
     if contents.is_empty() {
@@ -1160,7 +1198,7 @@ pub async fn subscribe(
 
     match new_id {
         Ok(id) => {
-            crate::rss_utils::update_basic_info(pool, cfg, id).await;
+            crate::rss_utils::update_basic_info(pool, cfg, plugins, id).await;
             json!({ "code": 1, "feed_id": id })
         }
         Err(_) => json!({ "code": 7 }),
@@ -1183,7 +1221,7 @@ pub async fn add(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> V
     let update_interval = util::clean_int(extra.get("update_interval")) as i32;
 
     let rc =
-        subscribe(&state.config, pool, uid, access_level, &feed, cat, &login, &pass, update_interval)
+        subscribe(&state.config, pool, &state.plugins, uid, access_level, &feed, cat, &login, &pass, update_interval)
             .await;
     json!({ "result": rc })
 }
