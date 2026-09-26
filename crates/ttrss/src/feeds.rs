@@ -34,7 +34,7 @@ use crate::session::Sess;
 use crate::time::TzCtx;
 use crate::AppState;
 use crate::pluginhost::{
-    PluginHost, HOOK_PREFS_EDIT_FEED, HOOK_PREFS_SAVE_FEED, HOOK_SUBSCRIBE_FEED,
+    PluginHost, HOOK_PREFS_EDIT_FEED, HOOK_PREFS_SAVE_FEED, HOOK_PRE_SUBSCRIBE, HOOK_SUBSCRIBE_FEED,
 };
 
 // `Feeds::*` virtual-feed pseudo-ids (functions.php).
@@ -1067,9 +1067,39 @@ pub async fn subscribe(
     }
 
     // `$url = UrlHelper::validate($url); if (!$url) return ["code" => 2]`.
-    let Some(url) = crate::urlhelper::validate(url, false) else {
+    let Some(mut url) = crate::urlhelper::validate(url, false) else {
         return json!({ "code": 2 });
     };
+
+    // HOOK_PRE_SUBSCRIBE (M7.22 item 8): a plugin may rewrite the subscription
+    // URL before the fetch. PHP `Feeds::_subscribe` (Feeds:1000) —
+    // `chain_hooks_callback(HOOK_PRE_SUBSCRIBE, …)` threads `$url` (by
+    // reference; the auth args are read-only) through *every* hook, so all run.
+    // No shipped plugin overrides it, so this is a no-op for the stock set.
+    {
+        let system: Vec<String> = cfg
+            .plugins
+            .split(',')
+            .map(|s| s.trim().to_lowercase())
+            .filter(|s| !s.is_empty())
+            .collect();
+        let mut ctx = crate::pluginhost::dispatch::owner_ctx_from(
+            Arc::clone(plugins),
+            pool.clone(),
+            cfg.clone(),
+            &system,
+            &cfg.self_url,
+            uid as i32,
+        )
+        .await;
+        let host = ctx.host_arc();
+        for idx in ctx.hook_order(HOOK_PRE_SUBSCRIBE) {
+            let _handled = host
+                .plugin(idx)
+                .hook_pre_subscribe(&mut ctx, &mut url, auth_login, auth_pass)
+                .await;
+        }
+    }
 
     // `$contents = UrlHelper::fetch(['url', 'login', 'pass'])` (default timeout).
     let res = crate::urlhelper::fetch(&crate::urlhelper::FetchOptions {
@@ -1135,7 +1165,6 @@ pub async fn subscribe(
 
     // `if (str_contains($fetch_last_content_type, "html") && _is_html($contents))`
     // — an HTML page: discover the feed link(s).
-    let mut url = url;
     if res.content_type.to_lowercase().contains("html") && is_html(&contents) {
         let feed_urls = get_feeds_from_html(&url, &contents);
         if feed_urls.is_empty() {

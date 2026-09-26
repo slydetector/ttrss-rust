@@ -599,6 +599,20 @@ pub async fn fetch_one_feed(
             DEBUG_LEVEL_VERBOSE,
             "feed data has been modified by a plugin.".into(),
         );
+        // `dump_feed_xml` for this path (M7.22 item 8): mirrors the PHP's
+        // before/after-hooks dump — before is empty (no fetch happened), after
+        // is the plugin's data.
+        if flags.dump_feed_xml {
+            dlog(log.as_deref_mut(), DEBUG_LEVEL_VERBOSE, "feed data before hooks:".into());
+            dlog(log.as_deref_mut(), DEBUG_LEVEL_VERBOSE, DEBUG_SEPARATOR.into());
+            dlog(log.as_deref_mut(), DEBUG_LEVEL_VERBOSE, DEBUG_SEPARATOR.into());
+            dlog(log.as_deref_mut(), DEBUG_LEVEL_VERBOSE, "feed data after hooks:".into());
+            dlog(log.as_deref_mut(), DEBUG_LEVEL_VERBOSE, DEBUG_SEPARATOR.into());
+            if let Some(l) = log.as_deref_mut() {
+                l.xml(plugin_feed_data.clone());
+            }
+            dlog(log.as_deref_mut(), DEBUG_LEVEL_VERBOSE, DEBUG_SEPARATOR.into());
+        }
         let feed_data = plugin_feed_data.trim().to_string();
         let result = process_feed(
             pool,

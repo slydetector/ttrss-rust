@@ -19,7 +19,8 @@ use ttrss::core::db::Db;
 use ttrss::feeds::subscribe;
 use ttrss::pluginhost::host::HostCtx;
 use ttrss::pluginhost::{
-    About, Plugin, PluginHost, HOOK_FETCH_FEED, HOOK_FEED_BASIC_INFO, HOOK_SUBSCRIBE_FEED,
+    About, Plugin, PluginHost, HOOK_FETCH_FEED, HOOK_FEED_BASIC_INFO, HOOK_PRE_SUBSCRIBE,
+    HOOK_SUBSCRIBE_FEED,
 };
 use ttrss::rss_utils::update_basic_info;
 use ttrss::updates::{fetch_one_feed, FeedUpdateFlags};
@@ -157,6 +158,43 @@ impl Plugin for BasicInfoStub {
         _auth_pass: &str,
     ) -> Value {
         json!({ "title": "STUB BASIC TITLE", "site_url": "http://basic.stub.example" })
+    }
+}
+
+/// Registers only `HOOK_PRE_SUBSCRIBE`; rewrites the subscription URL (in place)
+/// to `target` before the fetch. `target` is the (fetchable) mock feed URL —
+/// `PluginHost::startup` takes `fn()` items (no captures), so the target is
+/// carried as a field and the host is built via `new()` + `register`.
+struct PreSubscribeStub {
+    target: String,
+}
+
+#[async_trait]
+impl Plugin for PreSubscribeStub {
+    fn name(&self) -> &'static str {
+        "pre_subscribe_stub"
+    }
+    fn class_name(&self) -> &'static str {
+        "Pre_Subscribe_Stub"
+    }
+    fn about(&self) -> About {
+        About::new("stub (test)", "tester")
+    }
+    fn api_version(&self) -> i32 {
+        2
+    }
+    fn init(&self, host: &mut PluginHost) {
+        host.add_hook_default(HOOK_PRE_SUBSCRIBE);
+    }
+    async fn hook_pre_subscribe(
+        &self,
+        _host: &mut HostCtx,
+        url: &mut String,
+        _auth_login: &str,
+        _auth_pass: &str,
+    ) -> bool {
+        *url = self.target.clone();
+        true
     }
 }
 
@@ -344,6 +382,55 @@ async fn test_subscribe_feed_hook_transforms_content() {
             rc.get("code").and_then(|v| v.as_i64()),
             Some(1),
             "the hook's valid content should be parsed and the feed created: {rc}"
+        );
+        Ok(())
+    }))
+    .await
+    .unwrap();
+}
+
+// `subscribe` runs `HOOK_PRE_SUBSCRIBE` before the fetch: a plugin may rewrite
+// the subscription URL in place (`Feeds.php:1000`). Here the subscribed URL is
+// an unresolvable host; only the hook's rewrite (to the mock feed) can make the
+// fetch succeed, so a created feed proves the hook fired.
+#[tokio::test]
+async fn test_pre_subscribe_hook_rewrites_url_before_fetch() {
+    with_test_db(|url| Box::pin(async move {
+        let db = common::make_db_from_url(&url).await.expect("test db");
+        let mut cfg = test_config();
+        cfg.plugins = "pre_subscribe_stub".to_string();
+        let uid = create_user(&db, 430, 0).await;
+        let mock = MockServer::new(vec![Canned {
+            status: 200,
+            reason: "OK",
+            headers: vec![("content-type", "application/rss+xml".to_string())],
+            body: STUB_SUBSCRIBE_XML.as_bytes().to_vec(),
+        }]);
+
+        let mut host = PluginHost::new();
+        host.register(Box::new(PreSubscribeStub {
+            target: mock.url("/feed"),
+        }));
+        let host = Arc::new(host);
+
+        let rc = subscribe(
+            &cfg,
+            db.pool(),
+            &host,
+            uid as i64,
+            0,
+            "http://nonexistent.invalid/feed.xml",
+            0,
+            "",
+            "",
+            0,
+        )
+        .await;
+
+        let code = rc.get("code").and_then(|v| v.as_i64());
+        assert!(
+            code == Some(0) || code == Some(1),
+            "the hook's rewritten URL should be fetched and the feed created (got {code:?}): {rc}"
         );
         Ok(())
     }))
