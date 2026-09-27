@@ -184,6 +184,9 @@ pub async fn view(
         true,
     )
     .await;
+    // `Prefs::set` refreshes the in-process cache on every write (the PHP side
+    // effect, Feeds.php); invalidate so the next read reflects the view mode.
+    crate::prefs::invalidate(&state.prefs_cache, uid, profile);
 
     // Bump the login timestamp if it's over an hour old.
     if let Some(last_login_update) = data.get_int("last_login_update") {

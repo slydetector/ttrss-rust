@@ -989,5 +989,8 @@ pub async fn import(state: &AppState, sess: &Sess, file: Option<&[u8]>) -> Strin
             opml_notice(&mut body, &__("Error while parsing document."), 0);
         }
     }
+    // `OPML::opml_import` → `Prefs::set` refreshes the in-process cache; the
+    // import writes prefs to the default profile, so invalidate that entry.
+    crate::prefs::invalidate(&state.prefs_cache, uid, None);
     body
 }
