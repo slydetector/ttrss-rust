@@ -92,6 +92,13 @@ build: ## build the debug Rust server + harness (for tests / the differential ha
 build-server: ## build the server in $(PROFILE) (used by `run`)
 	cargo build $(CARGO_PROF) -p ttrss --bin ttrss
 
+.PHONY: clean
+clean: ## remove build + temp files (target/ via cargo clean; demo log/pid; *.rs.bk)
+	cargo clean
+	rm -f $(DEMO_LOG) $(DEMO_PID)
+	find . -name '*.rs.bk' -not -path './tt-rss/*' -not -path './tt-rss-android/*' -delete
+	@echo "removed target/ ($(PROFILE) + debug), $(DEMO_LOG), $(DEMO_PID), and any *.rs.bk"
+
 .PHONY: run
 run: build-server ## run the (release by default) Rust server (canonical env, port 8281)
 	TTRSS_DB_HOST=127.0.0.1 TTRSS_DB_PORT=5432 \
