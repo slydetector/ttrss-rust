@@ -282,6 +282,7 @@ fn build_control(name: &str, value: &str, ty: prefs::Type, ctx: &RenderCtx) -> S
             value,
             &ctx.translations,
             &[("style", "width : 220px; margin : 0px".to_string())],
+            "",
         ),
         prefs::USER_TIMEZONE => controls::select_tag(
             name,
@@ -295,7 +296,7 @@ fn build_control(name: &str, value: &str, ty: prefs::Type, ctx: &RenderCtx) -> S
             value
         ),
         prefs::USER_CSS_THEME => {
-            let select = controls::select_hash(name, value, &ctx.theme_opts, &[]);
+            let select = controls::select_hash(name, value, &ctx.theme_opts, &[], "");
             let btn_customize = controls::button_tag(
                 &format!("{} Customize", controls::icon("palette")),
                 "",
@@ -311,7 +312,7 @@ fn build_control(name: &str, value: &str, ty: prefs::Type, ctx: &RenderCtx) -> S
             );
             format!("{}{}{}", select, btn_customize, btn_more)
         }
-        prefs::DEFAULT_UPDATE_INTERVAL => controls::select_hash(name, value, &ctx.intervals, &[]),
+        prefs::DEFAULT_UPDATE_INTERVAL => controls::select_hash(name, value, &ctx.intervals, &[], ""),
         prefs::DEFAULT_SEARCH_LANGUAGE => controls::select_tag(name, value, &ctx.ts_languages, &[]),
         _ if ty == prefs::Type::Bool => {
             let is_disabled = name == "PURGE_UNREAD_ARTICLES" && ctx.force_purge != 0;

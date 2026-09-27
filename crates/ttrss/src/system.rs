@@ -151,6 +151,7 @@ async fn log_viewer(state: &AppState, sess: &Sess, page: i64, severity: i64) -> 
         &severity.to_string(),
         &sev_values,
         &[("onchange", "Helpers.EventLog.refresh()".to_string())],
+        "severity",
     );
 
     let mut out = String::new();

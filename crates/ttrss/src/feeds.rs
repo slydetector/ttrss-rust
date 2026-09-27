@@ -3060,7 +3060,8 @@ pub async fn editfeeds(state: &AppState, sess: &Sess, extra: &Map<String, Value>
             "update_interval",
             "",
             &update,
-            &[("disabled", "1".to_string())]
+            &[("disabled", "1".to_string())],
+            ""
         )),
     );
     ctx.insert(
@@ -3073,7 +3074,8 @@ pub async fn editfeeds(state: &AppState, sess: &Sess, extra: &Map<String, Value>
             "purge_interval",
             "",
             &purge,
-            &[("disabled", "1".to_string())]
+            &[("disabled", "1".to_string())],
+            ""
         )),
     );
     ctx.insert(

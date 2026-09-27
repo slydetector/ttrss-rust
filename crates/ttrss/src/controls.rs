@@ -98,6 +98,7 @@ pub fn select_hash(
     value: &str,
     values: &[(String, String)],
     attributes: &[(&str, String)],
+    id: &str,
 ) -> String {
     let attrs_str = attributes_to_string(attributes);
     let dojo_type = if attrs_str.contains("dojoType") {
@@ -106,9 +107,10 @@ pub fn select_hash(
         "dojoType='fox.form.Select' "
     };
     let mut rv = format!(
-        "<select {}name=\"{}\"\n         id=\"\" name=\"{}\" {}>",
+        "<select {}name=\"{}\"\n         id=\"{}\" name=\"{}\" {}>",
         dojo_type,
         util::htmlspecialchars(name),
+        util::htmlspecialchars(id),
         util::htmlspecialchars(name),
         attrs_str
     );
