@@ -730,15 +730,23 @@ async fn opml_import_feed(db: &Db, uid: i64, node: &XmlNode, cat_id: i64, body: 
         .ok();
 }
 
-/// `OPML::opml_import_preference` — set a user pref from `pref-name` / `value`.
-async fn opml_import_preference(db: &Db, uid: i64, node: &XmlNode, body: &mut String, depth: usize) {
+/// `OPML::opml_import_preference` — set a user pref from `pref-name` / `value`
+/// (PHP writes to the active profile: `$_SESSION['profile'] ?? null`).
+async fn opml_import_preference(
+    db: &Db,
+    uid: i64,
+    profile: Option<i32>,
+    node: &XmlNode,
+    body: &mut String,
+    depth: usize,
+) {
     let pref_name = match attr(node, "pref-name") {
         Some(n) => n,
         None => return,
     };
     let pref_value = attr(node, "value").unwrap_or("");
     opml_notice(body, &format!("Setting preference key {pref_name} to {pref_value}"), depth);
-    crate::prefs::set(db, pref_name, pref_value, uid, None, true).await;
+    crate::prefs::set(db, pref_name, pref_value, uid, profile, true).await;
 }
 
 /// `OPML::opml_import_label` — create a label from `label-name` / `label-fg-color`
@@ -908,7 +916,14 @@ async fn opml_import_filter(db: &Db, uid: i64, node: &XmlNode, body: &mut String
 /// in place of the PHP recursion), creating categories and importing feeds / labels /
 /// prefs / filters. A node with `text`/`title` and no `xmlUrl` is a category (or one
 /// of the three settings sections); everything else is a feed or settings item.
-async fn opml_import_category(db: &Db, uid: i64, nodes: &[XmlNode], root: usize, body: &mut String) {
+async fn opml_import_category(
+    db: &Db,
+    uid: i64,
+    profile: Option<i32>,
+    nodes: &[XmlNode],
+    root: usize,
+    body: &mut String,
+) {
     let default_cat_id = get_feed_category(db, "Imported feeds", uid, 0).await;
     let mut stack: Vec<(Vec<usize>, i64, Option<String>, usize)> =
         vec![(body_outlines(nodes, root), 0, None, 0)];
@@ -952,7 +967,7 @@ async fn opml_import_category(db: &Db, uid: i64, nodes: &[XmlNode], root: usize,
                 let dst_cat_id = if cat_id != 0 { cat_id } else { default_cat_id };
                 match cat_title.as_deref() {
                     Some("tt-rss-prefs") => {
-                        opml_import_preference(db, uid, node, body, depth + 1).await
+                        opml_import_preference(db, uid, profile, node, body, depth + 1).await
                     }
                     Some("tt-rss-labels") => {
                         opml_import_label(db, uid, node, body, depth + 1).await
@@ -979,18 +994,20 @@ pub async fn import(state: &AppState, sess: &Sess, file: Option<&[u8]>) -> Strin
     let Some(bytes) = file else {
         return format_error("Upload failed with error code 4", "");
     };
+    // PHP `OPML::opml_import_preference` writes to `$_SESSION['profile'] ?? null`.
+    let profile = sess.data().profile().map(|p| p as i32);
     let text = String::from_utf8_lossy(bytes);
     let mut body = String::new();
     match parse_opml(&text) {
         Ok((nodes, root)) => {
-            opml_import_category(&state.db, uid, &nodes, root, &mut body).await;
+            opml_import_category(&state.db, uid, profile, &nodes, root, &mut body).await;
         }
         Err(_) => {
             opml_notice(&mut body, &__("Error while parsing document."), 0);
         }
     }
-    // `OPML::opml_import` → `Prefs::set` refreshes the in-process cache; the
-    // import writes prefs to the default profile, so invalidate that entry.
-    crate::prefs::invalidate(&state.prefs_cache, uid, None);
+    // `OPML::opml_import` → `Prefs::set` refreshes the in-process cache for the
+    // active profile (PHP OPML.php:331 writes to `$_SESSION['profile'] ?? null`).
+    crate::prefs::invalidate(&state.prefs_cache, uid, profile);
     body
 }
