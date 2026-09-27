@@ -400,9 +400,21 @@ async fn dispatch(
             "addcat" => DispatchOutput::Json(feeds::add_cat(state, sess, extra).await),
             "renamecat" => DispatchOutput::Json(feeds::rename_cat(state, sess, extra).await),
             "removecat" => DispatchOutput::Json(feeds::remove_cat(state, sess, extra).await),
-            "catsortreset" => DispatchOutput::Json(feeds::catsortreset(state, sess, extra).await),
-            "feedsortreset" => DispatchOutput::Json(feeds::feedsortreset(state, sess, extra).await),
-            "savefeedorder" => DispatchOutput::Json(feeds::savefeedorder(state, sess, extra).await),
+            // PHP `Pref_Feeds::{catsortreset,feedsortreset,savefeedorder}(): void` —
+            // backend.php never echoes a void handler's return → empty body. The
+            // port's old `Json(…)` success ack was a deviation.
+            "catsortreset" => {
+                let _ = feeds::catsortreset(state, sess, extra).await;
+                DispatchOutput::Raw(StatusCode::OK, None, String::new())
+            }
+            "feedsortreset" => {
+                let _ = feeds::feedsortreset(state, sess, extra).await;
+                DispatchOutput::Raw(StatusCode::OK, None, String::new())
+            }
+            "savefeedorder" => {
+                let _ = feeds::savefeedorder(state, sess, extra).await;
+                DispatchOutput::Raw(StatusCode::OK, None, String::new())
+            }
             "removeicon" => DispatchOutput::Json(feeds::remove_icon(state, sess, extra).await),
             "uploadicon" => {
                 DispatchOutput::Json(feeds::upload_icon(state, sess, extra, file).await)
@@ -485,7 +497,9 @@ async fn dispatch(
             }
             "remove" => {
                 let _ = labels::remove_labels(state, sess, extra).await;
-                DispatchOutput::TextHtml(String::new())
+                // PHP `Pref_Labels::remove(): void` — no echo → empty body
+                // (Content-Type application/json, like every backend.php reply).
+                DispatchOutput::Raw(StatusCode::OK, None, String::new())
             }
             _ => DispatchOutput::Json(unknown_method("Pref_Labels", method)),
         },
@@ -641,7 +655,10 @@ async fn dispatch(
             }
             "clearlog" => {
                 system::clear_log(state).await;
-                DispatchOutput::Json(json!({ "status": "OK" }))
+                // PHP `Pref_System::clearLog(): void` — backend.php:136 invokes
+                // the handler but never echoes its (absent) return, so the
+                // response body is empty (not a success JSON).
+                DispatchOutput::Raw(StatusCode::OK, None, String::new())
             }
             "sendtestemail" => DispatchOutput::Json(system::send_test_email()),
             "getphpinfo" => DispatchOutput::Html(system::get_php_info(state)),
