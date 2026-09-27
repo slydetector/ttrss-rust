@@ -147,7 +147,7 @@ pub async fn index(
         "prefUsersToolbar",
     )
     .await;
-    let _tabs = crate::pluginhost::dispatch::prefs_chain(
+    let tabs = crate::pluginhost::dispatch::prefs_chain(
         state,
         sess,
         crate::pluginhost::HOOK_PREFS_TAB,
@@ -166,10 +166,12 @@ pub async fn index(
         &INDEX_POST
             .replace("@CREATE_USER@", &create_user)
             .replace("@REMOVE@", &remove_lbl)
-            .replace("@RESET_PW@", &reset_pw)
-            .replace("#[__pref_users_toolbar__]", &toolbar),
+            .replace("@RESET_PW@", &reset_pw),
     );
-    out.push_str(INDEX_POST_SECTION);
+    // The `prefUsersToolbar` hook site (`HOOK_PREFS_TAB_SECTION`) sits at the
+    // start of INDEX_POST_SECTION (after the "Reset password" button); splice
+    // the hook chain's output in there.
+    out.push_str(&INDEX_POST_SECTION.replace("[__pref_users_toolbar__]", &toolbar));
 
     for r in &rows {
         let id: i32 = r.get(0);
@@ -197,7 +199,9 @@ pub async fn index(
         );
     }
 
-    out.push_str(INDEX_FOOTER);
+    // The `prefUsers` tab hook site (`HOOK_PREFS_TAB`) sits in INDEX_FOOTER
+    // (after the table); splice the hook chain's output in there.
+    out.push_str(&INDEX_FOOTER.replace("#[__pref_users_tabs__]", &tabs));
     out
 }
 
