@@ -282,3 +282,51 @@ async fn test_resetconfig_discards_overrides() {
         Ok(())
     })).await.unwrap();
 }
+
+/// Regression (the "Customize stylesheet" dialog): `RPC::setpref` must refresh
+/// the per-process prefs cache on write, exactly like PHP `Prefs::_set` does via
+/// `_set_cache`. Before the fix it persisted the pref (e.g. `USER_STYLESHEET`)
+/// but left the cache holding the pre-save rows, so the next page render kept
+/// serving the old shell until a process restart.
+///
+/// The cache is `pub(crate)` and `USER_STYLESHEET` has no public read path, so
+/// this observes the same key-agnostic invalidation through a public cache
+/// reader: `resolve_user_locale` resolves `USER_LANGUAGE` from the cached rows.
+#[tokio::test]
+async fn test_set_pref_refreshes_prefs_cache() {
+    with_test_db(|url| Box::pin(async move {
+        let db = common::make_db_from_url(&url).await.expect("test db");
+        // Real `tt-rss` docroot so the i18n cache sees the shipped locales
+        // (`resolve_user_locale` only resolves a non-English `USER_LANGUAGE`
+        // when that locale is available).
+        let mut cfg = common::test_config();
+        cfg.docroot =
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..").join("tt-rss");
+        let state = AppState::new(cfg, db);
+        let mut data = ttrss::core::session::Session::new();
+        data.set("uid", ttrss::core::phpser::Value::Int(1));
+        let sess = Sess::new("test-sid".to_string());
+        sess.replace("test-sid".to_string(), data);
+
+        // Prime the cache with the current (no `USER_LANGUAGE`) rows → None.
+        let before = ttrss::i18n::resolve_user_locale(&state, 1, None, None).await;
+        assert_eq!(before, None, "no locale before the write");
+
+        // Save `USER_LANGUAGE` through the same RPC the customize dialog uses.
+        let _ = ttrss::settings::set_pref(
+            &state,
+            &sess,
+            &request(&[("key", json!("USER_LANGUAGE")), ("value", json!("de_DE"))]),
+        )
+        .await;
+
+        // The cache must now reflect the write (not the pre-save rows).
+        let after = ttrss::i18n::resolve_user_locale(&state, 1, None, None).await;
+        assert_eq!(
+            after,
+            Some("de_DE".to_string()),
+            "USER_LANGUAGE should resolve from the (refreshed) cache after set_pref"
+        );
+        Ok(())
+    })).await.unwrap();
+}

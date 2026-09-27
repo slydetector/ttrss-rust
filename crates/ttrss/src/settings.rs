@@ -588,6 +588,10 @@ pub async fn set_pref(state: &AppState, sess: &Sess, extra: &Map<String, Value>)
         key != prefs::USER_STYLESHEET,
     )
     .await;
+    // PHP `Prefs::_set` updates the in-process cache on every write, so a pref
+    // saved here (e.g. the customize-stylesheet USER_STYLESHEET) is reflected on
+    // the next page render without a process restart.
+    crate::prefs::invalidate(&state.prefs_cache, uid, profile);
     json!({ "param": key, "value": value })
 }
 
@@ -607,6 +611,8 @@ pub async fn toggle_pref(state: &AppState, sess: &Sess, extra: &Map<String, Valu
         true,
     )
     .await;
+    // `Prefs::_set` refreshes the in-process cache on write (see `set_pref`).
+    crate::prefs::invalidate(&state.prefs_cache, uid, profile);
     let rows = prefs::load_rows(&state.db, uid, profile).await;
     json!({ "param": key, "value": prefs::resolve(&key, &rows, profile).to_json() })
 }
@@ -625,6 +631,8 @@ pub async fn set_widescreen(state: &AppState, sess: &Sess, extra: &Map<String, V
         true,
     )
     .await;
+    // `Prefs::_set` refreshes the in-process cache on write (see `set_pref`).
+    crate::prefs::invalidate(&state.prefs_cache, uid, profile);
     json!({ "wide": wide })
 }
 
