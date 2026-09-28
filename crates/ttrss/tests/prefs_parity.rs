@@ -1,6 +1,6 @@
 //! Test parity: 1:1 port of the DB-backed cases in
 //! `tt-rss/tests_integration/PrefsTest.php` — the 14 cases the test-parity
-//! program (docs/plan.md, row 3) parked as the `server::prefs` REVISIT
+//! program (docs/01-plan.md, row 3) parked as the `server::prefs` REVISIT
 //! ledger. They exercise `Prefs::set` / `reset` / `get_all` (DB writes and
 //! reads), now ported to `ttrss::prefs`.
 //!

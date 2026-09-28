@@ -4,8 +4,8 @@ Rust re-implementation of the [tt-rss](https://github.com/tt-rss/tt-rss) (Tiny T
 server backend. The existing PHP codebase in `tt-rss/` is the frozen reference
 implementation and specification; the Dojo/JS frontend is served unchanged.
 
-See `docs/plan.md` (delivery plan), `docs/research-report.md` (methodology), and
-`docs/test-coverage-audit.md` (reference test baseline).
+See `docs/01-plan.md` (delivery plan), `docs/02-research-report.md` (methodology), and
+`docs/03-test-coverage-audit.md` (reference test baseline).
 
 ## Layout
 
@@ -70,7 +70,7 @@ make diff ARGS=--a <run-a> --b <run-b>
   ETag/304 + encrypted DB sessions with rolling cookie re-stamp). The full
   login/logout/session surface diffs clean against the oracle; the corpus is
   now 61 steps (admin is frictionless; a dedicated `otpuser` exercises the
-  OTP challenge + code path). See `docs/plan.md` (M1 status section).
+  OTP challenge + code path). See `docs/01-plan.md` (M1 status section).
 - Next: **M2 read-only UI on real data** — the `backend.php` RPC surface
   (`getFeedTree`, `Feeds.view`, …) + external API read ops so the feed tree
   and headlines render on the golden dataset.

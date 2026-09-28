@@ -4,7 +4,7 @@
 //! The PHP loads the XML into a `DOMDocument` and locates nodes with
 //! `DOMXPath` / `getElementsByTagName`. `roxmltree` has no XPath, so each query
 //! is translated to a (namespace, local-name) tree walk (see the module doc in
-//! `mod.rs` and `docs/feedparser-spike.md`).
+//! `mod.rs` and `docs/08-feedparser-spike.md`).
 //!
 //! `roxmltree`'s `Document<'input>` borrows from the input, so [`FeedParser`]
 //! and [`FeedItem`] carry the input lifetime.

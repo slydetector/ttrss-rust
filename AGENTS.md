@@ -111,7 +111,7 @@ For UX-level truth (rendered DOM, XHR bodies, JS errors), drive the app in a
 real browser with the MCP `mcp_chrome_*` tools — snapshot for stable node
 `uid`s, act by `uid`, read ground truth from the network log and console. The
 response **body** (not the HTTP status) is the source of truth. See
-`docs/browser-debugging.md`; `browser/diff_rpc_surface.py` diffs the app's RPC
+`docs/07-browser-debugging.md`; `browser/diff_rpc_surface.py` diffs the app's RPC
 surface against the backend dispatch to spot unhandled (op, method) without
 clicking every path.
 
@@ -135,7 +135,7 @@ is the spec and lands *with* the code, not after. Mirror each matching PHP
 `#[test]` into Rust (same inputs, same expected values):
 
 - PHP tests: `tt-rss/{tests,tests_functional,tests_integration,tests/integration,tests/mocked}/`;
-  `docs/plan.md` (the test-parity board) tracks the PHP-suite → Rust-module map.
+  `docs/01-plan.md` (the test-parity board) tracks the PHP-suite → Rust-module map.
 - A PHP case the port omits is kept as `// TODO(port): …` or a named `NOTE`,
   never silently dropped. A broken PHP test is ported with the corrected
   expectation + a `NOTE`.

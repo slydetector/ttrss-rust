@@ -61,7 +61,7 @@ limit already does that for ≤1000 feeds — so B's remaining value is for
 ## 4. Non-goals / constraints
 
 - Default behavior must stay PHP-faithful → any B variant goes behind a gate
-  (default off) and gets a `plan.md` NOTE.
+  (default off) and gets a `01-plan.md` NOTE.
 - Selection, claim (10-min `last_update_started`), ordering, per-feed fetch
   semantics are unchanged by every option — only passes-per-tick differ.
 - The claim mechanism gives drains natural progress + backpressure: a batch's

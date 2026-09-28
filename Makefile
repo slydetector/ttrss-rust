@@ -170,7 +170,7 @@ demo-follow: ## follow the demo server's log output (tail -f)
 	@tail -n 50 -f $(DEMO_LOG)
 
 # --- shadow (prod-data confidence run) ---------------------------------------
-# Everything lives under shadow/ (see docs/shadow-prod.md). Prod creds go in the
+# Everything lives under shadow/ (see docs/10-shadow-prod.md). Prod creds go in the
 # gitignored shadow/.env (create from shadow/.env.example). The drift preflight
 # hard-fails unless prod's ttrss_version.schema_version == EXPECTED_SCHEMA_VERSION.
 SHADOW_SCRIPT := shadow/shadow.sh

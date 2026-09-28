@@ -1,7 +1,7 @@
 //! M6c.7 — the lightweight batch smoke test (the §1 exit criterion).
 //!
 //! Replaces the dropped "golden-file parity of an update run" full-DB diff
-//! (`docs/unified-architecture.md` §1): feed the pipeline a fixture *batch* of
+//! (`docs/05-unified-architecture.md` §1): feed the pipeline a fixture *batch* of
 //! feeds and assert a handful of **aggregate / cross-feed invariants** — the
 //! total new entries, a specific known article present, the counter (unread)
 //! totals, and one cross-feed dedup hit. This catches *wiring* and *emergent /

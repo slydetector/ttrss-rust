@@ -10,7 +10,7 @@
 //!
 //! `roxmltree` has no XPath, so each PHP `DOMXPath` query is translated to a
 //! (namespace, local-name) tree walk. The one subtlety (worked out in
-//! `docs/feedparser-spike.md` and verified against the PHP test fixtures):
+//! `docs/08-feedparser-spike.md` and verified against the PHP test fixtures):
 //! - **Unprefixed** references (`//channel`, `//channel/item`,
 //!   `getElementsByTagName("…")`) match by **local name in any namespace** —
 //!   this reproduces libxml's namespace-agnostic matching that lets the PHP

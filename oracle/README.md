@@ -143,7 +143,7 @@ marked `skip = true` are kept for re-enablement but not executed or diffed)
   otpuser login (OTP challenge 200 → code 302), shell, logout.
   Skipped: checkforupdates (011, live GitHub data), digest preview (032,
   time-window drift), the admin logout flow (051–052), and the otpuser
-  flow (058–061) — see `docs/plan.md` (harness triage).
+  flow (058–061) — see `docs/01-plan.md` (harness triage).
 
 Run it:
 

@@ -223,7 +223,7 @@ Research findings (sources: tt-rss Installation Guide<sup>16</sup>, repo
 
 Replaces the earlier phase list. Rule: **each milestone ends with a live,
 demoable end-to-end system** and a green oracle-diff harness for everything it
-claims. (Detailed per-milestone work items live in plan.md §3, which will be
+claims. (Detailed per-milestone work items live in 01-plan.md §3, which will be
 updated to this ladder.)
 
 | M | Milestone | Demo / exit criteria |

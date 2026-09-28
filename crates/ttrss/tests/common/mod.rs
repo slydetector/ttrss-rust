@@ -1,5 +1,5 @@
 //! Shared setup for the DB-backed parity test binaries (the test-parity
-//! program in `docs/plan.md`, rows 8–14).
+//! program in `docs/01-plan.md`, rows 8–14).
 //!
 //! The `#[ctor]` function (which runs before the test harness's `main`)
 //! starts/attaches to the dedicated test Postgres, exports `DATABASE_URL`,

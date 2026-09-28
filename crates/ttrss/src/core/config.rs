@@ -66,7 +66,7 @@ pub struct Config {
     // TODO(soc): plugin-scoped knob (PHP owns the const in the `auth_remote`
     // plugin, read via `Config::get(self::AUTH_REMOTE_POST_LOGOUT_URL)`),
     // hoisted into the global Config. Move to a dedicated plugin-config layer
-    // when a second plugin knob motivates it (tracked in docs/plan.md).
+    // when a second plugin knob motivates it (tracked in docs/01-plan.md).
     pub auth_remote_post_logout_url: String,
 
     /// `Config::PLUGINS` (T_STRING): the comma-separated list of

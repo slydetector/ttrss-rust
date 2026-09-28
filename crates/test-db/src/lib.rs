@@ -1,7 +1,7 @@
 //! Test support for ttrss: a **dedicated** Postgres server for the
-//! DB-backed parity suites (test-parity rows 8–14 in `docs/plan.md`).
+//! DB-backed parity suites (test-parity rows 8–14 in `docs/01-plan.md`).
 //!
-//! Design (see `docs/plan.md`, "Test infrastructure for DB-backed suites"):
+//! Design (see `docs/01-plan.md`, "Test infrastructure for DB-backed suites"):
 //!
 //! - [`PgServer`] — a Postgres instance dedicated to tests, fully separate
 //!   from the oracle stack:

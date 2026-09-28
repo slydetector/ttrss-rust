@@ -266,7 +266,7 @@ the 10-connection pool with web requests.
   `FeedParser` is actually `DOMDocument` + `DOMXPath` with registered
   namespaces; a namespace-aware **DOM** crate (e.g. `roxmltree`) fits, with
   the bounded set of queries ported as explicit tree walks. (See
-  `docs/plan.md`, M6; and the separate parser decision.)
+  `docs/01-plan.md`, M6; and the separate parser decision.)
 - **Decouple three layers** so the architecture choice doesn't block progress:
   - **M6a — parser** (`FeedParser` + `FeedItem_*`): pure, testable,
     architecture-independent.

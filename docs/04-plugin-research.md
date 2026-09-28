@@ -6,7 +6,7 @@ port (a compiled, long-lived server) versus the frozen PHP reference
 be settled for **runtime parity** — i.e. the app behaves the same with the same
 plugins active.
 
-**Scope note.** Per `docs/plan.md`, community PHP plugins are *not* run under
+**Scope note.** Per `docs/01-plan.md`, community PHP plugins are *not* run under
 Rust; we port a set of first-party plugins to Rust and expose a Rust plugin
 API. That scoping materially relaxes the "compiled vs interpreted" problem
 (§6): we control the plugins, so no general-purpose sandbox or foreign

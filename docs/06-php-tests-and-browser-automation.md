@@ -8,7 +8,7 @@ PHP suite and its gaps; Part B proposes a lightweight browser-automation layer.
 
 > **Status note (maintained):** the PHP-suite inventory (§2) and the Part B browser design
 > are stable. The test-parity figures quoted below are a snapshot as of **2026-09-07**;
-> `docs/plan.md` (the parity program + remaining-coverage tables) is the maintained source
+> `docs/01-plan.md` (the parity program + remaining-coverage tables) is the maintained source
 > of truth for counts/rows, and since that date M5 (external API + admin) has largely completed.
 
 ---
@@ -21,7 +21,7 @@ PHP suite and its gaps; Part B proposes a lightweight browser-automation layer.
    synthetic data, handler invocation through the real router, live-API tests). It covers the
    backend logic the Rust port re-implements **very deeply** (sanitizer 256, feed parsing ~282,
    helpers ~300, DB-backed behavior ~550) — and the port has already consumed most of it via the
-   test-parity program (15/15 rows ported; `docs/plan.md` tracks the maintained count).
+   test-parity program (15/15 rows ported; `docs/01-plan.md` tracks the maintained count).
 2. **What it does *not* cover is exactly what the user judges the port by:** the browser
    (SPA boot, feed tree, counters, article rendering, prefs), the update engine end-to-end (its
    one integration test is *disabled* — file named `UpdateRssFeedIntegrationTest.php~`),
@@ -145,7 +145,7 @@ Per-file counts (significant files):
 
 ### 2.3 Mapping to the Rust port (parity status)
 
-From `docs/plan.md` (parity program — 15/15 rows ported and green; the maintained count lives there):
+From `docs/01-plan.md` (parity program — 15/15 rows ported and green; the maintained count lives there):
 
 | PHP suite(s) | Count | Rust status |
 | --- | --- | --- |
@@ -449,7 +449,7 @@ golden-DB workflow plus one pinned browser.
 - `tests/MockedDepsBootstrap.php`, `phpunit.xml`, `phpunit.integration.xml`
 - `tests/integration/selenium_test.py` (74 lines; Selenium Grid; 3 tests)
 - `tests_integration/UpdateRssFeedIntegrationTest.php~` (disabled; update-engine spec)
-- `docs/plan.md` (parity program rows 1–15; per-module status)
+- `docs/01-plan.md` (parity program rows 1–15; per-module status)
 
 **Browser automation (web research, 2026):**
 

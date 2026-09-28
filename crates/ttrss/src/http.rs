@@ -1112,7 +1112,7 @@ mod tests {
     // NOTE: the PHP `matches_self_url` also IDN-normalizes hosts (Punycode vs
     // Unicode, `idn_to_ascii(..., UTS46)`) — `url::Url` keeps the host as
     // written, so 'https://xn--mller-kva.com' vs 'https://müller.com' is not
-    // matched here. REVISIT (IDN normalization) — tracked in docs/plan.md.
+    // matched here. REVISIT (IDN normalization) — tracked in docs/01-plan.md.
 
     // NOTE: the `test_cast_to_int/string/bool` cases from ConfigTest.php exercise
     // `Config::cast_to`, whose logic this port keeps in `prefs::cast` — already
@@ -1123,9 +1123,9 @@ mod tests {
     // ConfigTest.php exercise the PHP `Config::get_self_url()` (which detects the
     // self URL from $_SERVER / is_server_https) and `Config::get_self_dir()`.
     // The Rust port takes SELF_URL_PATH + docroot from the environment instead,
-    // so these are N/A here. Tracked in docs/plan.md (test-parity, config row).
+    // so these are N/A here. Tracked in docs/01-plan.md (test-parity, config row).
 
-    // FunctionsTest.php — ported 1:1 (tracked in docs/plan.md, test-parity,
+    // FunctionsTest.php — ported 1:1 (tracked in docs/01-plan.md, test-parity,
     // functions row): clean (10, server::util), truncate_string (11,
     // headlines::tests), truncate_middle (7), mb_substr_replace (6),
     // arr_qmarks (6), uniqid_short (4), get_random_bytes (3), t_sprintf (2),

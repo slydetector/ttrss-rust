@@ -240,7 +240,7 @@ mod tests {
     // ── N/A / REVISIT (REVISIT) ──────────────────────────────────────────────
     // These CryptTest.php cases exercise the PHP `Crypt` class's config lookup,
     // base64 codec, and `algo` whitelist — behavior this port keeps in the
-    // *caller* (session/DB layer). Tracked in docs/plan.md (test-parity,
+    // *caller* (session/DB layer). Tracked in docs/01-plan.md (test-parity,
     // core::crypt row). Revisit when the Rust session/DB layer owns the codec:
     //   test_generate_key_returns_valid_length / _produces_unique_keys
     //   (key generation is config-provided here, not a Crypt::generate_key)
