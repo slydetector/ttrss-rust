@@ -11,7 +11,8 @@
 use crate::core::phpser::Value;use crate::i18n::{__};
 
 use crate::core::session as core_session;
-use crate::util::{ct_eq, now_unix};
+use crate::core::config::Config;
+use crate::util::{ct_eq, now_unix, php_int_cast};
 use sqlx::Row;
 use crate::{
     api, auth, diskcache, forgotpass, mime, nocache_headers, render, rpc, session, syndication,
@@ -499,14 +500,11 @@ async fn public_handler(
         // `Handler_Public::cached` — serve `<CACHE_DIR>/<subdir>/<file>`.
         "cached" => cached_file(&state, query.file.as_deref()),
         // `Handler_Public::feed_icon` — serve `<CACHE_DIR>/feed-icons/<id>`.
-        "feed_icon" => match query
+        "feed_icon" => query
             .id
             .as_deref()
-            .map(|id| state.config.feed_icon_dir().join(id.trim()))
-        {
-            Some(path) if path.file_name().is_some() => diskcache::send_file(&path),
-            _ => StatusCode::NOT_FOUND.into_response(),
-        },
+            .map(|id| feed_icon_response(&state.config, id))
+            .unwrap_or_else(|| StatusCode::NOT_FOUND.into_response()),
         // `Handler_Public::rss` — syndicated Atom/JSON feed (access-key gated).
         "rss" => {
             let req = syndication::RssRequest {
@@ -551,6 +549,23 @@ fn cached_file(state: &AppState, file: Option<&str>) -> Response {
     match file.and_then(|f| diskcache::resolve_cached(&state.config.cache_dir, f)) {
         Some(path) => diskcache::send_file(&path),
         None => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+/// `Handler_Public::feed_icon` — serve `<CACHE_DIR>/feed-icons/<id>`, or 404.
+///
+/// The reference does `$id = (int)$_REQUEST['id']`; the "Upload new icon"
+/// preview URL carries a cache-buster appended *after* `&id=…` (e.g.
+/// `…public.php?op=feed_icon&id=12?ts=1699…`), so the raw `id` param is
+/// `12?ts=1699…`. Cast it to an integer first (PHP `(int)`) so the lookup opens
+/// `feed-icons/12` rather than a literal `feed-icons/12?ts=…` path that 404s —
+/// which is exactly what left the upload preview a broken image.
+fn feed_icon_response(cfg: &Config, id: &str) -> Response {
+    let path = cfg.feed_icon_dir().join(php_int_cast(id).to_string());
+    if path.file_name().is_some() {
+        diskcache::send_file(&path)
+    } else {
+        StatusCode::NOT_FOUND.into_response()
     }
 }
 
@@ -1147,5 +1162,50 @@ mod tests {
         // CSS, the prefs page correctly gets none.
         assert!(!shell_css.is_empty(), "share.css expected in the shell");
         assert!(prefs_css.is_empty(), "share has no share_prefs.css");
+    }
+
+    /// Regression for the broken "Upload new icon" preview: the preview URL
+    /// the `uploadIcon` handler builds is malformed — the `?ts=` cache-buster
+    /// is appended *after* `&id=…`, so the raw `id` query param is e.g.
+    /// `12?ts=1699…`. `feed_icon_response` must cast that to an integer (PHP
+    /// `(int)`, mirroring `Handler_Public::feed_icon`) so it resolves to
+    /// `feed-icons/12`; treating the raw string as a filename 404'd (the bug).
+    #[test]
+    fn feed_icon_resolves_the_malformed_preview_id() {
+        use base64::{engine::general_purpose::STANDARD, Engine as _};
+        // A 1×1 transparent PNG, so `send_file`'s media-type guard passes → 200.
+        let png = STANDARD
+            .decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==")
+            .unwrap();
+        let dir = std::env::temp_dir().join(format!("ttrss-feedicon-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let icon_dir = dir.join("feed-icons");
+        std::fs::create_dir_all(&icon_dir).unwrap();
+        std::fs::write(icon_dir.join("12"), &png).unwrap();
+        let cfg = Config {
+            cache_dir: dir.clone(),
+            ..Default::default()
+        };
+
+        // The real upload-preview shape: `…&id=12?ts=1699…` → raw id `12?ts=…`.
+        assert_eq!(
+            feed_icon_response(&cfg, "12?ts=1790567389").status(),
+            StatusCode::OK,
+            "malformed id?ts=… must serve feed-icons/12, not 404"
+        );
+        // A clean id also works.
+        assert_eq!(feed_icon_response(&cfg, "12").status(), StatusCode::OK);
+        // A feed with no cached icon 404s.
+        assert_eq!(
+            feed_icon_response(&cfg, "999").status(),
+            StatusCode::NOT_FOUND
+        );
+        // Non-numeric / traversal ids collapse to 0 → no file → 404 (no escape).
+        assert_eq!(
+            feed_icon_response(&cfg, "../etc/passwd").status(),
+            StatusCode::NOT_FOUND
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
