@@ -25,6 +25,7 @@ pub mod hotkeys_noscroll;
 pub mod hotkeys_swap_jk;
 pub mod toggle_sidebar;
 pub mod shorten_expanded;
+pub mod tweak_article_header;
 
 use serde_json::{json, Map, Value};
 
@@ -206,6 +207,15 @@ const PLUGIN_META: &[(&str, bool, bool, &str, &str, &str, &str)] = &[
         "",
         "fox",
         "Adds a main toolbar button to toggle sidebar",
+        "",
+    ),
+    (
+        "tweak_article_header",
+        false,
+        false,
+        "",
+        "slydetector",
+        "In the article header for special and category feeds, moves the feed title next to the article name.",
         "",
     ),
 ];

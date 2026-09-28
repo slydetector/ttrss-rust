@@ -112,6 +112,7 @@ pub fn all_plugins() -> Vec<fn() -> Box<dyn Plugin>> {
         || Box::new(crate::plugins::hotkeys_force_top::HotkeysForceTop),
         || Box::new(crate::plugins::hotkeys_noscroll::HotkeysNoscroll),
         || Box::new(crate::plugins::hotkeys_swap_jk::HotkeysSwapJk),
+        || Box::new(crate::plugins::tweak_article_header::TweakArticleHeader),
         || Box::new(crate::plugins::no_iframes::NoIframes),
         || Box::new(crate::plugins::note::Note),
         || Box::new(crate::plugins::nsfw::NsFw),
