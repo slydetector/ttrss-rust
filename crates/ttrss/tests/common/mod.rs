@@ -31,6 +31,13 @@ use ttrss::core::db::{Db, SESSION_SETUP};
 
 #[ctor::ctor(unsafe)]
 fn init_test_pg() {
+    // Mirror the PHP integration-test environment: with this set,
+    // `urlhelper::validate` skips the extended (safe-port / disallowed-IP)
+    // block, so these DB-backed tests can fetch loopback mock feeds
+    // (`http://127.0.0.1:<port>/…`). `tests/url_validate.rs` does NOT link
+    // this module, so it runs with the flag unset and still exercises the
+    // extended rejections.
+    unsafe { std::env::set_var("IS_INTEGRATION_TESTING", "1") };
     test_db::init_database_url();
     // Build the shared template DB (no-op if already current).
     let url = test_db::master_url();

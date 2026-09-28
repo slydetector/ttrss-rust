@@ -281,7 +281,7 @@ async fn cache_article_images(
     let mut success = false;
     for url in extract_media_urls(content, site_url) {
         has_media = true;
-        if cache_url(cache, pool, article_id, &url, config.max_cache_file_size as u64, false) // TODO(scope): was removed global
+        if cache_url(cache, pool, article_id, &url, config.max_cache_file_size as u64)
             .await
         {
             success = true;
@@ -300,7 +300,7 @@ async fn cache_article_images(
     for url in encs {
         has_media = true;
         if let Some(rewritten) = urlhelper::rewrite_relative(site_url, &url)
-            && cache_url(cache, pool, article_id, &rewritten, config.max_cache_file_size as u64, false) // TODO(scope): was removed global
+            && cache_url(cache, pool, article_id, &rewritten, config.max_cache_file_size as u64)
                 .await
             {
                 success = true;
@@ -320,7 +320,6 @@ async fn cache_url(
     article_id: i32,
     url: &str,
     max_size: u64,
-    filtering: bool,
 ) -> bool {
     let local = format!("{}-{}", article_id, sha1_hex(url));
     if cache.exists(&local) {
@@ -330,7 +329,7 @@ async fn cache_url(
     let result = urlhelper::fetch(&FetchOptions {
         url: url.to_string(),
         max_size: Some(max_size),
-        filtering: Some(filtering),
+        filtering: Some(true),
         ..Default::default()
     })
     .await;

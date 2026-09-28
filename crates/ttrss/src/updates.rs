@@ -655,7 +655,7 @@ pub async fn fetch_one_feed(
         } else {
             Some(feed.last_modified.clone())
         },
-        filtering: Some(false), // TODO(scope): per-feed rss_extended_url_filtering not plumbed (was removed global).
+        filtering: Some(true),
         ..Default::default()
     })
     .await;

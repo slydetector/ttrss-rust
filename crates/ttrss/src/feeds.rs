@@ -1114,7 +1114,7 @@ pub async fn subscribe(
         } else {
             Some(auth_pass.to_string())
         },
-        filtering: Some(false), // TODO(scope): per-feed rss_extended_url_filtering not plumbed (was removed global).
+        filtering: Some(true),
         ..Default::default()
     })
     .await;

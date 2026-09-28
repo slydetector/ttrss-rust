@@ -121,14 +121,24 @@ async fn create_user(db: &Db, uid: i32, access_level: i32) -> i32 {
 
 /// Insert a feed owned by `owner_uid` and return its id.
 async fn create_feed(db: &Db, id: i32, owner_uid: i32, feed_url: &str) -> i32 {
-    sqlx::query("INSERT INTO ttrss_feeds (id, owner_uid, title, feed_url) VALUES ($1, $2, $3, $4)")
-        .bind(id)
-        .bind(owner_uid)
-        .bind(format!("Test Feed {id}"))
-        .bind(feed_url)
-        .execute(db.pool())
-        .await
-        .expect("create feed");
+    // `favicon_is_custom = true` suppresses the update pipeline's favicon
+    // fetch (it is gated on `favicon_needs_check`, which is false when the
+    // icon is custom). With the extended-URL guard now on (but bypassed in the
+    // test env), the favicon fetch would otherwise issue extra `/` +
+    // `/favicon.ico` requests that consume the mock's connection-ordered canned
+    // responses and misalign the per-feed bodies. This test asserts cross-feed
+    // dedup, not favicons.
+    sqlx::query(
+        "INSERT INTO ttrss_feeds (id, owner_uid, title, feed_url, favicon_is_custom) \
+         VALUES ($1, $2, $3, $4, true)",
+    )
+    .bind(id)
+    .bind(owner_uid)
+    .bind(format!("Test Feed {id}"))
+    .bind(feed_url)
+    .execute(db.pool())
+    .await
+    .expect("create feed");
     id
 }
 

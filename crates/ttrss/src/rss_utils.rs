@@ -260,7 +260,7 @@ pub async fn update_basic_info(
                     Some(auth_pass_plaintext)
                 },
                 timeout: Some(std::time::Duration::from_secs(cfg.feed_fetch_timeout)),
-                filtering: Some(false), // TODO(scope): per-feed rss_extended_url_filtering not plumbed (was removed global).
+                filtering: Some(true),
                 ..Default::default()
             })
             .await;
