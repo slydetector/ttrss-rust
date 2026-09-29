@@ -19,10 +19,11 @@ cross-checking the port found:
   the `public.php` surface, the full pref system (all 45 prefs + profile blacklist +
   default table), and **all 18 first-party plugins with every hook they register
   actually dispatched.**
-- **A handful of genuine, mostly low-severity entry-point gaps** (see §Gaps): 30 of
-  53 plugin hooks have no dispatch site, the plugin-API-method dispatch seam is
-  half-wired, the PHP DB-logging subsystem is replaced by `tracing`, and the web
-  `dbupdate` op is absent.
+- **A handful of genuine, mostly low-severity entry-point gaps** (see §Gaps): the
+  PHP DB-logging subsystem is replaced by `tracing` (no `ttrss_logs`), and the web
+  `dbupdate` op is absent (M8). The plugin-hook dispatch (G1) and the
+  plugin-API-method seam (G2) are now closed; the remaining undischarged hooks are
+  by-design (dead in PHP / Mailer / Cache_Local).
 - **A set of *behavioral* partials** the entry-point scan cannot see (see
   §Behavioral partials). The standout: **feed-date parsing handles only RFC 2822/3339**
   where PHP's `strtotime` accepts dozens more (B1). Plus deliberate deviations
@@ -150,15 +151,17 @@ only in getHeadlines; PHP `API.php:360-366` runs both).
 `HOOK_HOUSE_KEEPING` (both sites), `HOOK_UPDATE_TASK`) were wired earlier in
 `updates.rs` (`tests/feed_pipeline_hooks.rs`).
 
-### G2 — `API::index()` plugin-API-method dispatch is half-wired *(low, latent)*
+### G2 — ~~`API::index()` plugin-API-method dispatch is half-wired~~ — closed *(low, latent)*
 
 `PluginHost::add_api_method` / `get_api_method` **are** ported
-(`pluginhost/host.rs:384` / `:395`). But the API entry point's catch-all arm
-(`api.rs` `other => (STATUS_ERR, …E_UNKNOWN_METHOD…)`) never calls
-`get_api_method` — so a plugin can *register* an API method but it is **never
-dispatched**. PHP's `API::index($method)` does look it up. **Latent:** no first-party
-plugin registers an API method, so nothing observable differs today; it only bites a
-third-party plugin that uses `add_api_method`.
+(`pluginhost/host.rs:384` / `:395`), and the API entry point's catch-all arm
+(`api.rs` `before_and_dispatch`) now consults `get_api_method` for any
+unmatched op: a registered (system-plugin) API method is invoked via
+`invoke_method` over a session host, and its `MethodOutput` is folded into
+the API envelope (`Json`/`Raw` → `STATUS_OK`, `Response` → its status).
+Unregistered ops are still `E_UNKNOWN_METHOD`. **Latent in PHP too:** no
+first-party plugin registers an API method; `tests/dispatch_completion.rs`
+(`test_api_plugin_method_dispatched`) pins the seam with a stub.
 
 ### G3 — PHP DB-logging subsystem replaced by `tracing`; no `ttrss_logs` *(low / representation)*
 

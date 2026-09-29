@@ -84,6 +84,23 @@ impl Plugin for DispatchStub {
         host.add_hook_default(HOOK_UNSUBSCRIBE_FEED);
         host.add_hook_default(HOOK_ARTICLES_MARK_TOGGLED);
         host.add_hook_default(HOOK_ARTICLES_PUBLISH_TOGGLED);
+        // A plugin-registered API method (G2: the `API::index` catch-all).
+        host.add_api_method("apimethod");
+    }
+
+    async fn invoke_method(
+        &self,
+        _host: &mut HostCtx,
+        method: &str,
+        params: &Value,
+    ) -> Result<ttrss::pluginhost::plugin::MethodOutput, ttrss::pluginhost::plugin::PluginError> {
+        if method == "apimethod" {
+            return Ok(ttrss::pluginhost::plugin::MethodOutput::Json(json!({
+                "api": "ok",
+                "arg": params.get("arg"),
+            })));
+        }
+        Err(ttrss::pluginhost::plugin::PluginError::UnknownMethod(method.to_string()))
     }
 
     async fn hook_feed_tree(&self, _host: &mut HostCtx) -> String {
@@ -522,6 +539,46 @@ async fn test_api_update_article_published_fires_publish() {
     assert_eq!(status, 0, "updatearticle(published) OK: {out}");
     assert!(fl.publish_toggled.load(Ordering::SeqCst), "published → PUBLISH_TOGGLED");
     assert!(!fl.mark_toggled.load(Ordering::SeqCst), "published must not fire mark");
+        Ok(())
+    })).await.unwrap();
+}
+
+/// G2: a plugin-registered API method is dispatched by the `API::index`
+/// catch-all (`add_api_method` → `get_api_method` → `invoke_method`).
+#[tokio::test]
+async fn test_api_plugin_method_dispatched() {
+    with_test_db(|url| Box::pin(async move {
+    let (state, _fl) = app(&url).await;
+    sqlx::query(
+        "INSERT INTO ttrss_user_prefs2 (owner_uid, pref_name, profile, value)
+         VALUES (1, 'ENABLE_API_ACCESS', NULL, 'true')",
+    )
+    .execute(state.db.pool())
+    .await
+    .expect("set ENABLE_API_ACCESS");
+    let mut data = Session::new();
+    data.set("uid", PValue::Int(1));
+    let sess = ttrss::session::Sess::new("api-plugin-sid".into());
+    sess.replace("api-plugin-sid".into(), data);
+
+    let (status, out) = ttrss::api::before_and_dispatch(
+        &state,
+        &sess,
+        "apimethod",
+        &json!({ "arg": 42 }).as_object().unwrap(),
+        None,
+    )
+    .await;
+    assert_eq!(status, 0, "API method dispatched, got {out}");
+    assert_eq!(out["api"], "ok", "the plugin's method must run: {out}");
+    assert_eq!(out["arg"], 42, "the request body must reach the method: {out}");
+
+    // An unregistered method is still E_UNKNOWN_METHOD.
+    let (status, out) =
+        ttrss::api::before_and_dispatch(&state, &sess, "nope", &json!({}).as_object().unwrap(), None)
+            .await;
+    assert_eq!(status, 1, "unknown method, got {out}");
+    assert_eq!(out["error"], "UNKNOWN_METHOD");
         Ok(())
     })).await.unwrap();
 }

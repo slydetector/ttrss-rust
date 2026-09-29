@@ -172,10 +172,36 @@ pub async fn before_and_dispatch(
         "updatearticle" => update_article(state, sess, body).await,
         "setarticlelabel" => set_article_label(state, sess, body).await,
         "sharetopublished" => share_to_published(state, sess, body).await,
-        other => (
-            STATUS_ERR,
-            json!({ "error": E_UNKNOWN_METHOD, "method": other }),
-        ),
+        other => {
+            // `API::index` (API.php:493): a plugin-registered API method
+            // (system plugins only, `add_api_method`). PHP calls the method
+            // and wraps its `[status, content]` return; the port's
+            // `invoke_method` returns a `MethodOutput`, folded into the
+            // envelope here.
+            if let Some(plugin) = state.plugins.get_api_method(other) {
+                let mut pctx = crate::pluginhost::dispatch::session_ctx(state, sess).await;
+                let params = Value::Object(body.clone());
+                match plugin.invoke_method(&mut pctx, other, &params).await {
+                    Ok(crate::pluginhost::plugin::MethodOutput::Json(v)) => (STATUS_OK, v),
+                    Ok(crate::pluginhost::plugin::MethodOutput::Raw(s)) => (
+                        STATUS_OK,
+                        Value::String(s),
+                    ),
+                    Ok(crate::pluginhost::plugin::MethodOutput::Response {
+                        status, body, ..
+                    }) => (status as i64, Value::String(body)),
+                    Err(_) => (
+                        STATUS_ERR,
+                        json!({ "error": E_UNKNOWN_METHOD, "method": other }),
+                    ),
+                }
+            } else {
+                (
+                    STATUS_ERR,
+                    json!({ "error": E_UNKNOWN_METHOD, "method": other }),
+                )
+            }
+        }
     }
 }
 
