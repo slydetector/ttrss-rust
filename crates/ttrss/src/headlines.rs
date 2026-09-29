@@ -318,7 +318,11 @@ pub async fn view(
             .await;
         }
 
-    let (override_order, skip_first_id_check) = order_to_override_query(&order_by);
+    // M7.6: the HOOK_SANITIZE / plugin context (built once per request);
+    // the custom-sort override chain (below) needs it.
+    let mut pctx = crate::pluginhost::dispatch::session_ctx(state, sess).await;
+    let (override_order, skip_first_id_check) =
+        order_to_override_query(&mut pctx, &order_by).await;
 
     // `$_REQUEST["query"] ?? ""` (no active search in the SPA `view` calls).
     let search = extra
@@ -351,6 +355,7 @@ pub async fn view(
         profile,
         &search,
         &search_language,
+        &mut pctx,
     )
     .await;
 
@@ -452,11 +457,53 @@ fn generate_error_feed(error: &str) -> Value {
 }
 
 /// `Feeds::_order_to_override_query`.
-pub(crate) fn order_to_override_query(order: &str) -> (String, bool) {
+pub(crate) async fn order_to_override_query(
+    host: &mut crate::pluginhost::host::HostCtx,
+    order: &str,
+) -> (String, bool) {
     let mut query = String::new();
     let mut skip_first_id = false;
-    // HOOK_HEADLINES_CUSTOM_SORT_OVERRIDE — none of the loaded plugins in this
-    // deployment register it.
+
+    // `HOOK_HEADLINES_CUSTOM_SORT_OVERRIDE` (Feeds.php:2359): the chain
+    // receives `$order`; its `[query, skip_first_id]` result is used — the
+    // first non-empty query short-circuits.
+    if !host
+        .hook_order(crate::pluginhost::HOOK_HEADLINES_CUSTOM_SORT_OVERRIDE)
+        .is_empty()
+    {
+        let order_owned = order.to_string();
+        let mut override_result: Option<(String, bool)> = None;
+        host
+            .run_hooks_callback::<serde_json::Value, _, _>(
+                crate::pluginhost::HOOK_HEADLINES_CUSTOM_SORT_OVERRIDE,
+                |plugin, host_ctx| {
+                    let o = order_owned.clone();
+                    Box::pin(async move {
+                        plugin.hook_headlines_custom_sort_override(host_ctx, &o).await
+                    })
+                },
+                |result, _| {
+                    let q = result
+                        .get(0)
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or("")
+                        .to_string();
+                    let skip = result
+                        .get(1)
+                        .and_then(serde_json::Value::as_bool)
+                        .unwrap_or(false);
+                    override_result = Some((q.clone(), skip));
+                    !q.is_empty()
+                },
+            )
+            .await;
+        if let Some((q, skip)) = override_result
+            && !q.is_empty()
+        {
+            return (q, skip);
+        }
+    }
+
     match order {
         "title" => query = "ttrss_entries.title, date_entered, updated".into(),
         "date_reverse" => {
@@ -501,6 +548,7 @@ async fn format_headlines_list(
     profile: Option<i32>,
     search: &str,
     search_language: &str,
+    mut pctx: &mut crate::pluginhost::host::HostCtx,
 ) -> HeadlinesResult {
     let data = sess.data();
     let uid = data.uid().unwrap_or(0);
@@ -592,9 +640,6 @@ async fn format_headlines_list(
             .as_str()
             .to_string(),
     };
-
-    // M7.6: the HOOK_SANITIZE context (built once per request).
-    let mut pctx = crate::pluginhost::dispatch::session_ctx(state, sess).await;
 
     // `HOOK_HEADLINE_TOOLBAR_SELECT_MENU_ITEM2` / `_BUTTON` (Feeds.php:170-181):
     // each hook's HTML string is appended into the toolbar's plugin slots.

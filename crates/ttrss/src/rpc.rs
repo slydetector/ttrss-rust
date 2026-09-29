@@ -284,7 +284,7 @@ async fn dispatch(
     // `Sessions::validate_session` (parity row 9): guests pass; a logged-in
     // session is re-checked against the DB (user exists, account not
     // disabled, pwd hash unchanged).
-    if !session::validate_session(state.db.pool(), state.config.single_user_mode, &mut data).await {
+    if !session::validate_session(state, state.config.single_user_mode, &mut data).await {
         // Reflect the failure reason into the live session (PHP $_SESSION),
         // where the UI surfaces it.
         if let Some(msg) = data.get_str("login_error_msg") {

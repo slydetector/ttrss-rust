@@ -315,10 +315,38 @@ async fn get_config(state: &AppState, uid: Option<i64>) -> Value {
             .fetch_one(pool)
             .await
             .unwrap_or(0);
-    // `_get_custom_sort_types` (no plugin sort hooks) → `[]`; `daemon_is_running`
-    // is true — the updater runs in-process, always on (D1 = B; D6 = c).
+    // `_get_custom_sort_types` (API.php:921-930): each hook's map
+    // (sort_value → sort_title) is merged into the result — an object,
+    // empty when no plugin contributes (PHP: `$ret = []` → `{}`).
+    let mut pctx = crate::pluginhost::dispatch::owner_ctx(state, uid as i32).await;
+    let mut sort_types = Map::new();
+    pctx
+        .run_hooks_callback::<Value, _, _>(
+            crate::pluginhost::HOOK_HEADLINES_CUSTOM_SORT_MAP,
+            |plugin, host| {
+                Box::pin(async move { plugin.hook_headlines_custom_sort_map(host).await })
+            },
+            |result, _| {
+                if let Some(obj) = result.as_object() {
+                    for (k, v) in obj {
+                        sort_types.insert(k.clone(), v.clone());
+                    }
+                }
+                false
+            },
+        )
+        .await;
+    // `daemon_is_running` is true — the updater runs in-process, always on
+    // (D1 = B; D6 = c).
+    // PHP: an empty `$ret` encodes as `[]` (not `{}`); a populated one as
+    // an object.
+    let sort_types_val = if sort_types.is_empty() {
+        Value::Array(Vec::new())
+    } else {
+        Value::Object(sort_types)
+    };
     json!({
-        "custom_sort_types": Value::Array(vec![]),
+        "custom_sort_types": sort_types_val,
         "daemon_is_running": true,
         "icons_url": format!("{}/public.php", state.config.self_url_rtrim()),
         "num_feeds": num_feeds,
@@ -842,9 +870,13 @@ async fn get_headlines(
     let check_first_id = clean_int(body.get("check_first_id"));
     let force_update = param_to_bool(body.get("force_update"));
 
-    let (override_order, skip_first_id_check) = headlines::order_to_override_query(&clean_str(
-        body.get("order_by").and_then(Value::as_str).unwrap_or(""),
-    ));
+    // M7.6: the HOOK_SANITIZE / plugin context (built once per request);
+    // the HOOK_HEADLINES_CUSTOM_SORT_OVERRIDE chain (below) needs it.
+    let mut pctx = crate::pluginhost::dispatch::session_ctx(state, sess).await;
+    let (override_order, skip_first_id_check) =
+        headlines::order_to_override_query(&mut pctx, &clean_str(
+            body.get("order_by").and_then(Value::as_str).unwrap_or(""),
+        )).await;
 
     let params = headlines::HeadlinesParams {
         feed: feed_id.clone(),
@@ -919,10 +951,6 @@ async fn get_headlines(
     crate::i18n::I18N.scope(i18n_ctx, async {
     let q =
         headlines::get_headlines_query(&state.db, &params).await;
-
-    // M7.6: the HOOK_SANITIZE context (no_iframes et al.) — built once for
-    // the whole request (PHP's singleton; the active set is per owner).
-    let mut pctx = crate::pluginhost::dispatch::session_ctx(state, sess).await;
 
     let mut out: Vec<Value> = Vec::new();
     for r in &q.article_rows {

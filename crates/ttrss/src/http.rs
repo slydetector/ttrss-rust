@@ -123,7 +123,10 @@ async fn index(
                     locale: locale.clone(),
                     cache: state.i18n.clone(),
                 },
-                async { render::render_login_page(&state.config) },
+                async {
+                    let buttons = loginform_additional_buttons(&state).await;
+                    render::render_login_page(&state.config, &buttons)
+                },
             )
             .await;
         return axum::http::Response::builder()
@@ -172,6 +175,8 @@ async fn index(
                 // scope so their strings resolve the request's locale (the
                 // `__()` in each plugin hook reads the task-local).
                 let main_toolbar_buttons = main_toolbar_buttons(&state, &sess).await;
+                let (feed_tree_hooks, toolbar_buttons_hooks, action_item_hooks) =
+                    shell_hook_strings(&state, &sess).await;
                 render::render_shell(
                     csrf,
                     ts,
@@ -180,6 +185,9 @@ async fn index(
                     &plugin_css,
                     &plugin_js,
                     &main_toolbar_buttons,
+                    &feed_tree_hooks,
+                    &toolbar_buttons_hooks,
+                    &action_item_hooks,
                     hide_logout,
                 )
             },
@@ -224,7 +232,10 @@ async fn prefs_page(
                     locale: locale.clone(),
                     cache: state.i18n.clone(),
                 },
-                async { render::render_login_page(&state.config) },
+                async {
+                    let buttons = loginform_additional_buttons(&state).await;
+                    render::render_login_page(&state.config, &buttons)
+                },
             )
             .await;
         return axum::http::Response::builder()
@@ -248,7 +259,19 @@ async fn prefs_page(
     } else {
         format!("<script type=\"text/javascript\">\n\t\t{prefs_js}\n\t</script>")
     };
-    let html = render::render_prefs_page(csrf, ts, access_level, &theme_link, &user_css, &prefs_plugin_js, &prefs_css);
+    // `HOOK_PREFS_TABS` (prefs.php:181): the echo hooks' output lands after
+    // the Users/System tabs (the whole tab bar renders for admins; for
+    // non-admins the hook runs too — PHP's prefs.php has no access gate on
+    // the hook).
+    let mut pctx = crate::pluginhost::dispatch::session_ctx(&state, &sess).await;
+    pctx
+        .run_hooks(
+            crate::pluginhost::HOOK_PREFS_TABS,
+            |plugin, host| plugin.hook_prefs_tabs(host),
+        )
+        .await;
+    let prefs_tabs_hooks = pctx.output.trim().to_string();
+    let html = render::render_prefs_page(csrf, ts, access_level, &theme_link, &user_css, &prefs_plugin_js, &prefs_css, &prefs_tabs_hooks);
     let etag = format!("W/\"{}\"", md5_hex(&html));
     axum::http::Response::builder()
         .status(StatusCode::OK)
@@ -333,6 +356,67 @@ fn prefs_plugin_assets(host: &crate::pluginhost::PluginHost, active: &[String]) 
 }
 
 /// PHP `index.php:195` — the main toolbar's plugin button row:
+/// `HOOK_FEED_TREE` / `HOOK_TOOLBAR_BUTTON` / `HOOK_ACTION_ITEM`
+/// (index.php:175/263/321): the shell's echo hooks — the concatenation of
+/// each hook's HTML in the shell markup (empty when no active plugin emits
+/// anything).
+async fn shell_hook_strings(state: &AppState, sess: &session::Sess) -> (String, String, String) {
+    let mut pctx = crate::pluginhost::dispatch::session_ctx(state, sess).await;
+    let mut feed_tree = String::new();
+    pctx
+        .run_hooks_callback::<String, _, _>(
+            crate::pluginhost::HOOK_FEED_TREE,
+            |plugin, host| Box::pin(async move { plugin.hook_feed_tree(host).await }),
+            |result, _| {
+                feed_tree.push_str(result);
+                false
+            },
+        )
+        .await;
+    let mut toolbar = String::new();
+    pctx
+        .run_hooks_callback::<String, _, _>(
+            crate::pluginhost::HOOK_TOOLBAR_BUTTON,
+            |plugin, host| Box::pin(async move { plugin.hook_toolbar_button(host).await }),
+            |result, _| {
+                toolbar.push_str(result);
+                false
+            },
+        )
+        .await;
+    let mut action_item = String::new();
+    pctx
+        .run_hooks_callback::<String, _, _>(
+            crate::pluginhost::HOOK_ACTION_ITEM,
+            |plugin, host| Box::pin(async move { plugin.hook_action_item(host).await }),
+            |result, _| {
+                action_item.push_str(result);
+                false
+            },
+        )
+        .await;
+    (feed_tree, toolbar, action_item)
+}
+
+/// `HOOK_LOGINFORM_ADDITIONAL_BUTTONS` (login_form.php:210): the login form
+/// renders with the system-plugins host (PHP `Handler_Public`'s
+/// `load_all(KIND_SYSTEM, 0, true)`); the echo hooks' output lands to the
+/// right of the Login button.
+async fn loginform_additional_buttons(state: &AppState) -> String {
+    let mut lctx = crate::pluginhost::host::HostCtx::system_plugins(
+        std::sync::Arc::clone(&state.plugins),
+        state.db.pool().clone(),
+        state.config.clone(),
+    );
+    lctx
+        .run_hooks(
+            crate::pluginhost::HOOK_LOGINFORM_ADDITIONAL_BUTTONS,
+            |plugin, host| plugin.hook_loginform_additional_buttons(host),
+        )
+        .await;
+    lctx.output.trim().to_string()
+}
+
 /// `run_hooks_callback(HOOK_MAIN_TOOLBAR_BUTTON, echo)`. The echo callback
 /// only prints its result and never short-circuits, so a plain `run_hooks`
 /// suffices; the concatenated `host.output` is the row (empty when no active

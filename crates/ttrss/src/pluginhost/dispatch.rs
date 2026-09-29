@@ -77,7 +77,7 @@ pub(crate) fn login_ctx(state: &AppState) -> HostCtx {
     )
 }
 
-pub(crate) async fn session_ctx(state: &AppState, sess: &Sess) -> HostCtx {
+pub async fn session_ctx(state: &AppState, sess: &Sess) -> HostCtx {
     let data = sess.data();
     let uid_i64 = data.uid().unwrap_or(0);
     let uid = Some(uid_i64 as i32);
@@ -117,7 +117,7 @@ pub(crate) async fn session_ctx(state: &AppState, sess: &Sess) -> HostCtx {
 /// The owner-scoped context without a web session (feed output, M7.6):
 /// default profile, access 0, user list = the owner's `_ENABLED_PLUGINS`
 /// (default profile).
-pub(crate) async fn owner_ctx(state: &AppState, owner_uid: i32) -> HostCtx {
+pub async fn owner_ctx(state: &AppState, owner_uid: i32) -> HostCtx {
     let system: Vec<String> = state
         .config
         .plugins

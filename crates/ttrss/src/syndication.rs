@@ -112,8 +112,14 @@ async fn generate_feed(state: &AppState, owner_uid: i64, req: &RssRequest<'_>) -
     let _plugin_feed =
         !req.is_cat && n_feed.is_some_and(|f| f < PLUGIN_FEED_BASE_INDEX && f > LABEL_BASE_INDEX);
 
+    // M7.6: the HOOK_SANITIZE / plugin context for the feed owner (PHP runs
+    // the feed output through the owner's plugin host); the custom-sort
+    // override chain (below) needs it too.
+    let mut pctx = crate::pluginhost::dispatch::owner_ctx(state, owner_uid as i32).await;
+
     // `[$override_order, $skip_first_id_check] = Feeds::_order_to_override_query($order)`
-    let (override_order, skip_first_id_check) = order_to_override_query(req.order);
+    let (override_order, skip_first_id_check) =
+        order_to_override_query(&mut pctx, req.order).await;
 
     // Virtual-feed default ordering (PHP loose `$feed == <int>` compare).
     let override_order = if override_order.is_empty() {
@@ -187,10 +193,6 @@ async fn generate_feed(state: &AppState, owner_uid: i64, req: &RssRequest<'_>) -
     // Column 0 of the shared article-row layout; the remaining indices are
     // imported from `headlines` (same query shape).
     const I_ID: usize = 0;
-
-    // M7.6: the HOOK_SANITIZE context for the feed owner (PHP runs the
-    // feed output through the owner's plugin host).
-    let mut pctx = crate::pluginhost::dispatch::owner_ctx(state, owner_uid as i32).await;
 
     let mut articles_atom: Vec<Value> = Vec::new();
     let mut articles_json: Vec<Value> = Vec::new();

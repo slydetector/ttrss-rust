@@ -106,6 +106,7 @@
         <div id="feedlistLoading" class="text-center text-muted text-small">
 			  	<img class="icon-three-dots" src="images/three-dots.svg?2">
 				{{ __("Loading, please wait...") }}			</div>
+                {{ feed_tree_hooks }}
                 <div id="feedTree"></div>
     </div>
 
@@ -178,6 +179,7 @@
 				<!-- toolbar actions dropdown: order 30 -->
 
 				<div class="action-chooser" style="order : 30">
+					{{ toolbar_buttons_hooks }}
 					
 					<div dojoType="fox.form.DropDownButton" class="action-button" title="{{ __("Actions...") }}">
 						<span><i class="material-icons">menu</i></span>
@@ -223,6 +225,7 @@
 								<div dojoType="dijit.MenuItem" disabled="1">{{ __("Other actions:") }}</div>
                         <div dojoType="dijit.MenuItem" onclick="App.onActionSelected('qmcHKhelp')">{{ __("Keyboard shortcuts help") }}</div>
 
+                        {{ action_item_hooks }}
                         
                                                     {% if not hide_logout %}<div dojoType="dijit.MenuItem" onclick="App.onActionSelected('qmcLogout')">{{ __("Logout") }}</div>{% endif %}
                                             </div>

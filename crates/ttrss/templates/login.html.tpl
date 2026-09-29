@@ -167,7 +167,8 @@
 
 			<fieldset class="align-right">
 				<label> </label>
-							<button dojoType="dijit.form.Button" class="alt-primary" type="submit">{{ __("Log in") }}</button>											</fieldset>
+							<button dojoType="dijit.form.Button" class="alt-primary" type="submit">{{ __("Log in") }}</button>
+				{{ additional_buttons }}											</fieldset>
 
 		</form>
 	</div>

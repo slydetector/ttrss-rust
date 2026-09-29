@@ -413,7 +413,7 @@ async fn format_article(host: &mut HostCtx, id: i32, owner_uid: i32) -> Result<S
         format!("<h1>{}</h1>", title_esc)
     };
 
-    Ok(format!(
+    let mut rv = format!(
         "<!DOCTYPE html>\n<html>\n<head>\n\
          <meta http-equiv='Content-Type' content='text/html; charset=utf-8'/>\n\
          <title>{title_esc}</title>\n\
@@ -433,7 +433,34 @@ async fn format_article(host: &mut HostCtx, id: i32, owner_uid: i32) -> Result<S
         lang = lang.unwrap_or_else(|| String::from("en")),
         author = author,
         updated = updated,
-    ))
+    );
+
+    // `HOOK_FORMAT_ARTICLE` (share/init.php:233): the finished page goes
+    // through the chain (`$rv, $line`); the result replaces it.
+    if !host
+        .hook_order(crate::pluginhost::HOOK_FORMAT_ARTICLE)
+        .is_empty()
+    {
+        host
+            .chain_hooks_callback(
+                crate::pluginhost::HOOK_FORMAT_ARTICLE,
+                &mut rv,
+                |plugin, host, page| {
+                    let line = article_val.clone();
+                    Box::pin(async move {
+                        let result = plugin
+                            .hook_format_article(host, page, &line)
+                            .await;
+                        *page = result.clone();
+                        result
+                    })
+                },
+                |_r, _p| false,
+            )
+            .await;
+    }
+
+    Ok(rv)
 }
 
 /// PHP's `(int)` cast: the leading numeric run (sign + digits), else 0.

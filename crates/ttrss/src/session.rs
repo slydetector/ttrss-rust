@@ -219,9 +219,15 @@ pub async fn destroy(pool: &PgPool, id: &str) -> bool {
 /// pass. A logged-in session is re-validated against `ttrss_users`: the user
 /// must exist, not be disabled, and its `pwd_hash` must match the session's.
 /// On failure `login_error_msg` is set on `sess` (PHP `$_SESSION`). PHP's
-/// `HOOK_VALIDATE_SESSION` plugin-hook chain defaults to `true` (the Rust
-/// server has no plugin host yet).
-pub async fn validate_session(pool: &PgPool, single_user: bool, sess: &mut Session) -> bool {
+/// `HOOK_VALIDATE_SESSION` (Sessions.php:144): the chain runs after all the
+/// default checks pass — the callback keeps the *last* hook's result (the
+/// loop stops at the first `false`), and that result is the return value.
+pub async fn validate_session(
+    state: &crate::AppState,
+    single_user: bool,
+    sess: &mut Session,
+) -> bool {
+    let pool = state.db.pool();
     if single_user {
         return true;
     }
@@ -252,7 +258,25 @@ pub async fn validate_session(pool: &PgPool, single_user: bool, sess: &mut Sessi
                 );
                 return false;
             }
-            true
+            // The plugin chain (defaults to `true` with no registered hooks).
+            let data = sess.clone();
+            let s = crate::session::Sess::new("validate-session".into());
+            s.replace("validate-session".into(), data);
+            let mut pctx = crate::pluginhost::dispatch::session_ctx(state, &s).await;
+            let mut hook_result = true;
+            pctx
+                .run_hooks_callback::<bool, _, _>(
+                    crate::pluginhost::HOOK_VALIDATE_SESSION,
+                    |plugin, host| {
+                        Box::pin(async move { plugin.hook_validate_session(host).await })
+                    },
+                    |result, _| {
+                        hook_result = *result;
+                        !result
+                    },
+                )
+                .await;
+            hook_result
         }
         None => {
             sess.set(
