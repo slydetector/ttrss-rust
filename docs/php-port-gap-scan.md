@@ -25,10 +25,10 @@ cross-checking the port found:
   plugin-API-method seam (G2) are now closed; the remaining undischarged hooks are
   by-design (dead in PHP / Mailer / Cache_Local).
 - **A set of *behavioral* partials** the entry-point scan cannot see (see
-  §Behavioral partials). The standout: **feed-date parsing handles only RFC 2822/3339**
-  where PHP's `strtotime` accepts dozens more (B1). Plus deliberate deviations
-  (`checkforupdates` stubbed, the "daemon not updating" warning dropped, the 30 s
-  feed-content cache dropped — B2–B4).
+  §Behavioral partials) — all deliberate and accepted: `checkforupdates`
+  stubbed, the "daemon not updating" warning dropped, the 30 s feed-content
+  cache dropped (B2–B4). (The former standouts B1 feed-date parsing and B5
+  getHeadlines params are closed.)
 - **The rest is consciously skipped** (daemon/update CLI by design decision D1=B, the
   admin CLI + schema-migration engine as M8) plus the already-documented deferrals in
   `plan.md` (Mailer/`lettre`, timezone snapshot, `getFeedIcon` headers,
@@ -139,8 +139,9 @@ only in getHeadlines; PHP `API.php:360-366` runs both).
   `HOOK_HEADLINE_TOOLBAR_SELECT_MENU_ITEM` (v1) — declared in `Plugin.php`
   but never fired anywhere in the frozen tree (the view uses v2). The port
   keeps the trait methods for contract parity and, like PHP, never fires them.
-- *Tied to an unported feature:* `HOOK_SEND_MAIL`, `HOOK_SEND_LOCAL_FILE`
-  (the `Mailer`/`lettre` milestone isn't in yet).
+- *Tied to an unported feature:* `HOOK_SEND_MAIL` (the `Mailer`/`lettre`
+  milestone isn't in yet) and `HOOK_SEND_LOCAL_FILE` (the `Cache_Local`
+  milestone isn't in yet).
 - *Deliberate, behavior-identical:* `HOOK_SEARCH` — no stock plugin
   implements it, so PHP always falls through to `_search_to_sql`; the port's
   direct call is equivalent.
@@ -203,19 +204,15 @@ self-documented partials (`simplified` / `no-op` / `placeholder` / `approximated
 code** — most turn out to be historical (closed by a later milestone). The ones that
 are **still true** are below.
 
-### B1 — Feed-date parsing handles only RFC 2822 / RFC 3339 *(moderate)*
+### B1 — ~~Feed-date parsing handles only RFC 2822 / RFC 3339~~ — closed *(moderate)*
 
-PHP `FeedItem_RSS::get_date` / `FeedItem_Atom::get_date` parse with `strtotime()`
-(`FeedItem_RSS.php:20`, `FeedItem_Atom.php:22/28/34`) — very permissive (date-only,
-partial, relative, epoch-like, and dozens of other forms). The port's `parse_date`
-(`core/feed/datetime.rs:15`) tries only RFC 3339 then RFC 2822 and returns `None`
-otherwise; the source comment concedes it (`"strtotime() is far more permissive than
-this… extend here if the functional tests surface more"`). **Effect:** a `pubDate`/
-`dc:date` that isn't strict RFC 2822/3339 (e.g. date-only `2024-01-15`) parses in PHP
-but yields `None` here → the article's `updated`/`created` is 0/NULL → wrong or missing
-display date **and** broken age-based logic (the *Fresh* feed's
-`FRESH_ARTICLE_MAX_AGE` window, sorting, age-based purge). This is the port's own M6a.2
-note ("Feed dates simplified to RFC 2822 / RFC 3339"), never revisited.
+Closed: `core/feed/datetime.rs::parse_date` now layers, over the RFC 2822 /
+RFC 3339 baseline, the date-only/partial layouts (`YYYY-MM-DD`, `YYYY/MM/DD`,
+`DD-Mon-YYYY`, `Mon DD YYYY`, `MM/DD/YY`, `MM/DD/YYYY`, `MM.DD.YYYY`),
+zoneless ctime, `YYYY-MM` → the 1st, and the full `dateparser` crate
+(`strtotime`-equivalent permissiveness), plus a zoneless-`T`-separator retry.
+Date-only/partial forms resolve to midnight UTC (the `strtotime` value).
+`datetime.rs`'s unit tests pin the formats.
 
 ### B2 — `checkforupdates` is a stub *(deliberate)*
 
@@ -352,6 +349,12 @@ Two tool limitations to be aware of for future runs: it parses the backend from
 PHP exactly; the `Prefs::_DEFAULTS` table is ported as `PrefDef` (`prefs.rs`). No gap.
 
 ### E. Plugin hooks — 53 defined, 23 fired, 30 dead
+
+> **Superseded** — this is the scan-time snapshot. After the dispatch-completion
+> work, G1 (closed) carries the current state: all wireable hooks dispatch; the
+> only undischarged ones are by-design (dead-in-PHP `ARTICLE_FILTER_ACTION` /
+> `SELECT_MENU_ITEM` v1, Mailer's `SEND_MAIL`, Cache_Local's `SEND_LOCAL_FILE`,
+> and the behavior-identical `SEARCH`).
 
 Fired by the core (22): `HOOK_ARTICLE_BUTTON`, `HOOK_ARTICLE_FILTER`,
 `HOOK_ARTICLE_IMAGE`, `HOOK_AUTH_USER`, `HOOK_ENCLOSURE_ENTRY`, `HOOK_FEED_BASIC_INFO`,
