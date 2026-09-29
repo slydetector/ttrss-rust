@@ -1590,13 +1590,37 @@ pub async fn update_article(
     }
     q = q.bind(uid);
 
-    // NOTE: the `marked`/`published` plugin hooks (HOOK_ARTICLES_*_TOGGLED) are
-    // no-ops without plugins (M7).
     let num_updated = q
         .execute(pool)
         .await
         .map(|r| r.rows_affected() as i64)
         .unwrap_or(0);
+    // `run_hooks(HOOK_ARTICLES_MARK_TOGGLED | HOOK_ARTICLES_PUBLISH_TOGGLED,
+    // $article_ids)` (API.php:294-296) — only for the marked/published
+    // fields, after the UPDATE.
+    if field == "marked" || field == "published" {
+        let is_marked = field == "marked";
+        let mut pctx = crate::pluginhost::dispatch::session_ctx(state, sess).await;
+        pctx
+            .run_hooks(
+                if is_marked {
+                    crate::pluginhost::HOOK_ARTICLES_MARK_TOGGLED
+                } else {
+                    crate::pluginhost::HOOK_ARTICLES_PUBLISH_TOGGLED
+                },
+                |plugin, host| {
+                    let ids = article_ids.clone();
+                    Box::pin(async move {
+                        if is_marked {
+                            plugin.hook_articles_mark_toggled(host, &ids).await
+                        } else {
+                            plugin.hook_articles_publish_toggled(host, &ids).await
+                        }
+                    })
+                },
+            )
+            .await;
+    }
     (STATUS_OK, json!({ "status": "OK", "updated": num_updated }))
 }
 

@@ -7,9 +7,9 @@
 //! `{message, labels: Article::_labels_of(ids), feeds: Article::_feeds_of(ids)}`.
 //!
 //! PHP calls go through `PluginHost` chains (`HOOK_ARTICLE_IMAGE`,
-//! `HOOK_FORMAT_ENCLOSURES`, …) and `DiskCache` URL wrapping; the Rust server
-//! has no plugin host or disk cache, so those paths are no-ops / omitted and
-//! documented at the call site.
+//! `HOOK_FORMAT_ENCLOSURES`, `HOOK_ARTICLES_*_TOGGLED`, …); the port runs
+//! the same chains at the same sites (session-scoped host for the RPC/API
+//! routes, the owner-scoped host in `create_published_article`).
 
 use axum::http::StatusCode;
 use std::collections::HashSet;
@@ -100,7 +100,14 @@ pub async fn catchup_by_id(
 }
 
 /// `RPC::markArticlesById`: star / unstar / toggle the given articles.
-async fn mark_articles_by_id(pool: &sqlx::PgPool, ids: &[i32], cmode: i32, uid: i64) {
+async fn mark_articles_by_id(
+    state: &AppState,
+    sess: &Sess,
+    pool: &sqlx::PgPool,
+    ids: &[i32],
+    cmode: i32,
+    uid: i64,
+) {
     if ids.is_empty() {
         return;
     }
@@ -119,10 +126,29 @@ async fn mark_articles_by_id(pool: &sqlx::PgPool, ids: &[i32], cmode: i32, uid: 
         .bind(uid)
         .execute(pool)
         .await;
+    // `run_hooks(HOOK_ARTICLES_MARK_TOGGLED, $ids)` (RPC.php:268).
+    let mut pctx = crate::pluginhost::dispatch::session_ctx(state, sess).await;
+    pctx
+        .run_hooks(
+            crate::pluginhost::HOOK_ARTICLES_MARK_TOGGLED,
+            |plugin, host| {
+                let ids = ids.to_vec();
+                Box::pin(async move { plugin.hook_articles_mark_toggled(host, &ids).await })
+            },
+        )
+        .await;
 }
 
-/// `RPC::publishArticlesById`: publish / unpublish / toggle the given articles.
-async fn publish_articles_by_id(pool: &sqlx::PgPool, ids: &[i32], cmode: i32, uid: i64) {
+/// `RPC::publishArticlesById`: publish / unpublish / toggle the given
+/// articles.
+async fn publish_articles_by_id(
+    state: &AppState,
+    sess: &Sess,
+    pool: &sqlx::PgPool,
+    ids: &[i32],
+    cmode: i32,
+    uid: i64,
+) {
     if ids.is_empty() {
         return;
     }
@@ -141,6 +167,17 @@ async fn publish_articles_by_id(pool: &sqlx::PgPool, ids: &[i32], cmode: i32, ui
     let _ = bind_ids(sqlx::query(AssertSqlSafe(sql)), ids)
         .bind(uid)
         .execute(pool)
+        .await;
+    // `run_hooks(HOOK_ARTICLES_PUBLISH_TOGGLED, $ids)` (RPC.php:296).
+    let mut pctx = crate::pluginhost::dispatch::session_ctx(state, sess).await;
+    pctx
+        .run_hooks(
+            crate::pluginhost::HOOK_ARTICLES_PUBLISH_TOGGLED,
+            |plugin, host| {
+                let ids = ids.to_vec();
+                Box::pin(async move { plugin.hook_articles_publish_toggled(host, &ids).await })
+            },
+        )
         .await;
 }
 
@@ -562,7 +599,7 @@ pub async fn create_published_article(
     content: &str,
     labels_str: &str,
     owner_uid: i64,
-    pctx: crate::pluginhost::host::HostCtx,
+    mut pctx: crate::pluginhost::host::HostCtx,
 ) -> bool {
     // `sha1("ttshared:" . $url . $owner_uid)` → `SHA1:<hex>` (owner_uid in the
     // GUID prevents a global clash).
@@ -575,7 +612,6 @@ pub async fn create_published_article(
     // owner-scoped host; the first non-empty result becomes the content.
     let mut content = content.to_string();
     if content.is_empty() {
-        let mut pctx = pctx;
         let url_owned = url.to_string();
         pctx.run_hooks_callback::<String, _, _>(
             crate::pluginhost::HOOK_GET_FULL_TEXT,
@@ -660,6 +696,18 @@ pub async fn create_published_article(
         } else {
             insert_shared_user_entry(&mut tx, ref_id, owner_uid).await;
         }
+        // `run_hooks(HOOK_ARTICLES_PUBLISH_TOGGLED, [$ref_id])`
+        // (Article.php:105/116).
+        pctx
+            .run_hooks(
+                crate::pluginhost::HOOK_ARTICLES_PUBLISH_TOGGLED,
+                |plugin, host| {
+                    Box::pin(async move {
+                        plugin.hook_articles_publish_toggled(host, &[ref_id]).await
+                    })
+                },
+            )
+            .await;
         for label in &labels {
             crate::labels::add_article(pool, ref_id, label.trim(), owner_uid).await;
         }
@@ -688,6 +736,18 @@ pub async fn create_published_article(
             .execute(&mut *tx)
             .await;
             insert_shared_user_entry(&mut tx, ref_id, owner_uid).await;
+            // `run_hooks(HOOK_ARTICLES_PUBLISH_TOGGLED, [$ref_id])`
+            // (Article.php:116).
+            pctx
+                .run_hooks(
+                    crate::pluginhost::HOOK_ARTICLES_PUBLISH_TOGGLED,
+                    |plugin, host| {
+                        Box::pin(async move {
+                            plugin.hook_articles_publish_toggled(host, &[ref_id]).await
+                        })
+                    },
+                )
+                .await;
             for label in &labels {
                 crate::labels::add_article(pool, ref_id, label.trim(), owner_uid).await;
             }
@@ -797,7 +857,7 @@ pub async fn mark_selected(state: &AppState, sess: &Sess, extra: &Map<String, Va
     let ids = param_int_array(extra, "ids");
     let cmode = cmode_of(extra);
     if !ids.is_empty() {
-        mark_articles_by_id(pool, &ids, cmode, uid).await;
+        mark_articles_by_id(state, sess, pool, &ids, cmode, uid).await;
     }
     let labels = labels_of(pool, &ids, uid).await;
     let feeds = feeds_of(pool, &ids, uid).await;
@@ -811,7 +871,7 @@ pub async fn publish_selected(state: &AppState, sess: &Sess, extra: &Map<String,
     let ids = param_int_array(extra, "ids");
     let cmode = cmode_of(extra);
     if !ids.is_empty() {
-        publish_articles_by_id(pool, &ids, cmode, uid).await;
+        publish_articles_by_id(state, sess, pool, &ids, cmode, uid).await;
     }
     let labels = labels_of(pool, &ids, uid).await;
     let feeds = feeds_of(pool, &ids, uid).await;
@@ -820,7 +880,6 @@ pub async fn publish_selected(state: &AppState, sess: &Sess, extra: &Map<String,
 
 /// `RPC::mark`: star / unstar one article (`mark` is the cleaned request
 /// string, cast to boolean by Postgres exactly as PHP's `marked = ?`).
-/// PHP `HOOK_ARTICLES_MARK_TOGGLED` is omitted (no plugin host).
 pub async fn mark(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Value {
     let uid = sess.data().uid().unwrap_or(0);
     let mark = cleaned_str(extra, "mark");
@@ -834,11 +893,24 @@ pub async fn mark(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> 
     .bind(uid)
     .execute(state.db.pool())
     .await;
+    // `run_hooks(HOOK_ARTICLES_MARK_TOGGLED, [$id])` (RPC.php:72).
+    if let Some(id_i) = id.parse::<i32>().ok() {
+        let mut pctx = crate::pluginhost::dispatch::session_ctx(state, sess).await;
+        pctx
+            .run_hooks(
+                crate::pluginhost::HOOK_ARTICLES_MARK_TOGGLED,
+                |plugin, host| {
+                    Box::pin(async move {
+                        plugin.hook_articles_mark_toggled(host, &[id_i]).await
+                    })
+                },
+            )
+            .await;
+    }
     json!({ "message": "UPDATE_COUNTERS" })
 }
 
-/// `RPC::publ`: publish / unpublish one article (see [`mark`]). PHP
-/// `HOOK_ARTICLES_PUBLISH_TOGGLED` is omitted (no plugin host).
+/// `RPC::publ`: publish / unpublish one article (see [`mark`]).
 pub async fn publ(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Value {
     let uid = sess.data().uid().unwrap_or(0);
     let pub_ = cleaned_str(extra, "pub");
@@ -852,6 +924,20 @@ pub async fn publ(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> 
     .bind(uid)
     .execute(state.db.pool())
     .await;
+    // `run_hooks(HOOK_ARTICLES_PUBLISH_TOGGLED, [$id])` (RPC.php:100).
+    if let Some(id_i) = id.parse::<i32>().ok() {
+        let mut pctx = crate::pluginhost::dispatch::session_ctx(state, sess).await;
+        pctx
+            .run_hooks(
+                crate::pluginhost::HOOK_ARTICLES_PUBLISH_TOGGLED,
+                |plugin, host| {
+                    Box::pin(async move {
+                        plugin.hook_articles_publish_toggled(host, &[id_i]).await
+                    })
+                },
+            )
+            .await;
+    }
     json!({ "message": "UPDATE_COUNTERS" })
 }
 

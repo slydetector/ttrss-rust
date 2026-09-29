@@ -12,10 +12,14 @@
 
 mod common;
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use axum::body::to_bytes;
 use axum::body::Body;
+use axum::extract::{Extension, State};
+use axum::http::header;
 use axum::http::{Method, Request, StatusCode};
 use serde_json::{json, Value};
 use ttrss::core::db::Db;
@@ -24,18 +28,30 @@ use ttrss::core::session::Session;
 use ttrss::pluginhost::dispatch::public_dispatch;
 use ttrss::pluginhost::host::HostCtx;
 use ttrss::pluginhost::{
-    About, Plugin, PluginHost, HOOK_ACTION_ITEM, HOOK_FEED_TREE, HOOK_FORMAT_ARTICLE,
-    HOOK_GET_FULL_TEXT, HOOK_HEADLINES_CUSTOM_SORT_MAP, HOOK_HOTKEY_INFO,
-    HOOK_LOGINFORM_ADDITIONAL_BUTTONS, HOOK_PREFS_TABS, HOOK_TOOLBAR_BUTTON,
-    HOOK_UNSUBSCRIBE_FEED, HOOK_VALIDATE_SESSION,
+    About, Plugin, PluginHost, HOOK_ACTION_ITEM, HOOK_ARTICLES_MARK_TOGGLED,
+    HOOK_ARTICLES_PUBLISH_TOGGLED, HOOK_FEED_TREE, HOOK_FORMAT_ARTICLE, HOOK_GET_FULL_TEXT,
+    HOOK_HEADLINES_CUSTOM_SORT_MAP, HOOK_HOTKEY_INFO, HOOK_LOGINFORM_ADDITIONAL_BUTTONS,
+    HOOK_PREFS_TABS, HOOK_TOOLBAR_BUTTON, HOOK_UNSUBSCRIBE_FEED, HOOK_VALIDATE_SESSION,
 };
 use ttrss::AppState;
 use test_db::template::with_test_db;
 use tower::ServiceExt;
 
+/// Per-run observable state: set by the stub when the corresponding hook
+/// fires, and (for validate) the result the stub returns. One instance per
+/// `app()` so parallel tests can't clobber each other's flags.
+#[derive(Clone)]
+struct DispatchFlags {
+    mark_toggled: Arc<AtomicBool>,
+    publish_toggled: Arc<AtomicBool>,
+    validate_result: Arc<AtomicBool>,
+}
+
 /// One system stub for every remaining hook (system so it is active on the
 /// login-form / public hosts too).
-struct DispatchStub;
+struct DispatchStub {
+    flags: DispatchFlags,
+}
 
 #[async_trait]
 impl Plugin for DispatchStub {
@@ -66,6 +82,8 @@ impl Plugin for DispatchStub {
         host.add_hook_default(HOOK_FORMAT_ARTICLE);
         host.add_hook_default(HOOK_HOTKEY_INFO);
         host.add_hook_default(HOOK_UNSUBSCRIBE_FEED);
+        host.add_hook_default(HOOK_ARTICLES_MARK_TOGGLED);
+        host.add_hook_default(HOOK_ARTICLES_PUBLISH_TOGGLED);
     }
 
     async fn hook_feed_tree(&self, _host: &mut HostCtx) -> String {
@@ -84,7 +102,7 @@ impl Plugin for DispatchStub {
         host.output.push_str("<div id=\"PT\">prefs-tab</div>");
     }
     async fn hook_validate_session(&self, _host: &mut HostCtx) -> bool {
-        false
+        self.flags.validate_result.load(Ordering::SeqCst)
     }
     async fn hook_headlines_custom_sort_map(&self, _host: &mut HostCtx) -> Value {
         json!({ "custom": "My sort" })
@@ -111,6 +129,12 @@ impl Plugin for DispatchStub {
     ) -> bool {
         true
     }
+    async fn hook_articles_mark_toggled(&self, _host: &mut HostCtx, _ids: &[i32]) -> () {
+        self.flags.mark_toggled.store(true, Ordering::SeqCst);
+    }
+    async fn hook_articles_publish_toggled(&self, _host: &mut HostCtx, _ids: &[i32]) -> () {
+        self.flags.publish_toggled.store(true, Ordering::SeqCst);
+    }
 }
 
 /// An admin session (user 1) saved under `sid`, mirroring the stock
@@ -126,17 +150,29 @@ async fn save_admin_session(state: &AppState, sid: &str) {
     ttrss::session::save(&state.db, None, sid, &data).await.expect("save session");
 }
 
-async fn app(url: &str) -> AppState {
+fn flags() -> DispatchFlags {
+    DispatchFlags {
+        mark_toggled: Arc::new(AtomicBool::new(false)),
+        publish_toggled: Arc::new(AtomicBool::new(false)),
+        // Neutral by default (a real host with no hooks returns true).
+        validate_result: Arc::new(AtomicBool::new(true)),
+    }
+}
+
+async fn app(url: &str) -> (AppState, DispatchFlags) {
     let db: Db = common::make_db_from_url(url).await.expect("test db");
     let mut cfg = common::test_config();
     cfg.plugins = "dispatch_stub".to_string();
+    let fl = flags();
     let mut state = AppState::new(cfg, db);
     state.plugins = Arc::new({
         let mut host = PluginHost::startup(&ttrss::pluginhost::all_plugins());
-        host.register(Box::new(DispatchStub));
+        host.register(Box::new(DispatchStub {
+            flags: fl.clone(),
+        }));
         host
     });
-    state
+    (state, fl)
 }
 
 async fn get_page(state: &AppState, uri: &str, cookie: Option<&str>) -> String {
@@ -168,7 +204,7 @@ async fn get_page(state: &AppState, uri: &str, cookie: Option<&str>) -> String {
 #[tokio::test]
 async fn test_shell_runs_feed_tree_toolbar_action_hooks() {
     with_test_db(|url| Box::pin(async move {
-    let state = app(&url).await;
+    let (state, _fl) = app(&url).await;
     save_admin_session(&state, "disp-sid").await;
     let html = get_page(&state, "/tt-rss/index.php", Some("ttrss_sid=disp-sid")).await;
     assert!(html.contains("id=\"FT\""), "HOOK_FEED_TREE output missing");
@@ -181,7 +217,7 @@ async fn test_shell_runs_feed_tree_toolbar_action_hooks() {
 #[tokio::test]
 async fn test_login_page_runs_loginform_hook() {
     with_test_db(|url| Box::pin(async move {
-    let state = app(&url).await;
+    let (state, _fl) = app(&url).await;
     let html = get_page(&state, "/tt-rss/index.php", None).await;
     assert!(
         html.contains("id=\"LB\""),
@@ -194,7 +230,7 @@ async fn test_login_page_runs_loginform_hook() {
 #[tokio::test]
 async fn test_prefs_page_runs_prefs_tabs_hook() {
     with_test_db(|url| Box::pin(async move {
-    let state = app(&url).await;
+    let (state, _fl) = app(&url).await;
     save_admin_session(&state, "disp-sid").await;
     let html = get_page(&state, "/tt-rss/prefs.php", Some("ttrss_sid=disp-sid")).await;
     assert!(html.contains("id=\"PT\""), "HOOK_PREFS_TABS output missing");
@@ -205,9 +241,10 @@ async fn test_prefs_page_runs_prefs_tabs_hook() {
 #[tokio::test]
 async fn test_validate_session_runs_hook() {
     with_test_db(|url| Box::pin(async move {
-    let state = app(&url).await;
+    let (state, fl) = app(&url).await;
     // A valid admin session (hash matches the fixture) — the hook returning
     // `false` must invalidate it.
+    fl.validate_result.store(false, Ordering::SeqCst);
     let mut data = Session::new();
     data.set("uid", PValue::Int(1));
     data.set("access_level", PValue::Int(100));
@@ -225,7 +262,7 @@ async fn test_validate_session_runs_hook() {
 #[tokio::test]
 async fn test_getconfig_custom_sort_types() {
     with_test_db(|url| Box::pin(async move {
-    let state = app(&url).await;
+    let (state, _fl) = app(&url).await;
     sqlx::query(
         "INSERT INTO ttrss_user_prefs2 (owner_uid, pref_name, profile, value)
          VALUES (1, 'ENABLE_API_ACCESS', NULL, 'true')",
@@ -255,7 +292,7 @@ async fn test_getconfig_custom_sort_types() {
 #[tokio::test]
 async fn test_remove_feed_runs_unsubscribe_hook() {
     with_test_db(|url| Box::pin(async move {
-    let state = app(&url).await;
+    let (state, _fl) = app(&url).await;
     sqlx::query(
         "INSERT INTO ttrss_feeds (id, owner_uid, title, cat_id, feed_url, update_interval, purge_interval)
          VALUES (900, 1, 'hook feed', 1, 'https://example.com/feed', 60, 0)",
@@ -278,7 +315,7 @@ async fn test_remove_feed_runs_unsubscribe_hook() {
 #[tokio::test]
 async fn test_hotkey_info_chain() {
     with_test_db(|url| Box::pin(async move {
-    let state = app(&url).await;
+    let (state, _fl) = app(&url).await;
     let mut ctx = HostCtx::system_plugins(
         Arc::clone(&state.plugins),
         state.db.pool().clone(),
@@ -294,7 +331,7 @@ async fn test_hotkey_info_chain() {
 #[tokio::test]
 async fn test_create_published_article_get_full_text() {
     with_test_db(|url| Box::pin(async move {
-    let state = app(&url).await;
+    let (state, _fl) = app(&url).await;
     let pctx = ttrss::pluginhost::dispatch::owner_ctx(&state, 1).await;
     let ok = ttrss::article::create_published_article(
         state.db.pool(),
@@ -321,7 +358,7 @@ async fn test_create_published_article_get_full_text() {
 #[tokio::test]
 async fn test_format_article_runs_hook() {
     with_test_db(|url| Box::pin(async move {
-    let state = app(&url).await;
+    let (state, _fl) = app(&url).await;
     // Give seed article 1's user entry a share key.
     sqlx::query("UPDATE ttrss_user_entries SET uuid = 'disp-key' WHERE ref_id = 1 AND owner_uid = 1")
         .execute(state.db.pool())
@@ -340,6 +377,151 @@ async fn test_format_article_runs_hook() {
         }
         _ => panic!("expected an HTML response"),
     }
+        Ok(())
+    })).await.unwrap();
+}
+
+// ── HOOK_ARTICLES_*_TOGGLED (RPC mark/publ/markSelected/publishSelected,
+//    API updateArticle, Article::_create_published_article) ──────────────
+
+/// An admin `Sess` with the fixture pwd hash (mirrors `feed_crud.rs`).
+fn rpc_sess() -> ttrss::session::Sess {
+    let mut d = Session::new();
+    d.set("uid", PValue::Int(1));
+    d.set("access_level", PValue::Int(100));
+    d.set("pwd_hash", PValue::Bytes(b"SHA1:5baa61e4c9b93f3f0682250b6cf8331b7ee68fd8".to_vec()));
+    d.set("auth_module", PValue::Bytes(b"auth_internal".to_vec()));
+    d.set("name", PValue::Bytes(b"admin".to_vec()));
+    d.set("csrf_token", PValue::Bytes(b"tok".to_vec()));
+    let s = ttrss::session::Sess::new("rpc-sid".to_string());
+    s.replace("rpc-sid".to_string(), d);
+    s
+}
+
+async fn rpc_call(state: &AppState, body: &str) -> Value {
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri("/backend.php")
+        .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+        .body(Body::from(body.to_string()))
+        .expect("request");
+    let res =
+        ttrss::rpc::handler(State(state.clone()), Extension(rpc_sess()), req)
+            .await;
+    let bytes = to_bytes(res.into_body(), 10 * 1024 * 1024)
+        .await
+        .expect("body");
+    serde_json::from_str(&String::from_utf8_lossy(&bytes)).expect("json")
+}
+
+#[tokio::test]
+async fn test_rpc_mark_fires_mark_toggled() {
+    with_test_db(|url| Box::pin(async move {
+    let (state, fl) = app(&url).await;
+    let v = rpc_call(&state, "op=RPC&method=mark&csrf_token=tok&mark=true&id=1").await;
+    assert_eq!(v["message"], "UPDATE_COUNTERS", "RPC::mark ran: {v}");
+    assert!(fl.mark_toggled.load(Ordering::SeqCst), "HOOK_ARTICLES_MARK_TOGGLED must fire");
+    assert!(!fl.publish_toggled.load(Ordering::SeqCst), "publish hook must not fire");
+        Ok(())
+    })).await.unwrap();
+}
+
+#[tokio::test]
+async fn test_rpc_publ_fires_publish_toggled() {
+    with_test_db(|url| Box::pin(async move {
+    let (state, fl) = app(&url).await;
+    let v = rpc_call(&state, "op=RPC&method=publ&csrf_token=tok&pub=true&id=1").await;
+    assert_eq!(v["message"], "UPDATE_COUNTERS", "RPC::publ ran: {v}");
+    assert!(fl.publish_toggled.load(Ordering::SeqCst), "HOOK_ARTICLES_PUBLISH_TOGGLED must fire");
+    assert!(!fl.mark_toggled.load(Ordering::SeqCst), "mark hook must not fire");
+        Ok(())
+    })).await.unwrap();
+}
+
+#[tokio::test]
+async fn test_rpc_mark_selected_fires_mark_toggled() {
+    with_test_db(|url| Box::pin(async move {
+    let (state, fl) = app(&url).await;
+    let v =
+        rpc_call(&state, "op=RPC&method=markSelected&csrf_token=tok&ids[]=1&ids[]=2&cmode=0").await;
+    assert_ne!(v["error"]["code"].as_str(), Some("E_UNKNOWN_METHOD"), "{v}");
+    assert!(fl.mark_toggled.load(Ordering::SeqCst), "HOOK_ARTICLES_MARK_TOGGLED must fire");
+        Ok(())
+    })).await.unwrap();
+}
+
+#[tokio::test]
+async fn test_rpc_publish_selected_fires_publish_toggled() {
+    with_test_db(|url| Box::pin(async move {
+    let (state, fl) = app(&url).await;
+    let v =
+        rpc_call(&state, "op=RPC&method=publishSelected&csrf_token=tok&ids[]=1&cmode=0").await;
+    assert_ne!(v["error"]["code"].as_str(), Some("E_UNKNOWN_METHOD"), "{v}");
+    assert!(fl.publish_toggled.load(Ordering::SeqCst), "HOOK_ARTICLES_PUBLISH_TOGGLED must fire");
+        Ok(())
+    })).await.unwrap();
+}
+
+/// API `updateArticle` with `field=0` (marked) fires MARK_TOGGLED only.
+#[tokio::test]
+async fn test_api_update_article_marked_fires_mark() {
+    with_test_db(|url| Box::pin(async move {
+    let (state, fl) = app(&url).await;
+    sqlx::query(
+        "INSERT INTO ttrss_user_prefs2 (owner_uid, pref_name, profile, value)
+         VALUES (1, 'ENABLE_API_ACCESS', NULL, 'true')",
+    )
+    .execute(state.db.pool())
+    .await
+    .expect("set ENABLE_API_ACCESS");
+    let mut data = Session::new();
+    data.set("uid", PValue::Int(1));
+    let sess = ttrss::session::Sess::new("api-sid".into());
+    sess.replace("api-sid".into(), data);
+
+    let (status, out) = ttrss::api::before_and_dispatch(
+        &state,
+        &sess,
+        "updatearticle",
+        &json!({ "article_ids": [1], "mode": 0, "field": 0 }).as_object().unwrap(),
+        None,
+    )
+    .await;
+    assert_eq!(status, 0, "updatearticle(marked) OK: {out}");
+    assert!(fl.mark_toggled.load(Ordering::SeqCst), "marked → MARK_TOGGLED");
+    assert!(!fl.publish_toggled.load(Ordering::SeqCst), "marked must not fire publish");
+        Ok(())
+    })).await.unwrap();
+}
+
+/// API `updateArticle` with `field=1` (published) fires PUBLISH_TOGGLED only.
+#[tokio::test]
+async fn test_api_update_article_published_fires_publish() {
+    with_test_db(|url| Box::pin(async move {
+    let (state, fl) = app(&url).await;
+    sqlx::query(
+        "INSERT INTO ttrss_user_prefs2 (owner_uid, pref_name, profile, value)
+         VALUES (1, 'ENABLE_API_ACCESS', NULL, 'true')",
+    )
+    .execute(state.db.pool())
+    .await
+    .expect("set ENABLE_API_ACCESS");
+    let mut data = Session::new();
+    data.set("uid", PValue::Int(1));
+    let sess = ttrss::session::Sess::new("api-sid".into());
+    sess.replace("api-sid".into(), data);
+
+    let (status, out) = ttrss::api::before_and_dispatch(
+        &state,
+        &sess,
+        "updatearticle",
+        &json!({ "article_ids": [1], "mode": 0, "field": 1 }).as_object().unwrap(),
+        None,
+    )
+    .await;
+    assert_eq!(status, 0, "updatearticle(published) OK: {out}");
+    assert!(fl.publish_toggled.load(Ordering::SeqCst), "published → PUBLISH_TOGGLED");
+    assert!(!fl.mark_toggled.load(Ordering::SeqCst), "published must not fire mark");
         Ok(())
     })).await.unwrap();
 }
