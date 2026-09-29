@@ -831,6 +831,17 @@ async fn get_headlines(
     sess.with_mut(|d| d.set("hasSandbox", PValue::Bool(has_sandbox)));
     let include_header = param_to_bool(body.get("include_header"));
 
+    // `API::getHeadlines`: `search` (threaded to `_search_to_sql`),
+    // `check_first_id` (changed-result-set signal for incremental clients),
+    // `force_update` (pre-read forced refresh, 120 s flood control).
+    // `filter` is read by the PHP and then dropped — a dead param in the
+    // frozen reference (`_api_get_headlines` never uses it), so ignored here.
+    let search = clean_str(
+        body.get("search").and_then(Value::as_str).unwrap_or(""),
+    );
+    let check_first_id = clean_int(body.get("check_first_id"));
+    let force_update = param_to_bool(body.get("force_update"));
+
     let (override_order, skip_first_id_check) = headlines::order_to_override_query(&clean_str(
         body.get("order_by").and_then(Value::as_str).unwrap_or(""),
     ));
@@ -846,8 +857,58 @@ async fn get_headlines(
         override_order,
         include_children: include_nested,
         skip_first_id_check,
+        search,
+        check_first_id,
         ..Default::default()
     };
+
+    // `API::_api_get_headlines`: the `force_update` branch — a synchronous
+    // `update_rss_feed($feed_id, true)` (the `$no_cache` long-timeout fetch)
+    // for real feeds stale by more than 120 s; a cache-images feed (favicon
+    // only) is not fetched synchronously — its stamps are reset to the epoch
+    // so the in-process updater picks it up on its next pass.
+    if force_update {
+        let feed_num = feed_id.trim().parse::<i64>().unwrap_or(0);
+        if feed_num > 0 {
+            let row: Option<(bool, bool)> = sqlx::query_as(
+                "SELECT cache_images, \
+                   (EXTRACT(EPOCH FROM NOW()))::bigint \
+                     - (EXTRACT(EPOCH FROM COALESCE(last_updated, to_timestamp(0))))::bigint > 120 \
+                   FROM ttrss_feeds WHERE id = $1",
+            )
+            .bind(feed_num as i32)
+            .fetch_optional(state.db.pool())
+            .await
+            .ok()
+            .flatten();
+            if let Some((cache_images, stale)) = row {
+                if !cache_images && stale {
+                    let flags = crate::updates::FeedUpdateFlags {
+                        no_cache: true,
+                        ..Default::default()
+                    };
+                    let _ = crate::updates::fetch_one_feed(
+                        state.db.pool(),
+                        &state.config,
+                        state.plugins.clone(),
+                        feed_num as i32,
+                        &flags,
+                        None,
+                    )
+                    .await;
+                } else {
+                    let _ = sqlx::query(
+                        "UPDATE ttrss_feeds \
+                         SET last_updated = '1970-01-01', last_update_started = '1970-01-01' \
+                         WHERE id = $1",
+                    )
+                    .bind(feed_num as i32)
+                    .execute(state.db.pool())
+                    .await;
+                }
+            }
+        }
+    }
     // M10.2b: scope the request locale around the (translating) headline query
     // + row rendering. No `return`s in this tail, so the `async` block's value
     // is the handler's `(status, content)`.

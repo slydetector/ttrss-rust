@@ -142,6 +142,8 @@ async fn generate_feed(state: &AppState, owner_uid: i64, req: &RssRequest<'_>) -
         ignore_vfeed_group: true,
         start_ts: req.start_ts.to_string(),
         skip_first_id_check,
+        // The syndication path never sends check_first_id (PHP default 0).
+        check_first_id: 0,
     };
 
     // M10.3: resolve the UI locale (the feed owner's `USER_LANGUAGE` pref wins,

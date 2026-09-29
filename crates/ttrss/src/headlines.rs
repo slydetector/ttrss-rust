@@ -1341,6 +1341,11 @@ pub struct HeadlinesParams {
     /// `skip_first_id_check` (PHP default false): skip the topmost-article-id
     /// pagination check (set by `date_reverse` ordering via syndication).
     pub skip_first_id_check: bool,
+    /// `check_first_id` (PHP default 0): the id of the client's last-seen top
+    /// article. When `offset > 0` and the current top id differs, the result
+    /// set changed since the client last viewed it (PHP returns `[-1, …]`) —
+    /// signalled as `first_id_changed` with an empty row set.
+    pub check_first_id: i64,
 }
 
 impl HeadlinesParams {
@@ -1361,6 +1366,7 @@ impl HeadlinesParams {
             ignore_vfeed_group: false,
             start_ts: String::new(),
             skip_first_id_check: false,
+            check_first_id: 0,
         }
     }
 }
@@ -1385,7 +1391,7 @@ pub async fn get_headlines_query(db: &crate::core::db::Db, params: &HeadlinesPar
         &params.override_order,
         params.offset,
         params.include_children,
-        0, // check_first_id
+        params.check_first_id,
         params.skip_first_id_check,
         "", // order_by (PHP: commented out)
         &rows,
