@@ -468,7 +468,7 @@ async fn format_headlines_list(
         feed_site_url,
         last_error,
         last_updated,
-        search_words: _,
+        search_words,
         first_id,
         is_vfeed,
         query_error_override,
@@ -488,7 +488,43 @@ async fn format_headlines_list(
             .to_string(),
     };
 
-    // `HOOK_HEADLINE_TOOLBAR_*` — no loaded plugins register them.
+    // M7.6: the HOOK_SANITIZE context (built once per request).
+    let mut pctx = crate::pluginhost::dispatch::session_ctx(state, sess).await;
+
+    // `HOOK_HEADLINE_TOOLBAR_SELECT_MENU_ITEM2` / `_BUTTON` (Feeds.php:170-181):
+    // each hook's HTML string is appended into the toolbar's plugin slots.
+    let feed_id: i32 = feed_num.map(|f| f as i32).unwrap_or(0);
+    let mut plugin_menu_items = String::new();
+    pctx.chain_hooks_callback(
+        crate::pluginhost::HOOK_HEADLINE_TOOLBAR_SELECT_MENU_ITEM2,
+        &mut plugin_menu_items,
+        |plugin, host, acc| {
+            Box::pin(async move {
+                let r = plugin
+                    .hook_headline_toolbar_select_menu_item2(host, feed_id, cat_view)
+                    .await;
+                acc.push_str(&r);
+                r
+            })
+        },
+        |_r, _p| false,
+    )
+    .await;
+    let mut plugin_buttons = String::new();
+    pctx.chain_hooks_callback(
+        crate::pluginhost::HOOK_HEADLINE_TOOLBAR_BUTTON,
+        &mut plugin_buttons,
+        |plugin, host, acc| {
+            Box::pin(async move {
+                let r = plugin.hook_headline_toolbar_button(host, feed_id, cat_view).await;
+                acc.push_str(&r);
+                r
+            })
+        },
+        |_r, _p| false,
+    )
+    .await;
+
     let mut toolbar = Map::new();
     toolbar.insert("site_url".into(), json!(feed_site_url));
     toolbar.insert("title".into(), json!(strip_tags(&feed_title)));
@@ -501,8 +537,8 @@ async fn format_headlines_list(
             &tz
         )),
     );
-    toolbar.insert("plugin_menu_items".into(), json!(""));
-    toolbar.insert("plugin_buttons".into(), json!(""));
+    toolbar.insert("plugin_menu_items".into(), Value::from(plugin_menu_items));
+    toolbar.insert("plugin_buttons".into(), Value::from(plugin_buttons));
 
     let mut reply: Map<String, Value> = Map::new();
     reply.insert("first_id".into(), json!(first_id));
@@ -510,6 +546,46 @@ async fn format_headlines_list(
     reply.insert("search_query".into(), json!([search, search_language]));
     reply.insert("vfeed_group_enabled".into(), json!(vfeed_group_enabled));
     reply.insert("toolbar".into(), Value::Object(toolbar));
+
+    // `HOOK_HEADLINES_BEFORE` (Feeds.php:195): first page only
+    // ($offset == 0); each hook's HTML string is prepended before the
+    // article rows (PHP appends it into `$reply['content']` while it is
+    // `[]`, then appends the rows; the no-articles message *replaces* it).
+    let headlines_before: Option<String> = if offset == 0
+        && !pctx
+            .hook_order(crate::pluginhost::HOOK_HEADLINES_BEFORE)
+            .is_empty()
+    {
+        let qfh_ret = json!([
+            article_rows.len(), // the row set (PHP: opaque PDOStatement)
+            feed_title,
+            feed_site_url,
+            last_error,
+            last_updated,
+            search_words,
+            first_id,
+            is_vfeed,
+            query_error_override,
+        ]);
+        let mut before = String::new();
+        pctx.chain_hooks_callback(
+            crate::pluginhost::HOOK_HEADLINES_BEFORE,
+            &mut before,
+            |plugin, host, acc| {
+                let q = qfh_ret.clone();
+                Box::pin(async move {
+                    let r = plugin.hook_headlines_before(host, feed_id, cat_view, &q).await;
+                    acc.push_str(&r);
+                    r
+                })
+            },
+            |_r, _p| false,
+        )
+        .await;
+        Some(before)
+    } else {
+        None
+    };
 
     let mut content_list: Vec<Value> = Vec::new();
     let mut headlines_count = 0i64;
@@ -521,60 +597,58 @@ async fn format_headlines_list(
     let bw_limit = data.get_bool("bw_limit").unwrap_or(false);
     let has_sandbox = data.get_bool("hasSandbox").unwrap_or(false);
 
-    // M7.6: the HOOK_SANITIZE context (built once per request).
-    let mut pctx = crate::pluginhost::dispatch::session_ctx(state, sess).await;
-
     for r in &article_rows {
         headlines_count += 1;
 
         let is_vfeed_row = r.columns().len() >= 32;
         let id: i32 = r.get(0);
-        let date_entered: Option<chrono::NaiveDateTime> = r.get(I_DATE_ENTERED);
-        let title: String = r.get(I_TITLE);
+        let mut date_entered: Option<chrono::NaiveDateTime> = r.get(I_DATE_ENTERED);
+        let mut title: String = r.get(I_TITLE);
         let updated: Option<chrono::NaiveDateTime> = r.get(I_UPDATED);
-        let label_cache: String = r.get(I_LABEL_CACHE);
-        let tag_cache: String = r.get(I_TAG_CACHE);
+        let mut guid: String = r.get(3);
+        let mut label_cache: String = r.get(I_LABEL_CACHE);
+        let mut tag_cache: String = r.get(I_TAG_CACHE);
         // `always_display_enclosures` / `site_url` / `hide_images` come from
         // `ttrss_feeds` — NULL for archived rows (LEFT JOIN miss); PHP emits
         // `null` and treats them as falsy.
-        let always_display_enclosures: Option<bool> = r.get(I_ALWAYS_ENC);
-        let site_url: Option<String> = r.get(I_SITE_URL);
-        let note: Option<String> = r.get(I_NOTE);
-        let num_comments: i32 = r.get(I_NUM_COMMENTS);
-        let comments: String = r.get(I_COMMENTS);
-        let int_id: i32 = r.get(I_INT_ID);
-        let uuid: String = r.get(I_UUID);
-        let lang: Option<String> = r.get(I_LANG);
-        let hide_images: Option<bool> = r.get(I_HIDE_IMAGES);
-        let unread: bool = r.get(I_UNREAD);
-        let feed_id_db: Option<i32> = r.get(I_FEED_ID);
-        let marked: bool = r.get(I_MARKED);
-        let published: bool = r.get(I_PUBLISHED);
-        let link: String = r.get(I_LINK);
+        let mut always_display_enclosures: Option<bool> = r.get(I_ALWAYS_ENC);
+        let mut site_url: Option<String> = r.get(I_SITE_URL);
+        let mut note: Option<String> = r.get(I_NOTE);
+        let mut num_comments: i32 = r.get(I_NUM_COMMENTS);
+        let mut comments: String = r.get(I_COMMENTS);
+        let mut int_id: i32 = r.get(I_INT_ID);
+        let mut uuid: String = r.get(I_UUID);
+        let mut lang: Option<String> = r.get(I_LANG);
+        let mut hide_images: Option<bool> = r.get(I_HIDE_IMAGES);
+        let mut unread: bool = r.get(I_UNREAD);
+        let mut feed_id_db: Option<i32> = r.get(I_FEED_ID);
+        let mut marked: bool = r.get(I_MARKED);
+        let mut published: bool = r.get(I_PUBLISHED);
+        let mut link: String = r.get(I_LINK);
         let last_read: Option<chrono::NaiveDateTime> = r.get(I_LAST_READ);
-        let vfeed_title: Option<String> = if is_vfeed_row {
+        let mut vfeed_title: Option<String> = if is_vfeed_row {
             r.get::<Option<String>, _>(I_VF_TITLE)
         } else {
             None
         };
-        let favicon_avg_color: Option<String> = if is_vfeed_row {
+        let mut favicon_avg_color: Option<String> = if is_vfeed_row {
             r.get::<Option<String>, _>(I_VF_FAVICON)
         } else {
             None
         };
-        let content_raw: String = r.get(if is_vfeed_row {
+        let mut content_raw: String = r.get(if is_vfeed_row {
             I_VF_CONTENT
         } else {
             I_CONTENT
         });
-        let author: String = r.get(if is_vfeed_row { 28 } else { 26 });
-        let score: i32 = r.get(if is_vfeed_row { 29 } else { 27 });
-        let num_labels: i64 = r.get(if is_vfeed_row { 30 } else { 28 });
-        let num_enclosures: i64 = r.get(if is_vfeed_row { 31 } else { 29 });
+        let mut author: String = r.get(if is_vfeed_row { 28 } else { 26 });
+        let mut score: i32 = r.get(if is_vfeed_row { 29 } else { 27 });
+        let mut num_labels: i64 = r.get(if is_vfeed_row { 30 } else { 28 });
+        let mut num_enclosures: i64 = r.get(if is_vfeed_row { 31 } else { 29 });
 
-        let updated_str = updated.as_ref().map(time::naive_to_pg_text);
-        let date_entered_str = date_entered.as_ref().map(time::naive_to_pg_text);
-        let last_read_str = last_read.as_ref().map(time::naive_to_pg_text);
+        let mut updated_str = updated.as_ref().map(time::naive_to_pg_text);
+        let mut date_entered_str = date_entered.as_ref().map(time::naive_to_pg_text);
+        let mut last_read_str = last_read.as_ref().map(time::naive_to_pg_text);
 
         // `content_preview` — first key added (pre-sanitize raw content).
         let content_preview = if show_content_preview {
@@ -585,6 +659,126 @@ async fn format_headlines_list(
         } else {
             String::new()
         };
+
+        // `HOOK_QUERY_HEADLINES` (Feeds.php:213-217): per-row, right after
+        // `content_preview` is set. The hook receives the row — PDO string
+        // values under the ORM column keys — plus the excerpt length; the
+        // result *replaces* the row, and the rest of this loop continues on
+        // the replaced row.
+        {
+            let last_marked: Option<chrono::NaiveDateTime> = r.get(23);
+            let last_published: Option<chrono::NaiveDateTime> = r.get(24);
+            let char1 = |b: Option<bool>| b.map(|x| if x { "t".to_string() } else { "f".to_string() });
+            let mut m = Map::new();
+            m.insert("id".into(), json!(id.to_string()));
+            m.insert("date_entered".into(), Value::from(date_entered_str.clone()));
+            m.insert("yyiw".into(), json!(date_entered
+                .map(|d| d.format("%G-%V").to_string())
+                .unwrap_or_default()));
+            m.insert("guid".into(), Value::from(guid.clone()));
+            m.insert("title".into(), Value::from(title.clone()));
+            m.insert("updated".into(), Value::from(updated_str.clone()));
+            m.insert("label_cache".into(), Value::from(label_cache.clone()));
+            m.insert("tag_cache".into(), Value::from(tag_cache.clone()));
+            m.insert("always_display_enclosures".into(), Value::from(char1(always_display_enclosures)));
+            m.insert("site_url".into(), Value::from(site_url.clone()));
+            m.insert("note".into(), Value::from(note.clone()));
+            m.insert("num_comments".into(), json!(num_comments.to_string()));
+            m.insert("comments".into(), Value::from(comments.clone()));
+            m.insert("int_id".into(), json!(int_id.to_string()));
+            m.insert("uuid".into(), Value::from(uuid.clone()));
+            m.insert("lang".into(), Value::from(lang.clone()));
+            m.insert("hide_images".into(), Value::from(char1(hide_images)));
+            m.insert("unread".into(), Value::from(if unread { "t" } else { "f" }));
+            m.insert("feed_id".into(), Value::from(feed_id_db.map(|f| f.to_string())));
+            m.insert("marked".into(), Value::from(if marked { "t" } else { "f" }));
+            m.insert("published".into(), Value::from(if published { "t" } else { "f" }));
+            m.insert("link".into(), Value::from(link.clone()));
+            m.insert("last_read".into(), Value::from(last_read_str.clone()));
+            m.insert("last_marked".into(), Value::from(last_marked.as_ref().map(time::naive_to_pg_text)));
+            m.insert("last_published".into(), Value::from(last_published.as_ref().map(time::naive_to_pg_text)));
+            if is_vfeed_row {
+                m.insert("feed_title".into(), Value::from(vfeed_title.clone()));
+                m.insert("favicon_avg_color".into(), Value::from(favicon_avg_color.clone()));
+            }
+            m.insert("content".into(), Value::from(content_raw.clone()));
+            m.insert("author".into(), Value::from(author.clone()));
+            m.insert("score".into(), json!(score.to_string()));
+            m.insert("num_labels".into(), json!(num_labels.to_string()));
+            m.insert("num_enclosures".into(), json!(num_enclosures.to_string()));
+            m.insert("content_preview".into(), Value::from(content_preview.clone()));
+
+            let mut row_val = Value::Object(m);
+            if !pctx
+                .hook_order(crate::pluginhost::HOOK_QUERY_HEADLINES)
+                .is_empty()
+            {
+                pctx.chain_hooks_callback(
+                    crate::pluginhost::HOOK_QUERY_HEADLINES,
+                    &mut row_val,
+                    |plugin, host, row| {
+                        Box::pin(async move {
+                            let mut local = row.clone();
+                            let res = plugin
+                                .hook_query_headlines(host, &mut local, 250)
+                                .await;
+                            *row = res.clone();
+                            res
+                        })
+                    },
+                    |_r, _p| false,
+                )
+                .await;
+            }
+
+            // The replaced row feeds the rest of the loop: a key present as
+            // a string (the PDO form) wins; absent/null keeps the original.
+            let h_str = |name: &str| row_val.get(name).and_then(Value::as_str).map(String::from);
+            let h_i = |name: &str, cur: i64| row_val.get(name).and_then(Value::as_i64).unwrap_or(cur);
+            let h_t = |name: &str, cur: bool| match h_str(name).as_deref() {
+                Some("t") => true,
+                Some("f") => false,
+                _ => cur,
+            };
+
+            guid = h_str("guid").unwrap_or(guid);
+            title = h_str("title").unwrap_or(title);
+            updated_str = h_str("updated").or(updated_str);
+            label_cache = h_str("label_cache").unwrap_or(label_cache);
+            tag_cache = h_str("tag_cache").unwrap_or(tag_cache);
+            always_display_enclosures = match h_str("always_display_enclosures").as_deref() {
+                Some("t") => Some(true),
+                Some("f") => Some(false),
+                _ => always_display_enclosures,
+            };
+            site_url = h_str("site_url").or(site_url);
+            note = h_str("note").or(note);
+            num_comments = h_i("num_comments", num_comments as i64) as i32;
+            comments = h_str("comments").unwrap_or(comments);
+            int_id = h_i("int_id", int_id as i64) as i32;
+            uuid = h_str("uuid").unwrap_or(uuid);
+            lang = h_str("lang").or(lang);
+            hide_images = match h_str("hide_images").as_deref() {
+                Some("t") => Some(true),
+                Some("f") => Some(false),
+                _ => hide_images,
+            };
+            unread = h_t("unread", unread);
+            feed_id_db = h_str("feed_id").and_then(|v| v.parse().ok());
+            marked = h_t("marked", marked);
+            published = h_t("published", published);
+            link = h_str("link").unwrap_or(link);
+            last_read_str = h_str("last_read").or(last_read_str);
+            if is_vfeed_row {
+                vfeed_title = h_str("feed_title").or(vfeed_title);
+                favicon_avg_color = h_str("favicon_avg_color").or(favicon_avg_color);
+            }
+            content_raw = h_str("content").unwrap_or(content_raw);
+            author = h_str("author").unwrap_or(author);
+            score = h_i("score", score as i64) as i32;
+            num_labels = h_i("num_labels", num_labels);
+            num_enclosures = h_i("num_enclosures", num_enclosures);
+        }
 
         // `if ($line['feed_id'] === null)` — normalize the archived feed.
         let feed_id: i64 = feed_id_db.map(|f| f as i64).unwrap_or(FEED_ARCHIVED);
@@ -867,7 +1061,18 @@ async fn format_headlines_list(
             }
             msg.push_str("</span></p></div>");
             reply.insert("content".into(), Value::from(msg));
+        } else if let Some(before) = &headlines_before {
+            // No message (first-id-changed path): PHP's content stays the
+            // hook string.
+            reply.insert("content".into(), Value::from(before.clone()));
+        } else if offset == 0 {
+            // No hook registered: PHP's content is `[]` (the empty array).
+            reply.insert("content".into(), json!([]));
         }
+    } else if let Some(before) = headlines_before {
+        let mut content = vec![Value::from(before)];
+        content.extend(content_list);
+        reply.insert("content".into(), Value::Array(content));
     } else {
         reply.insert("content".into(), Value::Array(content_list));
     }
