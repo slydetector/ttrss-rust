@@ -610,13 +610,12 @@ pub trait Plugin: Send + Sync {
     /// `hook_enclosure_imported($enclosure, $feed)` — enclosure imported (e.g.
     /// via OPML). `HOOK_ENCLOSURE_IMPORTED`.
     ///
-    /// The PHP's `$enclosure` is a `FeedEnclosure` object
-    /// (tt-rss/classes/FeedEnclosure.php: six public string fields). The port
-    /// threads it as a `Value` object
-    /// whose keys are those exact field names — `link`, `type`, `length`,
-    /// `title`, `height`, `width` (all strings) — so a plugin that reads /
-    /// rewrites the fields sees the same shape; the returned value is read
-    /// back field-by-field (missing keys keep the previous values).
+    /// `enclosure` — object, the PHP's `FeedEnclosure`
+    /// (tt-rss/classes/FeedEnclosure.php); all values are strings:
+    /// - `link`, `type`, `length`, `title`, `height`, `width`
+    ///
+    /// Return: the (possibly rewritten) object. Read back field-by-field —
+    /// a missing key keeps the enclosure's previous value.
     async fn hook_enclosure_imported(&self, _host: &mut HostCtx, _enclosure: &mut Value, _feed: i32) -> Value {
         Value::Null
     }
