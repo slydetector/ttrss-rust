@@ -376,3 +376,29 @@ machinery, and a concrete reference for porting the rest.
   - Rust plugin-system trade-off surveys:
     https://www.arroyo.dev/blog/rust-plugin-systems/ ,
     https://kerkour.com/rust-plugin-system , https://blog.anirudha.dev/rust-plugin-system/
+
+---
+
+## 10. Backlog
+
+### Plugin-trait `Value` documentation pass *(open, 2026-09-20)*
+
+Document **every `Value` parameter and `Value` return** in the `Plugin` trait
+(`crates/ttrss/src/pluginhost/plugin.rs`) so a plugin author can see the exact
+shape and content of each value at the definition site — no wild-goose-chase
+into call sites / PHP to work it out.
+
+Scope: the 18 hooks with a `Value` surface —
+`hook_article_button`, `hook_article_filter`, `hook_update_task`,
+`hook_hotkey_map`, `hook_render_article`, `hook_render_article_cdm`,
+`hook_render_article_api`, `hook_hotkey_info`, `hook_article_left_button`,
+`hook_prefs_save_feed`, `hook_query_headlines`, `hook_search`,
+`hook_format_article`, `hook_send_mail`, `hook_enclosure_imported`
+*(done — the `FeedEnclosure` field map: `link`/`type`/`length`/`title`/
+`height`/`width`)*, `hook_headlines_custom_sort_map`,
+`hook_headlines_custom_sort_override`, `hook_post_logout`.
+
+For each: name the keys (and their types), where the value originates (the
+port's call site + the PHP reference), and for return values which fields the
+core reads back (the "contract"). Derive the shape from the dispatch site,
+not guesswork — same method as the enclosure doc above.
