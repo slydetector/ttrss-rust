@@ -24,9 +24,7 @@ cross-checking the port found:
   half-wired, the PHP DB-logging subsystem is replaced by `tracing`, and the web
   `dbupdate` op is absent.
 - **A set of *behavioral* partials** the entry-point scan cannot see (see
-  §Behavioral partials). The standouts: the API **`getHeadlines` ignores 4 of 19
-    params — including `search` and `force_update`, so API full-text search is broken
-    and pre-read refresh is a no-op** (B5, found by param-diffing all 24 API ops); and **feed-date parsing handles only RFC 2822/3339**
+  §Behavioral partials). The standout: **feed-date parsing handles only RFC 2822/3339**
   where PHP's `strtotime` accepts dozens more (B1). Plus deliberate deviations
   (`checkforupdates` stubbed, the "daemon not updating" warning dropped, the 30 s
   feed-content cache dropped — B2–B4).
