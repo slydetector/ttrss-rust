@@ -54,7 +54,11 @@ use crate::rss_utils::{calculate_article_hash, make_guid_from_title, make_guid_h
 use crate::urlhelper::{fetch, FetchOptions, rewrite_relative};
 use crate::util::{clean_str, normalize_categories, php_int_cast, sha1_hex, strip_tags};
 use crate::pluginhost::host::HostCtx;
-use crate::pluginhost::{HOOK_ARTICLE_FILTER, HOOK_FETCH_FEED, PluginHost};
+use crate::pluginhost::{
+    HOOK_ARTICLE_FILTER, HOOK_ARTICLES_MARK_TOGGLED, HOOK_ARTICLES_PUBLISH_TOGGLED,
+    HOOK_ENCLOSURE_IMPORTED, HOOK_FETCH_FEED, HOOK_FEED_FETCHED, HOOK_FEED_PARSED,
+    HOOK_FILTER_TRIGGERED, HOOK_HOUSE_KEEPING, PluginHost,
+};
 
 /// The subset of `ttrss_feeds` the pipeline reads.
 #[derive(Debug, Clone)]
@@ -188,6 +192,30 @@ pub async fn process_feed(
             new_articles: 0,
             parse_error: Some(err),
         });
+    }
+
+    // `chain_hooks_callback(HOOK_FEED_PARSED, …)` (RSSUtils:624) — the
+    // initialized parser + feed id are handed to each hook (the result is
+    // not used).
+    {
+        let system: Vec<String> = cfg
+            .plugins
+            .split(',')
+            .map(|s| s.trim().to_lowercase())
+            .filter(|s| !s.is_empty())
+            .collect();
+        let mut ctx = crate::pluginhost::dispatch::owner_ctx_from(
+            Arc::clone(&plugins),
+            pool.clone(),
+            cfg.clone(),
+            &system,
+            &cfg.self_url,
+            feed.owner_uid,
+        )
+        .await;
+        for idx in ctx.hook_order(HOOK_FEED_PARSED) {
+            ctx.host_arc().plugin(idx).hook_feed_parsed(&mut ctx, &parser, feed.id).await;
+        }
     }
 
     dlog(log.as_deref_mut(), DEBUG_LEVEL_VERBOSE, format!("language: {feed_language}"));
@@ -373,7 +401,7 @@ pub async fn update_rss_feed(
     let Some(feed) = load_feed(pool, feed_id).await? else {
         return Ok(false);
     };
-    let result = process_feed(pool, cfg, plugins, &feed, feed_data, flags, log.as_deref_mut()).await?;
+    let result = process_feed(pool, cfg, plugins, &feed, &feed_data, flags, log.as_deref_mut()).await?;
     Ok(result.parse_error.is_none())
 }
 
@@ -678,7 +706,7 @@ pub async fn fetch_one_feed(
         .body
         .as_deref()
         .map_or(String::new(), |b| String::from_utf8_lossy(b).into_owned());
-    let feed_data = body.trim();
+    let mut feed_data = body.trim().to_string();
 
     // Empty body → the error path (304 / 429 / other).
     if feed_data.is_empty() {
@@ -763,8 +791,7 @@ pub async fn fetch_one_feed(
             .await;
     }
 
-    // The PHP's `dump_feed_xml` (before/after the (absent) plugin hooks — the
-    // two dumps are identical with no plugins, as in the PHP).
+    // The PHP's `dump_feed_xml` "feed data before hooks" (RSSUtils:590).
     if flags.dump_feed_xml {
         dlog(log.as_deref_mut(), DEBUG_LEVEL_VERBOSE, "feed data before hooks:".into());
         dlog(log.as_deref_mut(), DEBUG_LEVEL_VERBOSE, DEBUG_SEPARATOR.into());
@@ -772,6 +799,38 @@ pub async fn fetch_one_feed(
             l.xml(feed_data.to_string());
         }
         dlog(log.as_deref_mut(), DEBUG_LEVEL_VERBOSE, DEBUG_SEPARATOR.into());
+    }
+
+    // `chain_hooks_callback(HOOK_FEED_FETCHED, …)` (RSSUtils:594): the raw XML
+    // is threaded through each hook (a plugin may rewrite it before parsing) —
+    // args (feed_data, feed_url, owner_uid, feed), result replaces the data.
+    {
+        let system: Vec<String> = cfg
+            .plugins
+            .split(',')
+            .map(|s| s.trim().to_lowercase())
+            .filter(|s| !s.is_empty())
+            .collect();
+        let mut ctx = crate::pluginhost::dispatch::owner_ctx_from(
+            Arc::clone(&plugins),
+            pool.clone(),
+            cfg.clone(),
+            &system,
+            &cfg.self_url,
+            feed.owner_uid,
+        )
+        .await;
+        for idx in ctx.hook_order(HOOK_FEED_FETCHED) {
+            feed_data = ctx
+                .host_arc()
+                .plugin(idx)
+                .hook_feed_fetched(&mut ctx, &feed_data, &feed.feed_url, feed.owner_uid, feed_id)
+                .await;
+        }
+    }
+
+    // …and the "feed data after hooks" dump.
+    if flags.dump_feed_xml {
         dlog(log.as_deref_mut(), DEBUG_LEVEL_VERBOSE, "feed data after hooks:".into());
         dlog(log.as_deref_mut(), DEBUG_LEVEL_VERBOSE, DEBUG_SEPARATOR.into());
         if let Some(l) = log.as_deref_mut() {
@@ -779,7 +838,7 @@ pub async fn fetch_one_feed(
         }
         dlog(log.as_deref_mut(), DEBUG_LEVEL_VERBOSE, DEBUG_SEPARATOR.into());
     }
-    let result = process_feed(pool, cfg, plugins, &feed, feed_data, flags, log.as_deref_mut()).await?;
+    let result = process_feed(pool, cfg, plugins, &feed, &feed_data, flags, log.as_deref_mut()).await?;
     Ok(FeedFetchOutcome {
         success: result.parse_error.is_none(),
         new_articles: result.new_articles,
@@ -1097,12 +1156,59 @@ async fn upsert_article(
     );
     dlog(log.as_deref_mut(), DEBUG_LEVEL_VERBOSE, "done collecting data.".into());
     dlog(log.as_deref_mut(), DEBUG_LEVEL_VERBOSE, "looking for enclosures...".into());
-    // PHP: `$encs = $item->get_enclosures();` then, per enclosure, rewrite the
-    // link against the feed's site URL (`UrlHelper::rewrite_relative`) and drop
-    // any whose link fails validation. (The `HOOK_ENCLOSURE_IMPORTED` plugin hook
-    // is a no-op with no plugins loaded.)
+    // PHP: `$encs = $item->get_enclosures();` then, per enclosure, run
+    // `HOOK_ENCLOSURE_IMPORTED` (a plugin may rewrite the enclosure), rewrite
+    // the link against the feed's site URL (`UrlHelper::rewrite_relative`) and
+    // drop any whose link fails validation.
     let mut enclosures: Vec<FeedEnclosure> = Vec::new();
     for mut enc in item.get_enclosures() {
+        // `chain_hooks_callback(HOOK_ENCLOSURE_IMPORTED, …)` (RSSUtils:814) —
+        // the enclosure's field map is threaded through each hook; the result
+        // replaces the enclosure before the link rewrite.
+        let mut enc_val = json!({
+            "link": enc.link,
+            "type": enc.enc_type,
+            "length": enc.length,
+            "title": enc.title,
+            "height": enc.height,
+            "width": enc.width,
+        });
+        for idx in ctx.hook_order(HOOK_ENCLOSURE_IMPORTED) {
+            ctx.host_arc()
+                .plugin(idx)
+                .hook_enclosure_imported(ctx, &mut enc_val, feed.id)
+                .await;
+        }
+        enc.link = enc_val
+            .get("link")
+            .and_then(Value::as_str)
+            .unwrap_or(&enc.link)
+            .to_string();
+        enc.enc_type = enc_val
+            .get("type")
+            .and_then(Value::as_str)
+            .unwrap_or(&enc.enc_type)
+            .to_string();
+        enc.length = enc_val
+            .get("length")
+            .and_then(Value::as_str)
+            .unwrap_or(&enc.length)
+            .to_string();
+        enc.title = enc_val
+            .get("title")
+            .and_then(Value::as_str)
+            .unwrap_or(&enc.title)
+            .to_string();
+        enc.height = enc_val
+            .get("height")
+            .and_then(Value::as_str)
+            .unwrap_or(&enc.height)
+            .to_string();
+        enc.width = enc_val
+            .get("width")
+            .and_then(Value::as_str)
+            .unwrap_or(&enc.width)
+            .to_string();
         match crate::sanitizer::rewrite_relative(site_url, &enc.link, "", "", &enc.enc_type) {
             Some(url) => enc.link = url,
             None => {
@@ -1363,6 +1469,78 @@ async fn upsert_article(
         &entry_author,
         &existing_tags,
     );
+    // `run_hooks(HOOK_FILTER_TRIGGERED, …)` (RSSUtils:904) — after the
+    // evaluation, before the matched ids are applied: the feed, owner,
+    // article, matched filters/rules, and the collected actions.
+    let matched_filters_val: Vec<Value> = outcome
+        .matched_filters
+        .iter()
+        .map(|&i| &filters[i])
+        .map(|f| {
+            json!({
+                "match_any_rule": f.match_any_rule,
+                "inverse": f.inverse,
+                "rules": f.rules.iter().map(|r| {
+                    json!({
+                        "reg_exp": r.reg_exp,
+                        "rule_type": match r.rule_type {
+                            RuleType::Title => "title",
+                            RuleType::Content => "content",
+                            RuleType::Both => "both",
+                            RuleType::Link => "link",
+                            RuleType::Author => "author",
+                            RuleType::Tag => "tag",
+                            RuleType::Unknown => "date",
+                        },
+                        "inverse": r.inverse,
+                    })
+                }).collect::<Vec<_>>(),
+                "actions": f.actions.iter().map(|a| {
+                    json!({
+                        "type": a.action_type,
+                        "param": a.param,
+                    })
+                }).collect::<Vec<_>>(),
+            })
+        })
+        .collect();
+    let matched_rules_val: Vec<Value> = outcome
+        .matched_rules
+        .iter()
+        .map(|r| {
+            json!({
+                "rule_index": r.rule_index,
+                "regexp_matches": r.regexp_matches,
+            })
+        })
+        .collect();
+    let actions_val: Vec<Value> = outcome
+        .actions
+        .iter()
+        .map(|a| {
+            json!({
+                "type": a.action_type,
+                "param": a.param,
+            })
+        })
+        .collect();
+    let matched_filters_v = Value::Array(matched_filters_val);
+    let matched_rules_v = Value::Array(matched_rules_val);
+    let actions_v = Value::Array(actions_val);
+    for idx in ctx.hook_order(HOOK_FILTER_TRIGGERED) {
+        ctx.host_arc()
+            .plugin(idx)
+            .hook_filter_triggered(
+                ctx,
+                feed.id,
+                owner,
+                &article,
+                &matched_filters_v,
+                &matched_rules_v,
+                &actions_v,
+            )
+            .await;
+    }
     // The PHP's `LOG_EXTENDED`-gated filter dumps: the three headers are
     // logged unconditionally at level 2; the array bodies only when non-empty
     // (`{:?}` stands in for the PHP's `print_r`).
@@ -1488,6 +1666,25 @@ async fn upsert_article(
             .fetch_one(pool)
             .await
             .context("insert user entry")?;
+            // PHP `run_hooks(HOOK_ARTICLES_*_TOGGLED, [$ref_id])`
+            // (RSSUtils:1146-1149) — fired when the fresh entry is created
+            // already marked / published (filter actions).
+            if marked {
+                for idx in ctx.hook_order(HOOK_ARTICLES_MARK_TOGGLED) {
+                    ctx.host_arc()
+                        .plugin(idx)
+                        .hook_articles_mark_toggled(ctx, &[ref_id])
+                        .await;
+                }
+            }
+            if published {
+                for idx in ctx.hook_order(HOOK_ARTICLES_PUBLISH_TOGGLED) {
+                    ctx.host_arc()
+                        .plugin(idx)
+                        .hook_articles_publish_toggled(ctx, &[ref_id])
+                        .await;
+                }
+            }
             int_id
         }
     };
@@ -1802,6 +1999,34 @@ pub async fn claim_feeds(pool: &PgPool, feeds: &[DueFeed]) {
 /// feed sets cycle over minutes, as in the PHP). No cross-process lock (D1 = B,
 /// strictly single-process). The loop exits when `cancel` is cancelled (the
 /// graceful-shutdown path).
+/// `run_hooks(HOOK_HOUSE_KEEPING)` — the housekeeping hook chain
+/// (PHP `housekeeping_common`, RSSUtils:1771). Runs on the system plugin set
+/// (owner 0 → no per-owner `_ENABLED_PLUGINS`).
+pub async fn run_house_keeping_hook(
+    pool: &PgPool,
+    cfg: &Config,
+    plugins: &Arc<PluginHost>,
+) {
+    let system: Vec<String> = cfg
+        .plugins
+        .split(',')
+        .map(|s| s.trim().to_lowercase())
+        .filter(|s| !s.is_empty())
+        .collect();
+    let mut ctx = crate::pluginhost::dispatch::owner_ctx_from(
+        Arc::clone(plugins),
+        pool.clone(),
+        cfg.clone(),
+        &system,
+        &cfg.self_url,
+        0,
+    )
+    .await;
+    for idx in ctx.hook_order(HOOK_HOUSE_KEEPING) {
+        ctx.host_arc().plugin(idx).hook_house_keeping(&mut ctx).await;
+    }
+}
+
 pub async fn daemon_loop(pool: &PgPool, cfg: &Config, plugins: Arc<PluginHost>, cancel: tokio_util::sync::CancellationToken) {
     use tokio::sync::Semaphore;
     use tokio::task::JoinSet;
@@ -1875,6 +2100,11 @@ pub async fn daemon_loop(pool: &PgPool, cfg: &Config, plugins: Arc<PluginHost>, 
         // (`housekeeping_user` — M7.12 `cache_starred_images` et al.).
         crate::scheduler::run_due_tasks(pool, cfg, &crate::scheduler::system_tasks(cfg)).await;
         crate::scheduler::run_plugin_tasks(pool, cfg, &plugins).await;
+
+        // `run_hooks(HOOK_HOUSE_KEEPING)` (the PHP's `housekeeping_common`,
+        // RSSUtils:1771; the per-user variant, `housekeeping_user`, RSSUtils:
+        // 1675, is covered by `run_plugin_tasks`'s per-owner task runs).
+        run_house_keeping_hook(pool, cfg, &plugins).await;
 
         // Sleep the interval (or exit on graceful shutdown).
         tokio::select! {
