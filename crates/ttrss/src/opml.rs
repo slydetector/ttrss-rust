@@ -27,7 +27,7 @@ use sqlx::Row;
 
 use crate::session::Sess;
 use crate::AppState;
-use crate::util::{format_error, htmlspecialchars};
+use crate::util::{format_error, htmlspecialchars, php_int_cast};
 
 /// The serializable OPML document (quick-xml `serde` types). `Outline` is
 /// shared by category and feed nodes; attribute fields are `Option`s so they
@@ -705,15 +705,10 @@ async fn opml_import_feed(db: &Db, uid: i64, node: &XmlNode, cat_id: i64, body: 
     } else {
         feed_title
     };
-    let update_interval = attr(node, "ttrssUpdateInterval")
-        .and_then(|v| v.parse::<i64>().ok())
-        .unwrap_or(0);
-    let order_id = attr(node, "ttrssSortOrder")
-        .and_then(|v| v.parse::<i64>().ok())
-        .unwrap_or(0);
-    let purge_interval = attr(node, "ttrssPurgeInterval")
-        .and_then(|v| v.parse::<i64>().ok())
-        .unwrap_or(0);
+    // PHP casts these with (int) — lenient leading-numeric-prefix parse — not strict parse.
+    let update_interval = attr(node, "ttrssUpdateInterval").map(|v| php_int_cast(&v)).unwrap_or(0);
+    let order_id = attr(node, "ttrssSortOrder").map(|v| php_int_cast(&v)).unwrap_or(0);
+    let purge_interval = attr(node, "ttrssPurgeInterval").map(|v| php_int_cast(&v)).unwrap_or(0);
     let cat = (cat_id != 0).then_some(cat_id);
     sqlx::query(
         "INSERT INTO ttrss_feeds (title, feed_url, owner_uid, cat_id, site_url, order_id, update_interval, purge_interval) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)")
@@ -956,9 +951,7 @@ async fn opml_import_category(
                 } else if get_feed_category(db, &title, uid, cat_id).await != 0 {
                     get_feed_category(db, &title, uid, cat_id).await
                 } else {
-                    let order_id = attr(node, "ttrssSortOrder")
-                        .and_then(|v| v.parse::<i64>().ok())
-                        .unwrap_or(0);
+                    let order_id = attr(node, "ttrssSortOrder").map(|v| php_int_cast(&v)).unwrap_or(0);
                     add_cat_low(db, &title, uid, (cat_id != 0).then_some(cat_id), order_id).await;
                     get_feed_category(db, &title, uid, cat_id).await
                 };

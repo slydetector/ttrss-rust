@@ -86,6 +86,45 @@ async fn test_import_creates_category_and_feed() {
 }
 
 #[tokio::test]
+async fn test_import_lenient_int_attrs() {
+    // PHP casts the ttrss* attributes with (int) — a lenient
+    // leading-numeric-prefix parse — not a strict parse. Non-integer
+    // attribute values must import their prefix, not 0.
+    with_test_db(|url| Box::pin(async move {
+    let state = common::make_app_state(&url).await;
+    let sess = sess_for(1);
+    let opml = r#"<opml version="1.0"><body>
+      <outline text="Len Cat" ttrssSortOrder=" 7x">
+        <outline type="rss" text="Len Feed" xmlUrl="https://example.com/len" ttrssUpdateInterval="3.14" ttrssSortOrder=" 5" ttrssPurgeInterval="5abc"/>
+      </outline>
+    </body></opml>"#;
+    let _ = ttrss::opml::import(&state, &sess, Some(opml.as_bytes())).await;
+
+    // Category order_id: (int)" 7x" = 7.
+    let cat: Option<i32> = sqlx::query_scalar(
+        "SELECT order_id FROM ttrss_feed_categories WHERE owner_uid = 1 AND title = 'Len Cat'",
+    )
+    .fetch_optional(state.db.pool())
+    .await
+    .expect("cat query");
+    assert_eq!(cat, Some(7), "category ttrssSortOrder (int) cast");
+
+    // Feed: (int)"3.14" = 3, (int)" 5" = 5, (int)"5abc" = 5.
+    let row: Option<(i32, i32, i32)> = sqlx::query_as(
+        "SELECT order_id, update_interval, purge_interval FROM ttrss_feeds WHERE owner_uid = 1 AND feed_url = 'https://example.com/len'",
+    )
+    .fetch_optional(state.db.pool())
+    .await
+    .expect("feed query");
+    let (forder, fupdate, fpurge) = row.expect("Len Feed created");
+    assert_eq!(fupdate, 3, "ttrssUpdateInterval (int) cast");
+    assert_eq!(forder, 5, "ttrssSortOrder (int) cast");
+    assert_eq!(fpurge, 5, "ttrssPurgeInterval (int) cast");
+        Ok(())
+    })).await.unwrap();
+}
+
+#[tokio::test]
 async fn test_import_dedupes_feeds() {
     with_test_db(|url| Box::pin(async move {
     let state = common::make_app_state(&url).await;
