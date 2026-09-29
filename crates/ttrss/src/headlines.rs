@@ -382,7 +382,7 @@ async fn format_headlines_list(
     sess: &Sess,
     feed: &str,
     feed_num: Option<i64>,
-    _method: &str,
+    method: &str,
     view_mode: &str,
     limit: i64,
     cat_view: bool,
@@ -400,6 +400,33 @@ async fn format_headlines_list(
     let data = sess.data();
     let uid = data.uid().unwrap_or(0);
     let pool = state.db.pool();
+
+    // `if ($method == "undefined") $method = "";` (the JS sends the string
+    // "undefined" for an absent param).
+    let method = if method == "undefined" { "" } else { method };
+
+    // `m=ForceUpdate` — the UI's active-feed refresh (the frozen JS sends it
+    // when re-selecting the active feed, Feeds.js:423): reset the feed's
+    // update stamps so the in-process updater re-fetches it.
+    if method == "ForceUpdate" {
+        if let Some(f) = feed_num
+            && f > 0
+        {
+            let _ = sqlx::query(
+                "UPDATE ttrss_feeds SET last_updated = '1970-01-01', last_update_started = '1970-01-01' WHERE id = $1",
+            )
+            .bind(f)
+            .execute(pool)
+            .await;
+        }
+    }
+
+    // `m=MarkAllReadGR:<feed>` (legacy/other clients — the frozen JS never
+    // sends it) — `Feeds::_catchup($method_split[1], false)`.
+    if method.split(':').next() == Some("MarkAllReadGR") {
+        let scope = method.split_once(':').map(|(_, s)| s).unwrap_or("");
+        crate::feeds::catchup_scope(pool, uid, profile, rows, scope, false, "all", "", "").await;
+    }
 
     // `if ($search) $disable_cache = true;`
     let disable_cache = !search.is_empty();
