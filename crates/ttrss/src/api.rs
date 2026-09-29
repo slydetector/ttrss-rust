@@ -1308,7 +1308,8 @@ async fn get_article(
                 _ => Value::Null,
             },
         );
-        m.insert("lang".into(), Value::from(r.get::<String, _>(6)));
+        // `lang` — the column is nullable (PHP passes `null` through).
+        m.insert("lang".into(), Value::from(r.get::<Option<String>, _>(6)));
 
         let content_out = if sanitize_content {
             sanitizer::sanitize(
@@ -1328,7 +1329,25 @@ async fn get_article(
         };
         m.insert("content".into(), Value::from(content_out));
 
-        out.push(Value::Object(m));
+        // `API::getArticle` — HOOK_RENDER_ARTICLE_API (API.php:360-366):
+        // the `article` key; the hook's result replaces the row.
+        let mut article_val = Value::Object(m);
+        pctx.chain_hooks_callback(
+            crate::pluginhost::HOOK_RENDER_ARTICLE_API,
+            &mut article_val,
+            |plugin, host, state| {
+                Box::pin(async move {
+                    let params = serde_json::json!({ "article": state.clone() });
+                    let result = plugin.hook_render_article_api(host, &params).await;
+                    *state = result.clone();
+                    result
+                })
+            },
+            |_r, _p| false,
+        )
+        .await;
+
+        out.push(article_val);
     }
     (STATUS_OK, Value::Array(out))
 }

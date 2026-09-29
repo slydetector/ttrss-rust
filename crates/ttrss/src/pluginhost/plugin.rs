@@ -140,6 +140,26 @@ impl std::error::Error for PluginError {}
 /// shared across the server's worker threads; plugins are stateless across
 /// requests (locked decision #4) and keep any mutable state in interior
 /// mutability.
+///
+/// **Hook documentation rules** (keep every `Value`-parameter / `Value`-return
+/// hook self-describing, so plugin authors never have to chase call sites):
+/// 1. Line 1: the PHP signature + one-phrase purpose + the `HOOK_*` constant.
+/// 2. Each `Value` param: one line — `param` — object/array + where the port
+///    builds it; then **one bullet per field**:
+///    `- \`field\` type — description` (flat; no grouped lines, no prose).
+///    Variable-key maps (dictionaries): mark the param `variable keys` and
+///    describe the key and value shapes as the bullets instead.
+/// 3. Return: one line — what the core reads back (the contract) + fallback
+///    semantics (e.g. "a missing key keeps the previous value").
+/// 4. PHP-only keys (present in the PHP's value, never set by the port):
+///    name them, state they are never set, and why (the port's analog, if
+///    any) — never list them as if a plugin could receive them.
+/// 5. Optional final line: a dispatch caveat (not dispatched / provisional)
+///    with a pointer to where it's documented.
+/// Field descriptions must be derived from the port's dispatch site and the
+/// frozen PHP (constant values stated as such), never guessed. Shared shapes
+/// are cross-referenced, not re-listed (e.g. the `FeedEnclosure` map in
+/// `hook_enclosure_imported`).
 #[async_trait]
 pub trait Plugin: Send + Sync {
     /// The lowercase plugin name — PHP's `plugins[]` map key (the class
@@ -253,6 +273,41 @@ pub trait Plugin: Send + Sync {
 
     /// `hook_article_filter($article)` — alter article data as gathered from
     /// feed XML (embed images, full text, …). `HOOK_ARTICLE_FILTER`.
+    /// `hook_article_filter($article)` — rewrite an article before it is
+    /// saved (update pipeline, after the hash check). `HOOK_ARTICLE_FILTER`.
+    ///
+    /// `article` — object (built in `updates.rs::upsert_article`):
+    /// - `owner_uid` int — the feed owner's UID (read-only)
+    /// - `guid` str — the article GUID: the item's guid, else its link, else
+    ///   a title-derived one; prefixed `{owner_uid},`, max 245 chars
+    /// - `guid_hashed` str — the stored guid column:
+    ///   `{"ver":2,"uid":<owner>,"hash":"SHA1:<sha1 of guid>"}`
+    /// - `title` str — the item title, tags stripped (the formatted
+    ///   timestamp if the item had no title)
+    /// - `content` str — the item content (raw HTML; the description if the
+    ///   content was empty)
+    /// - `link` str — the item link, relative URLs resolved against the
+    ///   feed's site URL
+    /// - `tags` array of str — the item's categories
+    /// - `labels` array of str — the article's existing labels (empty for a
+    ///   new article); the chain may add to these
+    /// - `author` str — the item author, tags stripped, max 245 chars
+    /// - `force_catchup` bool — always `false` on entry
+    /// - `score_modifier` int — always `0` on entry
+    /// - `language` str — the item language, trimmed, first 2 chars
+    /// - `timestamp` int — the article date, epoch seconds (0 when missing)
+    /// - `num_comments` int — the item's claimed comment count
+    /// - `enclosures` array of `FeedEnclosure` objects (see `hook_enclosure_imported`)
+    /// - `feed` object
+    ///   - `id` int — the feed id
+    ///   - `fetch_url` str — the feed's URL
+    ///   - `site_url` str — the feed's site URL (the feed URL's host when
+    ///     unset)
+    ///   - `cache_images` bool — the feed's `cache_images` pref
+    ///
+    /// Return: the (possibly rewritten) object. The core re-reads `title`,
+    /// `content`, `author`, `link`, `tags`, `labels` — a missing key keeps the
+    /// pre-hook value.
     async fn hook_article_filter(&self, _host: &mut HostCtx, _article: &mut Value) -> Value {
         Value::Array(vec![])
     }
@@ -273,8 +328,18 @@ pub trait Plugin: Send + Sync {
     /// processed by the parser. `HOOK_FEED_PARSED`.
     async fn hook_feed_parsed(&self, _host: &mut HostCtx, _parser: &FeedParser<'_>, _feed_id: i32) -> () {}
 
-    /// `hook_update_task($cli_options)` — **GLOBAL** (system plugins only):
-    /// invoked when a feed update task finishes. `HOOK_UPDATE_TASK`.
+    /// `hook_update_task($cli_options)` — invoked when a feed update task
+    /// finishes (daemon tick, after housekeeping). `HOOK_UPDATE_TASK`.
+    ///
+    /// `cli_options` — object (built in `updates.rs::run_update_task_hook`):
+    /// - `daemon-loop` bool — always `true` (the only key the port sets)
+    ///
+    /// The PHP-only keys `quiet`/`log`/`log-level` (update.php CLI flags) are
+    /// never set — the port's daemon has no such flags (its analogs are the
+    /// `TTRSS_DAEMON` env switch and `RUST_LOG`); no first-party plugin reads
+    /// them.
+    ///
+    /// Return: `()`.
     async fn hook_update_task(&self, _host: &mut HostCtx, _cli_options: &Value) -> () {}
 
     /// `hook_auth_user($login, $password, $service)` — the `HOOK_AUTH_USER`
@@ -292,18 +357,94 @@ pub trait Plugin: Send + Sync {
 
     /// `hook_hotkey_map($hotkeys)` — modify the global hotkey map
     /// (sequence → action). `HOOK_HOTKEY_MAP`.
+    /// `hook_hotkey_map($hotkeys)` — modify the global hotkey map before it
+    /// is served. `HOOK_HOTKEY_MAP`.
+    ///
+    /// `hotkeys` — object, the global map (built in `hotkeys.rs::hotkeys_map`
+    /// from the base table; variable keys):
+    /// - key — the hotkey sequence str (e.g. `g a`, `ctrl+s`)
+    /// - value — the action name str (e.g. `goto_all`, `toggle_cdm_expanded`)
+    ///
+    /// Return: the (possibly modified) map — the core serves it verbatim; a
+    /// plugin may add sequences or redefine existing keys.
     async fn hook_hotkey_map(&self, _host: &mut HostCtx, _hotkeys: &Value) -> Value {
         Value::Array(vec![])
     }
 
     /// `hook_render_article($article)` — article rendered for the three-panel
     /// mode. `HOOK_RENDER_ARTICLE`.
+    /// `hook_render_article($article)` — article rendered for the public
+    /// shared-article page (before the page is served). `HOOK_RENDER_ARTICLE`.
+    ///
+    /// `article` — object (built in `plugins/share.rs`, the shared-article
+    /// route; a subset of the PHP's full entry row — share/init.php:126):
+    /// - `id` int — the entry id
+    /// - `title` str — the article title
+    /// - `link` str — the article link
+    /// - `lang` str — the entry language
+    /// - `site_url` str — the feed's site URL
+    /// - `content` str — the sanitized article HTML
+    /// - `tags` array of str — the article's tags
+    ///
+    /// Return: the (possibly rewritten) object. The core reads back `content`
+    /// (the page body; a missing key renders it empty) and passes the map to
+    /// the og-image scan.
     async fn hook_render_article(&self, _host: &mut HostCtx, _article: &mut Value) -> Value {
         Value::Array(vec![])
     }
 
     /// `hook_render_article_cdm($article)` — article rendered for combined
     /// (CDM) mode. `HOOK_RENDER_ARTICLE_CDM`.
+    /// `hook_render_article_cdm($article)` — article rendered for the CDM
+    /// (three-panel) view; runs per headline row before it is served.
+    /// `HOOK_RENDER_ARTICLE_CDM`.
+    ///
+    /// `article` — object, the CDM headline row (built in
+    /// `headlines.rs::view`; PHP `Feeds.php:351` passes the same full row):
+    /// - `id` int — the entry id
+    /// - `title` str — the article title
+    /// - `updated` str — the article's updated time, localized
+    /// - `always_display_enclosures` bool — the feed's pref (null: archived
+    ///   row, no feed)
+    /// - `site_url` str — the feed's site URL (null: archived row)
+    /// - `note` str — the user's private note for the article (null: none)
+    /// - `num_comments` int — the item's claimed comment count
+    /// - `comments` str — the item's comments URL
+    /// - `int_id` int — the user-entry row id
+    /// - `lang` str — the entry language (null: none)
+    /// - `hide_images` bool — the feed's pref (null: archived row)
+    /// - `unread` bool — the user has not read the article
+    /// - `feed_id` int — the feed id (-1: archived row)
+    /// - `marked` bool — the user marked the article read
+    /// - `published` bool — the article is pinned to the top
+    /// - `link` str — the article URL
+    /// - `last_read` str — when the user last read it (null: never)
+    /// - `feed_title` str — the feed/vfeed title ("" when unset, "Archived
+    ///   articles" when archived)
+    /// - `content` str — the sanitized article HTML
+    /// - `author` str — the item's author
+    /// - `score` str — the user's score, a numeric string
+    /// - `num_labels` int — labels assigned to the article
+    /// - `content_preview` str — "— " + first 250 chars of plain text (""
+    ///   when previews are off)
+    /// - `labels` array — each element `[label id str, caption str,
+    ///   fg_color str, bg_color str]`
+    /// - `buttons_left` str — always `""` in the port (the PHP's
+    ///   `HOOK_ARTICLE_LEFT_BUTTON` chain appends here; that hook is not
+    ///   dispatched)
+    /// - `buttons` str — the `HOOK_ARTICLE_BUTTON` chain output (HTML)
+    /// - `enclosures` object — `formatted` str, `entries` (stored enclosure
+    ///   rows + `filename`), `can_inline` bool, `inline_text_only` bool
+    /// - `updated_long` str — the updated time, localized with weekday
+    /// - `imported` str — "Imported at <date>"
+    /// - `tags` array of str — the article's tags
+    /// - `has_icon` bool — the feed has a favicon on disk
+    /// - `feed_bg_color` str — the feed's headline background "rgba(r,g,b,0.3)"
+    ///
+    /// Return: the (possibly rewritten) object. The core serves the row
+    /// verbatim to the UI. (The PHP rewrites cached-image URLs in `content`
+    /// after the chain; the port's view route does not yet run
+    /// `DiskCache::rewrite_urls`.)
     async fn hook_render_article_cdm(&self, _host: &mut HostCtx, _article: &mut Value) -> Value {
         Value::Array(vec![])
     }
@@ -338,6 +479,55 @@ pub trait Plugin: Send + Sync {
 
     /// `hook_render_article_api($params)` — article rendered for API clients
     /// (`params` = `{article, headline}`). `HOOK_RENDER_ARTICLE_API`.
+    /// `hook_render_article_api($params)` — article rendered for API clients
+    /// (before the API response is sent). `HOOK_RENDER_ARTICLE_API`.
+    ///
+    /// `params` — object (built in `api.rs::api_headline_row`, the
+    /// getHeadlines route):
+    /// - `article` object — the API article row (always set by the port):
+    ///   - `id` int — the entry id
+    ///   - `guid` str
+    ///   - `unread` bool
+    ///   - `marked` bool
+    ///   - `published` bool
+    ///   - `updated` int — epoch seconds (0 when missing)
+    ///   - `is_updated` bool — never read and not unread
+    ///   - `title` str
+    ///   - `link` str
+    ///   - `feed_id` int
+    ///   - `tags` array of str
+    ///   - `attachments` array — stored enclosure rows (only with
+    ///     `includeAttachments`)
+    ///   - `excerpt` str — plain-text preview (only with `showExcerpt`)
+    ///   - `content` str — article HTML (only with `showContent`; sanitized
+    ///     when the client passes `sanitize`)
+    ///   - `flavor_image` str — the representative image URL
+    ///   - `flavor_stream` str — the representative stream URL ("" if none)
+    ///   - `flavor_kind` int — the representative media kind (only when
+    ///     non-zero)
+    ///   - `labels` array — each element `[label id str, caption str,
+    ///     fg_color str, bg_color str]`
+    ///   - `feed_title` str
+    ///   - `comments_count` int
+    ///   - `comments_link` str
+    ///   - `always_display_attachments` bool — the feed's pref
+    ///   - `author` str
+    ///   - `score` str — a numeric string
+    ///   - `note` str (null: none) — the user's private note
+    ///   - `lang` str
+    ///   - `site_url` str
+    /// - `headline` object — the same row shape (PHP-only: PHP's
+    ///   getHeadlines passes `headline`; the port passes `article` on both
+    ///   routes)
+    ///
+    /// Dispatched on both API routes (getHeadlines — `api.rs::api_headline_row`;
+    /// getArticle — `api.rs::get_article`); the PHP's `headline` key is
+    /// never set by the port (its getHeadlines uses `article` too).
+    ///
+    /// Return: the (possibly rewritten) **article row** — not the `params`
+    /// wrapper. The core replaces the row with the result. (The PHP then
+    /// rewrites cached-image URLs in `content`; the port's API routes do
+    /// not yet run `DiskCache::rewrite_urls`.)
     async fn hook_render_article_api(&self, _host: &mut HostCtx, _params: &Value) -> Value {
         Value::Array(vec![])
     }
@@ -413,8 +603,16 @@ pub trait Plugin: Send + Sync {
     /// idle (user plugins only for active users). `HOOK_HOUSE_KEEPING`.
     async fn hook_house_keeping(&self, _host: &mut HostCtx) -> () {}
 
-    /// `hook_search($query)` — override the built-in article search; returns
-    /// `(SQL query, highlight keywords)`. `HOOK_SEARCH`.
+    /// `hook_search($query)` — override the built-in article search.
+    /// `HOOK_SEARCH`.
+    ///
+    /// Return: array `[0]` = SQL search query str, `[1]` = highlight-keywords
+    /// array of str (the PHP contract, Plugin.php `hook_search`). An empty
+    /// array declines (fall through to the built-in search).
+    ///
+    /// Not dispatched by the port: no stock plugin implements it, and the
+    /// port calls `_search_to_sql` directly (behavior-identical; see
+    /// `docs/php-port-gap-scan.md` G1).
     async fn hook_search(&self, _host: &mut HostCtx, _query: &str) -> Value {
         Value::Array(vec![])
     }
@@ -611,8 +809,13 @@ pub trait Plugin: Send + Sync {
     /// via OPML). `HOOK_ENCLOSURE_IMPORTED`.
     ///
     /// `enclosure` — object, the PHP's `FeedEnclosure`
-    /// (tt-rss/classes/FeedEnclosure.php); all values are strings:
-    /// - `link`, `type`, `length`, `title`, `height`, `width`
+    /// (tt-rss/classes/FeedEnclosure.php):
+    /// - `link` str
+    /// - `type` str
+    /// - `length` str
+    /// - `title` str
+    /// - `height` str
+    /// - `width` str
     ///
     /// Return: the (possibly rewritten) object. Read back field-by-field —
     /// a missing key keeps the enclosure's previous value.
