@@ -328,10 +328,38 @@ pub trait Plugin: Send + Sync {
 
     /// `hook_prefs_tab($tab)` — add UI elements to (top) preferences tabs.
     /// `HOOK_PREFS_TAB`.
+    /// `hook_prefs_tab($tab)` — extra content on a preferences page tab.
+    /// `HOOK_PREFS_TAB`.
+    ///
+    /// PHP fires this (echo) at the six prefs-page tab bodies
+    /// (`prefFeeds`, `prefPrefs`, `prefFilters`, `prefLabels`, `prefUsers`,
+    /// `prefSystem`, e.g. `Pref_Filters.php:808`); the hooks print HTML into
+    /// the tab. The port runs the same chain in
+    /// `pluginhost/dispatch.rs::prefs_chain` at each of those routes.
+    ///
+    /// Parameters: `tab` str — the tab id (`"prefFeeds"`, `"prefPrefs"`,
+    /// …).
+    ///
+    /// Return: nothing (`()`); the hook prints its HTML through the host
+    /// (`host.output`).
     async fn hook_prefs_tab(&self, _host: &mut HostCtx, _tab: &str) -> () {}
 
     /// `hook_prefs_tab_section($section)` — add content to preferences
     /// sections (e.g. the OPML import/export pane). `HOOK_PREFS_TAB_SECTION`.
+    /// `hook_prefs_tab_section($section)` — extra content in a prefs tab
+    /// section. `HOOK_PREFS_TAB_SECTION`.
+    ///
+    /// PHP fires this (echo) at five specific prefs sections
+    /// (`prefPrefsPrefsInside`, `prefPrefsPrefsOutside`, `prefUsersToolbar`,
+    /// …, e.g. `Pref_Prefs.php:764`); the hooks print HTML into the
+    /// section. The port runs the same chain in
+    /// `pluginhost/dispatch.rs::prefs_chain` at those routes.
+    ///
+    /// Parameters: `section` str — the section id (e.g.
+    /// `"prefPrefsPrefsInside"`).
+    ///
+    /// Return: nothing (`()`); the hook prints its HTML through the host
+    /// (`host.output`).
     async fn hook_prefs_tab_section(&self, _host: &mut HostCtx, _section: &str) -> () {}
 
     /// `hook_prefs_tabs()` — add new (top) preferences tabs.
@@ -352,6 +380,23 @@ pub trait Plugin: Send + Sync {
 
     /// `hook_feed_parsed($parser, $feed_id)` — invoked while a feed's XML is
     /// processed by the parser. `HOOK_FEED_PARSED`.
+    /// `hook_feed_parsed($parser, $feed_id)` — feed parsed (in-place
+    /// mutation). `HOOK_FEED_PARSED`.
+    ///
+    /// PHP `RSSUtils.php:624` (`update_rss_feed`) runs
+    /// `chain_hooks_callback(HOOK_FEED_PARSED, cb, $rss, $feed)` over the
+    /// initialized parser *after* `init()` — the callback only logs timing
+    /// (the plugins mutate the parser in place, e.g. dropping items). The
+    /// port runs the same chain in `updates.rs` (the update pipeline),
+    /// passing the live `FeedParser` so in-place edits are seen by the
+    /// importer.
+    ///
+    /// Parameters:
+    /// - `parser` — the parsed feed (`FeedParser`); mutate it to change what
+    ///   gets imported
+    /// - `feed_id` int — the feed being updated
+    ///
+    /// Return: nothing (`()`).
     async fn hook_feed_parsed(&self, _host: &mut HostCtx, _parser: &FeedParser<'_>, _feed_id: i32) -> () {}
 
     /// `hook_update_task($cli_options)` — invoked when a feed update task
@@ -386,6 +431,22 @@ pub trait Plugin: Send + Sync {
     /// `hook_auth_user($login, $password, $service)` — the `HOOK_AUTH_USER`
     /// compatibility wrapper; the base implementation delegates to
     /// [`Plugin::authenticate`]. `HOOK_AUTH_USER`.
+    /// `hook_auth_user($login, $password, $service)` — authenticate a user.
+    /// `HOOK_AUTH_USER`.
+    ///
+    /// PHP `UserHelper.php:66` (`authenticate`) runs
+    /// `chain_hooks_callback(HOOK_AUTH_USER, cb, $login, $password,
+    /// $service)`: the first *truthy* result (a user id) stops the chain and
+    /// authenticates as that user. The port runs the same chain at the login
+    /// route (`http.rs`, M7.20) over the system-plugins host; the first
+    /// non-zero user id wins.
+    ///
+    /// Parameters:
+    /// - `login` str — the login name
+    /// - `password` str — the password
+    /// - `service` str — the SSO service (`""` for the built-in form)
+    ///
+    /// Return: the authenticated user id (0 = not this plugin).
     async fn hook_auth_user(
         &self,
         host: &mut HostCtx,
@@ -541,6 +602,26 @@ pub trait Plugin: Send + Sync {
 
     /// `hook_feed_fetched($feed_data, $fetch_url, $owner_uid, $feed)` — raw
     /// feed XML downloaded (not yet parsed). `HOOK_FEED_FETCHED`.
+    /// `hook_feed_fetched($feed_data, $fetch_url, $owner_uid, $feed)` — raw
+    /// feed XML downloaded (not yet parsed). `HOOK_FEED_FETCHED`.
+    ///
+    /// PHP `RSSUtils.php:594` (`update_rss_feed`) runs
+    /// `chain_hooks_callback(HOOK_FEED_FETCHED, cb, $feed_data, $pff_feed_url,
+    /// $pff_owner_uid, $feed)`: `$feed_data = $result` — each result
+    /// *replaces* the raw XML (a plugin can rewrite the feed before parsing).
+    /// The port runs the same chain in `updates.rs` (the update pipeline),
+    /// feeding the final data to the parser.
+    ///
+    /// Parameters:
+    /// - `feed_data` str — the raw feed XML
+    /// - `fetch_url` str — the URL it was fetched from
+    /// - `owner_uid` int — the feed's owner
+    /// - `feed` int — the feed id
+    ///
+    /// Return: the (possibly rewritten) raw XML; the final result is parsed.
+    /// The default (`""`) replaces nothing in the port (PHP would blank the
+    /// feed — a plugin implementing this hook must return the data it wants
+    /// kept).
     async fn hook_feed_fetched(
         &self,
         _host: &mut HostCtx,
@@ -737,6 +818,18 @@ pub trait Plugin: Send + Sync {
 
     /// `hook_prefs_edit_feed($feed_id)` — UI in the "Plugins" tab of the feed
     /// editor. `HOOK_PREFS_EDIT_FEED`.
+    /// `hook_prefs_edit_feed($feed_id)` — UI in the "Plugins" tab of the feed
+    /// editor. `HOOK_PREFS_EDIT_FEED`.
+    ///
+    /// PHP `Pref_Feeds.php:527` runs `run_hooks(HOOK_PREFS_EDIT_FEED,
+    /// $feed_id)` while rendering the feed editor (echo hook — plugins print
+    /// their editor controls). The port runs the same chain in
+    /// `feeds.rs` (the feed-edit render route).
+    ///
+    /// Parameters: `feed_id` int — the feed being edited.
+    ///
+    /// Return: nothing (`()`); the hook prints its HTML through the host
+    /// (`host.output`).
     async fn hook_prefs_edit_feed(&self, _host: &mut HostCtx, _feed_id: i32) -> () {}
 
     /// `hook_prefs_save_feed($feed_id)` — feed editor data saved.
@@ -764,6 +857,30 @@ pub trait Plugin: Send + Sync {
     /// `hook_fetch_feed(...)` — override the built-in feed fetch, substituting
     /// the received data. `HOOK_FETCH_FEED`.
     #[allow(clippy::too_many_arguments)] // mirrors the PHP signature
+    /// `hook_fetch_feed(...)` — override the built-in feed fetch, substituting
+    /// the received data. `HOOK_FETCH_FEED`.
+    ///
+    /// PHP `RSSUtils.php:449` (`update_rss_feed`) runs
+    /// `chain_hooks_callback(HOOK_FETCH_FEED, cb, $feed_data, $hff_feed_url,
+    /// $hff_owner_uid, $feed, $last_article_timestamp, $auth_login,
+    /// $auth_pass)` *before* the HTTP fetch: a non-empty result is used as
+    /// the feed data and the fetch is skipped (the plugin provided it); an
+    /// empty result falls through to the fetch. The port runs the same chain
+    /// in `updates.rs` (the update pipeline) with the same
+    /// non-empty-provides-the-data semantics.
+    ///
+    /// Parameters:
+    /// - `feed_data` str — the data fetched so far ("" before the fetch)
+    /// - `fetch_url` str — the feed URL
+    /// - `owner_uid` int — the feed's owner
+    /// - `feed` int — the feed id
+    /// - `last_article_timestamp` int — epoch seconds of the newest stored
+    ///   article (0 for a fresh feed)
+    /// - `auth_login` str — the feed's auth login
+    /// - `auth_pass` str — the feed's auth password (plaintext)
+    ///
+    /// Return: the feed data to use ("" = no opinion; the built-in fetch
+    /// runs).
     async fn hook_fetch_feed(
         &self,
         _host: &mut HostCtx,
@@ -817,6 +934,19 @@ pub trait Plugin: Send + Sync {
 
     /// `hook_house_keeping()` — run periodically by the update daemon when
     /// idle (user plugins only for active users). `HOOK_HOUSE_KEEPING`.
+    /// `hook_house_keeping()` — run periodically by the update daemon when
+    /// idle (user plugins only for active users). `HOOK_HOUSE_KEEPING`.
+    ///
+    /// PHP fires this at two sites: `RSSUtils.php:1675`
+    /// (`housekeeping_user`) on a *per-owner* host (that user's plugins only)
+    /// and `RSSUtils.php:1771` (`housekeeping_common`) on the *global* daemon
+    /// host (system plugins). The port fires both: the per-owner site in the
+    /// update pipeline (after each owner's batch) and the global site in
+    /// `updates.rs` (after housekeeping, on the daemon host).
+    ///
+    /// Parameters: none.
+    ///
+    /// Return: nothing (`()`); the hook runs its maintenance.
     async fn hook_house_keeping(&self, _host: &mut HostCtx) -> () {}
 
     /// `hook_search($query)` — override the built-in article search.
@@ -838,6 +968,28 @@ pub trait Plugin: Send + Sync {
     /// enclosures rendered to HTML; may return either the formatted string or
     /// the `(formatted, enclosures)` pair. `HOOK_FORMAT_ENCLOSURES`.
     #[allow(clippy::too_many_arguments)] // mirrors the PHP signature
+    /// `hook_format_enclosures($enclosures_formatted, $enclosures, $article_id,
+    /// $always_display_enclosures, $article_content, $hide_images)` —
+    /// enclosures rendered to HTML; may return either the formatted string or
+    /// the `(formatted, enclosures)` pair. `HOOK_FORMAT_ENCLOSURES`.
+    ///
+    /// PHP `Article.php:323` (`_format_enclosures`) runs
+    /// `chain_hooks_callback(HOOK_FORMAT_ENCLOSURES, cb, ...)` over the
+    /// pre-formatted enclosure HTML; the callback accepts a *string* (replace
+    /// the formatted HTML) or a `[formatted, enclosures]` array (replace
+    /// both). The port runs the same chain in `headlines.rs` with the same
+    /// string-or-pair result.
+    ///
+    /// Parameters:
+    /// - `enclosures_formatted` str — the built-in enclosure HTML
+    /// - `enclosures` array — the stored enclosure rows
+    /// - `article_id` int — the article
+    /// - `always_display_enclosures` bool — the feed's pref
+    /// - `article_content` str — the article HTML (for context)
+    /// - `hide_images` bool — the feed's pref
+    ///
+    /// Return: the new formatted HTML (str), or `[html, enclosures]`; the
+    /// default (`""`) means no change.
     async fn hook_format_enclosures(
         &self,
         _host: &mut HostCtx,
@@ -853,6 +1005,22 @@ pub trait Plugin: Send + Sync {
 
     /// `hook_subscribe_feed($contents, $url, $auth_login, $auth_pass)` — feed
     /// subscription, after data has been fetched. `HOOK_SUBSCRIBE_FEED`.
+    /// `hook_subscribe_feed($contents, $url, $auth_login, $auth_pass)` — feed
+    /// subscription, after data has been fetched. `HOOK_SUBSCRIBE_FEED`.
+    ///
+    /// PHP `Feeds.php:1003` (`_subscribe`) runs
+    /// `chain_hooks_callback(HOOK_SUBSCRIBE_FEED, cb, $contents, $url,
+    /// $auth_login, $auth_pass)`: `$contents = $result` — each result
+    /// *replaces* the fetched feed contents (a plugin can substitute them).
+    /// The port runs the same chain in `feeds.rs` (`_subscribe`).
+    ///
+    /// Parameters:
+    /// - `contents` str — the fetched feed contents
+    /// - `url` str — the feed URL
+    /// - `auth_login` str — the auth login
+    /// - `auth_pass` str — the auth password
+    ///
+    /// Return: the (possibly substituted) feed contents.
     async fn hook_subscribe_feed(
         &self,
         _host: &mut HostCtx,
@@ -899,6 +1067,24 @@ pub trait Plugin: Send + Sync {
 
     /// `hook_render_enclosure($entry, $article_id, $rv)` — render one
     /// enclosure entry. `HOOK_RENDER_ENCLOSURE`.
+    /// `hook_render_enclosure($entry, $article_id, $rv)` — render a single
+    /// enclosure. `HOOK_RENDER_ENCLOSURE`.
+    ///
+    /// PHP `Article.php:359` (`_format_enclosures`) runs, *per enclosure*,
+    /// `chain_hooks_callback(HOOK_RENDER_ENCLOSURE, cb, $enc, $id, $rv)`:
+    /// `$rendered_enc = $result` — a non-empty result is appended to the
+    /// formatted HTML and the generic enclosure entry is *skipped* for that
+    /// enclosure (the plugin took over its rendering). The port runs the same
+    /// per-enclosure chain in `headlines.rs`.
+    ///
+    /// Parameters:
+    /// - `entry` object — the enclosure row (`id`, `content_url`, `title`,
+    ///   `width`, `height`, `filename`, …)
+    /// - `article_id` int — the article
+    /// - `rv` object — the enclosure render state (`formatted`, `entries`)
+    ///
+    /// Return: the HTML for this enclosure ("" = no opinion; the built-in
+    /// entry is rendered).
     async fn hook_render_enclosure(
         &self,
         _host: &mut HostCtx,
@@ -912,6 +1098,19 @@ pub trait Plugin: Send + Sync {
     /// `hook_article_filter_action($article, $action)` — a custom filter
     /// action (registered via [`PluginHost::add_filter_action`]) is applied.
     /// `HOOK_ARTICLE_FILTER_ACTION`.
+    /// `hook_article_filter_action($article, $action)` — an article filter
+    /// action ran. `HOOK_ARTICLE_FILTER_ACTION`.
+    ///
+    /// Not dispatched by the port — it is dead in the PHP reference itself:
+    /// declared in `Plugin.php` but never fired anywhere in the frozen tree.
+    /// The port keeps the method for contract parity and, like PHP, never
+    /// calls it (see `docs/php-port-gap-scan.md` G1).
+    ///
+    /// Parameters:
+    /// - `article` object (mutable) — the article row
+    /// - `action` str — the filter action that ran
+    ///
+    /// Return: the (possibly rewritten) article.
     async fn hook_article_filter_action(
         &self,
         _host: &mut HostCtx,
@@ -955,10 +1154,40 @@ pub trait Plugin: Send + Sync {
 
     /// `hook_main_toolbar_button()` — main toolbar (left side).
     /// `HOOK_MAIN_TOOLBAR_BUTTON`.
+    /// `hook_main_toolbar_button()` — the main toolbar's plugin button row
+    /// (between the order-0 and order-5 toolbar markers).
+    /// `HOOK_MAIN_TOOLBAR_BUTTON`.
+    ///
+    /// PHP `index.php:195` runs `run_hooks_callback(HOOK_MAIN_TOOLBAR_BUTTON,
+    /// echo)` — the hooks' HTML is echoed inline between the order-0 and
+    /// order-5 toolbar markers (M7.22 item 1). The port runs the same chain
+    /// (`http.rs::main_toolbar_buttons`) and renders the concatenation into
+    /// the shell template's `main_toolbar_buttons` slot.
+    ///
+    /// Parameters: none.
+    ///
+    /// Return: the HTML to insert into the main toolbar's plugin row.
     async fn hook_main_toolbar_button(&self, _host: &mut HostCtx) -> () {}
 
     /// `hook_enclosure_entry($entry, $id, $rv)` — every enclosure entry as the
     /// article is rendered. `HOOK_ENCLOSURE_ENTRY`.
+    /// `hook_enclosure_entry($entry, $id, $rv)` — rewrite a single enclosure
+    /// entry (before it is rendered). `HOOK_ENCLOSURE_ENTRY`.
+    ///
+    /// PHP `Article.php:368` (`_format_enclosures`) runs, *per enclosure that
+    /// no `HOOK_RENDER_ENCLOSURE` plugin rendered*,
+    /// `chain_hooks_callback(HOOK_ENCLOSURE_ENTRY, cb, $enc, $id, $rv)`:
+    /// `$enc = $result` — the result *replaces* the entry before it is added
+    /// to `entries`. The port runs the same per-entry chain in
+    /// `headlines.rs`.
+    ///
+    /// Parameters:
+    /// - `entry` object (mutable) — the enclosure row
+    /// - `id` int — the article
+    /// - `rv` object — the enclosure render state
+    ///
+    /// Return: the (possibly rewritten) enclosure entry — it replaces the
+    /// entry in `entries`.
     async fn hook_enclosure_entry(
         &self,
         _host: &mut HostCtx,
@@ -996,6 +1225,27 @@ pub trait Plugin: Send + Sync {
     /// $auth_login, $auth_pass)` — basic feed info (title, site_url) being
     /// collected; may override. `HOOK_FEED_BASIC_INFO`.
     #[allow(clippy::too_many_arguments)] // mirrors the PHP signature
+    /// `hook_feed_basic_info($basic_info, $fetch_url, $owner_uid, $feed_id,
+    /// $auth_login, $auth_pass)` — provide a feed's title/site_url without
+    /// fetching it. `HOOK_FEED_BASIC_INFO`.
+    ///
+    /// PHP `RSSUtils.php:311` (`update_basic_info`) runs
+    /// `run_hooks_callback(HOOK_FEED_BASIC_INFO, cb, $basic_info, $feed_url,
+    /// $owner_uid, $feed_id, $auth_login, $auth_pass)` *before* the fetch:
+    /// the first result with a non-empty `title` or `site_url` stops the
+    /// chain and is used (the fetch is skipped). The port runs the same
+    /// chain in `rss_utils.rs` with the same first-match-wins semantics.
+    ///
+    /// Parameters:
+    /// - `basic_info` object (mutable) — the current basic info (empty)
+    /// - `fetch_url` str — the feed URL
+    /// - `owner_uid` int — the feed's owner
+    /// - `feed_id` int — the feed
+    /// - `auth_login` str — the feed's auth login
+    /// - `auth_pass` str — the feed's auth password (plaintext)
+    ///
+    /// Return: the basic info (must set `title` and/or `site_url` to be
+    /// used); the default (unchanged input) declines.
     async fn hook_feed_basic_info(
         &self,
         _host: &mut HostCtx,
@@ -1012,6 +1262,19 @@ pub trait Plugin: Send + Sync {
     /// `hook_send_local_file($filename)` — file sent to the client; may
     /// override with an httpd-specific mechanism (nginx_xaccel).
     /// `HOOK_SEND_LOCAL_FILE`.
+    /// `hook_send_local_file($filename)` — send a local file to the client.
+    /// `HOOK_SEND_LOCAL_FILE`.
+    ///
+    /// PHP `Cache_Local.php:147` runs
+    /// `run_hooks_until(HOOK_SEND_LOCAL_FILE, true, $filename)` on a
+    /// system-plugins host: the first hook returning `true` sends the file
+    /// (e.g. via `X-Accel-Redirect`) and `readfile` is skipped. Not
+    /// dispatched by the port: the `Cache_Local` milestone isn't in yet.
+    ///
+    /// Parameters: `filename` str — the local file to send.
+    ///
+    /// Return: `true` — the file was sent (skip `readfile`); `false`
+    /// (default) — send it the normal way.
     async fn hook_send_local_file(&self, _host: &mut HostCtx, _filename: &str) -> bool {
         false
     }
@@ -1067,6 +1330,25 @@ pub trait Plugin: Send + Sync {
     /// $matched_rules, $article_filter_actions)` — filtering triggered on an
     /// article. `HOOK_FILTER_TRIGGERED`.
     #[allow(clippy::too_many_arguments)] // mirrors the PHP signature
+    /// `hook_filter_triggered($feed_id, $owner_uid, $article, $matched_filters,
+    /// $matched_rules, $article_filter_actions)` — filtering triggered on an
+    /// article. `HOOK_FILTER_TRIGGERED`.
+    ///
+    /// PHP `RSSUtils.php:904` (`import_feed`, per imported article) runs
+    /// `run_hooks(HOOK_FILTER_TRIGGERED, $feed, $owner_uid, $article,
+    /// $matched_filters, $matched_rules, $article_filter_actions)` (echo
+    /// hook — plugins react to the match). The port runs the same hook in
+    /// `updates.rs` (the update pipeline), per imported article.
+    ///
+    /// Parameters:
+    /// - `feed_id` int — the feed
+    /// - `owner_uid` int — the owner
+    /// - `article` object — the article being imported
+    /// - `matched_filters` array — the filters that matched
+    /// - `matched_rules` array — the rules that matched
+    /// - `article_filter_actions` array — the actions to apply
+    ///
+    /// Return: nothing (`()`); the hook reacts (echoes/records) to the match.
     async fn hook_filter_triggered(
         &self,
         _host: &mut HostCtx,
@@ -1102,6 +1384,25 @@ pub trait Plugin: Send + Sync {
     /// `hook_article_image($enclosures, $content, $site_url, $article)` —
     /// article flavor image being determined; may override the selection.
     /// `HOOK_ARTICLE_IMAGE`.
+    /// `hook_article_image($enclosures, $content, $site_url, $article)` —
+    /// pick an article's representative image/stream. `HOOK_ARTICLE_IMAGE`.
+    ///
+    /// PHP `Article.php:571` (`_get_image`) runs
+    /// `chain_hooks_callback(HOOK_ARTICLE_IMAGE, cb, $enclosures, $content,
+    /// $site_url, $headline)`: the result is `[image, stream, content]` and
+    /// the chain *stops at the first non-empty image*. The port runs the same
+    /// chain in `article.rs` (`_get_image`) with the same
+    /// first-non-empty-image-wins semantics.
+    ///
+    /// Parameters:
+    /// - `enclosures` array — the stored enclosure rows
+    /// - `content` str — the article HTML
+    /// - `site_url` str — the site URL (for relative URLs)
+    /// - `article` object — the article row
+    ///
+    /// Return: `[image, stream, content]` — image/stream URLs and the
+    /// (possibly rewritten) content; "" = no opinion (the built-in `<img>`
+    /// scan runs).
     async fn hook_article_image(
         &self,
         _host: &mut HostCtx,
@@ -1134,6 +1435,19 @@ pub trait Plugin: Send + Sync {
 
     /// `hook_iframe_whitelisted($url)` — an iframe is allowed to be displayed.
     /// `HOOK_IFRAME_WHITELISTED`.
+    /// `hook_iframe_whitelisted($url)` — allow an `<iframe>` src host through
+    /// the sanitizer. `HOOK_IFRAME_WHITELISTED`.
+    ///
+    /// PHP `Sanitizer.php:49` runs
+    /// `run_hooks_until(HOOK_IFRAME_WHITELISTED, true, $src)` where `$src` is
+    /// the iframe's *host* — the first hook returning `true` whitelists it
+    /// (the known use is `Af_Youtube_Embed`). The port runs the same chain in
+    /// `sanitizer.rs` over the parsed host.
+    ///
+    /// Parameters: `url` str — the iframe's host (parsed from `src`).
+    ///
+    /// Return: `true` — whitelist this host; `false` (default) — strip the
+    /// iframe.
     async fn hook_iframe_whitelisted(&self, _host: &mut HostCtx, _url: &str) -> bool {
         false
     }
@@ -1204,6 +1518,21 @@ pub trait Plugin: Send + Sync {
     /// `hook_headline_toolbar_select_menu_item($feed_id, $is_cat)` — **deprecated
     /// in PHP** (removed; see `…_item2`), kept for contract parity.
     /// `HOOK_HEADLINE_TOOLBAR_SELECT_MENU_ITEM`.
+    /// `hook_headline_toolbar_select_menu_item($feed, $is_cat)` — (v1) extra
+    /// items in the headlines toolbar select menu.
+    /// `HOOK_HEADLINE_TOOLBAR_SELECT_MENU_ITEM`.
+    ///
+    /// Not dispatched by the port — it is dead in the PHP reference itself:
+    /// declared in `Plugin.php` but never fired (the view uses v2,
+    /// `HOOK_HEADLINE_TOOLBAR_SELECT_MENU_ITEM2`). The port keeps the method
+    /// for contract parity and, like PHP, never calls it (see
+    /// `docs/php-port-gap-scan.md` G1).
+    ///
+    /// Parameters:
+    /// - `feed` int — the feed id (0 for a category)
+    /// - `is_cat` bool — `true` for a category view
+    ///
+    /// Return: the HTML to add to the select menu.
     async fn hook_headline_toolbar_select_menu_item(
         &self,
         _host: &mut HostCtx,
@@ -1216,6 +1545,22 @@ pub trait Plugin: Send + Sync {
     /// `hook_headline_toolbar_select_menu_item2($feed_id, $is_cat)` — custom
     /// `<option>` elements in the headlines Select… dropdown.
     /// `HOOK_HEADLINE_TOOLBAR_SELECT_MENU_ITEM2`.
+    /// `hook_headline_toolbar_select_menu_item2($feed_id, $is_cat)` — extra
+    /// items in the headlines toolbar select menu (v2).
+    /// `HOOK_HEADLINE_TOOLBAR_SELECT_MENU_ITEM2`.
+    ///
+    /// PHP `Feeds.php:170` (`Feeds::view`) runs
+    /// `chain_hooks_callback(HOOK_HEADLINE_TOOLBAR_SELECT_MENU_ITEM2, cb,
+    /// $feed, $cat_view)`: each result is appended to `plugin_menu_items`
+    /// (the toolbar's select-menu plugin slot). The port runs the same chain
+    /// in `headlines.rs::view` and appends the concatenation to
+    /// `toolbar.plugin_menu_items`.
+    ///
+    /// Parameters:
+    /// - `feed_id` int — the feed id of the view (0 for a category)
+    /// - `is_cat` bool — `true` when the view is a category
+    ///
+    /// Return: the HTML to append to the toolbar's select menu.
     async fn hook_headline_toolbar_select_menu_item2(
         &self,
         _host: &mut HostCtx,
@@ -1228,6 +1573,22 @@ pub trait Plugin: Send + Sync {
     /// `hook_pre_subscribe($url, $auth_login, $auth_pass)` — user subscribing
     /// to a feed; may override the information used afterwards.
     /// `HOOK_PRE_SUBSCRIBE`.
+    /// `hook_pre_subscribe($url, $auth_login, $auth_pass)` — rewrite the
+    /// subscription URL/auth before fetching. `HOOK_PRE_SUBSCRIBE`.
+    ///
+    /// PHP `Feeds.php:994` (`_subscribe`) runs
+    /// `chain_hooks_callback(HOOK_PRE_SUBSCRIBE, cb, $url, $auth_login,
+    /// $auth_pass)`: the hook mutates the (passed-by-reference) arguments —
+    /// a plugin can rewrite the URL or fill in auth. The port runs the same
+    /// chain in `feeds.rs`; the hook receives `$url` mutably and the final
+    /// values are used for the fetch.
+    ///
+    /// Parameters:
+    /// - `url` str (mutable) — the subscription URL
+    /// - `auth_login` str — the auth login
+    /// - `auth_pass` str — the auth password
+    ///
+    /// Return: nothing (`()`); mutate `$url` in place to rewrite it.
     async fn hook_pre_subscribe(
         &self,
         _host: &mut HostCtx,
@@ -1306,9 +1667,34 @@ pub trait Plugin: Send + Sync {
     /// `hook_articles_mark_toggled($article_ids)` — articles marked/unmarked
     /// (resulting state is not passed; read it from the DB).
     /// `HOOK_ARTICLES_MARK_TOGGLED`.
+    /// `hook_articles_mark_toggled($article_ids)` — articles' marked state
+    /// toggled. `HOOK_ARTICLES_MARK_TOGGLED`.
+    ///
+    /// PHP fires this (echo) at five sites — `API.php:294` (updateArticle),
+    /// `RPC.php:72` (mark), `RPC.php:268` (markArticlesById), and the
+    /// update-pipeline fresh-entry path — after the marked-state UPDATE. The
+    /// port fires the same chain at all of them (session host for the
+    /// RPC/API routes, the update host in the pipeline).
+    ///
+    /// Parameters: `article_ids` — `&[i32]`, the affected article ref_ids.
+    ///
+    /// Return: nothing (`()`); the hook reacts to the toggle.
     async fn hook_articles_mark_toggled(&self, _host: &mut HostCtx, _article_ids: &[i32]) -> () {}
 
     /// `hook_articles_publish_toggled($article_ids)` — articles
     /// published/unpublished. `HOOK_ARTICLES_PUBLISH_TOGGLED`.
+    /// `hook_articles_publish_toggled($article_ids)` — articles' published
+    /// state toggled. `HOOK_ARTICLES_PUBLISH_TOGGLED`.
+    ///
+    /// PHP fires this (echo) at `API.php:296` (updateArticle), `RPC.php:100`
+    /// (publ), `RPC.php:296` (publishArticlesById), and
+    /// `Article.php:105/116` (_create_published_article) after the
+    /// published-state write. The port fires the same chain at all of them
+    /// (session host for the RPC/API routes, the owner host in
+    /// `create_published_article`).
+    ///
+    /// Parameters: `article_ids` — `&[i32]`, the affected article ref_ids.
+    ///
+    /// Return: nothing (`()`); the hook reacts to the toggle.
     async fn hook_articles_publish_toggled(&self, _host: &mut HostCtx, _article_ids: &[i32]) -> () {}
 }

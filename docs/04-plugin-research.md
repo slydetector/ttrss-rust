@@ -401,9 +401,11 @@ Scope: the 18 hooks with a `Value` surface — all done:
 `hook_enclosure_imported`, `hook_headlines_custom_sort_map`,
 `hook_headlines_custom_sort_override`, `hook_post_logout`.
 
-The dispatch-completion batch also documented the 17 hooks with no `Value`
+The dispatch-completion batch documented the 17 hooks with no `Value`
 surface that gained dispatch sites (dispatch site + return semantics per the
-same rules). Remaining: 24 non-`Value` hooks (mostly the feed-pipeline and
-simple `&str`/`bool`-signature hooks) still carry 2–3-line docs — a
-separate, smaller pass if the trait-level documentation is ever taken to
-full completeness.
+same rules), and a final pass documented the remaining 24 non-`Value`
+hooks (the feed-pipeline hooks and the simple `&str`/`bool`/`int`-signature
+hooks, including the two that are dead in the PHP reference). **Every
+`Plugin` trait method now carries full definition-site documentation** —
+PHP call site + line, port dispatch site, parameter list, and return
+semantics.
