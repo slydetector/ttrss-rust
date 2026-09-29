@@ -381,7 +381,7 @@ machinery, and a concrete reference for porting the rest.
 
 ## 10. Backlog
 
-### Plugin-trait `Value` documentation pass *(open, 2026-09-20)*
+### Plugin-trait `Value` documentation pass *(closed 2026-09-29)*
 
 Document **every `Value` parameter and `Value` return** in the `Plugin` trait
 (`crates/ttrss/src/pluginhost/plugin.rs`) so a plugin author can see the exact
@@ -392,11 +392,18 @@ The format rules are encoded in the trait's doc comment ("Hook
 documentation rules", `crates/ttrss/src/pluginhost/plugin.rs`) — follow them,
 one line per field, descriptions derived from the dispatch site + frozen PHP.
 
-Scope: the 18 hooks with a `Value` surface —
-`hook_article_button`, `hook_article_filter` *(done)*, `hook_update_task`,
+Scope: the 18 hooks with a `Value` surface — all done:
+`hook_article_button`, `hook_article_filter`, `hook_update_task`,
 `hook_hotkey_map`, `hook_render_article`, `hook_render_article_cdm`,
 `hook_render_article_api`, `hook_hotkey_info`, `hook_article_left_button`,
-`hook_prefs_save_feed`, `hook_query_headlines`, `hook_search` *(done)*,
-`hook_format_article`, `hook_send_mail`, `hook_enclosure_imported` *(done)*,
-`hook_headlines_custom_sort_map`, `hook_headlines_custom_sort_override`,
-`hook_post_logout`.
+`hook_prefs_save_feed`, `hook_query_headlines`, `hook_search`,
+`hook_format_article`, `hook_send_mail` *(provisional — Mailer unported)*,
+`hook_enclosure_imported`, `hook_headlines_custom_sort_map`,
+`hook_headlines_custom_sort_override`, `hook_post_logout`.
+
+The dispatch-completion batch also documented the 17 hooks with no `Value`
+surface that gained dispatch sites (dispatch site + return semantics per the
+same rules). Remaining: 24 non-`Value` hooks (mostly the feed-pipeline and
+simple `&str`/`bool`-signature hooks) still carry 2–3-line docs — a
+separate, smaller pass if the trait-level documentation is ever taken to
+full completeness.

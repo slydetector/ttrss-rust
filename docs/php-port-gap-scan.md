@@ -102,62 +102,55 @@ profile-resolution and write sites (`prefs.rs:483`, `:518`, `pref_ui.rs:566`,
 
 ## Gaps found (genuinely missing, not already in the plan's Deferred list)
 
-### G1 — 22 of 53 `Plugin` hooks have no dispatch site *(low)*
+### G1 — ~~22 of 53 `Plugin` hooks have no dispatch site~~ — closed *(low)*
 
-The `Plugin` trait declares **53** `HOOK_*` constants. A dispatch-aware scan
-(core modules + plugin routes, excluding tests, comments, and bare `add_hook`
-registrations) found **31 are actually fired** and **22 are never dispatched**:
+The `Plugin` trait declares **53** `HOOK_*` constants. The 22 that had no
+dispatch site are now accounted for:
+
+**Dispatched** (the port is now at dispatch-parity with the PHP reference for
+every hook the reference fires; `tests/dispatch_completion.rs`,
+`tests/view_pipeline_hooks.rs`, `tests/api_render_article_api.rs` and the
+feed-pipeline tests pin the sites):
 
 ```
-HOOK_ACTION_ITEM                 HOOK_ARTICLE_EXPORT_FEED
-HOOK_ARTICLE_FILTER_ACTION       HOOK_ARTICLE_LEFT_BUTTON
-HOOK_FEED_TREE                   HOOK_FORMAT_ARTICLE
-HOOK_GET_FULL_TEXT               HOOK_HEADLINES_BEFORE
-HOOK_HEADLINES_CUSTOM_SORT_MAP   HOOK_HEADLINES_CUSTOM_SORT_OVERRIDE
-HOOK_HEADLINE_TOOLBAR_BUTTON     HOOK_HEADLINE_TOOLBAR_SELECT_MENU_ITEM
-HOOK_HOTKEY_INFO                 HOOK_LOGINFORM_ADDITIONAL_BUTTONS
-HOOK_PREFS_TABS                  HOOK_QUERY_HEADLINES
-HOOK_SEARCH                      HOOK_SEND_LOCAL_FILE
-HOOK_SEND_MAIL                   HOOK_TOOLBAR_BUTTON
-HOOK_UNSUBSCRIBE_FEED            HOOK_VALIDATE_SESSION
+HOOK_ACTION_ITEM                     (shell template slot; index.php:321)
+HOOK_ARTICLE_EXPORT_FEED             (syndication export, per article)
+HOOK_ARTICLE_LEFT_BUTTON             (view row's `buttons_left` slot)
+HOOK_FEED_TREE                       (shell template slot; index.php:175)
+HOOK_FORMAT_ARTICLE                  (share plugin's article page)
+HOOK_GET_FULL_TEXT                   (create_published_article, fresh owner host)
+HOOK_HEADLINES_BEFORE                (view, first page; prepended to `content`)
+HOOK_HEADLINES_CUSTOM_SORT_MAP       (API `custom_sort_types`)
+HOOK_HEADLINES_CUSTOM_SORT_OVERRIDE  (order_to_override_query, all 3 callers)
+HOOK_HEADLINE_TOOLBAR_BUTTON         (view toolbar `plugin_buttons` slot)
+HOOK_HOTKEY_INFO                     (hotkey_help, over the info map)
+HOOK_LOGINFORM_ADDITIONAL_BUTTONS    (login page, system-plugins host)
+HOOK_PREFS_TABS                      (prefs page tab bar)
+HOOK_QUERY_HEADLINES                 (view per-row + syndication export)
+HOOK_TOOLBAR_BUTTON                  (shell template slot; index.php:263)
+HOOK_UNSUBSCRIBE_FEED                (remove_feed, `run_hooks_until(true)`)
+HOOK_VALIDATE_SESSION                (session::validate_session, last-result-wins)
 ```
 
-The seven feed-pipeline hooks previously in this list — `HOOK_FEED_FETCHED`,
+Plus `HOOK_RENDER_ARTICLE_API` on the **getArticle** route (the port ran it
+only in getHeadlines; PHP `API.php:360-366` runs both).
+
+**Not dispatched — by design (not gaps):**
+- *Dead in the PHP reference itself:* `HOOK_ARTICLE_FILTER_ACTION` and
+  `HOOK_HEADLINE_TOOLBAR_SELECT_MENU_ITEM` (v1) — declared in `Plugin.php`
+  but never fired anywhere in the frozen tree (the view uses v2). The port
+  keeps the trait methods for contract parity and, like PHP, never fires them.
+- *Tied to an unported feature:* `HOOK_SEND_MAIL`, `HOOK_SEND_LOCAL_FILE`
+  (the `Mailer`/`lettre` milestone isn't in yet).
+- *Deliberate, behavior-identical:* `HOOK_SEARCH` — no stock plugin
+  implements it, so PHP always falls through to `_search_to_sql`; the port's
+  direct call is equivalent.
+
+**Historical note:** the seven feed-pipeline hooks (`HOOK_FEED_FETCHED`,
 `HOOK_FEED_PARSED`, `HOOK_ENCLOSURE_IMPORTED`, `HOOK_FILTER_TRIGGERED`,
 `HOOK_ARTICLES_MARK_TOGGLED`, `HOOK_ARTICLES_PUBLISH_TOGGLED`,
-`HOOK_HOUSE_KEEPING` (at both PHP sites: per-batch-owner and global daemon
-host), `HOOK_UPDATE_TASK` — are now dispatched in the update pipeline
-(`updates.rs`; `tests/feed_pipeline_hooks.rs` pins the dispatch sites).
-
-**Why this is low-severity, not a bug:**
-- **No ported plugin registers any of these** — verified that every hook any of the
-  18 ported plugins registers is in the 31 that are fired. So the entire ported
-  plugin set is fully functional.
-- **No PHP first-party plugin implements any of these** either — grepping
-  `tt-rss/plugins/` for `function hook_<name>(` matches only `hook_render_article`
-  (the `share` plugin), and the port *does* fire that one (`share.rs:358`,
-  `plugin.hook_render_article` at `:362`).
-- So these 22 are **defined-but-unused API surface**: dead for the stock plugin set,
-  only relevant to (unsupported) third-party plugins.
-
-**Sub-categorization** (for prioritizing any future wiring):
-- *Tied to an unported feature:* `HOOK_SEND_MAIL`, `HOOK_SEND_LOCAL_FILE` (the
-  `Mailer`/`lettre` milestone isn't in yet — `plugin.rs:26` and `:558` mark the
-  signatures provisional).
-- *Deliberately not dispatched, documented:* `HOOK_SEARCH` — `plan.md` (M7.21 b)
-  proves the stock set has no `hook_search` implementer, so PHP always falls through
-  to `_search_to_sql`; the port's direct call is behavior-identical.
-- *Stale short-circuit:* `HOOK_VALIDATE_SESSION` — `session.rs:222` still says
-  "the Rust server has no plugin host yet," but the host now exists; the chain is
-  simply not run during `validate_session` (always resolves `true`). See G5.
-- *Genuinely never wired:* the feed-pipeline hooks (`HOOK_HEADLINES_BEFORE`,
-  `HOOK_QUERY_HEADLINES`, `HOOK_FORMAT_ARTICLE`,
-  `HOOK_GET_FULL_TEXT`, `HOOK_FEED_TREE`, `HOOK_UNSUBSCRIBE_FEED`) and the
-  UI-injection hooks (`HOOK_TOOLBAR_BUTTON`, `HOOK_ARTICLE_LEFT_BUTTON`,
-  `HOOK_ARTICLE_EXPORT_FEED`, `HOOK_ARTICLE_FILTER_ACTION`,
-  `HOOK_HEADLINE_TOOLBAR_BUTTON`, `HOOK_HEADLINE_TOOLBAR_SELECT_MENU_ITEM`,
-  `HOOK_ACTION_ITEM`, `HOOK_HOTKEY_INFO`,
-  `HOOK_LOGINFORM_ADDITIONAL_BUTTONS`, `HOOK_PREFS_TABS`).
+`HOOK_HOUSE_KEEPING` (both sites), `HOOK_UPDATE_TASK`) were wired earlier in
+`updates.rs` (`tests/feed_pipeline_hooks.rs`).
 
 ### G2 — `API::index()` plugin-API-method dispatch is half-wired *(low, latent)*
 
@@ -191,13 +184,13 @@ dispatch). It is inherently tied to the schema-migration engine, which is M8 (sk
 All the other public ops (`login`, `logout`, `rss`/syndication, `feed_icon`,
 `cached`, `healthcheck`, `forgotpass`, `pluginhandler`) are handled.
 
-### G5 — `HOOK_VALIDATE_SESSION` chain not run *(low)*
+### G5 — ~~`HOOK_VALIDATE_SESSION` chain not run~~ — closed *(low)*
 
-Covered by G1, but called out separately because it is a *core-behavior* hook (not a
-UI/plugin nicety) and the code comment is now misleading: `session.rs:222` states the
-chain "defaults to `true` (the Rust server has no plugin host yet)." The host exists
-now, yet `validate_session` never runs the chain — a plugin that implements
-`hook_validate_session` (to deny/alter a session) would be silently ignored.
+Covered by G1, called out separately because it is a *core-behavior* hook (not a
+UI/plugin nicety). Now dispatched: `session::validate_session` takes the
+`AppState` and runs the chain after the default checks, keeping the *last*
+hook's result (the loop stops at the first `false`) as the return value —
+matching PHP `Sessions.php:144`. `tests/dispatch_completion.rs` pins it.
 
 ---
 
