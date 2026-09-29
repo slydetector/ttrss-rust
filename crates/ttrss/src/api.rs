@@ -1643,9 +1643,17 @@ pub async fn share_to_published(
     } else {
         content_raw.to_string()
     };
-    let ok =
-        crate::article::create_published_article(state.db.pool(), &title, &url, &content, "", uid)
-            .await;
+    let pctx = crate::pluginhost::dispatch::owner_ctx(state, uid as i32).await;
+    let ok = crate::article::create_published_article(
+        state.db.pool(),
+        &title,
+        &url,
+        &content,
+        "",
+        uid,
+        pctx,
+    )
+    .await;
     if ok {
         (STATUS_OK, json!({ "status": "OK" }))
     } else {

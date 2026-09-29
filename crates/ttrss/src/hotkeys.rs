@@ -260,9 +260,13 @@ fn hotkey_display(seq: &str) -> String {
 }
 
 /// PHP `RPC::hotkeyHelp()` — the keyboard-shortcuts help dialog (raw HTML).
-/// `__()` is the identity (no catalog loaded); PluginHost hooks are no-ops
-/// (no plugin contributes hotkey info/map).
-pub fn hotkey_help() -> String {
+///
+/// `get_hotkeys_info()` + `HOOK_HOTKEY_INFO` (RPC.php:478-549): the chain
+/// receives the section → (action → description) map (values `__()`-ed at
+/// build time) and its result replaces it. The rendered dialog iterates the
+/// (replaced) map — PHP preserves array insertion order; the port's map is
+/// key-sorted (visible only if a plugin adds new sections).
+pub async fn hotkey_help(host: &mut crate::pluginhost::host::HostCtx) -> String {
     // `$omap`: action → [sequence...] in map declaration order.
     let mut omap: Vec<(&str, Vec<String>)> = Vec::new();
     for (seq, action) in HOTKEYS.iter().copied() {
@@ -273,21 +277,52 @@ pub fn hotkey_help() -> String {
         }
     }
 
+    let mut info: serde_json::Map<String, serde_json::Value> =
+        serde_json::Map::new();
+    for &(section, actions) in HOTKEY_INFO {
+        let mut a = serde_json::Map::new();
+        for &(action, desc) in actions {
+            a.insert(action.to_string(), Value::from(desc.to_string()));
+        }
+        info.insert(section.to_string(), Value::Object(a));
+    }
+    let mut info_val = Value::Object(info);
+    if !host
+        .hook_order(crate::pluginhost::HOOK_HOTKEY_INFO)
+        .is_empty()
+    {
+        host.chain_hooks_callback(
+            crate::pluginhost::HOOK_HOTKEY_INFO,
+            &mut info_val,
+            |plugin, host, st| {
+                Box::pin(async move {
+                    let r = plugin.hook_hotkey_info(host, st).await;
+                    *st = r.clone();
+                    r
+                })
+            },
+            |_r, _p| false,
+        )
+        .await;
+    }
+
     let mut out = String::new();
     out.push_str("<ul class='panel panel-scrollable hotkeys-help' style='height : 300px'>");
-    for &(section, actions) in HOTKEY_INFO {
+    for (section, actions) in info_val.as_object().unwrap().iter() {
         out.push_str(&format!(
             "\n<li><h3>{}</h3></li>",
             html_escape(&__(section))
         ));
-        for &(action, desc) in actions {
-            if let Some((_, seqs)) = omap.iter().find(|e| e.0 == action) {
-                for seq in seqs {
-                    out.push_str(&format!(
-                        "\n<li>\n<div class='hk'><code>{}</code></div>\n<div class='desc'>{}</div>\n</li>",
-                        html_escape(seq),
-                        html_escape(&__(desc))
-                    ));
+        if let Some(actions) = actions.as_object() {
+            for (action, desc) in actions {
+                if let Some((_, seqs)) = omap.iter().find(|e| e.0 == action) {
+                    for seq in seqs {
+                        out.push_str(&format!(
+                            "\n<li>\n<div class='hk'><code>{}</code></div>\n<div class='desc'>{}</div>\n</li>",
+                            html_escape(seq),
+                            html_escape(desc.as_str().unwrap_or(""))
+                        ));
+                    }
                 }
             }
         }

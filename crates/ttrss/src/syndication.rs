@@ -199,15 +199,15 @@ async fn generate_feed(state: &AppState, owner_uid: i64, req: &RssRequest<'_>) -
         let vfeed = r.columns().len() >= 32;
         let id: i32 = r.get(I_ID);
         let date_entered: Option<NaiveDateTime> = r.get(I_DATE_ENTERED);
-        let title: String = r.get(I_TITLE);
-        let updated: Option<NaiveDateTime> = r.get(I_UPDATED);
+        let mut title: String = r.get(I_TITLE);
+        let mut updated: Option<NaiveDateTime> = r.get(I_UPDATED);
         let tag_cache: Option<String> = r.get(I_TAG_CACHE);
-        let site_url: Option<String> = r.get(I_SITE_URL);
-        let note: Option<String> = r.get(I_NOTE);
-        let link: String = r.get(I_LINK);
-        let row_feed_title: Option<String> = if vfeed { r.get(I_VF_TITLE) } else { None };
+        let mut site_url: Option<String> = r.get(I_SITE_URL);
+        let mut note: Option<String> = r.get(I_NOTE);
+        let mut link: String = r.get(I_LINK);
+        let mut row_feed_title: Option<String> = if vfeed { r.get(I_VF_TITLE) } else { None };
         let content_idx = if vfeed { I_VF_CONTENT } else { I_CONTENT };
-        let content: String = r.get(content_idx);
+        let mut content: String = r.get(content_idx);
         let author: String = r.get(content_idx + 1);
 
         let tags =
@@ -238,6 +238,78 @@ async fn generate_feed(state: &AppState, owner_uid: i64, req: &RssRequest<'_>) -
             Some(&mut pctx),
         )
         .await;
+
+        // `HOOK_QUERY_HEADLINES` + `HOOK_ARTICLE_EXPORT_FEED`
+        // (Handler_Public.php:105-115 / :205-215): per article, after
+        // `content_preview` + `tags` are set; each hook's result replaces
+        // the row and the rest of the export continues on the replaced row.
+        {
+            let mut row_val = crate::headlines::row_to_plugin_value(
+                r,
+                &excerpt,
+                Some(tags.as_slice()),
+            );
+            if !pctx
+                .hook_order(crate::pluginhost::HOOK_QUERY_HEADLINES)
+                .is_empty()
+            {
+                pctx.chain_hooks_callback(
+                    crate::pluginhost::HOOK_QUERY_HEADLINES,
+                    &mut row_val,
+                    |plugin, host, row| {
+                        Box::pin(async move {
+                            let mut local = row.clone();
+                            let res = plugin
+                                .hook_query_headlines(host, &mut local, 250)
+                                .await;
+                            *row = res.clone();
+                            res
+                        })
+                    },
+                    |_r, _p| false,
+                )
+                .await;
+            }
+            if !pctx
+                .hook_order(crate::pluginhost::HOOK_ARTICLE_EXPORT_FEED)
+                .is_empty()
+            {
+                let feed_id = n_feed.map(|f| f as i32).unwrap_or(0);
+                let is_cat = req.is_cat;
+                let owner = owner_uid as i32;
+                pctx.chain_hooks_callback(
+                    crate::pluginhost::HOOK_ARTICLE_EXPORT_FEED,
+                    &mut row_val,
+                    |plugin, host, row| {
+                        Box::pin(async move {
+                            let mut local = row.clone();
+                            let res = plugin
+                                .hook_article_export_feed(host, &mut local, feed_id, is_cat, owner)
+                                .await;
+                            *row = res.clone();
+                            res
+                        })
+                    },
+                    |_r, _p| false,
+                )
+                .await;
+            }
+
+            let h_str = |name: &str| {
+                row_val.get(name).and_then(serde_json::Value::as_str).map(String::from)
+            };
+            title = h_str("title").unwrap_or(title);
+            link = h_str("link").unwrap_or(link);
+            content = h_str("content").unwrap_or(content);
+            note = h_str("note").or(note);
+            site_url = h_str("site_url").or(site_url);
+            if vfeed {
+                row_feed_title = h_str("feed_title").or(row_feed_title);
+            }
+            if let Some(t) = h_str("updated") {
+                updated = chrono::NaiveDateTime::parse_from_str(&t, "%Y-%m-%d %H:%M:%S").ok();
+            }
+        }
 
         // `Sanitizer::sanitize($content, false, $owner_uid, $feed_site_url, null, $id)`
         let content_sanitized = sanitizer::sanitize(

@@ -562,6 +562,7 @@ pub async fn create_published_article(
     content: &str,
     labels_str: &str,
     owner_uid: i64,
+    pctx: crate::pluginhost::host::HostCtx,
 ) -> bool {
     // `sha1("ttshared:" . $url . $owner_uid)` → `SHA1:<hex>` (owner_uid in the
     // GUID prevents a global clash).
@@ -569,6 +570,28 @@ pub async fn create_published_article(
         "SHA1:{:x}",
         sha1::Sha1::digest(format!("ttshared:{}{}", url, owner_uid).as_bytes())
     );
+
+    // `if (!$content)` — HOOK_GET_FULL_TEXT (Article.php:44): a fresh
+    // owner-scoped host; the first non-empty result becomes the content.
+    let mut content = content.to_string();
+    if content.is_empty() {
+        let mut pctx = pctx;
+        let url_owned = url.to_string();
+        pctx.run_hooks_callback::<String, _, _>(
+            crate::pluginhost::HOOK_GET_FULL_TEXT,
+            |plugin, host_ctx| {
+                let u = url_owned.clone();
+                Box::pin(async move { plugin.hook_get_full_text(host_ctx, &u).await })
+            },
+            |result, _| {
+                if !result.is_empty() {
+                    content = result.clone();
+                }
+                !result.is_empty()
+            },
+        )
+        .await;
+    }
     let content_hash = format!("{:x}", sha1::Sha1::digest(content.as_bytes()));
     let labels: Vec<String> = if labels_str.is_empty() {
         Vec::new()
@@ -604,7 +627,7 @@ pub async fn create_published_article(
     if let Some(ref_id) = existing {
         let _ =
             sqlx::query("UPDATE ttrss_entries SET content = $1, content_hash = $2 WHERE id = $3")
-                .bind(content)
+                .bind(&content)
                 .bind(&content_hash)
                 .bind(ref_id)
                 .execute(&mut *tx)
@@ -612,7 +635,7 @@ pub async fn create_published_article(
         let _ = sqlx::query(
             "UPDATE ttrss_entries SET tsvector_combined = to_tsvector($1) WHERE id = $2",
         )
-        .bind(html_to_text(content))
+        .bind(html_to_text(&content))
         .bind(ref_id)
         .execute(&mut *tx)
         .await;
@@ -650,7 +673,7 @@ pub async fn create_published_article(
         .bind(&title)
         .bind(&guid)
         .bind(url)
-        .bind(content)
+        .bind(&content)
         .bind(&content_hash)
         .fetch_optional(&mut *tx)
         .await
@@ -660,7 +683,7 @@ pub async fn create_published_article(
             let _ = sqlx::query(
                 "UPDATE ttrss_entries SET tsvector_combined = to_tsvector($1) WHERE id = $2",
             )
-            .bind(html_to_text(content))
+            .bind(html_to_text(&content))
             .bind(ref_id)
             .execute(&mut *tx)
             .await;

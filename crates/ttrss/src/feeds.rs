@@ -2048,6 +2048,22 @@ pub async fn remove_feeds(state: &AppState, sess: &Sess, extra: &Map<String, Val
 pub async fn remove_feed(state: &AppState, id: i32, uid: i64) {
     let pool = state.db.pool();
     if id > 0 {
+        // `HOOK_UNSUBSCRIBE_FEED` (Pref_Feeds.php:1149): a plugin returning
+        // `true` prevents the default removal.
+        let mut pctx = crate::pluginhost::dispatch::owner_ctx(state, uid as i32).await;
+        let feed_id = id;
+        let owner_uid = uid as i32;
+        if pctx
+            .run_hooks_until(crate::pluginhost::HOOK_UNSUBSCRIBE_FEED, |&b: &bool| b, |plugin, host| {
+                Box::pin(async move {
+                    plugin.hook_unsubscribe_feed(host, feed_id, owner_uid).await
+                })
+            })
+            .await
+        {
+            return;
+        }
+
         let mut tx = pool.begin().await.expect("begin");
         // Starred (archived) entries → archived (feed_id = NULL).
         sqlx::query(

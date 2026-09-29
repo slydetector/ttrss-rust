@@ -228,6 +228,37 @@ impl Bookmarklets {
                 params.get("labels").and_then(|v| v.as_str()).unwrap_or(""),
             ));
 
+            // PHP's `_create_published_article` builds a *fresh*
+            // owner-scoped host (`load_all(KIND_ALL, $owner_uid)`) for the
+            // HOOK_GET_FULL_TEXT chain — rebuild it from this context.
+            let pref_rows = crate::prefs::load_rows_pool(host.pool(), uid as i64, host.profile).await;
+            let enabled = crate::prefs::resolve(crate::prefs::_ENABLED_PLUGINS, &pref_rows, host.profile)
+                .as_str()
+                .to_string();
+            let system: Vec<String> = host
+                .cfg
+                .plugins
+                .split(',')
+                .map(|s| s.trim().to_lowercase())
+                .filter(|s| !s.is_empty())
+                .collect();
+            let user: Vec<String> = enabled
+                .split(',')
+                .map(|s| s.trim().to_lowercase())
+                .filter(|s| !s.is_empty())
+                .collect();
+            let sys: Vec<&str> = system.iter().map(|s| s.as_str()).collect();
+            let usr: Vec<&str> = user.iter().map(|s| s.as_str()).collect();
+            let pctx = crate::pluginhost::host::HostCtx::for_user(
+                host.host_arc(),
+                host.pool().clone(),
+                host.cfg.clone(),
+                Some(uid as i32),
+                host.profile,
+                host.access_level,
+                &sys,
+                &usr,
+            );
             crate::article::create_published_article(
                 host.pool(),
                 &title,
@@ -235,6 +266,7 @@ impl Bookmarklets {
                 &content,
                 &labels,
                 uid as i64,
+                pctx,
             )
             .await;
 

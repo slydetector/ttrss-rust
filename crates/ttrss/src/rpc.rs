@@ -346,7 +346,8 @@ async fn dispatch(
     match op {
         "RPC" => match method {
             "hotkeyhelp" => {
-                DispatchOutput::Html(crate::hotkeys::hotkey_help())
+                let mut pctx = crate::pluginhost::dispatch::session_ctx(state, sess).await;
+                DispatchOutput::Html(crate::hotkeys::hotkey_help(&mut pctx).await)
             }
             _ => DispatchOutput::Json(rpc_handler(state, sess, method, extra, accept_language).await),
         },
