@@ -241,40 +241,26 @@ feed-content de-dup cache"). **Effect:** concurrent / rapid refetches of one fee
 the network each time instead of the cache. Low severity (performance, not
 correctness).
 
-### B5 — API `getHeadlines` ignores 4 of 19 params *(moderate, undocumented)*
+### B5 — ~~API `getHeadlines` ignores 4 of 19 params~~ — closed *(moderate)*
 
-Found by **param-diffing** (not in the plan): PHP's `getHeadlines` op reads **19**
-params (`API.php:194`); the port's `get_headlines` (`api.rs:786-889`) reads **15**.
-The 4 it drops are silently ignored — the op is present and "handled," so an
-entry-point scan marks it complete:
-
-| dropped param | PHP behavior | port impact |
-| --- | --- | --- |
-| **`search`** | threaded into the headline query (`API.php:692/711` `"search" => $search`, via `_search_to_sql`) | **API full-text search is broken** — a client sending `search=` gets the unfiltered headline list |
-| **`force_update`** | `if ($force_update && …) update the feed first` (`API.php:657`) | pre-read forced refresh ignored → stale data |
-| **`filter`** | applies a saved headline filter to the result set | filters ignored |
-| **`check_first_id`** | first-seen-id tracking for incremental clients | ignored (minor) |
-
-(`view_mode`, `sanitize`, `excerpt_length`, `show_content`, `show_excerpt`,
-`include_attachments` etc. **are** read by the port — not gaps.)
-
-**Response shape is faithful.** PHP's per-item shape has 27 fields (`id, guid,
-unread, marked, published, updated, is_updated, title, link, feed_id, tags,
-attachments, excerpt, content, author, comments_count, comments_link, feed_title,
-flavor_image, flavor_kind, flavor_stream, labels, lang, note, score, site_url,
-always_display_attachments`); the port's `api_headline_row` emits all 27 (plus a nested
-`article`). So the divergence is *which* headlines come back (search/force_update/
-filter), not the shape of the ones that do.
+Closed by the M7.6 work (`api.rs::get_headlines`): `search` is threaded into
+`HeadlinesParams` (→ `_search_to_sql`), `force_update` runs the pre-read
+`update_rss_feed($feed_id, true)` with the 120 s flood control (a
+cache-images feed is not fetched synchronously — its stamps are reset to the
+epoch, as in PHP), and `check_first_id` drives the changed-result-set
+signal. `filter` is a *dead param in the PHP itself* (`_api_get_headlines`
+reads it and never uses it), so ignoring it is faithful.
 
 **Coverage + method.** I param-diffed **all 24 external API ops** (PHP
 `$_REQUEST[…]` reads per op method vs the port's `body.get(…)`/helper reads).
-`getHeadlines` is the **only** op with a real param gap — `catchupFeed`,
-`getArticle`, `getFeeds`, `getCategories`, `setArticleLabel`, `updateArticle`,
-`subscribeToFeed`, `getFeedTree` (which hardcodes `mode=2` and derives
-`force_show_empty` from `include_empty`) etc. all read what PHP reads. The
-automated diff under-counts params the port reads via closures or multi-line
-`.get`/`.insert`, so I hand-verified every reported gap — the *missing* list has no
-false positives (false negatives possible, and none material here).
+`getHeadlines` was the only op with a real param gap (now closed) —
+`catchupFeed`, `getArticle`, `getFeeds`, `getCategories`, `setArticleLabel`,
+`updateArticle`, `subscribeToFeed`, `getFeedTree` (which hardcodes `mode=2`
+and derives `force_show_empty` from `include_empty`) etc. all read what PHP
+reads. The automated diff under-counts params the port reads via closures or
+multi-line `.get`/`.insert`, so I hand-verified every reported gap — the
+*missing* list has no false positives (false negatives possible, and none
+material here).
 
 ### Verified *closed* by later work — **not** current gaps
 
