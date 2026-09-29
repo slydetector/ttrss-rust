@@ -57,7 +57,7 @@ use crate::pluginhost::host::HostCtx;
 use crate::pluginhost::{
     HOOK_ARTICLE_FILTER, HOOK_ARTICLES_MARK_TOGGLED, HOOK_ARTICLES_PUBLISH_TOGGLED,
     HOOK_ENCLOSURE_IMPORTED, HOOK_FETCH_FEED, HOOK_FEED_FETCHED, HOOK_FEED_PARSED,
-    HOOK_FILTER_TRIGGERED, HOOK_HOUSE_KEEPING, PluginHost,
+    HOOK_FILTER_TRIGGERED, HOOK_HOUSE_KEEPING, HOOK_UPDATE_TASK, PluginHost,
 };
 
 /// The subset of `ttrss_feeds` the pipeline reads.
@@ -1990,22 +1990,44 @@ pub async fn claim_feeds(pool: &PgPool, feeds: &[DueFeed]) {
     let _ = q.execute(pool).await;
 }
 
-/// The daemon/scheduler loop (M6c.3). A background task that periodically
-/// selects due feeds, claims them, dispatches per-feed update tasks (bounded by
-/// `Semaphore(daemon_max_jobs)`), awaits completion, then sleeps the interval.
-///
-/// The loop is the faithful sequential daemon cycle: it processes one
-/// `DAEMON_FEED_LIMIT` batch, awaits completion, then sleeps the interval (large
-/// feed sets cycle over minutes, as in the PHP). No cross-process lock (D1 = B,
-/// strictly single-process). The loop exits when `cancel` is cancelled (the
-/// graceful-shutdown path).
-/// `run_hooks(HOOK_HOUSE_KEEPING)` — the housekeeping hook chain
-/// (PHP `housekeeping_common`, RSSUtils:1771). Runs on the system plugin set
-/// (owner 0 → no per-owner `_ENABLED_PLUGINS`).
+/// The global daemon host ctx — the PHP's `PluginHost::getInstance()` in the
+/// CLI bootstrap: `load(Config::PLUGINS, KIND_ALL)` (all configured plugins,
+/// no per-owner filtering; `owner_uid = 0` → no `_ENABLED_PLUGINS`).
+async fn global_ctx(
+    pool: &PgPool,
+    cfg: &Config,
+    plugins: &Arc<PluginHost>,
+) -> crate::pluginhost::host::HostCtx {
+    let system: Vec<String> = cfg
+        .plugins
+        .split(',')
+        .map(|s| s.trim().to_lowercase())
+        .filter(|s| !s.is_empty())
+        .collect();
+    crate::pluginhost::dispatch::owner_ctx_from(
+        Arc::clone(plugins),
+        pool.clone(),
+        cfg.clone(),
+        &system,
+        &cfg.self_url,
+        0,
+    )
+    .await
+}
+
+/// `run_hooks(HOOK_HOUSE_KEEPING)` — the housekeeping hook chain. The PHP
+/// fires it at two sites, with two different plugin hosts:
+/// - `housekeeping_user($owner_uid)` (RSSUtils:1669-1675): a fresh host with
+///   the system plugins + *that owner's* `_ENABLED_PLUGINS` — once per owner
+///   in the just-processed feed batch;
+/// - `housekeeping_common()` (RSSUtils:1765-1771): the global daemon host
+///   (`owner_uid = 0`: no per-owner user plugins), after the due system +
+///   plugin tasks.
 pub async fn run_house_keeping_hook(
     pool: &PgPool,
     cfg: &Config,
     plugins: &Arc<PluginHost>,
+    owner_uid: i32,
 ) {
     let system: Vec<String> = cfg
         .plugins
@@ -2019,7 +2041,7 @@ pub async fn run_house_keeping_hook(
         cfg.clone(),
         &system,
         &cfg.self_url,
-        0,
+        owner_uid,
     )
     .await;
     for idx in ctx.hook_order(HOOK_HOUSE_KEEPING) {
@@ -2027,6 +2049,32 @@ pub async fn run_house_keeping_hook(
     }
 }
 
+/// `run_hooks(HOOK_UPDATE_TASK, $options)` (update.php:248-250): fired on the
+/// global daemon host after `housekeeping_common`, with the daemon process's
+/// CLI options map. The port's daemon is env-driven and always the
+/// `--daemon-loop` variant (no `--task`/`--quiet`/… flags) →
+/// `{"daemon-loop": true}`.
+pub async fn run_update_task_hook(
+    pool: &PgPool,
+    cfg: &Config,
+    plugins: &Arc<PluginHost>,
+) {
+    let mut ctx = global_ctx(pool, cfg, plugins).await;
+    let cli_options = serde_json::json!({ "daemon-loop": true });
+    for idx in ctx.hook_order(HOOK_UPDATE_TASK) {
+        ctx.host_arc().plugin(idx).hook_update_task(&mut ctx, &cli_options).await;
+    }
+}
+
+/// The daemon/scheduler loop (M6c.3). A background task that periodically
+/// selects due feeds, claims them, dispatches per-feed update tasks (bounded by
+/// `Semaphore(daemon_max_jobs)`), awaits completion, then sleeps the interval.
+///
+/// The loop is the faithful sequential daemon cycle: it processes one
+/// `DAEMON_FEED_LIMIT` batch, awaits completion, then sleeps the interval (large
+/// feed sets cycle over minutes, as in the PHP). No cross-process lock (D1 = B,
+/// strictly single-process). The loop exits when `cancel` is cancelled (the
+/// graceful-shutdown path).
 pub async fn daemon_loop(pool: &PgPool, cfg: &Config, plugins: Arc<PluginHost>, cancel: tokio_util::sync::CancellationToken) {
     use tokio::sync::Semaphore;
     use tokio::task::JoinSet;
@@ -2093,18 +2141,31 @@ pub async fn daemon_loop(pool: &PgPool, cfg: &Config, plugins: Arc<PluginHost>, 
                 secs = started.elapsed().as_secs_f64(),
                 "daemon: batch done"
             );
+
+            // `housekeeping_user($owner_uid)` (RSSUtils:284-287): after the
+            // batch, once per *distinct owner in it* — the HOOK_HOUSE_KEEPING
+            // chain on the system + that owner's enabled plugins. (The
+            // PHP's per-owner `run_due_tasks` is covered by the single-host
+            // `run_plugin_tasks` below, which runs the `:uid`-suffixed user
+            // tasks.)
+            let mut owners: Vec<i32> = feeds.iter().map(|f| f.owner_uid).collect();
+            owners.sort_unstable();
+            owners.dedup();
+            for owner in owners {
+                run_house_keeping_hook(pool, cfg, &plugins, owner).await;
+            }
         }
 
-        // Housekeeping: run the due system tasks (the PHP's
-        // `housekeeping_common`) + the plugin-registered tasks
-        // (`housekeeping_user` — M7.12 `cache_starred_images` et al.).
+        // `housekeeping_common()` (RSSUtils:1765-1771): the due system tasks
+        // (Scheduler), then the due plugin tasks, then HOOK_HOUSE_KEEPING on
+        // the global daemon host.
         crate::scheduler::run_due_tasks(pool, cfg, &crate::scheduler::system_tasks(cfg)).await;
         crate::scheduler::run_plugin_tasks(pool, cfg, &plugins).await;
+        run_house_keeping_hook(pool, cfg, &plugins, 0).await;
 
-        // `run_hooks(HOOK_HOUSE_KEEPING)` (the PHP's `housekeeping_common`,
-        // RSSUtils:1771; the per-user variant, `housekeeping_user`, RSSUtils:
-        // 1675, is covered by `run_plugin_tasks`'s per-owner task runs).
-        run_house_keeping_hook(pool, cfg, &plugins).await;
+        // `run_hooks(HOOK_UPDATE_TASK, $options)` (update.php:248, after
+        // `housekeeping_common`) on the global daemon host.
+        run_update_task_hook(pool, cfg, &plugins).await;
 
         // Sleep the interval (or exit on graceful shutdown).
         tokio::select! {

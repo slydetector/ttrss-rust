@@ -19,7 +19,7 @@ use ttrss::pluginhost::host::HostCtx;
 use ttrss::pluginhost::{
     About, Plugin, PluginHost, HOOK_ARTICLES_MARK_TOGGLED, HOOK_ARTICLES_PUBLISH_TOGGLED,
     HOOK_ENCLOSURE_IMPORTED, HOOK_FEED_FETCHED, HOOK_FEED_PARSED, HOOK_FILTER_TRIGGERED,
-    HOOK_HOUSE_KEEPING,
+    HOOK_HOUSE_KEEPING, HOOK_UPDATE_TASK,
 };
 use ttrss::updates::{fetch_one_feed, run_house_keeping_hook, FeedRow, FeedUpdateFlags};
 use test_db::template::with_test_db;
@@ -74,6 +74,7 @@ impl Plugin for PipeStub {
         host.add_hook_default(HOOK_ARTICLES_MARK_TOGGLED);
         host.add_hook_default(HOOK_ARTICLES_PUBLISH_TOGGLED);
         host.add_hook_default(HOOK_HOUSE_KEEPING);
+        host.add_hook_default(HOOK_UPDATE_TASK);
     }
 
     async fn hook_feed_fetched(
@@ -129,6 +130,10 @@ impl Plugin for PipeStub {
 
     async fn hook_house_keeping(&self, _host: &mut HostCtx) {
         self.record("house_keeping");
+    }
+
+    async fn hook_update_task(&self, _host: &mut HostCtx, cli_options: &Value) {
+        self.record(format!("update_task:{cli_options}"));
     }
 }
 
@@ -360,9 +365,34 @@ async fn test_house_keeping_dispatched() {
     let mut cfg = common::test_config();
     cfg.plugins = "pipe_stub".to_string();
 
-    run_house_keeping_hook(pool, &cfg, &host).await;
+    // Global daemon host (owner 0).
+    run_house_keeping_hook(pool, &cfg, &host, 0).await;
+    // Per-batch-owner host (owner 1 — the seed user).
+    run_house_keeping_hook(pool, &cfg, &host, 1).await;
 
-    assert_eq!(calls.lock().unwrap().join("\n"), "house_keeping");
+    let calls = calls.lock().unwrap();
+    assert_eq!(calls.len(), 2);
+    assert!(calls.iter().all(|c| c == "house_keeping"));
+        Ok(())
+    })).await.unwrap();
+}
+
+#[tokio::test]
+async fn test_update_task_dispatched() {
+    with_test_db(|url| Box::pin(async move {
+    let db: Db = common::make_db_from_url(&url).await.expect("test db");
+    let pool = db.pool();
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let host = setup_host(calls.clone());
+    let mut cfg = common::test_config();
+    cfg.plugins = "pipe_stub".to_string();
+
+    ttrss::updates::run_update_task_hook(pool, &cfg, &host).await;
+
+    assert_eq!(
+        calls.lock().unwrap().join("\n"),
+        "update_task:{\"daemon-loop\":true}"
+    );
         Ok(())
     })).await.unwrap();
 }
