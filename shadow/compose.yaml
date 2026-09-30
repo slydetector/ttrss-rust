@@ -45,6 +45,7 @@ services:
       TTRSS_DOCROOT: /opt/ttrss-web
       TTRSS_CACHE_DIR: /opt
       TTRSS_ENCRYPTION_KEY: ${TTRSS_ENCRYPTION_KEY:-9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08}
+      TTRSS_PLUGINS: ${TTRSS_PLUGINS:-auth_internal}
       RUST_LOG: ${RUST_LOG:-info}
     ports:
       - "${SHADOW_PORT:-8282}:80"
