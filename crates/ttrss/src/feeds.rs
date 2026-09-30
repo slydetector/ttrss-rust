@@ -2039,20 +2039,20 @@ pub async fn batch_edit_save(state: &AppState, sess: &Sess, extra: &Map<String, 
 pub async fn remove_feeds(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Value {
     let uid = sess.data().uid().unwrap_or(0);
     for id in util::param_int_array(extra, "ids") {
-        remove_feed(state, id as i32, uid).await;
+        remove_feed(state, id, uid).await;
     }
     Value::Null
 }
 
 /// `Feeds::remove_feed` — delete a feed (positive id) or a label (negative id).
-pub async fn remove_feed(state: &AppState, id: i32, uid: i64) {
+pub async fn remove_feed(state: &AppState, id: i64, uid: i64) {
     let pool = state.db.pool();
     if id > 0 {
         // `HOOK_UNSUBSCRIBE_FEED` (Pref_Feeds.php:1149): a plugin returning
         // `true` prevents the default removal.
         let mut pctx = crate::pluginhost::dispatch::owner_ctx(state, uid as i32).await;
         let feed_id = id;
-        let owner_uid = uid as i32;
+        let owner_uid = uid;
         if pctx
             .run_hooks_until(crate::pluginhost::HOOK_UNSUBSCRIBE_FEED, |&b: &bool| b, |plugin, host| {
                 Box::pin(async move {
@@ -2093,8 +2093,8 @@ pub async fn remove_feed(state: &AppState, id: i32, uid: i64) {
         // Best-effort favicon-cache removal (PHP: `DiskCache('feed-icons')->remove`).
         let _ = std::fs::remove_file(state.config.feed_icon_dir().join(id.to_string()));
     } else {
-        let label_id = crate::labels::feed_to_label_id(id as i64);
-        let _ = crate::labels::remove(&state.db, label_id as i32, uid, Some(uid)).await;
+        let label_id = crate::labels::feed_to_label_id(id);
+        let _ = crate::labels::remove(&state.db, label_id, uid, Some(uid)).await;
     }
 }
 

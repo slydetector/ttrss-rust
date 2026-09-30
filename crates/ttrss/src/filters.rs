@@ -1625,14 +1625,14 @@ pub async fn join_filters(
             .execute(&mut *tx)
             .await?;
         tx.commit().await?;
-        optimize(pool, base_id as i32).await?;
+        optimize(pool, base_id).await?;
     }
     Ok(())
 }
 
 /// `Pref_Filters::_optimize` — dedupe a filter's rules and actions: keep the
 /// first occurrence (by id) of each unique row, delete the rest.
-async fn optimize(pool: &sqlx::PgPool, id: i32) -> Result<(), sqlx::Error> {
+async fn optimize(pool: &sqlx::PgPool, id: i64) -> Result<(), sqlx::Error> {
     use std::collections::HashSet;
     /// The rule dedupe signature (all non-id columns).
     type RuleSig = (

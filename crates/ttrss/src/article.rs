@@ -132,8 +132,7 @@ async fn mark_articles_by_id(
         .run_hooks(
             crate::pluginhost::HOOK_ARTICLES_MARK_TOGGLED,
             |plugin, host| {
-                // The hook trait takes `&[i32]` (INT4 id boundary).
-                let ids: Vec<i32> = ids.iter().map(|&n| n as i32).collect();
+                let ids = ids.to_vec();
                 Box::pin(async move { plugin.hook_articles_mark_toggled(host, &ids).await })
             },
         )
@@ -175,8 +174,7 @@ async fn publish_articles_by_id(
         .run_hooks(
             crate::pluginhost::HOOK_ARTICLES_PUBLISH_TOGGLED,
             |plugin, host| {
-                // The hook trait takes `&[i32]` (INT4 id boundary).
-                let ids: Vec<i32> = ids.iter().map(|&n| n as i32).collect();
+                let ids = ids.to_vec();
                 Box::pin(async move { plugin.hook_articles_publish_toggled(host, &ids).await })
             },
         )
@@ -255,7 +253,7 @@ pub async fn get_tags(
 pub async fn get_labels(
     pool: &sqlx::PgPool,
     session_uid: i64,
-    id: i32,
+    id: i64,
     owner_uid: Option<i64>,
 ) -> Vec<Value> {
     let owner = match owner_uid {
@@ -705,13 +703,13 @@ pub async fn create_published_article(
                 crate::pluginhost::HOOK_ARTICLES_PUBLISH_TOGGLED,
                 |plugin, host| {
                     Box::pin(async move {
-                        plugin.hook_articles_publish_toggled(host, &[ref_id]).await
+                        plugin.hook_articles_publish_toggled(host, &[ref_id as i64]).await
                     })
                 },
             )
             .await;
         for label in &labels {
-            crate::labels::add_article(pool, ref_id, label.trim(), owner_uid).await;
+            crate::labels::add_article(pool, ref_id as i64, label.trim(), owner_uid).await;
         }
         rc = true;
     } else {
@@ -745,13 +743,13 @@ pub async fn create_published_article(
                     crate::pluginhost::HOOK_ARTICLES_PUBLISH_TOGGLED,
                     |plugin, host| {
                         Box::pin(async move {
-                            plugin.hook_articles_publish_toggled(host, &[ref_id]).await
+                            plugin.hook_articles_publish_toggled(host, &[ref_id as i64]).await
                         })
                     },
                 )
                 .await;
             for label in &labels {
-                crate::labels::add_article(pool, ref_id, label.trim(), owner_uid).await;
+                crate::labels::add_article(pool, ref_id as i64, label.trim(), owner_uid).await;
             }
             rc = true;
         }
@@ -903,7 +901,7 @@ pub async fn mark(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> 
                 crate::pluginhost::HOOK_ARTICLES_MARK_TOGGLED,
                 |plugin, host| {
                     Box::pin(async move {
-                        plugin.hook_articles_mark_toggled(host, &[id_i]).await
+                        plugin.hook_articles_mark_toggled(host, &[id_i as i64]).await
                     })
                 },
             )
@@ -934,7 +932,7 @@ pub async fn publ(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> 
                 crate::pluginhost::HOOK_ARTICLES_PUBLISH_TOGGLED,
                 |plugin, host| {
                     Box::pin(async move {
-                        plugin.hook_articles_publish_toggled(host, &[id_i]).await
+                        plugin.hook_articles_publish_toggled(host, &[id_i as i64]).await
                     })
                 },
             )
@@ -1112,9 +1110,6 @@ pub async fn label_ops(
     let mut labels_for: Vec<Value> = Vec::new();
     if !label.is_empty() {
         for &id in &ids {
-            // INT4 id boundary (PHP `intval` is 64-bit; the label helpers
-            // take `i32`).
-            let id = id as i32;
             if assign {
                 crate::labels::add_article(pool, id, &label, uid).await;
             } else {

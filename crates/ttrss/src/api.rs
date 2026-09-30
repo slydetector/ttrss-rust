@@ -798,7 +798,7 @@ async fn get_labels(state: &AppState, uid: Option<i64>, body: &Map<String, Value
     // `checked` false).
     let article_id = clean_int(body.get("article_id"));
     let article_labels: Vec<Value> = if article_id > 0 {
-        article::get_labels(pool, uid, article_id as i32, None).await
+        article::get_labels(pool, uid, article_id, None).await
     } else {
         Vec::new()
     };
@@ -1163,7 +1163,7 @@ async fn api_headline_row(
         }
     }
 
-    let labels = api_labels(&label_cache, pool, uid, id).await;
+    let labels = api_labels(&label_cache, pool, uid, id as i64).await;
     m.insert("labels".into(), labels);
 
     let feed_title_out = if has_line_feed_title {
@@ -1218,7 +1218,7 @@ async fn api_headline_row(
 
 /// `API` label resolution: decode `label_cache` (array of `[id, caption, fg, bg]`),
 /// falling back to `Article::_get_labels`; `no-labels` → `[]`.
-async fn api_labels(label_cache: &str, pool: &sqlx::PgPool, uid: i64, id: i32) -> Value {
+async fn api_labels(label_cache: &str, pool: &sqlx::PgPool, uid: i64, id: i64) -> Value {
     let cache = label_cache.trim();
     if cache.is_empty() {
         // Empty cache: the hard way (`Article::_get_labels` → ttrss_user_labels2).
@@ -1320,7 +1320,7 @@ async fn get_article(
         m.insert("link".into(), Value::from(r.get::<String, _>(3)));
         m.insert(
             "labels".into(),
-            article::get_labels(pool, uid, id, None).await.into(),
+            article::get_labels(pool, uid, id as i64, None).await.into(),
         );
         let unread: bool = r.get(10);
         let marked: bool = r.get(9);
@@ -1454,7 +1454,7 @@ pub async fn unsubscribe_feed(
 ) -> (i64, Value) {
     let uid = sess.data().uid().unwrap_or(0);
     let pool = state.db.pool();
-    let feed_id = clean_int(body.get("feed_id")) as i32;
+    let feed_id = clean_int(body.get("feed_id"));
     let exists = sqlx::query_scalar::<_, i64>(
         "SELECT COUNT(*) FROM ttrss_feeds WHERE id = $1 AND owner_uid = $2",
     )
@@ -1635,9 +1635,7 @@ pub async fn update_article(
                     crate::pluginhost::HOOK_ARTICLES_PUBLISH_TOGGLED
                 },
                 |plugin, host| {
-                    // The hook trait takes `&[i32]` (INT4 id boundary); the
-                    // parsed ids are i64 (PHP `intval` is 64-bit).
-                    let ids: Vec<i32> = article_ids.iter().map(|&n| n as i32).collect();
+                    let ids = article_ids.clone();
                     Box::pin(async move {
                         if is_marked {
                             plugin.hook_articles_mark_toggled(host, &ids).await
@@ -1696,9 +1694,9 @@ pub async fn set_article_label(
     if !label.is_empty() {
         for &id in &article_ids {
             if assign {
-                crate::labels::add_article(pool, id as i32, &label, uid).await;
+                crate::labels::add_article(pool, id, &label, uid).await;
             } else {
-                crate::labels::remove_article(pool, id as i32, &label, uid).await;
+                crate::labels::remove_article(pool, id, &label, uid).await;
             }
             num_updated += 1;
         }

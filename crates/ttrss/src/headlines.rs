@@ -908,7 +908,7 @@ async fn format_headlines_list(
                 // `Article::_labels_of` (in the mutation handlers) then sees
                 // the labels, so the per-label counters update on the
                 // post-marking refresh instead of waiting for the next poll.
-                serde_json::from_str(&crate::labels::get_labels_json(pool, uid, id).await)
+                serde_json::from_str(&crate::labels::get_labels_json(pool, uid, id as i64).await)
                     .unwrap_or(Value::Array(Vec::new()))
             } else {
                 match serde_json::from_str::<Value>(cache) {

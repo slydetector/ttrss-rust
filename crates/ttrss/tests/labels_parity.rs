@@ -381,7 +381,7 @@ async fn test_create_new_label() {
     assert!(id > 0, "Label should be findable after creation");
 
     // Clean up
-    labels::remove(&db, id, 1, None)
+    labels::remove(&db, id as i64, 1, None)
         .await
         .expect("remove label");
         Ok(())
@@ -403,7 +403,7 @@ async fn test_create_label_with_default_colors() {
     assert_eq!("minimal-label", caption);
 
     // Clean up
-    labels::remove(&db, id, 1, None)
+    labels::remove(&db, id as i64, 1, None)
         .await
         .expect("remove label");
         Ok(())
@@ -469,7 +469,7 @@ async fn test_create_different_owner() {
     assert_eq!(0, id_for_uid999);
 
     // Clean up
-    labels::remove(&db, id, 1, None)
+    labels::remove(&db, id as i64, 1, None)
         .await
         .expect("remove label");
         Ok(())
@@ -497,7 +497,7 @@ async fn test_remove_existing_label() {
     assert!(id > 0);
 
     // Remove it
-    labels::remove(&db, id, 1, None)
+    labels::remove(&db, id as i64, 1, None)
         .await
         .expect("remove label");
 
@@ -541,7 +541,7 @@ async fn test_remove_cleans_label_cache() {
     assert!(!cache.is_empty());
 
     // Remove the label — should clear all caches for uid=1
-    labels::remove(&db, id, 1, None)
+    labels::remove(&db, id as i64, 1, None)
         .await
         .expect("remove label");
 
@@ -863,7 +863,7 @@ async fn test_full_label_lifecycle() {
     assert_eq!(0, count_user_labels(&db, id, 1).await);
 
     // 7. Remove the label entirely
-    labels::remove(&db, id, 1, None)
+    labels::remove(&db, id as i64, 1, None)
         .await
         .expect("remove label");
     assert_eq!("", labels::find_caption(db.pool(), id, 1).await);

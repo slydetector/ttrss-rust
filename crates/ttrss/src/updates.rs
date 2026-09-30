@@ -1339,7 +1339,7 @@ async fn upsert_article(
     // `HOOK_ARTICLE_FILTER` chain can add to them (and dedup against them); a
     // just-created entry has none.
     let existing_article_labels: Vec<Value> = match base_entry_id {
-        Some(id) => crate::article::get_labels(pool, owner as i64, id, Some(owner as i64)).await,
+        Some(id) => crate::article::get_labels(pool, owner as i64, id as i64, Some(owner as i64)).await,
         None => Vec::new(),
     };
     let mut article = json!({
@@ -1673,7 +1673,7 @@ async fn upsert_article(
                 for idx in ctx.hook_order(HOOK_ARTICLES_MARK_TOGGLED) {
                     ctx.host_arc()
                         .plugin(idx)
-                        .hook_articles_mark_toggled(ctx, &[ref_id])
+                        .hook_articles_mark_toggled(ctx, &[ref_id as i64])
                         .await;
                 }
             }
@@ -1681,7 +1681,7 @@ async fn upsert_article(
                 for idx in ctx.hook_order(HOOK_ARTICLES_PUBLISH_TOGGLED) {
                     ctx.host_arc()
                         .plugin(idx)
-                        .hook_articles_publish_toggled(ctx, &[ref_id])
+                        .hook_articles_publish_toggled(ctx, &[ref_id as i64])
                         .await;
                 }
             }
@@ -1760,14 +1760,14 @@ async fn upsert_article(
     dlog(log.as_deref_mut(), DEBUG_LEVEL_VERBOSE, "assigning labels [other]...".into());
     for label in &article_labels {
         if let Some(caption) = label.get(1).and_then(Value::as_str) {
-            crate::labels::add_article(pool, ref_id, caption, owner as i64).await;
+            crate::labels::add_article(pool, ref_id as i64, caption, owner as i64).await;
         }
     }
     dlog(log.as_deref_mut(), DEBUG_LEVEL_VERBOSE, "assigning labels [filters]...".into());
     for fa in &outcome.actions {
         if fa.action_type.as_deref() == Some("label")
             && let Some(param) = fa.param.as_deref() {
-                crate::labels::add_article(pool, ref_id, param, owner as i64).await;
+                crate::labels::add_article(pool, ref_id as i64, param, owner as i64).await;
             }
     }
     // The PHP's `LOG_EXTENDED` "article enclosures:" dump — `print_r` of the

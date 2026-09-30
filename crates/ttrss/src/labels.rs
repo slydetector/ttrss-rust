@@ -176,7 +176,7 @@ pub async fn update_cache(
     db: &Db,
     session_uid: i64,
     owner_uid: i64,
-    id: i32,
+    id: i64,
     labels: &[Value],
     force: bool,
 ) {
@@ -221,7 +221,7 @@ pub(crate) fn php_empty_value(v: &Value) -> bool {
 /// the hard path runs and the rows or the `{"no-labels": 1}` marker is
 /// written back. (This is the string-level form; `article::get_labels` is
 /// the typed `Vec<Value>` form on top of it.)
-pub async fn get_labels_json(pool: &sqlx::PgPool, owner_uid: i64, id: i32) -> String {
+pub async fn get_labels_json(pool: &sqlx::PgPool, owner_uid: i64, id: i64) -> String {
     let cache: Option<String> = sqlx::query_scalar(
         "SELECT label_cache FROM ttrss_user_entries WHERE ref_id = $1 AND owner_uid = $2",
     )
@@ -294,7 +294,7 @@ pub async fn get_labels_json(pool: &sqlx::PgPool, owner_uid: i64, id: i32) -> St
 }
 
 /// `Labels::clear_cache`: blank the label cache of article `id`.
-pub async fn clear_cache(pool: &sqlx::PgPool, id: i32) {
+pub async fn clear_cache(pool: &sqlx::PgPool, id: i64) {
     let _ = sqlx::query("UPDATE ttrss_user_entries SET label_cache = '' WHERE ref_id = $1")
         .bind(id)
         .execute(pool)
@@ -303,7 +303,7 @@ pub async fn clear_cache(pool: &sqlx::PgPool, id: i32) {
 
 /// `Labels::remove_article`: detach article `id` from the label `caption`
 /// (no-op when the label does not exist), then clear the article's cache.
-pub async fn remove_article(pool: &sqlx::PgPool, id: i32, label: &str, owner_uid: i64) {
+pub async fn remove_article(pool: &sqlx::PgPool, id: i64, label: &str, owner_uid: i64) {
     let label_id = find_id(pool, label, owner_uid).await;
     if label_id == 0 {
         return;
@@ -322,7 +322,7 @@ pub async fn remove_article(pool: &sqlx::PgPool, id: i32, label: &str, owner_uid
 /// `Labels::add_article`: attach article `id` to the label `caption`
 /// (idempotent; no-op when the label does not exist), then clear the
 /// article's cache.
-pub async fn add_article(pool: &sqlx::PgPool, id: i32, label: &str, owner_uid: i64) {
+pub async fn add_article(pool: &sqlx::PgPool, id: i64, label: &str, owner_uid: i64) {
     let label_id = find_id(pool, label, owner_uid).await;
     if label_id == 0 {
         return;
@@ -355,7 +355,7 @@ pub async fn add_article(pool: &sqlx::PgPool, id: i32, label: &str, owner_uid: i
 /// `owner_uid` is the session uid when `None`/0.
 pub async fn remove(
     db: &Db,
-    id: i32,
+    id: i64,
     session_uid: i64,
     owner_uid: Option<i64>,
 ) -> Result<(), sqlx::Error> {
@@ -646,7 +646,7 @@ pub async fn remove_labels(
     let uid = sess.data().uid().unwrap_or(0);
     let ids = util::param_int_array(extra, "ids");
     for id in ids {
-        remove(&state.db, id as i32, uid, None).await?;
+        remove(&state.db, id, uid, None).await?;
     }
     Ok(())
 }
