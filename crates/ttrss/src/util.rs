@@ -7,7 +7,6 @@
 use rand::Rng;
 use serde_json::{Map, Value};
 use sha1::Digest as _;
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// PHP `sha1($s)` — lowercase hex SHA-1 of `$s`.
@@ -330,26 +329,39 @@ pub fn arr_qmarks(arr: &[Value]) -> String {
     out
 }
 
-fn base36_digit(n: u32) -> char {
-    match n {
-        0..=9 => (b'0' + n as u8) as char,
-        _ => (b'a' + (n - 10) as u8) as char,
-    }
-}
-
-/// PHP `uniqid_short()`: `uniqid()` (hex microtime + 4-hex serial counter) +
-/// one random base-36 char. Lowercase alphanumeric, unique in practice.
+/// PHP `uniqid_short()` (functions.php:409):
+/// `uniqid(base_convert((string)random_int(0, mt_getrandmax()), 10, 36))` —
+/// a random base-36 prefix (1–6 chars, `random_int` over `[0, 2^31-1]`)
+/// followed by PHP's `uniqid()` itself: `dechex(microtime())` (the seconds
+/// part, no leading zeros) + `dechex(mt_rand(0, 0x7fffffff))` (0–8 hex
+/// chars, leading zeros dropped). Lowercase alphanumeric; 9–22 chars total.
 pub fn uniqid_short() -> String {
+    let mut rng = rand::thread_rng();
+    let r: u32 = rng.gen_range(0..=0x7FFF_FFFF);
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default();
-    let micros = now.as_secs().saturating_mul(1_000_000) + now.subsec_micros() as u64;
-    let hex = format!("{:x}", micros & 0xFFFF_FFFF_FFFF); // low 48 bits, as `dechex`
-    static SERIAL: AtomicU32 = AtomicU32::new(1);
-    let serial = SERIAL.fetch_add(1, Ordering::Relaxed) % 10_000;
-    let mut rng = rand::thread_rng();
-    let b36 = base36_digit(rng.gen_range(0..36));
-    format!("{hex}{serial:04x}{b36}")
+    format!(
+        "{}{:x}{:x}",
+        base36(r),
+        now.as_secs(),
+        rng.gen_range(0u32..=0x7FFF_FFFF)
+    )
+}
+
+/// `base_convert($n, 10, 36)` — lowercase, no leading zeros (`0` → `"0"`).
+fn base36(n: u32) -> String {
+    const DIGITS: &[u8] = b"0123456789abcdefghijklmnopqrstuvwxyz";
+    if n == 0 {
+        return "0".to_string();
+    }
+    let mut out = String::new();
+    let mut n = n;
+    while n > 0 {
+        out.push(DIGITS[(n % 36) as usize] as char);
+        n /= 36;
+    }
+    out.chars().rev().collect()
 }
 
 /// PHP `get_random_bytes($length)`: `$length` cryptographically random bytes
@@ -459,10 +471,12 @@ pub fn scalar_str(v: &Value) -> Option<String> {
     }
 }
 
-/// `Handler::_param_to_int_array`: parse `name` / `name[]` into `i32`s.
+/// `Handler::_param_to_int_array`: parse `name` / `name[]` into ints.
 /// A comma-delimited string is split; any non-int token rejects the whole
-/// input (returns an empty vec).
-pub fn param_int_array(extra: &Map<String, Value>, name: &str) -> Vec<i32> {
+/// input (returns an empty vec). The values are `i64` — PHP's `intval` on a
+/// 64-bit build does not wrap at 2³¹ (the INT4 columns are the caller's
+/// concern; an out-of-range id simply matches no rows).
+pub fn param_int_array(extra: &Map<String, Value>, name: &str) -> Vec<i64> {
     let raw = extra.get(&format!("{name}[]")).or_else(|| extra.get(name));
     let Some(raw) = raw else {
         return Vec::new();
@@ -482,7 +496,7 @@ pub fn param_int_array(extra: &Map<String, Value>, name: &str) -> Vec<i32> {
             }
         }
     }
-    let mut out: Vec<i32> = Vec::new();
+    let mut out: Vec<i64> = Vec::new();
     for part in parts {
         for tok in part.split(',') {
             let t = tok.trim();
@@ -490,7 +504,7 @@ pub fn param_int_array(extra: &Map<String, Value>, name: &str) -> Vec<i32> {
                 continue;
             }
             match t.parse::<i64>() {
-                Ok(n) => out.push(n as i32),
+                Ok(n) => out.push(n),
                 Err(_) => return Vec::new(),
             }
         }
@@ -696,11 +710,25 @@ mod tests {
                 .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit()),
             "got: {id}"
         );
+        // PHP shape: 1–6 base-36 prefix + `dechex(microtime())` (8–10 hex
+        // digits through year 9999) + `dechex(mt_rand(0, 0x7fffffff))`
+        // (1–8 hex) → 10–24 chars total.
+        assert!((10..=24).contains(&id.len()), "got len {}: {id}", id.len());
         // test_uniqid_short_uniqueness
         let mut seen = std::collections::HashSet::new();
         for _ in 0..10_000 {
             assert!(seen.insert(uniqid_short()), "collision in 10k uniqid_short");
         }
+    }
+
+    #[test]
+    fn base36_matches_php_base_convert() {
+        // PHP `base_convert($n, 10, 36)` — lowercase, no leading zeros.
+        assert_eq!(base36(0), "0");
+        assert_eq!(base36(35), "z");
+        assert_eq!(base36(36), "10");
+        assert_eq!(base36(1295), "zz");
+        assert_eq!(base36(2147483647), "zik0zj");
     }
 
     #[test]

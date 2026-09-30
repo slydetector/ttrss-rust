@@ -582,12 +582,12 @@ async fn public_handler(
             forgotpass::forgotpass(&state, &sess.0, &p).await
         }
         // `Handler_Public::cached` — serve `<CACHE_DIR>/<subdir>/<file>`.
-        "cached" => cached_file(&state, query.file.as_deref()),
+        "cached" => cached_file(&state, query.file.as_deref(), &headers),
         // `Handler_Public::feed_icon` — serve `<CACHE_DIR>/feed-icons/<id>`.
         "feed_icon" => query
             .id
             .as_deref()
-            .map(|id| feed_icon_response(&state.config, id))
+            .map(|id| feed_icon_response(&state.config, id, &headers))
             .unwrap_or_else(|| StatusCode::NOT_FOUND.into_response()),
         // `Handler_Public::rss` — syndicated Atom/JSON feed (access-key gated).
         "rss" => {
@@ -629,9 +629,9 @@ async fn public_handler(
 }
 
 /// `Handler_Public::cached()`: `?file=<subdir>/<name>` from the app cache dir.
-fn cached_file(state: &AppState, file: Option<&str>) -> Response {
+fn cached_file(state: &AppState, file: Option<&str>, headers: &axum::http::HeaderMap) -> Response {
     match file.and_then(|f| diskcache::resolve_cached(&state.config.cache_dir, f)) {
-        Some(path) => diskcache::send_file(&path),
+        Some(path) => diskcache::send_file(&path, headers),
         None => StatusCode::NOT_FOUND.into_response(),
     }
 }
@@ -644,10 +644,10 @@ fn cached_file(state: &AppState, file: Option<&str>) -> Response {
 /// `12?ts=1699…`. Cast it to an integer first (PHP `(int)`) so the lookup opens
 /// `feed-icons/12` rather than a literal `feed-icons/12?ts=…` path that 404s —
 /// which is exactly what left the upload preview a broken image.
-fn feed_icon_response(cfg: &Config, id: &str) -> Response {
+fn feed_icon_response(cfg: &Config, id: &str, headers: &axum::http::HeaderMap) -> Response {
     let path = cfg.feed_icon_dir().join(php_int_cast(id).to_string());
     if path.file_name().is_some() {
-        diskcache::send_file(&path)
+        diskcache::send_file(&path, headers)
     } else {
         StatusCode::NOT_FOUND.into_response()
     }
@@ -1278,21 +1278,38 @@ mod tests {
         };
 
         // The real upload-preview shape: `…&id=12?ts=1699…` → raw id `12?ts=…`.
+        let h = axum::http::HeaderMap::new();
         assert_eq!(
-            feed_icon_response(&cfg, "12?ts=1790567389").status(),
+            feed_icon_response(&cfg, "12?ts=1790567389", &h).status(),
             StatusCode::OK,
             "malformed id?ts=… must serve feed-icons/12, not 404"
         );
         // A clean id also works.
-        assert_eq!(feed_icon_response(&cfg, "12").status(), StatusCode::OK);
+        assert_eq!(feed_icon_response(&cfg, "12", &h).status(), StatusCode::OK);
+        // `If-None-Match` with the unquoted mtime ETag → 304 (PHP exact
+        // string comparison).
+        let mtime = std::fs::metadata(icon_dir.join("12"))
+            .unwrap()
+            .modified()
+            .unwrap()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            .to_string();
+        let mut h304 = axum::http::HeaderMap::new();
+        h304.insert(axum::http::header::IF_NONE_MATCH, mtime.parse().unwrap());
+        assert_eq!(
+            feed_icon_response(&cfg, "12", &h304).status(),
+            StatusCode::NOT_MODIFIED
+        );
         // A feed with no cached icon 404s.
         assert_eq!(
-            feed_icon_response(&cfg, "999").status(),
+            feed_icon_response(&cfg, "999", &h).status(),
             StatusCode::NOT_FOUND
         );
         // Non-numeric / traversal ids collapse to 0 → no file → 404 (no escape).
         assert_eq!(
-            feed_icon_response(&cfg, "../etc/passwd").status(),
+            feed_icon_response(&cfg, "../etc/passwd", &h).status(),
             StatusCode::NOT_FOUND
         );
 

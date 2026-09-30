@@ -49,7 +49,7 @@ fn cmode_of(extra: &Map<String, Value>) -> i32 {
 }
 
 /// `$n` placeholders for a `ref_id IN (…)` clause over `ids`.
-fn in_placeholders(ids: &[i32]) -> String {
+fn in_placeholders(ids: &[i64]) -> String {
     (1..=ids.len())
         .map(|i| format!("${i}"))
         .collect::<Vec<_>>()
@@ -58,7 +58,7 @@ fn in_placeholders(ids: &[i32]) -> String {
 
 fn bind_ids<'a>(
     mut q: sqlx::query::Query<'a, sqlx::Postgres, sqlx::postgres::PgArguments>,
-    ids: &[i32],
+    ids: &[i64],
 ) -> sqlx::query::Query<'a, sqlx::Postgres, sqlx::postgres::PgArguments> {
     for id in ids {
         q = q.bind(*id);
@@ -70,7 +70,7 @@ fn bind_ids<'a>(
 /// `owner_uid` (the session uid when `None` / 0).
 pub async fn catchup_by_id(
     pool: &sqlx::PgPool,
-    ids: &[i32],
+    ids: &[i64],
     cmode: i32,
     session_uid: i64,
     owner_uid: Option<i64>,
@@ -104,7 +104,7 @@ async fn mark_articles_by_id(
     state: &AppState,
     sess: &Sess,
     pool: &sqlx::PgPool,
-    ids: &[i32],
+    ids: &[i64],
     cmode: i32,
     uid: i64,
 ) {
@@ -132,7 +132,8 @@ async fn mark_articles_by_id(
         .run_hooks(
             crate::pluginhost::HOOK_ARTICLES_MARK_TOGGLED,
             |plugin, host| {
-                let ids = ids.to_vec();
+                // The hook trait takes `&[i32]` (INT4 id boundary).
+                let ids: Vec<i32> = ids.iter().map(|&n| n as i32).collect();
                 Box::pin(async move { plugin.hook_articles_mark_toggled(host, &ids).await })
             },
         )
@@ -145,7 +146,7 @@ async fn publish_articles_by_id(
     state: &AppState,
     sess: &Sess,
     pool: &sqlx::PgPool,
-    ids: &[i32],
+    ids: &[i64],
     cmode: i32,
     uid: i64,
 ) {
@@ -174,7 +175,8 @@ async fn publish_articles_by_id(
         .run_hooks(
             crate::pluginhost::HOOK_ARTICLES_PUBLISH_TOGGLED,
             |plugin, host| {
-                let ids = ids.to_vec();
+                // The hook trait takes `&[i32]` (INT4 id boundary).
+                let ids: Vec<i32> = ids.iter().map(|&n| n as i32).collect();
                 Box::pin(async move { plugin.hook_articles_publish_toggled(host, &ids).await })
             },
         )
@@ -760,7 +762,7 @@ pub async fn create_published_article(
 }
 
 /// `Article::_labels_of`: unique label ids present in the articles' `label_cache`.
-pub async fn labels_of(pool: &sqlx::PgPool, ids: &[i32], uid: i64) -> Vec<i64> {
+pub async fn labels_of(pool: &sqlx::PgPool, ids: &[i64], uid: i64) -> Vec<i64> {
     if ids.is_empty() {
         return Vec::new();
     }
@@ -800,7 +802,7 @@ pub async fn labels_of(pool: &sqlx::PgPool, ids: &[i32], uid: i64) -> Vec<i64> {
 }
 
 /// `Article::_feeds_of`: unique feed ids of the given articles.
-pub async fn feeds_of(pool: &sqlx::PgPool, ids: &[i32], uid: i64) -> Vec<i64> {
+pub async fn feeds_of(pool: &sqlx::PgPool, ids: &[i64], uid: i64) -> Vec<i64> {
     if ids.is_empty() {
         return Vec::new();
     }
@@ -1110,6 +1112,9 @@ pub async fn label_ops(
     let mut labels_for: Vec<Value> = Vec::new();
     if !label.is_empty() {
         for &id in &ids {
+            // INT4 id boundary (PHP `intval` is 64-bit; the label helpers
+            // take `i32`).
+            let id = id as i32;
             if assign {
                 crate::labels::add_article(pool, id, &label, uid).await;
             } else {

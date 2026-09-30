@@ -26,7 +26,7 @@
 use serde_json::{Map, Value};
 use ttrss::util::{clean_str, param_int_array, param_to_bool, php_int_cast};
 
-fn run_param_int_array(input: &Value) -> Vec<i32> {
+fn run_param_int_array(input: &Value) -> Vec<i64> {
     // The handler looks for `ids[]` then `ids`; place the raw input under
     // `ids` so the comma-string and array shapes both flow through.
     let mut extra = Map::new();
@@ -41,11 +41,11 @@ fn param_int_array_matches_php() {
     assert!(!cases.is_empty(), "fixture should not be empty");
     for (i, case) in cases.iter().enumerate() {
         let input = &case["in"];
-        let expected: Vec<i32> = case["out"]
+        let expected: Vec<i64> = case["out"]
             .as_array()
             .unwrap_or_else(|| panic!("case {i}: missing 'out' array"))
             .iter()
-            .map(|v| v.as_i64().expect("int") as i32)
+            .map(|v| v.as_i64().expect("int"))
             .collect();
         let got = run_param_int_array(input);
         assert_eq!(

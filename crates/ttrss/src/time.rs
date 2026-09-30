@@ -186,7 +186,12 @@ const DAYS_LONG: &[&str; 7] = &[
 /// use (D d j l M m n F Y g G h H i s a A). Unknown characters pass through
 /// verbatim.
 pub fn date_fmt(format: &str, ts: i64) -> String {
-    let dt = DateTime::from_timestamp(ts, 0).expect("valid ts");
+    // PHP `date()` returns `false` for out-of-range timestamps (empty in the
+    // caller's concatenation) — not a crash. (Unreachable in practice: the
+    // values come from PG `timestamp` columns, which top out at year 9999.)
+    let Some(dt) = DateTime::from_timestamp(ts, 0) else {
+        return String::new();
+    };
     let mut out = String::new();
     let mut chars = format.chars().peekable();
     while let Some(c) = chars.next() {
@@ -293,6 +298,15 @@ mod tests {
         assert_eq!(date_fmt("g:i a", ts3), "3:05 am");
         assert_eq!(date_fmt("j M, G:i", ts), "20 Aug, 13:00");
         assert_eq!(date_fmt("D, M d Y - G:i", ts), "Thu, Aug 20 2026 - 13:00");
+    }
+
+    #[test]
+    fn date_fmt_out_of_range_is_empty_not_panic() {
+        // PHP `date()` returns `false` for out-of-range timestamps (which
+        // concatenates to ""); the port must not panic (chrono's
+        // `from_timestamp` is `None` past ~year ±2.9e5).
+        assert_eq!(date_fmt("Y-m-d", i64::MAX), "");
+        assert_eq!(date_fmt("Y-m-d", i64::MIN), "");
     }
 
     #[test]

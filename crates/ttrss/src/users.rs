@@ -418,17 +418,17 @@ pub async fn remove(state: &AppState, sess: &Sess, extra: &Map<String, Value>) {
     let pool = state.db.pool();
     let uid = sess.data().uid().unwrap_or(0);
     for id in param_int_array(extra, "ids") {
-        if id as i64 != uid && id != 1 {
+        if id != uid && id != 1 {
             let _ = sqlx::query("DELETE FROM ttrss_tags WHERE owner_uid = $1")
-                .bind(id as i64)
+                .bind(id)
                 .execute(pool)
                 .await;
             let _ = sqlx::query("DELETE FROM ttrss_feeds WHERE owner_uid = $1")
-                .bind(id as i64)
+                .bind(id)
                 .execute(pool)
                 .await;
             let _ = sqlx::query("DELETE FROM ttrss_users WHERE id = $1")
-                .bind(id as i64)
+                .bind(id)
                 .execute(pool)
                 .await;
         }

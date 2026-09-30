@@ -7,7 +7,7 @@
 //! are extensionless (`feed-icons/1`).
 
 use axum::body::Body;
-use axum::http::{header, StatusCode};
+use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::Response;
 use kuchikiki::parse_html;
 use kuchikiki::traits::TendrilSink;
@@ -71,9 +71,12 @@ fn http_date(unix_secs: i64) -> String {
 }
 
 /// `DiskCache::send($filename)` for the local adapter. `path` is the full
-/// path to the cached file. The `If-Modified-Since` / `If-None-Match` 304
-/// path is omitted (the harness never sends conditional headers).
-pub fn send_file(path: &Path) -> Response {
+/// path to the cached file; `req` carries the request's conditional
+/// headers. PHP compares `If-Modified-Since` / `If-None-Match` with **exact
+/// string equality** against the `Last-Modified` stamp and the *unquoted*
+/// mtime ETag, and answers 304 (no body, cache headers only) when either
+/// matches.
+pub fn send_file(path: &Path, req: &HeaderMap) -> Response {
     let (Ok(meta), Ok(bytes)) = (std::fs::metadata(path), std::fs::read(path)) else {
         return Response::builder()
             .status(StatusCode::NOT_FOUND)
@@ -87,6 +90,23 @@ pub fn send_file(path: &Path) -> Response {
         .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
+    let last_modified = http_date(mtime);
+    let expires = http_date(mtime + 86400 * CACHE_MAX_DAYS);
+    let etag = mtime.to_string();
+
+    // `If-Modified-Since == $gmt_modified || If-None-Match == $file_mtime`.
+    let ims = req.get(header::IF_MODIFIED_SINCE).and_then(|v| v.to_str().ok());
+    let inm = req.get(header::IF_NONE_MATCH).and_then(|v| v.to_str().ok());
+    if ims == Some(last_modified.as_str()) || inm == Some(etag.as_str()) {
+        return Response::builder()
+            .status(StatusCode::NOT_MODIFIED)
+            .header(header::EXPIRES, expires)
+            .header(header::LAST_MODIFIED, last_modified)
+            .header(header::CACHE_CONTROL, "no-cache")
+            .header(header::ETAG, etag)
+            .body(Body::empty())
+            .expect("valid response");
+    }
 
     let mime = sniff_mime(&bytes);
     let effective = if mime == "application/octet-stream" {
@@ -129,10 +149,10 @@ pub fn send_file(path: &Path) -> Response {
         )
         .header(header::CONTENT_TYPE, effective)
         .header(header::CONTENT_LENGTH, bytes.len())
-        .header(header::EXPIRES, http_date(mtime + 86400 * CACHE_MAX_DAYS))
-        .header(header::LAST_MODIFIED, http_date(mtime))
+        .header(header::EXPIRES, expires)
+        .header(header::LAST_MODIFIED, last_modified)
         .header(header::CACHE_CONTROL, "no-cache")
-        .header(header::ETAG, mtime.to_string())
+        .header(header::ETAG, etag)
         .body(Body::from(bytes))
         .expect("valid response")
 }

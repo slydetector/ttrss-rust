@@ -1625,7 +1625,7 @@ pub async fn join_filters(
             .execute(&mut *tx)
             .await?;
         tx.commit().await?;
-        optimize(pool, base_id).await?;
+        optimize(pool, base_id as i32).await?;
     }
     Ok(())
 }

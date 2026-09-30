@@ -1924,7 +1924,7 @@ async fn editsaveops(
 
 /// `UPDATE ttrss_feeds SET <set> WHERE id IN ($2..$n+1) AND owner_uid = $(n+2)`.
 /// `<set>` uses `$1` for the value.
-fn batch_update_sql(set_expr: &str, feed_ids: &[i32]) -> String {
+fn batch_update_sql(set_expr: &str, feed_ids: &[i64]) -> String {
     let ids = (2..=feed_ids.len() + 1)
         .map(|i| format!("${i}"))
         .collect::<Vec<_>>()
@@ -1937,7 +1937,7 @@ async fn run_val(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     sql: &str,
     v: i32,
-    feed_ids: &[i32],
+    feed_ids: &[i64],
     uid: i64,
 ) -> i64 {
     let mut q = sqlx::query(AssertSqlSafe(sql)).bind(v);
@@ -1955,7 +1955,7 @@ async fn run_str(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     sql: &str,
     v: &str,
-    feed_ids: &[i32],
+    feed_ids: &[i64],
     uid: i64,
 ) -> i64 {
     let mut q = sqlx::query(AssertSqlSafe(sql)).bind(v);
@@ -1973,7 +1973,7 @@ async fn run_bool(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     sql: &str,
     v: bool,
-    feed_ids: &[i32],
+    feed_ids: &[i64],
     uid: i64,
 ) -> i64 {
     let mut q = sqlx::query(AssertSqlSafe(sql)).bind(v);
@@ -1991,7 +1991,7 @@ async fn run_opt(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     sql: &str,
     v: Option<i32>,
-    feed_ids: &[i32],
+    feed_ids: &[i64],
     uid: i64,
 ) -> i64 {
     let mut q = sqlx::query(AssertSqlSafe(sql)).bind(v);
@@ -2039,7 +2039,7 @@ pub async fn batch_edit_save(state: &AppState, sess: &Sess, extra: &Map<String, 
 pub async fn remove_feeds(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Value {
     let uid = sess.data().uid().unwrap_or(0);
     for id in util::param_int_array(extra, "ids") {
-        remove_feed(state, id, uid).await;
+        remove_feed(state, id as i32, uid).await;
     }
     Value::Null
 }

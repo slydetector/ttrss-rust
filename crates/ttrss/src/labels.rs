@@ -646,7 +646,7 @@ pub async fn remove_labels(
     let uid = sess.data().uid().unwrap_or(0);
     let ids = util::param_int_array(extra, "ids");
     for id in ids {
-        remove(&state.db, id, uid, None).await?;
+        remove(&state.db, id as i32, uid, None).await?;
     }
     Ok(())
 }

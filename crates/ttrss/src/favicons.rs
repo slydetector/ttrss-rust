@@ -135,10 +135,15 @@ pub fn calculate_avg_color(icon_path: &Path) -> Option<String> {
     // Convert to RGBA for uniform pixel access.
     let rgba = img.to_rgba8();
 
-    // Build a frequency map: quantized color → count.
-    let mut colors: std::collections::HashMap<[u8; 3], u32> = std::collections::HashMap::new();
-    for y in (0..h).step_by(4) {
-        for x in (0..w).step_by(4) {
+    // Build a frequency map: quantized color → count. PHP `colorPalette`
+    // scans x-outer / y-inner; the order of first sight is the tie-breaker
+    // (PHP `arsort` is stable over that insertion order), so it must be
+    // preserved — a `HashMap`'s RandomState iteration would not.
+    let mut counts: std::collections::HashMap<[u8; 3], usize> =
+        std::collections::HashMap::new(); // key → index into `order`
+    let mut order: Vec<([u8; 3], u32)> = Vec::new();
+    for x in (0..w).step_by(4) {
+        for y in (0..h).step_by(4) {
             let [r, g, b, _] = rgba.get_pixel(x, y).0;
             let qr = (f64::from(r) / 51.0).round() * 51.0;
             let qg = (f64::from(g) / 51.0).round() * 51.0;
@@ -148,15 +153,20 @@ pub fn calculate_avg_color(icon_path: &Path) -> Option<String> {
                 qg.min(255.0) as u8,
                 qb.min(255.0) as u8,
             ];
-            *colors.entry(key).or_insert(0) += 1;
+            match counts.get(&key) {
+                Some(&i) => order[i].1 += 1,
+                None => {
+                    counts.insert(key, order.len());
+                    order.push((key, 1));
+                }
+            }
         }
     }
 
-    // Sort by frequency desc, take top 4.
-    let mut items: Vec<([u8; 3], u32)> = colors.into_iter().collect();
-    items.sort_by_key(|&(_, count)| std::cmp::Reverse(count));
-    items.truncate(4);
-    let palette: Vec<[u8; 3]> = items.into_iter().map(|(color, _)| color).collect();
+    // Sort by frequency desc, take top 4 — stable, so exact count ties keep
+    // first-sight order (PHP `arsort`).
+    order.sort_by_key(|&(_, count)| std::cmp::Reverse(count));
+    let palette: Vec<[u8; 3]> = order.iter().take(4).map(|&(c, _)| c).collect();
 
     // For each color in the palette, convert to HSV and check the threshold.
     for [r, g, b] in &palette {
@@ -257,6 +267,36 @@ mod tests {
         std::fs::write(&path, &buf).unwrap();
         let color = calculate_avg_color(&path).unwrap();
         assert_eq!(color, "#0000ff");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn test_calculate_avg_color_tie_is_deterministic_first_sight() {
+        // Left half blue / right half green → an exact count tie (8:8 in the
+        // step-4 scan). PHP `arsort` is stable over the x-outer scan's
+        // first-sight order → the (0,0) color wins, and the result must be
+        // the same on every call (a `HashMap` RandomState iteration used to
+        // make the tie-break nondeterministic).
+        let mut img = image::RgbaImage::new(16, 16);
+        for x in 0..16u32 {
+            for y in 0..16u32 {
+                img.put_pixel(x, y, if x < 8 {
+                    image::Rgba([0, 0, 255, 255])
+                } else {
+                    image::Rgba([0, 255, 0, 255])
+                });
+            }
+        }
+        let mut buf = Vec::new();
+        image::DynamicImage::ImageRgba8(img)
+            .write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::Png)
+            .unwrap();
+
+        let path = std::env::temp_dir().join("test_favicon_tie.png");
+        std::fs::write(&path, &buf).unwrap();
+        for _ in 0..10 {
+            assert_eq!(calculate_avg_color(&path).unwrap(), "#0000ff");
+        }
         let _ = std::fs::remove_file(&path);
     }
 

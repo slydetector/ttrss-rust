@@ -1635,7 +1635,9 @@ pub async fn update_article(
                     crate::pluginhost::HOOK_ARTICLES_PUBLISH_TOGGLED
                 },
                 |plugin, host| {
-                    let ids = article_ids.clone();
+                    // The hook trait takes `&[i32]` (INT4 id boundary); the
+                    // parsed ids are i64 (PHP `intval` is 64-bit).
+                    let ids: Vec<i32> = article_ids.iter().map(|&n| n as i32).collect();
                     Box::pin(async move {
                         if is_marked {
                             plugin.hook_articles_mark_toggled(host, &ids).await
@@ -1694,9 +1696,9 @@ pub async fn set_article_label(
     if !label.is_empty() {
         for &id in &article_ids {
             if assign {
-                crate::labels::add_article(pool, id, &label, uid).await;
+                crate::labels::add_article(pool, id as i32, &label, uid).await;
             } else {
-                crate::labels::remove_article(pool, id, &label, uid).await;
+                crate::labels::remove_article(pool, id as i32, &label, uid).await;
             }
             num_updated += 1;
         }
