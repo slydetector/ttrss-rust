@@ -32,8 +32,10 @@ cross-checking the port found:
 - **A *capability* class the behavior-diff audits structurally miss (F):**
   PHP's 65-key `Config` surface vs the port's 39 `TTRSS_*` envs — 10 keys
   are ported as constants (differ only in settable-ness), 13 are deliberate
-  omissions, 2 are capability drops. `HTTP_USER_AGENT` is wired
-  (`TTRSS_HTTP_USER_AGENT`); the rest of class F is open.
+  omissions, 3 are capability drops. `HTTP_USER_AGENT` is wired
+  (`TTRSS_HTTP_USER_AGENT`); the rest of class F is open. A follow-up
+  scan of every other surface (classes, entry points, plugin API,
+  scheduler, schema) found nothing new.
 - **The rest is consciously skipped** (daemon/update CLI by design decision D1=B, the
   admin CLI + schema-migration engine as M8) plus the already-documented deferrals in
   `plan.md` (Mailer/`lettre`, timezone snapshot, `getFeedIcon` headers,
@@ -268,14 +270,22 @@ material here).
 ### F — Config surface: 10 keys settable in PHP are ported as constants *(moderate, capability)*
 
 **The class.** PHP's `Config::_DEFAULTS` exposes **65 settable keys**; the port
-exposes **39** of them as `TTRSS_*` envs (`Config::from_env`). Behavior-diff
+exposes **39** of them as `TTRSS_*` envs (`Config::from_env`). PHP's own
+mechanism *is* env vars — `Config::reload()` (Config.php:350) does
+`getenv('TTRSS_' . $const)` for every key (the same convention `config.php-dist`
+documents), so the port's 39 names mirror the PHP exactly and the missing 26
+are precisely "envs PHP reads that the port doesn't." Behavior-diff
 audits (this doc's G/B items) *structurally* cannot find the rest: in a running
 PHP install none of them is ever exercised — no UI renders them, `Config::set()`
 is test-gated (Config.php:361, "only available for tests"), and `Config` has no
 DB persistence. So the port hardcoded the defaults and behaves identically; the
 gap is the *settable-ness*, not the value. (Found 2026-09-30 when the
 `HTTP_USER_AGENT` override was needed; the class was then enumerated by diffing
-`Config::_DEFAULTS` against every `TTRSS_*` read in the port.)
+`Config::_DEFAULTS` against every `TTRSS_*` read in the port. A follow-up
+capability scan of the remaining surfaces — all 63 classes, 7 entry points,
+`include/` (35/35 `functions.php` fns), the `Plugin` base (53 hooks + 15
+non-hook methods), the 11 scheduler tasks, the 65-table schema, static
+serving — found nothing new beyond this section + G3 + M8.)
 
 **A. Hardcoded at the PHP default (10) — open.** Each differs from the PHP only
 in being a constant:
@@ -299,12 +309,21 @@ system → `LOCAL_THEMES_DIR`/`LOCAL_TEMPLATES_DIR`/`DEFAULT_LIGHT_THEME`/
 `DEFAULT_DARK_THEME`; `LOG_DESTINATION` = G3 (tracing); single-daemon, no
 cross-process locking (D1=B) → `LOCK_DIRECTORY`/`SCHEDULE_EXPIRE_LOCK_FILES`;
 compiled-in plugin set → `LOCAL_PLUGINS_DIR`/`ENABLE_PLUGIN_INSTALLER`/
-`CHECK_FOR_PLUGIN_UPDATES`.
+`CHECK_FOR_PLUGIN_UPDATES`. Beyond the config keys, the *runtime mechanism* of
+the three local-override directories (`plugins.local/`, `themes.local/`,
+`templates.local/` — user-supplied plugins/themes/templates dropped into the
+docroot) has no port equivalent: plugins are compiled in, the stock theme dir
+is served statically.
 
-**C. Capability drops (2).** `AUTH_AUTO_LOGIN` — PHP auto-authenticates the
+**C. Capability drops (3).** `AUTH_AUTO_LOGIN` — PHP auto-authenticates the
 first user with no credentials (UserHelper.php:161); the port does not.
 `HTTP_PROXY` — retained by convention: reqwest natively honors the standard
-`HTTP(S)_PROXY`/`NO_PROXY` envs.
+`HTTP(S)_PROXY`/`NO_PROXY` envs. `IVirtualFeed` interface check — the port's
+`get_feed_handler` (host.rs:901) omits PHP's `implements_interface(…,
+'IVirtualFeed')` guard (PluginHost.php:816); documented in the pluginhost
+module doc (host.rs:55); no first-party plugin implements the interface, so a
+plugin registering a special feed *without* it would be served by the port
+where PHP rejects it.
 
 ### Verified *closed* by later work — **not** current gaps
 
