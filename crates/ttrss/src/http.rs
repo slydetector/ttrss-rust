@@ -595,8 +595,8 @@ async fn public_handler(
                 id: query.id.as_deref(),
                 key: query.key.as_deref(),
                 is_cat: param_to_bool(query.is_cat.as_deref()),
-                limit: clean_int(query.limit.as_deref()),
-                offset: clean_int(query.offset.as_deref()),
+                limit: php_int_cast(query.limit.as_deref().unwrap_or("")),
+                offset: php_int_cast(query.offset.as_deref().unwrap_or("")),
                 search: query.q.as_deref().unwrap_or(""),
                 view_mode: query.view_mode.as_deref().unwrap_or(""),
                 order: query.order.as_deref().unwrap_or(""),
@@ -660,18 +660,6 @@ fn param_to_bool(v: Option<&str>) -> bool {
         crate::util::param_to_bool(Some(&val))
     })
     .unwrap_or(false)
-}
-
-/// PHP `(int)clean(...)`: the leading integer prefix of the string
-/// (`""`/non-numeric → `0`).
-fn clean_int(v: Option<&str>) -> i64 {
-    let s = v.unwrap_or("").trim();
-    let end = s
-        .find(|c: char| !c.is_ascii_digit() && c != '-' && c != '+')
-        .unwrap_or(s.len());
-    s.get(..end)
-        .and_then(|p| p.parse::<i64>().ok())
-        .unwrap_or(0)
 }
 
 #[derive(Deserialize)]
@@ -1130,6 +1118,24 @@ async fn static_handler(State(state): State<AppState>, req: Request) -> axum::re
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The `op=rss` `limit`/`offset` params go through `php_int_cast`
+    /// (PHP `(int)clean(...)`). Regression: a local `clean_int` variant
+    /// kept interior signs in its prefix scan, so `parse` failed the whole
+    /// prefix — `50-` → 0 (PHP: 50), and 20-digit values → 0 (PHP: clamps
+    /// to `i64::MAX`).
+    #[test]
+    fn rss_limit_offset_use_php_int_cast() {
+        let parse = |v: Option<&str>| php_int_cast(v.unwrap_or(""));
+        assert_eq!(parse(Some("50")), 50);
+        assert_eq!(parse(Some("50-")), 50);
+        assert_eq!(parse(Some("-12-3")), -12);
+        assert_eq!(parse(Some("12-3")), 12);
+        assert_eq!(parse(Some("99999999999999999999")), i64::MAX);
+        assert_eq!(parse(Some("1.5")), 1);
+        assert_eq!(parse(Some("abc")), 0);
+        assert_eq!(parse(None), 0);
+    }
 
     /// `Config::matches_self_url` — the `urlMatchDataProvider` from
     /// tt-rss/tests_functional/ConfigTest.php, ported 1:1 (self_url, url_to_check,

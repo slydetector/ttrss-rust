@@ -378,7 +378,12 @@ pub fn parse_value_at(s: &[u8], pos: usize) -> Result<(Value, usize), ParseError
             expect_char(s, &mut p2, b':')?;
             expect_char(s, &mut p2, b'{')?;
             p = p2;
-            let mut items = Vec::with_capacity(count);
+            // The count is attacker-storable (a corrupt `a:<huge>:{` row
+            // must not reserve `huge` elements — `with_capacity(i64::MAX)`
+            // panics with "capacity overflow"). PHP `unserialize()` just
+            // fails on such data; the parse below errors on the first
+            // missing element, so only the *reservation* is bounded.
+            let mut items = Vec::with_capacity(count.min(1024));
             for _ in 0..count {
                 let (k, kp) = parse_key(s, p)?;
                 let (val, vp) = parse_value_at(s, kp)?;
@@ -696,5 +701,32 @@ mod tests {
             Value::Float(f64::NEG_INFINITY)
         );
         assert_eq!(deserialize(b"d:INF;").unwrap(), Value::Float(f64::INFINITY));
+    }
+
+    /// A huge (corrupt-row-storable) array count must be a parse *error*, not
+    /// a panic: `Vec::with_capacity(i64::MAX)` used to blow the reservation
+    /// with "capacity overflow" on a `a:<huge>:{` `ttrss_plugin_storage` /
+    /// session row. PHP `unserialize()` just returns `false` there.
+    #[test]
+    fn huge_array_count_is_err_not_panic() {
+        let max = i64::MAX;
+        let s = format!("a:{max}:{{i:0;i:0;}}");
+        assert!(deserialize(s.as_bytes()).is_err());
+    }
+
+    /// A large-but-honest count (beyond the 1024 reservation cap) still
+    /// deserializes — the cap bounds only the initial reservation.
+    #[test]
+    fn count_above_reservation_cap_parses() {
+        let n = 5000;
+        let mut s = format!("a:{n}:{{");
+        for i in 0..n {
+            s.push_str(&format!("i:{i};i:{i};"));
+        }
+        s.push('}');
+        let v = deserialize(s.as_bytes()).unwrap();
+        let items = v.as_array().expect("array");
+        assert_eq!(items.len(), n);
+        assert_eq!(items[n - 1].1, Value::Int((n - 1) as i64));
     }
 }
