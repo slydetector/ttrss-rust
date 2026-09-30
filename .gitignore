@@ -24,6 +24,5 @@ __pycache__/
 .pi/
 browser/out/
 
-# Shadow-prod dump artifact (the prod DB copy; shadow/.env is covered by .env above)
-shadow/*.dump
+# Shadow-prod feed icons (shadow/.env is covered by .env above)
 shadow/feed-icons/

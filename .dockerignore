@@ -15,6 +15,5 @@ demo.pid
 AGENTS.md
 README.md
 Makefile
-# shadow/: keep the Dockerfile; exclude local secrets + dump artifacts.
+# shadow/: keep the Dockerfile; exclude local secrets.
 shadow/.env
-shadow/*.dump

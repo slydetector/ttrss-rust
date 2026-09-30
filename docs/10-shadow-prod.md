@@ -101,8 +101,8 @@ One entry point — **`make shadow`** — that runs, in order:
   `TTRSS_DB_USER` / `TTRSS_DB_PASS` / `TTRSS_DB_NAME`, `TTRSS_SELF_URL_PATH`,
   `TTRSS_ENCRYPTION_KEY`, and `RUST_LOG`.
 - **`shadow/.env.example`** (committed) is the template with placeholders.
-- Dump artifacts live under `shadow/` (gitignored). Prod credentials are never
-  committed.
+- Dump artifacts are transient (`/tmp`, deleted after the restore). Prod
+  credentials are never committed.
 
 ## Efficiency & repeatability
 
@@ -171,8 +171,8 @@ One entry point — **`make shadow`** — that runs, in order:
 
 New files: `shadow/Dockerfile`, `shadow/compose.yaml`, `shadow/.env.example`
 (committed), `shadow/.env` (gitignored), `shadow/{preflight,copy,stop}.sh`, a
-repo-root `.dockerignore`, and `shadow/` dump dir (gitignored). `.gitignore`
-gains `shadow/.env` + `shadow/*.dump`.
+repo-root `.dockerignore`. `.gitignore` gains `shadow/.env` +
+`shadow/feed-icons/`.
 
 ## Decisions (resolved)
 
