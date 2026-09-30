@@ -77,8 +77,8 @@ One entry point — **`make shadow`** — that runs, in order:
    host port `5433`, wait for healthy.
 4. **Reset.** Drop + recreate the `shadow` database (idempotent).
 5. **Copy prod → shadow.** `pg_dump --format=custom --no-owner --no-acl` from
-   prod (local 18.6 client) into a local dump, then `pg_restore --no-owner -d
-   shadow` into the empty DB.
+   prod (local 18.6 client) streamed directly into `pg_restore --no-owner -d
+   shadow` (the empty DB) — no dump file is written.
 6. **Rust up.** `docker compose up -d rust` — connects to `db`, daemon off.
 7. **Health check + summary** (curl the shadow's `/tt-rss/healthz` on `8282`;
    print URL, stop command).
@@ -101,8 +101,8 @@ One entry point — **`make shadow`** — that runs, in order:
   `TTRSS_DB_USER` / `TTRSS_DB_PASS` / `TTRSS_DB_NAME`, `TTRSS_SELF_URL_PATH`,
   `TTRSS_ENCRYPTION_KEY`, and `RUST_LOG`.
 - **`shadow/.env.example`** (committed) is the template with placeholders.
-- Dump artifacts are transient (`/tmp`, deleted after the restore). Prod
-  credentials are never committed.
+- The prod copy is streamed (`pg_dump | pg_restore`); no dump artifact is
+  written. Prod credentials are never committed.
 
 ## Efficiency & repeatability
 

@@ -99,21 +99,23 @@ reset_db() {
 
 copy_prod() {
   [ -n "${PROD_DB_HOST:-}" ] || die "PROD_DB_HOST not set (did preflight run?)"
-  local dump="/tmp/ttrss-shadow-prod.dump"
-  info "pg_dump prod ($PROD_DB_HOST) -> $dump"
+  info "pg_dump prod ($PROD_DB_HOST) -> shadow.$TTRSS_DB_NAME (streamed)"
   local t0=$SECONDS
-  PGPASSWORD="$PROD_DB_PASS" pg_dump -h "$PROD_DB_HOST" -p "${PROD_DB_PORT:-5432}" \
-    -U "$PROD_DB_USER" -d "$PROD_DB_NAME" --format=custom --no-owner --no-acl -f "$dump"
-  info "dump done in $((SECONDS - t0))s"
-  info "pg_restore -> shadow.$TTRSS_DB_NAME"
-  t0=$SECONDS
-  PGPASSWORD="$TTRSS_DB_PASS" pg_restore -h 127.0.0.1 -p "$SHADOW_DB_PORT" \
-    -U "$TTRSS_DB_USER" -d "$TTRSS_DB_NAME" --no-owner "$dump"
-  local size
-  size="$(du -h "$dump" | cut -f1)"
-  rm -f "$dump"
-  info "restore done in $((SECONDS - t0))s"
-  info "copied ($size)"
+  PGPASSWORD="$PROD_DB_PASS" pg_dump \
+    -h "$PROD_DB_HOST" \
+    -p "${PROD_DB_PORT:-5432}" \
+    -U "$PROD_DB_USER" \
+    -d "$PROD_DB_NAME" \
+    --format=custom \
+    --no-owner \
+    --no-acl \
+    | PGPASSWORD="$TTRSS_DB_PASS" pg_restore \
+      -h 127.0.0.1 \
+      -p "$SHADOW_DB_PORT" \
+      -U "$TTRSS_DB_USER" \
+      -d "$TTRSS_DB_NAME" \
+      --no-owner
+  info "copy done in $((SECONDS - t0))s"
 }
 
 rust_up() {
