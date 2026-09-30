@@ -29,6 +29,11 @@ cross-checking the port found:
   stubbed, the "daemon not updating" warning dropped, the 30 s feed-content
   cache dropped (B2–B4). (The former standouts B1 feed-date parsing and B5
   getHeadlines params are closed.)
+- **A *capability* class the behavior-diff audits structurally miss (F):**
+  PHP's 65-key `Config` surface vs the port's 39 `TTRSS_*` envs — 10 keys
+  are ported as constants (differ only in settable-ness), 13 are deliberate
+  omissions, 2 are capability drops. `HTTP_USER_AGENT` is wired
+  (`TTRSS_HTTP_USER_AGENT`); the rest of class F is open.
 - **The rest is consciously skipped** (daemon/update CLI by design decision D1=B, the
   admin CLI + schema-migration engine as M8) plus the already-documented deferrals in
   `plan.md` (Mailer/`lettre`, timezone snapshot, `getFeedIcon` headers,
@@ -259,6 +264,47 @@ reads. The automated diff under-counts params the port reads via closures or
 multi-line `.get`/`.insert`, so I hand-verified every reported gap — the
 *missing* list has no false positives (false negatives possible, and none
 material here).
+
+### F — Config surface: 10 keys settable in PHP are ported as constants *(moderate, capability)*
+
+**The class.** PHP's `Config::_DEFAULTS` exposes **65 settable keys**; the port
+exposes **39** of them as `TTRSS_*` envs (`Config::from_env`). Behavior-diff
+audits (this doc's G/B items) *structurally* cannot find the rest: in a running
+PHP install none of them is ever exercised — no UI renders them, `Config::set()`
+is test-gated (Config.php:361, "only available for tests"), and `Config` has no
+DB persistence. So the port hardcoded the defaults and behaves identically; the
+gap is the *settable-ness*, not the value. (Found 2026-09-30 when the
+`HTTP_USER_AGENT` override was needed; the class was then enumerated by diffing
+`Config::_DEFAULTS` against every `TTRSS_*` read in the port.)
+
+**A. Hardcoded at the PHP default (10) — open.** Each differs from the PHP only
+in being a constant:
+
+| PHP key (default) | Port state |
+| --- | --- |
+| `HTTP_USER_AGENT` (`Tiny Tiny RSS/%s (…)`) | hardcoded (`urlhelper.rs` `default_user_agent`) — **wired as `TTRSS_HTTP_USER_AGENT` 2026-09-30** |
+| `FILE_FETCH_TIMEOUT` (45) / `FILE_FETCH_CONNECT_TIMEOUT` (15) | 45 s/15 s consts (`urlhelper.rs:651/654`); "M6c.7 wires the Config surface" already flagged in-code |
+| `MAX_DOWNLOAD_FILE_SIZE` (16 MiB) | 16 MiB const (`urlhelper.rs:655`) |
+| `AUTH_MIN_INTERVAL` (5) | `pub const` (auth.rs:28) |
+| `SESSION_NAME` (`ttrss_sid`) / `SESSION_COOKIE_LIFETIME` (86400) | consts (session.rs:24-27) |
+| `DAEMON_LOG_LEVEL` (`Debug::LOG_NORMAL`) | no counterpart (tracing/`RUST_LOG`) |
+| `DAEMON_MAX_CHILD_RUNTIME` (1800) | no counterpart |
+| `LOCAL_OVERRIDE_JS` / `LOCAL_OVERRIDE_STYLESHEET` | no counterpart (frontend dev-override files) |
+
+**B. Deliberate omissions (13) — documented in-code.** No SMTP →
+`SMTP_FROM_ADDRESS`/`SMTP_FROM_NAME`/`DIGEST_SUBJECT` (digest *send* is a
+documented no-op, NOTE(M6c.4) `scheduler.rs:267`); Postgres-only → `DB_TYPE`;
+CLI-SAPI details → `PHP_EXECUTABLE`, `FORCE_SELF_URL_PATH_USAGE`; no theme
+system → `LOCAL_THEMES_DIR`/`LOCAL_TEMPLATES_DIR`/`DEFAULT_LIGHT_THEME`/
+`DEFAULT_DARK_THEME`; `LOG_DESTINATION` = G3 (tracing); single-daemon, no
+cross-process locking (D1=B) → `LOCK_DIRECTORY`/`SCHEDULE_EXPIRE_LOCK_FILES`;
+compiled-in plugin set → `LOCAL_PLUGINS_DIR`/`ENABLE_PLUGIN_INSTALLER`/
+`CHECK_FOR_PLUGIN_UPDATES`.
+
+**C. Capability drops (2).** `AUTH_AUTO_LOGIN` — PHP auto-authenticates the
+first user with no credentials (UserHelper.php:161); the port does not.
+`HTTP_PROXY` — retained by convention: reqwest natively honors the standard
+`HTTP(S)_PROXY`/`NO_PROXY` envs.
 
 ### Verified *closed* by later work — **not** current gaps
 

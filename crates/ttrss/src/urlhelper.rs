@@ -553,9 +553,19 @@ fn php_dirname(path: &str) -> String {
 //     FILE_FETCH_CONNECT_TIMEOUT (15 s); M6c.7 wires the `Config` surface.
 
 /// `UrlHelper::get_user_agent()` — the User-Agent sent on fetches:
-/// `Tiny Tiny RSS/{version} (https://github.com/tt-rss/tt-rss)`.
+/// `Tiny Tiny RSS/{version} (https://github.com/tt-rss/tt-rss)`. The
+/// `TTRSS_HTTP_USER_AGENT` env var overrides the default (the PHP
+/// `Config::HTTP_USER_AGENT` key is settable only in test envs with no UI;
+/// this env is the port's settable surface for it — gap-scan §F).
 fn default_user_agent() -> String {
-    format!("Tiny Tiny RSS/{VERSION} (https://github.com/tt-rss/tt-rss)")
+    ua_for(std::env::var("TTRSS_HTTP_USER_AGENT").ok().as_deref())
+}
+
+fn ua_for(override_: Option<&str>) -> String {
+    match override_ {
+        Some(ua) if !ua.trim().is_empty() => ua.to_string(),
+        _ => format!("Tiny Tiny RSS/{VERSION} (https://github.com/tt-rss/tt-rss)"),
+    }
 }
 
 /// `UrlHelper::fetch()`'s options (the PHP's `$options` array). Unset fields
@@ -873,6 +883,22 @@ async fn resolve_host_ip(url: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn user_agent_override() {
+        // `TTRSS_HTTP_USER_AGENT` surface (gap-scan §F): unset/blank → the
+        // PHP default; set → verbatim.
+        let default = format!(
+            "Tiny Tiny RSS/{VERSION} (https://github.com/tt-rss/tt-rss)"
+        );
+        assert_eq!(ua_for(None), default);
+        assert_eq!(ua_for(Some("")), default);
+        assert_eq!(ua_for(Some("   ")), default);
+        assert_eq!(
+            ua_for(Some("Mozilla/5.0 (Windows NT 10.0; Win64; x64)")),
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+        );
+    }
 
     #[test]
     fn rewrite_relative_path() {
