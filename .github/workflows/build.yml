@@ -33,7 +33,11 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     env:
-      TTRSS_TEST_PG_URL: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
+      # Host = the service NAME (not localhost): this runner publishes
+      # service ports to the runner host, so the job container reaches the
+      # DB over the shared docker network alias. GitHub resolves the service
+      # name too, so the file stays portable.
+      TTRSS_TEST_PG_URL: postgres://postgres:postgres@postgres:5432/postgres?sslmode=disable
     steps:
       # Toolchain gaps the stock image leaves for us:
       # - JS actions (like checkout) need node in the job container: GitHub
