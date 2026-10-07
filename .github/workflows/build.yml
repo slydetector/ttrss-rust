@@ -1,0 +1,28 @@
+# CI — build on every push/PR to main.
+#
+# GitHub-Actions-canonical on purpose: this file runs unmodified on both the
+# temporary self-hosted runner (label "ubuntu-latest") and the permanent
+# GitHub home (runs-on: ubuntu-latest is a hosted pool there). Keep it that
+# way: official actions only, stock Docker images, no host-specific syntax.
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    # Same toolchain image as shadow/Dockerfile (rustc 1.98 on trixie).
+    container: rust:1.98-trixie
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The build reads plugin assets from the tt-rss reference submodule
+          # via include_str! — same dependency `make bootstrap` covers locally.
+          submodules: recursive
+      - run: cargo build --release -p ttrss --bin ttrss
+      - run: cargo test --lib
+      - run: cargo clippy --workspace --all-targets
