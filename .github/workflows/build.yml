@@ -18,6 +18,16 @@ jobs:
     # Same toolchain image as shadow/Dockerfile (rustc 1.98 on trixie).
     container: rust:1.98-trixie
     steps:
+      # Toolchain gaps the stock image leaves for us:
+      # - JS actions (like checkout) need node in the job container: GitHub
+      #   injects it, the act-based self-hosted runner does not.
+      # - the rust:1.98 image lacks clippy (shadow/Dockerfile never needed it).
+      # Both installs are no-ops when the piece already exists, so the file
+      # stays portable to GitHub.
+      - name: Ensure build toolchain (node + clippy)
+        run: |
+          command -v node >/dev/null 2>&1 || (apt-get update && apt-get install -y --no-install-recommends nodejs)
+          rustup component add clippy
       - uses: actions/checkout@v4
         with:
           # The build reads plugin assets from the tt-rss reference submodule
