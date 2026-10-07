@@ -29,6 +29,9 @@ PHP reference in `tt-rss/` remains under its own upstream license (GPLv3,
 
 ## Quick start
 
+Fresh clone? Run `make bootstrap` first (initializes the `tt-rss` reference
+submodule).
+
 The top-level **`Makefile`** is the primary interface — `make` (or `make help`)
 lists every target. The most common targets:
 

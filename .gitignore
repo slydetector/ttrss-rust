@@ -15,9 +15,9 @@ oracle/corpus/scenarios.toml
 __pycache__/
 .venv/
 
-# The upstream PHP checkout is its own git repo; keep it out of this one.
-# (Consider adding it as a git submodule once the port stabilizes.)
-/tt-rss/
+# The PHP reference (tt-rss/) is a git submodule (see .gitmodules;
+# `make bootstrap` after a fresh clone). The Android client checkout
+# stays a local-only clone.
 /tt-rss-android/
 
 # Local agent state + browser-probe output (transient, regenerated)

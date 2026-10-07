@@ -2,7 +2,8 @@
 
 Standing working agreements for **ttrss** (a Rust re-implementation of the
 Tiny Tiny RSS server backend); they apply to every session in this directory.
-The frozen PHP reference in `tt-rss/` (commit `2f7d831`) is the spec.
+The PHP reference in `tt-rss/` is a git submodule (pinned by the superproject)
+— it is the spec. After a fresh clone, run `make bootstrap` to initialize it.
 
 ## Load-bearing rules
 

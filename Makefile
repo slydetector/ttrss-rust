@@ -50,6 +50,11 @@ help: ## (default) list targets
 		| awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
 	@echo ""
 
+# --- reference submodule ----------------------------------------------------
+.PHONY: bootstrap
+bootstrap: ## initialize + sync the tt-rss reference submodule (idempotent; run after a fresh clone)
+	git submodule update --init --recursive tt-rss
+
 # --- oracle stack (live PHP tt-rss) ----------------------------------------
 .PHONY: oracle-up
 oracle-up: ## bring up the PHP oracle (db + app + updater + nginx)
