@@ -43,11 +43,14 @@ jobs:
       # - JS actions (like checkout) need node in the job container: GitHub
       #   injects it, the act-based self-hosted runner does not.
       # - the rust:1.98 image lacks clippy (shadow/Dockerfile never needed it).
-      # Both installs are no-ops when the piece already exists, so the file
+      # - zstd: actions/cache falls back to single-threaded gzip (tar -z)
+      #   without it; with it, cache save/restore is multi-threaded.
+      # Each install is a no-op when the piece already exists, so the file
       # stays portable to GitHub.
-      - name: Ensure build toolchain (node + clippy)
+      - name: Ensure build toolchain (node + clippy + zstd)
         run: |
           command -v node >/dev/null 2>&1 || (apt-get update && apt-get install -y --no-install-recommends nodejs)
+          command -v zstd >/dev/null 2>&1 || (apt-get update && apt-get install -y --no-install-recommends zstd)
           rustup component add clippy
       - uses: actions/checkout@v4
         with:
