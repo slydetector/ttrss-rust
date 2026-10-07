@@ -16,7 +16,27 @@ jobs:
   build:
     runs-on: ubuntu-latest
     # Same toolchain image as shadow/Dockerfile (rustc 1.98 on trixie).
-    container: rust:1.98-trixie
+    container:
+      image: rust:1.98-trixie
+      # Persistent build state. The runner's docker daemon (dind) has a
+      # host-backed /ci-cache dir, so these bind mounts survive between
+      # runs: the cargo target dir and registry stay warm on the host SSD,
+      # no cache download/extract/save, each run writes only the build delta
+      # (cargo fingerprints encode Cargo.lock, so a warm target stays
+      # correct when deps change). On GitHub-hosted runners the host paths
+      # are created per job (ephemeral) and actions/cache (below) carries
+      # the state — same file, both hosts. The target dir is a fixed
+      # path (via CARGO_TARGET_DIR below), independent of the workspace
+      # layout.
+      volumes:
+        - /ci-cache/cargo-target:/cargo-target
+        - /ci-cache/cargo-home:/usr/local/cargo
+    # Serialize per ref so concurrent runs of the same ref don't write the
+    # shared volume at once. Different refs may build in parallel; cargo's
+    # file locks keep that safe.
+    concurrency:
+      group: build-${{ github.ref }}
+      cancel-in-progress: true
     # Phase 2: the DB-backed integration suite. test-db uses TTRSS_TEST_PG_URL
     # when set (instead of spinning its own testcontainers postgres), so the
     # full `cargo test` runs against this service on both hosts.
@@ -33,6 +53,8 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     env:
+      # Build artifacts live outside the workspace at a stable mount point (see the container volumes above).
+      CARGO_TARGET_DIR: /cargo-target
       # Host = the service NAME (not localhost): this runner publishes
       # service ports to the runner host, so the job container reaches the
       # DB over the shared docker network alias. GitHub resolves the service
@@ -58,13 +80,16 @@ jobs:
           # via include_str! — same dependency `make bootstrap` covers locally.
           submodules: recursive
       # Cargo cache across runs: registry + target, keyed on Cargo.lock
-      # (JS action — node is handled by the ensure step above).
+      # (JS action — node is handled by the ensure step above). Skipped on
+      # the act runner (ACT=true): there the container volumes above are
+      # persistent and already warm.
       - uses: actions/cache@v4
+        if: env.ACT != 'true'
         with:
           path: |
             /usr/local/cargo/registry
             /usr/local/cargo/git
-            target
+            /cargo-target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
       - run: cargo build --release -p ttrss --bin ttrss
       # Full suite: lib tests + the DB-backed integration binaries
