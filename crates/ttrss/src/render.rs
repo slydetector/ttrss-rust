@@ -194,6 +194,9 @@ pub fn render_shell(
 /// prefs assets (PHP `prefs.php`: `get_prefs_css()` in the `<style>` block,
 /// each `get_prefs_js()` in a named try/catch), and the Users/System tabs
 /// (admin-only).
+// #[allow]: the 8 params are the template's substitution slots, mirroring the
+// PHP page's inputs 1:1; a param struct would hide the parity surface.
+#[allow(clippy::too_many_arguments)]
 pub fn render_prefs_page(
     csrf_token: &str,
     scripts_ts: i64,

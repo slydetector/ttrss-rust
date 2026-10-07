@@ -706,9 +706,9 @@ async fn opml_import_feed(db: &Db, uid: i64, node: &XmlNode, cat_id: i64, body: 
         feed_title
     };
     // PHP casts these with (int) — lenient leading-numeric-prefix parse — not strict parse.
-    let update_interval = attr(node, "ttrssUpdateInterval").map(|v| php_int_cast(&v)).unwrap_or(0);
-    let order_id = attr(node, "ttrssSortOrder").map(|v| php_int_cast(&v)).unwrap_or(0);
-    let purge_interval = attr(node, "ttrssPurgeInterval").map(|v| php_int_cast(&v)).unwrap_or(0);
+    let update_interval = attr(node, "ttrssUpdateInterval").map(php_int_cast).unwrap_or(0);
+    let order_id = attr(node, "ttrssSortOrder").map(php_int_cast).unwrap_or(0);
+    let purge_interval = attr(node, "ttrssPurgeInterval").map(php_int_cast).unwrap_or(0);
     let cat = (cat_id != 0).then_some(cat_id);
     sqlx::query(
         "INSERT INTO ttrss_feeds (title, feed_url, owner_uid, cat_id, site_url, order_id, update_interval, purge_interval) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)")
@@ -951,7 +951,7 @@ async fn opml_import_category(
                 } else if get_feed_category(db, &title, uid, cat_id).await != 0 {
                     get_feed_category(db, &title, uid, cat_id).await
                 } else {
-                    let order_id = attr(node, "ttrssSortOrder").map(|v| php_int_cast(&v)).unwrap_or(0);
+                    let order_id = attr(node, "ttrssSortOrder").map(php_int_cast).unwrap_or(0);
                     add_cat_low(db, &title, uid, (cat_id != 0).then_some(cat_id), order_id).await;
                     get_feed_category(db, &title, uid, cat_id).await
                 };

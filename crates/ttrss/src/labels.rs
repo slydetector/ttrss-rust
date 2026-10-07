@@ -384,7 +384,7 @@ pub async fn remove(
     if result.rows_affected() != 0 && caption.is_some() {
         // Remove the label's API access key + cached data. (`feed_id` is a
         // varchar column — PHP's PDO binds the int as a string.)
-        let ext_id = label_to_feed_id(id as i64);
+        let ext_id = label_to_feed_id(id);
         sqlx::query("DELETE FROM ttrss_access_keys WHERE feed_id = $1 AND owner_uid = $2")
             .bind(ext_id.to_string())
             .bind(owner)

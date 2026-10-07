@@ -401,7 +401,7 @@ pub async fn update_rss_feed(
     let Some(feed) = load_feed(pool, feed_id).await? else {
         return Ok(false);
     };
-    let result = process_feed(pool, cfg, plugins, &feed, &feed_data, flags, log.as_deref_mut()).await?;
+    let result = process_feed(pool, cfg, plugins, &feed, feed_data, flags, log.as_deref_mut()).await?;
     Ok(result.parse_error.is_none())
 }
 

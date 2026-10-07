@@ -253,7 +253,7 @@ impl Bookmarklets {
                 host.host_arc(),
                 host.pool().clone(),
                 host.cfg.clone(),
-                Some(uid as i32),
+                Some(uid),
                 host.profile,
                 host.access_level,
                 &sys,

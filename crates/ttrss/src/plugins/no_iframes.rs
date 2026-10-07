@@ -222,8 +222,8 @@ mod tests {
                 _host: &mut HostCtx,
                 url: &str,
             ) -> bool {
-                let keep = url.contains("youtube");
- keep 
+                
+ url.contains("youtube") 
             }
         }
 

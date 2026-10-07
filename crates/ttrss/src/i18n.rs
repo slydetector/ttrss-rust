@@ -651,7 +651,7 @@ mod tests {
     fn form_cs(n: i64) -> usize {
         if n == 1 {
             0
-        } else if n >= 2 && n <= 4 {
+        } else if (2..=4).contains(&n) {
             1
         } else {
             2

@@ -294,7 +294,7 @@ async fn test_getconfig_custom_sort_types() {
     sess.replace("sort-types".into(), data);
 
     let (status, out) =
-        ttrss::api::before_and_dispatch(&state, &sess, "getconfig", &json!({}).as_object().unwrap(), None)
+        ttrss::api::before_and_dispatch(&state, &sess, "getconfig", json!({}).as_object().unwrap(), None)
             .await;
     assert_eq!(status, 0, "API STATUS_OK, got {out}");
     assert_eq!(
@@ -500,7 +500,7 @@ async fn test_api_update_article_marked_fires_mark() {
         &state,
         &sess,
         "updatearticle",
-        &json!({ "article_ids": [1], "mode": 0, "field": 0 }).as_object().unwrap(),
+        json!({ "article_ids": [1], "mode": 0, "field": 0 }).as_object().unwrap(),
         None,
     )
     .await;
@@ -532,7 +532,7 @@ async fn test_api_update_article_published_fires_publish() {
         &state,
         &sess,
         "updatearticle",
-        &json!({ "article_ids": [1], "mode": 0, "field": 1 }).as_object().unwrap(),
+        json!({ "article_ids": [1], "mode": 0, "field": 1 }).as_object().unwrap(),
         None,
     )
     .await;
@@ -565,7 +565,7 @@ async fn test_api_plugin_method_dispatched() {
         &state,
         &sess,
         "apimethod",
-        &json!({ "arg": 42 }).as_object().unwrap(),
+        json!({ "arg": 42 }).as_object().unwrap(),
         None,
     )
     .await;
@@ -575,7 +575,7 @@ async fn test_api_plugin_method_dispatched() {
 
     // An unregistered method is still E_UNKNOWN_METHOD.
     let (status, out) =
-        ttrss::api::before_and_dispatch(&state, &sess, "nope", &json!({}).as_object().unwrap(), None)
+        ttrss::api::before_and_dispatch(&state, &sess, "nope", json!({}).as_object().unwrap(), None)
             .await;
     assert_eq!(status, 1, "unknown method, got {out}");
     assert_eq!(out["error"], "UNKNOWN_METHOD");

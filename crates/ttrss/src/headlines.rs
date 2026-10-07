@@ -561,8 +561,8 @@ async fn format_headlines_list(
     // `m=ForceUpdate` — the UI's active-feed refresh (the frozen JS sends it
     // when re-selecting the active feed, Feeds.js:423): reset the feed's
     // update stamps so the in-process updater re-fetches it.
-    if method == "ForceUpdate" {
-        if let Some(f) = feed_num
+    if method == "ForceUpdate"
+        && let Some(f) = feed_num
             && f > 0
         {
             let _ = sqlx::query(
@@ -572,7 +572,6 @@ async fn format_headlines_list(
             .execute(pool)
             .await;
         }
-    }
 
     // `m=MarkAllReadGR:<feed>` (legacy/other clients — the frozen JS never
     // sends it) — `Feeds::_catchup($method_split[1], false)`.
@@ -959,7 +958,7 @@ async fn format_headlines_list(
             // M7.22 item 6: the enclosure chains run here (host carries the
             // active set).
             format_enclosures(
-                &mut pctx,
+                pctx,
                 id,
                 always_display_enclosures.unwrap_or(false),
                 &content,
@@ -1069,7 +1068,7 @@ async fn format_headlines_list(
         line.insert("buttons_left".into(), Value::from(buttons_left));
         {
             let line_v = Value::Object(line.clone());
-            let buttons = article_buttons(&mut pctx, &line_v).await;
+            let buttons = article_buttons(pctx, &line_v).await;
             line.insert("buttons".into(), Value::from(buttons));
         }
         line.insert("enclosures".into(), enclosures);
@@ -1226,7 +1225,7 @@ async fn format_headlines_list(
 /// appends `data-plugin-name` (the plugin's class name) and normalizes the
 /// markup (attribute order preserved, double quotes); invalid XML is skipped
 /// with a warning, like PHP's `user_error`.
-async fn article_buttons<'h>(host: &mut crate::pluginhost::host::HostCtx, line: &Value) -> String {
+async fn article_buttons(host: &mut crate::pluginhost::host::HostCtx, line: &Value) -> String {
     // The PHP callback appends EACH plugin's (round-tripped) result — the
     // `FnMut` stop predicate of `run_hooks_callback` sees every
     // (result, plugin) pair; it always returns `false` (no short-circuit).
@@ -1404,7 +1403,7 @@ fn xml_escape_body(s: &str) -> String {
 /// rest), and per enclosure `HOOK_RENDER_ENCLOSURE` (af_youtube_embed) may
 /// supply the inline HTML while `HOOK_ENCLOSURE_ENTRY` (cache_starred_images)
 /// rewrites the entry map.
-async fn format_enclosures<'h>(
+async fn format_enclosures(
     host: &mut crate::pluginhost::host::HostCtx,
     id: i32,
     always_display_enclosures: bool,

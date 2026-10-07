@@ -894,7 +894,7 @@ pub async fn mark(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> 
     .execute(state.db.pool())
     .await;
     // `run_hooks(HOOK_ARTICLES_MARK_TOGGLED, [$id])` (RPC.php:72).
-    if let Some(id_i) = id.parse::<i32>().ok() {
+    if let Ok(id_i) = id.parse::<i32>() {
         let mut pctx = crate::pluginhost::dispatch::session_ctx(state, sess).await;
         pctx
             .run_hooks(
@@ -925,7 +925,7 @@ pub async fn publ(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> 
     .execute(state.db.pool())
     .await;
     // `run_hooks(HOOK_ARTICLES_PUBLISH_TOGGLED, [$id])` (RPC.php:100).
-    if let Some(id_i) = id.parse::<i32>().ok() {
+    if let Ok(id_i) = id.parse::<i32>() {
         let mut pctx = crate::pluginhost::dispatch::session_ctx(state, sess).await;
         pctx
             .run_hooks(
