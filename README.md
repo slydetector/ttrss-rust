@@ -17,6 +17,12 @@ See `docs/01-plan.md` (delivery plan), `docs/02-research-report.md` (methodology
 | `docs/` | Planning & research documents |
 | `tt-rss/` | Upstream PHP checkout (frozen reference, own git repo) |
 
+## License
+
+The Rust port is licensed under **GPL-3.0-or-later** (see `LICENSE`). The frozen
+PHP reference in `tt-rss/` remains under its own upstream license (GPLv3,
+`tt-rss/COPYING`).
+
 ## Prerequisites
 
 - Rust (stable), Docker + compose, Python 3 (seed script)

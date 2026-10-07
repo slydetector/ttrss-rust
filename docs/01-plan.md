@@ -83,7 +83,7 @@ Schema evolution: `Db_Migrations` runs numbered `.sql` files (split on `;`, per 
 
 ```
 ttrss/                        # the repo (was tt-rust)
-├── Cargo.toml                # workspace (GPL-3.0)
+├── Cargo.toml                # workspace (GPL-3.0-or-later)
 ├── crates/
 │   ├── ttrss/                # the app: lib + `ttrss` binary; `src/core/` = pure domain
 │   ├── test-db/              # dedicated Postgres test server (testcontainers) + fixtures
