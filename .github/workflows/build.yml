@@ -30,7 +30,7 @@ jobs:
       # layout.
       volumes:
         - /ci-cache/cargo-target:/cargo-target
-        - /ci-cache/cargo-home:/usr/local/cargo
+        - /ci-cache/cargo-home:/cargo-home
     # Serialize per ref so concurrent runs of the same ref don't write the
     # shared volume at once. Different refs may build in parallel; cargo's
     # file locks keep that safe.
@@ -53,8 +53,11 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     env:
-      # Build artifacts live outside the workspace at a stable mount point (see the container volumes above).
+      # Build artifacts live outside the workspace at a stable mount point (see the container
+      # volumes above). CARGO_HOME moves the cargo registry off the image's baked-in
+      # /usr/local/cargo so the mount doesn't shadow the rustup/cargo binaries.
       CARGO_TARGET_DIR: /cargo-target
+      CARGO_HOME: /cargo-home
       # Host = the service NAME (not localhost): this runner publishes
       # service ports to the runner host, so the job container reaches the
       # DB over the shared docker network alias. GitHub resolves the service
@@ -87,8 +90,8 @@ jobs:
         if: env.ACT != 'true'
         with:
           path: |
-            /usr/local/cargo/registry
-            /usr/local/cargo/git
+            /cargo-home/registry
+            /cargo-home/git
             /cargo-target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
       - run: cargo build --release -p ttrss --bin ttrss
