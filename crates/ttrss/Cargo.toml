@@ -12,6 +12,9 @@ path = "src/main.rs"
 ctor.workspace = true
 test-db = { path = "../test-db" }
 tower.workspace = true
+# Decoders for the response-compression tests (same versions the encoders use)
+brotli = "8"
+zstd = "0.13"
 
 [dependencies]
 anyhow.workspace = true
@@ -19,6 +22,7 @@ async-trait.workspace = true
 axum.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
+tower-http.workspace = true
 reqwest.workspace = true
 base64.workspace = true
 flate2.workspace = true

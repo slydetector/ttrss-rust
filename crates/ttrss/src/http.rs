@@ -28,6 +28,7 @@ use axum::{
 };
 use serde::Deserialize;
 use tokio::fs;
+use tower_http::compression::CompressionLayer;
 
 
 /// Redirect `<base>` → `<base>/` (Apache DirectorySlash parity).
@@ -92,10 +93,18 @@ pub fn build_router(state: &AppState) -> Router<AppState> {
 
     // Session middleware at the outer level so every route (inner + the
     // explicit trailing-slash index) gets the session handle + cookie re-stamp.
-    app.layer(axum::middleware::from_fn_with_state(
+    let app = app.layer(axum::middleware::from_fn_with_state(
         state.clone(),
         session::session_middleware,
-    ))
+    ));
+
+    // Response compression (outermost): gzip + brotli + zstd, negotiated per
+    // request from Accept-Encoding (tower-http, q-value aware). Quality left
+    // at each encoder's default: gzip 6 (the official nginx image's
+    // gzip_comp_level 6), brotli 4, zstd 3. The default predicate excludes
+    // image/*, text/event-stream and gRPC. Deflate is deliberately not
+    // offered (legacy; the official image doesn't either).
+    app.layer(CompressionLayer::new().gzip(true).br(true).zstd(true))
 }
 
 async fn healthz() -> impl IntoResponse {

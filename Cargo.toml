@@ -31,6 +31,7 @@ mime_guess = "2"
 rand = "0.8"
 regex = "1"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "cookies", "gzip", "json"] }
+tower-http = { version = "0.6", features = ["compression-gzip", "compression-br", "compression-zstd"] }
 testcontainers = { version = "0.27", features = ["reusable-containers"] }
 testcontainers-modules = { version = "0.15", features = ["postgres"] }
 scraper = "0.21"
