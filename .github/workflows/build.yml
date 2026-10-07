@@ -17,6 +17,23 @@ jobs:
     runs-on: ubuntu-latest
     # Same toolchain image as shadow/Dockerfile (rustc 1.98 on trixie).
     container: rust:1.98-trixie
+    # Phase 2: the DB-backed integration suite. test-db uses TTRSS_TEST_PG_URL
+    # when set (instead of spinning its own testcontainers postgres), so the
+    # full `cargo test` runs against this service on both hosts.
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      TTRSS_TEST_PG_URL: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
     steps:
       # Toolchain gaps the stock image leaves for us:
       # - JS actions (like checkout) need node in the job container: GitHub
@@ -34,5 +51,7 @@ jobs:
           # via include_str! — same dependency `make bootstrap` covers locally.
           submodules: recursive
       - run: cargo build --release -p ttrss --bin ttrss
-      - run: cargo test --lib
+      # Full suite: lib tests + the DB-backed integration binaries
+      # (postgres service above).
+      - run: cargo test
       - run: cargo clippy --workspace --all-targets
