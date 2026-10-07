@@ -54,6 +54,15 @@ jobs:
           # The build reads plugin assets from the tt-rss reference submodule
           # via include_str! — same dependency `make bootstrap` covers locally.
           submodules: recursive
+      # Cargo cache across runs: registry + target, keyed on Cargo.lock
+      # (JS action — node is handled by the ensure step above).
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
       - run: cargo build --release -p ttrss --bin ttrss
       # Full suite: lib tests + the DB-backed integration binaries
       # (postgres service above).
