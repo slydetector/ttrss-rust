@@ -1,5 +1,5 @@
 //! DB tests for the `getHeadlines` params the port once dropped (the
-//! "lostboys" gap B5, `docs/php-port-gap-scan.md`).
+//! "lostboys" gap B5, `docs/18-php-port-gap-scan.md`).
 //!
 //! PHP's `API::getHeadlines` reads 19 params; the port read 15. These pin the
 //! three with real behavior:

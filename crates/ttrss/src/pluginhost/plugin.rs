@@ -958,7 +958,7 @@ pub trait Plugin: Send + Sync {
     ///
     /// Not dispatched by the port: no stock plugin implements it, and the
     /// port calls `_search_to_sql` directly (behavior-identical; see
-    /// `docs/php-port-gap-scan.md` G1).
+    /// `docs/18-php-port-gap-scan.md` G1).
     async fn hook_search(&self, _host: &mut HostCtx, _query: &str) -> Value {
         Value::Array(vec![])
     }
@@ -1104,7 +1104,7 @@ pub trait Plugin: Send + Sync {
     /// Not dispatched by the port — it is dead in the PHP reference itself:
     /// declared in `Plugin.php` but never fired anywhere in the frozen tree.
     /// The port keeps the method for contract parity and, like PHP, never
-    /// calls it (see `docs/php-port-gap-scan.md` G1).
+    /// calls it (see `docs/18-php-port-gap-scan.md` G1).
     ///
     /// Parameters:
     /// - `article` object (mutable) — the article row
@@ -1526,7 +1526,7 @@ pub trait Plugin: Send + Sync {
     /// declared in `Plugin.php` but never fired (the view uses v2,
     /// `HOOK_HEADLINE_TOOLBAR_SELECT_MENU_ITEM2`). The port keeps the method
     /// for contract parity and, like PHP, never calls it (see
-    /// `docs/php-port-gap-scan.md` G1).
+    /// `docs/18-php-port-gap-scan.md` G1).
     ///
     /// Parameters:
     /// - `feed` int — the feed id (0 for a category)
