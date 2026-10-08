@@ -10,14 +10,23 @@ use kuchikiki::parse_html;
 use kuchikiki::traits::TendrilSink;
 use std::path::Path;
 
-/// `RSSUtils::FAVICON_ALLOWED_MIME_TYPES` (RSSUtils.php:9-15).
+/// `RSSUtils::FAVICON_ALLOWED_MIME_TYPES` (RSSUtils.php:9-15) — plus
+/// `image/svg+xml`, a deliberate extension: the reference's list predates
+/// SVG favicons, and its serving path never gated on MIME, so a
+/// user-uploaded SVG icon already rendered in the PHP app.
 const FAVICON_ALLOWED_MIME: &[&str] = &[
     "image/bmp",
     "image/gif",
     "image/jpeg",
     "image/png",
+    "image/svg+xml",
     "image/vnd.microsoft.icon",
 ];
+
+/// MIME gate for downloaded feed icons (see [`FAVICON_ALLOWED_MIME`]).
+pub fn is_allowed_icon_mime(mime: &str) -> bool {
+    FAVICON_ALLOWED_MIME.contains(&mime)
+}
 
 /// `RSSUtils::get_favicon_urls` (RSSUtils.php:1954-1993) — fetch the site's
 /// HTML, extract candidate favicon URLs from `<link>` tags, resolve relative
@@ -117,7 +126,7 @@ pub async fn update_favicon(cfg: &Config, site_url: &str, feed_id: i32) -> Favic
         };
 
         let mime = crate::diskcache::sniff_mime(&body);
-        if !FAVICON_ALLOWED_MIME.contains(&mime) {
+        if !is_allowed_icon_mime(mime) {
             rejected.push((url.clone(), Some(mime.to_string())));
             continue;
         }
@@ -147,52 +156,67 @@ pub async fn update_favicon(cfg: &Config, site_url: &str, feed_id: i32) -> Favic
 }
 
 /// `Colors::calculate_avg_color` (colors.php:274-295) — decode the icon,
-/// sample pixels at granularity 4, quantize each channel to 0x33 (51) steps,
-/// find the top-4 most frequent colors, and return the first that passes the
-/// HSV threshold (s > 0.25, v > 0.25, not near-red, not near-white).
+/// gather `(color, weight)` samples (every 4th pixel for raster formats,
+/// weight 1; area-weighted fills for SVG), quantize each channel to 0x33
+/// (51) steps, find the top-4 most frequent colors, and return the first
+/// that passes the HSV threshold (s > 0.25, v > 0.25, not near-red, not
+/// near-white).
 /// Returns `None` if no suitable color is found.
 pub fn calculate_avg_color(icon_path: &Path) -> Option<String> {
     let bytes = std::fs::read(icon_path).ok()?;
-    let img = image::load_from_memory(&bytes).ok()?;
-    let w = img.width();
-    let h = img.height();
-    if w == 0 || h == 0 {
-        return None;
-    }
 
-    // Convert to RGBA for uniform pixel access.
-    let rgba = img.to_rgba8();
+    // Quantized (color, weight) samples, in first-sight order: the order is
+    // the tie-breaker for equal weights (PHP `arsort` is stable over
+    // insertion order), so it must be preserved — a `HashMap`'s RandomState
+    // iteration would not.
+    let mut counts: std::collections::HashMap<[u8; 3], usize> = std::collections::HashMap::new();
+    let mut order: Vec<([u8; 3], f64)> = Vec::new();
+    let add = |counts: &mut std::collections::HashMap<[u8; 3], usize>,
+               order: &mut Vec<([u8; 3], f64)>,
+               rgb: [u8; 3],
+               weight: f64| {
+        let key = [
+            ((f64::from(rgb[0]) / 51.0).round() * 51.0).min(255.0) as u8,
+            ((f64::from(rgb[1]) / 51.0).round() * 51.0).min(255.0) as u8,
+            ((f64::from(rgb[2]) / 51.0).round() * 51.0).min(255.0) as u8,
+        ];
+        match counts.get(&key) {
+            Some(&i) => order[i].1 += weight,
+            None => {
+                counts.insert(key, order.len());
+                order.push((key, weight));
+            }
+        }
+    };
 
-    // Build a frequency map: quantized color → count. PHP `colorPalette`
-    // scans x-outer / y-inner; the order of first sight is the tie-breaker
-    // (PHP `arsort` is stable over that insertion order), so it must be
-    // preserved — a `HashMap`'s RandomState iteration would not.
-    let mut counts: std::collections::HashMap<[u8; 3], usize> = std::collections::HashMap::new(); // key → index into `order`
-    let mut order: Vec<([u8; 3], u32)> = Vec::new();
-    for x in (0..w).step_by(4) {
-        for y in (0..h).step_by(4) {
-            let [r, g, b, _] = rgba.get_pixel(x, y).0;
-            let qr = (f64::from(r) / 51.0).round() * 51.0;
-            let qg = (f64::from(g) / 51.0).round() * 51.0;
-            let qb = (f64::from(b) / 51.0).round() * 51.0;
-            let key = [
-                qr.min(255.0) as u8,
-                qg.min(255.0) as u8,
-                qb.min(255.0) as u8,
-            ];
-            match counts.get(&key) {
-                Some(&i) => order[i].1 += 1,
-                None => {
-                    counts.insert(key, order.len());
-                    order.push((key, 1));
-                }
+    if crate::diskcache::sniff_mime(&bytes) == "image/svg+xml" {
+        // Deliberate extension: the reference's GD can't open SVG and such
+        // icons stay at the default gray; we color them from the fill
+        // palette (see svg_fill_samples).
+        let samples = svg_fill_samples(&bytes)?;
+        for (rgb, weight) in samples {
+            add(&mut counts, &mut order, rgb, weight);
+        }
+    } else {
+        let img = image::load_from_memory(&bytes).ok()?;
+        let w = img.width();
+        let h = img.height();
+        if w == 0 || h == 0 {
+            return None;
+        }
+        // Convert to RGBA for uniform pixel access.
+        let rgba = img.to_rgba8();
+        for x in (0..w).step_by(4) {
+            for y in (0..h).step_by(4) {
+                let [r, g, b, _] = rgba.get_pixel(x, y).0;
+                add(&mut counts, &mut order, [r, g, b], 1.0);
             }
         }
     }
 
-    // Sort by frequency desc, take top 4 — stable, so exact count ties keep
+    // Sort by weight desc, take top 4 — stable, so exact ties keep
     // first-sight order (PHP `arsort`).
-    order.sort_by_key(|&(_, count)| std::cmp::Reverse(count));
+    order.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
     let palette: Vec<[u8; 3]> = order.iter().take(4).map(|&(c, _)| c).collect();
 
     // For each color in the palette, convert to HSV and check the threshold.
@@ -204,6 +228,82 @@ pub fn calculate_avg_color(icon_path: &Path) -> Option<String> {
     }
 
     None
+}
+
+/// SVG branch for [`calculate_avg_color`]: collect each fill's color
+/// weighted by bounding-box area × cumulative opacity, walking the resolved
+/// [`usvg::Tree`] — **no rasterization** (the dep is usvg alone, parse +
+/// tree, so a huge viewBox can't blow up memory the way a rasterizer
+/// pixmap could).
+///
+/// Deliberately conservative: only `fill` paint is considered — strokes,
+/// `image`, `pattern` paint, masks and filters are ignored; gradients are
+/// approximated by the plain mean of their stops. An icon with no usable
+/// solid fills degrades to the default gray, exactly what the reference's
+/// GD does for every SVG.
+fn svg_fill_samples(bytes: &[u8]) -> Option<Vec<([u8; 3], f64)>> {
+    let tree = usvg::Tree::from_data(bytes, &usvg::Options::default()).ok()?;
+    let mut out: Vec<([u8; 3], f64)> = Vec::new();
+
+    // Explicit stack of (node, cumulative opacity) — no recursion.
+    let mut stack: Vec<(&usvg::Node, f64)> =
+        tree.root().children().iter().map(|n| (n, 1.0)).collect();
+
+    while let Some((node, opacity)) = stack.pop() {
+        match node {
+            usvg::Node::Group(g) => {
+                let op = opacity * g.opacity().get() as f64;
+                for child in g.children() {
+                    stack.push((child, op));
+                }
+            }
+            usvg::Node::Path(p) => {
+                let Some(fill) = p.fill() else {
+                    continue;
+                };
+                let bb = p.abs_bounding_box();
+                let area = bb.width() as f64 * bb.height() as f64;
+                let weight = area * opacity * fill.opacity().get() as f64;
+                if !(weight > 0.0) {
+                    continue;
+                }
+                let color = match fill.paint() {
+                    usvg::Paint::Color(c) => Some([c.red, c.green, c.blue]),
+                    usvg::Paint::LinearGradient(g) => gradient_mean(g.stops()),
+                    usvg::Paint::RadialGradient(g) => gradient_mean(g.stops()),
+                    // Pattern paint: no cheap color; skip.
+                    usvg::Paint::Pattern(_) => None,
+                };
+                if let Some(rgb) = color {
+                    out.push((rgb, weight));
+                }
+            }
+            usvg::Node::Image(_) | usvg::Node::Text(_) => {}
+        }
+    }
+
+    if out.is_empty() { None } else { Some(out) }
+}
+
+/// Gradient → plain mean of its stop colors (a deliberate approximation:
+/// a favicon's 4-digit accent doesn't need offset-weighted sampling).
+fn gradient_mean(stops: &[usvg::Stop]) -> Option<[u8; 3]> {
+    if stops.is_empty() {
+        return None;
+    }
+    let (mut r, mut g, mut b) = (0.0, 0.0, 0.0);
+    for s in stops {
+        let c = s.color();
+        r += c.red as f64;
+        g += c.green as f64;
+        b += c.blue as f64;
+    }
+    let n = stops.len() as f64;
+    Some([
+        (r / n).round() as u8,
+        (g / n).round() as u8,
+        (b / n).round() as u8,
+    ])
 }
 
 /// Convert RGB (0-255) to HSV (h: 0-1, s: 0-1, v: 0-1).
@@ -358,5 +458,53 @@ mod tests {
     #[test]
     fn test_calculate_avg_color_missing_file() {
         assert!(calculate_avg_color(Path::new("/nonexistent/icon.png")).is_none());
+    }
+
+    fn write_svg(name: &str, markup: &str) -> std::path::PathBuf {
+        let path = std::env::temp_dir().join(name);
+        std::fs::write(&path, markup).unwrap();
+        path
+    }
+
+    #[test]
+    fn test_is_allowed_icon_mime() {
+        assert!(is_allowed_icon_mime("image/svg+xml"));
+        assert!(is_allowed_icon_mime("image/png"));
+        assert!(!is_allowed_icon_mime("text/html"));
+        assert!(!is_allowed_icon_mime("application/xml"));
+    }
+
+    #[test]
+    fn test_calculate_avg_color_solid_svg() {
+        let path = write_svg(
+            "test_favicon_svg_solid.svg",
+            "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\"><rect width=\"16\" height=\"16\" fill=\"#0000ff\"/></svg>",
+        );
+        assert_eq!(calculate_avg_color(&path).unwrap(), "#0000ff");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn test_calculate_avg_color_svg_gradient() {
+        // Two-stop blue→green gradient: the stop mean (0,128,128) quantizes
+        // to the 153 bucket → #009999.
+        let path = write_svg(
+            "test_favicon_svg_grad.svg",
+            "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\"><defs><linearGradient id=\"g\"><stop offset=\"0\" stop-color=\"#0000ff\"/><stop offset=\"1\" stop-color=\"#00ff00\"/></linearGradient></defs><rect width=\"16\" height=\"16\" fill=\"url(#g)\"/></svg>",
+        );
+        assert_eq!(calculate_avg_color(&path).unwrap(), "#009999");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn test_calculate_avg_color_svg_stroke_only_rejected() {
+        // No fill paint (strokes are ignored by design) → no usable color,
+        // the icon degrades to the default gray like the reference's GD.
+        let path = write_svg(
+            "test_favicon_svg_stroke.svg",
+            "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\"><rect x=\"2\" y=\"2\" width=\"12\" height=\"12\" fill=\"none\" stroke=\"#ff0000\"/></svg>",
+        );
+        assert!(calculate_avg_color(&path).is_none());
+        let _ = std::fs::remove_file(&path);
     }
 }

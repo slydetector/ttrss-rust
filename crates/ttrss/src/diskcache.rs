@@ -117,12 +117,14 @@ pub fn send_file(path: &Path, req: &HeaderMap) -> Response {
         mime
     };
 
-    // Only serve image/audio/video; block SVG (embedded-JS risk).
+    // Only serve image/audio/video. SVG is served like any other image:
+    // it renders in `<img>` context, which sandboxes embedded scripts —
+    // the same exposure the reference's bare `readfile()` has always had.
     let is_media = effective
         .split('/')
         .next()
         .is_some_and(|t| ["image", "audio", "video"].contains(&t));
-    if !is_media || effective == "image/svg+xml" {
+    if !is_media {
         return Response::builder()
             .status(StatusCode::BAD_REQUEST)
             .header(header::CONTENT_TYPE, "text/plain")
@@ -669,5 +671,22 @@ mod tests {
                 .download("http://unreachable.invalid/x", "abc", 1024, false)
                 .await
         );
+    }
+
+    #[test]
+    fn send_file_serves_svg() {
+        // SVG was intentionally blocked here; it must now serve like any
+        // other image (favicon extension, see favicons::calculate_avg_color).
+        let path = std::env::temp_dir().join("test_send_file.svg");
+        std::fs::write(&path, b"<svg xmlns=\"http://www.w3.org/2000/svg\"/>").unwrap();
+        let resp = send_file(&path, &HeaderMap::new());
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(
+            resp.headers()
+                .get(header::CONTENT_TYPE)
+                .and_then(|v| v.to_str().ok()),
+            Some("image/svg+xml")
+        );
+        let _ = std::fs::remove_file(&path);
     }
 }

@@ -65,3 +65,4 @@ icu_plurals.workspace = true
 icu_locale_core.workspace = true
 accept-language = "3.1.0"
 dateparser = "0.3.1"
+usvg = { version = "0.48.1", default-features = false }
