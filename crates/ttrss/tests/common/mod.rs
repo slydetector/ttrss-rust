@@ -19,9 +19,9 @@
 // so dead-code linting per binary is noise by design.
 #![allow(dead_code)]
 
+use sqlx::AssertSqlSafe;
 use sqlx::pool::PoolOptions;
 use sqlx::postgres::{PgConnectOptions, PgConnection, Postgres};
-use sqlx::AssertSqlSafe;
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -81,7 +81,9 @@ pub async fn make_db_from_url(url: &str) -> anyhow::Result<Db> {
         .before_acquire(|conn: &mut PgConnection, _meta| {
             Box::pin(async move {
                 for stmt in SESSION_SETUP {
-                    sqlx::query(AssertSqlSafe(*stmt)).execute(&mut *conn).await?;
+                    sqlx::query(AssertSqlSafe(*stmt))
+                        .execute(&mut *conn)
+                        .await?;
                 }
                 Ok(true)
             })
@@ -200,7 +202,10 @@ impl MockServer {
                 let _ = stream.shutdown(std::net::Shutdown::Both);
             }
         });
-        Self { port, _thread: thread }
+        Self {
+            port,
+            _thread: thread,
+        }
     }
 
     pub fn url(&self, path: &str) -> String {

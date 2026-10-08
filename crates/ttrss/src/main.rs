@@ -31,6 +31,12 @@ async fn main() -> anyhow::Result<()> {
     // a schema it knows (fresh DB → full schema; older DB → numbered
     // migrations). Fail-closed: an error exits before binding.
     ttrss::core::schema::ensure_up_to_date(&config, &db).await?;
+    // The in-process first-boot bootstrap (docs/19 P0): the reference
+    // startup.sh's user-management steps — admin-password policy (stock
+    // `password` → random 16-char + star banner), admin access level,
+    // auto-create user. Env-driven, idempotent, a no-op when the vars are
+    // unset; fail-closed like the schema step.
+    ttrss::bootstrap::run(&db, &ttrss::bootstrap::BootstrapVars::from_env()).await?;
     tracing::info!(
         listen = %config.listen,
         docroot = %config.docroot.display(),

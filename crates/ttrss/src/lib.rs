@@ -8,6 +8,7 @@
 pub mod api;
 pub mod article;
 pub mod auth;
+pub mod bootstrap;
 pub mod cats;
 pub mod controls;
 pub mod core;
