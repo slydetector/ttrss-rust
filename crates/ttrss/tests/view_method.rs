@@ -14,14 +14,14 @@
 
 mod common;
 
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
+use test_db::template::with_test_db;
+use ttrss::AppState;
 use ttrss::core::db::Db;
 use ttrss::core::phpser::Value as PValue;
 use ttrss::core::session::Session;
 use ttrss::headlines::view;
 use ttrss::session::Sess;
-use ttrss::AppState;
-use test_db::template::with_test_db;
 
 const SESSION_UID: i64 = 1;
 
@@ -91,23 +91,27 @@ async fn test_force_update_resets_feed_stamps() {
 
 #[tokio::test]
 async fn test_force_update_ignores_tag_feed() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup(&url).await;
-    let p = state.db.pool();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            let p = state.db.pool();
 
-    // `rust` is a tag name (article 1's tag_cache), so `$feed` is non-numeric
-    // and the PHP's `is_numeric($feed)` guard skips the stamp update.
-    let reply = view(&state, &sess, &view_extra("rust", "ForceUpdate")).await;
-    assert!(reply.get("headlines").is_some(), "{reply:?}");
+            // `rust` is a tag name (article 1's tag_cache), so `$feed` is non-numeric
+            // and the PHP's `is_numeric($feed)` guard skips the stamp update.
+            let reply = view(&state, &sess, &view_extra("rust", "ForceUpdate")).await;
+            assert!(reply.get("headlines").is_some(), "{reply:?}");
 
-    for id in 1..=4 {
-        assert!(
-            !stamps_reset(p, id).await,
-            "tag ForceUpdate leaves feed {id}'s stamps NULL"
-        );
-    }
-        Ok(())
-    })).await.unwrap();
+            for id in 1..=4 {
+                assert!(
+                    !stamps_reset(p, id).await,
+                    "tag ForceUpdate leaves feed {id}'s stamps NULL"
+                );
+            }
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
@@ -176,22 +180,27 @@ async fn test_method_undefined_is_noop() {
 
 #[tokio::test]
 async fn test_mark_all_read_gr_without_scope_is_noop() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup(&url).await;
-    let p = state.db.pool();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            let p = state.db.pool();
 
-    // No colon: `$method_split[1]` is null in PHP → `_catchup(null, false)`
-    // → the tag branch with an empty name → nothing matched. Must not panic.
-    let reply = view(&state, &sess, &view_extra("1", "MarkAllReadGR")).await;
-    assert!(reply.get("headlines").is_some(), "{reply:?}");
+            // No colon: `$method_split[1]` is null in PHP → `_catchup(null, false)`
+            // → the tag branch with an empty name → nothing matched. Must not panic.
+            let reply = view(&state, &sess, &view_extra("1", "MarkAllReadGR")).await;
+            assert!(reply.get("headlines").is_some(), "{reply:?}");
 
-    let unread_total: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM ttrss_user_entries WHERE owner_uid = $1 AND unread = true")
+            let unread_total: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM ttrss_user_entries WHERE owner_uid = $1 AND unread = true",
+            )
             .bind(SESSION_UID)
             .fetch_one(p)
             .await
             .unwrap();
-    assert_eq!(unread_total, 8, "all 8 seeded unread entries remain unread");
-        Ok(())
-    })).await.unwrap();
+            assert_eq!(unread_total, 8, "all 8 seeded unread entries remain unread");
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }

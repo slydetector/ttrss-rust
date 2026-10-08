@@ -12,17 +12,19 @@
 //! `getArticle`, `getPref`). Mutating methods and the plugin-API fallback land
 //! in later milestones.
 
-use crate::core::phpser::Value as PValue;use crate::i18n::{__};
+use crate::core::phpser::Value as PValue;
+use crate::i18n::__;
 
 use crate::core::user;
 use axum::body::Body;
 use axum::extract::{Extension, Request, State};
-use axum::http::{header, StatusCode};
+use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use serde_json::{json, Map, Value};
-use sqlx::Row;
+use serde_json::{Map, Value, json};
 use sqlx::AssertSqlSafe;
+use sqlx::Row;
 
+use crate::AppState;
 use crate::article;
 use crate::auth;
 use crate::cats::{CAT_ALL, CAT_ALL_EXCEPT_VIRTUAL, CAT_LABELS, CAT_SPECIAL, CAT_UNCATEGORIZED};
@@ -36,7 +38,6 @@ use crate::session::{self, Sess};
 use crate::util::{
     clean_int, clean_str, param_int_array, param_to_bool, php_int_cast, strip_tags, truncate_string,
 };
-use crate::AppState;
 
 const API_LEVEL: i64 = 23;
 const STATUS_OK: i64 = 0;
@@ -79,10 +80,11 @@ pub async fn handler(state: State<AppState>, sess: Extension<Sess>, req: Request
     // `$_REQUEST["sid"]` → load and adopt the addressed session (the API client
     // carries no cookie; `session_id($_REQUEST["sid"]); session_start()`).
     if let Some(sid) = body.get("sid").and_then(Value::as_str)
-        && !sid.is_empty() {
-            let data = session::load(&state.db, state.config.encryption_key, sid).await;
-            sess.replace(sid.to_string(), data);
-        }
+        && !sid.is_empty()
+    {
+        let data = session::load(&state.db, state.config.encryption_key, sid).await;
+        sess.replace(sid.to_string(), data);
+    }
 
     let op = body
         .get("op")
@@ -96,14 +98,8 @@ pub async fn handler(state: State<AppState>, sess: Extension<Sess>, req: Request
     if op == "getfeedicon" {
         return get_feed_icon(&state, &sess, &body, seq).await;
     }
-    let (status, content) = before_and_dispatch(
-        &state,
-        &sess,
-        &op,
-        &body,
-        accept_language.as_deref(),
-    )
-    .await;
+    let (status, content) =
+        before_and_dispatch(&state, &sess, &op, &body, accept_language.as_deref()).await;
 
     let mut res = envelope(seq, status, content);
     // `before()` sets `Content-Type: application/json`; the session `nocache`
@@ -190,10 +186,9 @@ pub async fn before_and_dispatch(
                 let params = Value::Object(body.clone());
                 match plugin.invoke_method(&mut pctx, other, &params).await {
                     Ok(crate::pluginhost::plugin::MethodOutput::Json(v)) => (STATUS_OK, v),
-                    Ok(crate::pluginhost::plugin::MethodOutput::Raw(s)) => (
-                        STATUS_OK,
-                        Value::String(s),
-                    ),
+                    Ok(crate::pluginhost::plugin::MethodOutput::Raw(s)) => {
+                        (STATUS_OK, Value::String(s))
+                    }
                     Ok(crate::pluginhost::plugin::MethodOutput::Response {
                         status, body, ..
                     }) => (status as i64, Value::String(body)),
@@ -280,13 +275,12 @@ async fn login(state: &AppState, sess: &Sess, body: &Map<String, Value>) -> (i64
     // enabled (an OTP-enabled account must use an app password for service
     // logins). Mirrors `Auth_Internal::authenticate`'s service-login path.
     let ok_app_password = verify_app_password(pool, &login_name, &password).await;
-    let ok_main_password =
-        if !ok_app_password && !otp_enabled {
-            // `Auth_Internal::check_password` (service = "") fallback.
-            auth::check_password(pool, uid, &password).await
-        } else {
-            false
-        };
+    let ok_main_password = if !ok_app_password && !otp_enabled {
+        // `Auth_Internal::check_password` (service = "") fallback.
+        auth::check_password(pool, uid, &password).await
+    } else {
+        false
+    };
     if !ok_app_password && !ok_main_password {
         return (STATUS_ERR, json!({ "error": E_LOGIN_ERROR }));
     }
@@ -297,8 +291,15 @@ async fn login(state: &AppState, sess: &Sess, body: &Map<String, Value>) -> (i64
         .bind(uid)
         .execute(pool)
         .await;
-    let (new_id, data) =
-        auth::build_login_session(uid, &u_login, access_level, &pwd_hash, false, false, "auth_internal");
+    let (new_id, data) = auth::build_login_session(
+        uid,
+        &u_login,
+        access_level,
+        &pwd_hash,
+        false,
+        false,
+        "auth_internal",
+    );
     sess.replace(new_id.clone(), data);
 
     (
@@ -354,22 +355,19 @@ async fn get_config(state: &AppState, uid: Option<i64>, self_url: &str) -> Value
     // empty when no plugin contributes (PHP: `$ret = []` → `{}`).
     let mut pctx = crate::pluginhost::dispatch::owner_ctx(state, uid as i32).await;
     let mut sort_types = Map::new();
-    pctx
-        .run_hooks_callback::<Value, _, _>(
-            crate::pluginhost::HOOK_HEADLINES_CUSTOM_SORT_MAP,
-            |plugin, host| {
-                Box::pin(async move { plugin.hook_headlines_custom_sort_map(host).await })
-            },
-            |result, _| {
-                if let Some(obj) = result.as_object() {
-                    for (k, v) in obj {
-                        sort_types.insert(k.clone(), v.clone());
-                    }
+    pctx.run_hooks_callback::<Value, _, _>(
+        crate::pluginhost::HOOK_HEADLINES_CUSTOM_SORT_MAP,
+        |plugin, host| Box::pin(async move { plugin.hook_headlines_custom_sort_map(host).await }),
+        |result, _| {
+            if let Some(obj) = result.as_object() {
+                for (k, v) in obj {
+                    sort_types.insert(k.clone(), v.clone());
                 }
-                false
-            },
-        )
-        .await;
+            }
+            false
+        },
+    )
+    .await;
     // `daemon_is_running` is true — the updater runs in-process, always on
     // (D1 = B; D6 = c).
     // PHP: an empty `$ret` encodes as `[]` (not `{}`); a populated one as
@@ -591,17 +589,16 @@ async fn get_feeds(state: &AppState, uid: Option<i64>, body: &Map<String, Value>
         .unwrap_or_default();
         for c in &cats {
             let cid: i32 = c.get("id");
-            let unread =
-                counters::get_counters(
-                    &state.db,
-                    uid,
-                    counters::FeedOrTag::Feed(cid as i64),
-                    true,
-                    true,
-                    None,
-                )
-                .await
-                    + counters::cat_children_unread(pool, uid, cid as i64).await;
+            let unread = counters::get_counters(
+                &state.db,
+                uid,
+                counters::FeedOrTag::Feed(cid as i64),
+                true,
+                true,
+                None,
+            )
+            .await
+                + counters::cat_children_unread(pool, uid, cid as i64).await;
             if unread != 0 || !unread_only {
                 feeds.push(json!({
                     "id": cid,
@@ -699,10 +696,10 @@ async fn get_categories(
          FROM ttrss_feed_categories c WHERE c.owner_uid = $1"
     };
     let rows = sqlx::query(q)
-    .bind(uid)
-    .fetch_all(pool)
-    .await
-    .unwrap_or_default();
+        .bind(uid)
+        .fetch_all(pool)
+        .await
+        .unwrap_or_default();
     for r in &rows {
         let id: i32 = r.get("id");
         let num_feeds: i64 = r.get("num_feeds");
@@ -783,7 +780,7 @@ async fn cat_empty(pool: &sqlx::PgPool, uid: i64, cat_id: i64) -> bool {
         .fetch_one(pool)
         .await
         .unwrap_or(0)
-        == 0
+            == 0
     } else {
         false
     }
@@ -898,19 +895,18 @@ async fn get_headlines(
     // `force_update` (pre-read forced refresh, 120 s flood control).
     // `filter` is read by the PHP and then dropped — a dead param in the
     // frozen reference (`_api_get_headlines` never uses it), so ignored here.
-    let search = clean_str(
-        body.get("search").and_then(Value::as_str).unwrap_or(""),
-    );
+    let search = clean_str(body.get("search").and_then(Value::as_str).unwrap_or(""));
     let check_first_id = clean_int(body.get("check_first_id"));
     let force_update = param_to_bool(body.get("force_update"));
 
     // M7.6: the HOOK_SANITIZE / plugin context (built once per request);
     // the HOOK_HEADLINES_CUSTOM_SORT_OVERRIDE chain (below) needs it.
     let mut pctx = crate::pluginhost::dispatch::session_ctx(state, sess).await;
-    let (override_order, skip_first_id_check) =
-        headlines::order_to_override_query(&mut pctx, &clean_str(
-            body.get("order_by").and_then(Value::as_str).unwrap_or(""),
-        )).await;
+    let (override_order, skip_first_id_check) = headlines::order_to_override_query(
+        &mut pctx,
+        &clean_str(body.get("order_by").and_then(Value::as_str).unwrap_or("")),
+    )
+    .await;
 
     let params = headlines::HeadlinesParams {
         feed: feed_id.clone(),
@@ -982,38 +978,39 @@ async fn get_headlines(
         locale: locale.clone(),
         cache: state.i18n.clone(),
     };
-    crate::i18n::I18N.scope(i18n_ctx, async {
-    let q =
-        headlines::get_headlines_query(&state.db, &params).await;
+    crate::i18n::I18N
+        .scope(i18n_ctx, async {
+            let q = headlines::get_headlines_query(&state.db, &params).await;
 
-    let mut out: Vec<Value> = Vec::new();
-    for r in &q.article_rows {
-        let row = api_headline_row(
-            r,
-            &q.feed_title,
-            uid,
-            is_cat,
-            q.is_vfeed,
-            show_excerpt,
-            show_content,
-            sanitize_content,
-            has_sandbox,
-            include_attachments,
-            excerpt_length,
-            state,
-            &mut pctx,
-        )
-        .await;
-        out.push(row);
-    }
+            let mut out: Vec<Value> = Vec::new();
+            for r in &q.article_rows {
+                let row = api_headline_row(
+                    r,
+                    &q.feed_title,
+                    uid,
+                    is_cat,
+                    q.is_vfeed,
+                    show_excerpt,
+                    show_content,
+                    sanitize_content,
+                    has_sandbox,
+                    include_attachments,
+                    excerpt_length,
+                    state,
+                    &mut pctx,
+                )
+                .await;
+                out.push(row);
+            }
 
-    let header = json!({ "id": feed_id, "first_id": q.first_id, "is_cat": is_cat });
-    if include_header {
-        (STATUS_OK, json!([header, out]))
-    } else {
-        (STATUS_OK, Value::Array(out))
-    }
-    }).await
+            let header = json!({ "id": feed_id, "first_id": q.first_id, "is_cat": is_cat });
+            if include_header {
+                (STATUS_OK, json!([header, out]))
+            } else {
+                (STATUS_OK, Value::Array(out))
+            }
+        })
+        .await
 }
 
 // Non-vfeed column layout (see `headlines.rs` SELECT).
@@ -1266,11 +1263,7 @@ async fn get_article(
                     .map(|x| x as i32)
                     .collect()
             } else if let Some(n) = v.as_i64() {
-                if n > 0 {
-                    vec![n as i32]
-                } else {
-                    Vec::new()
-                }
+                if n > 0 { vec![n as i32] } else { Vec::new() }
             } else if let Some(s) = v.as_str() {
                 s.split(',')
                     .filter_map(|p| p.trim().parse::<i32>().ok())
@@ -1340,9 +1333,11 @@ async fn get_article(
         m.insert("author".into(), Value::from(r.get::<String, _>(4)));
         m.insert(
             "updated".into(),
-            json!(updated
-                .map(|d| (d.and_utc().timestamp() / 60) * 60)
-                .unwrap_or(0)),
+            json!(
+                updated
+                    .map(|d| (d.and_utc().timestamp() / 60) * 60)
+                    .unwrap_or(0)
+            ),
         );
         let feed_id: i32 = r.get(8);
         m.insert("feed_id".into(), json!(feed_id));
@@ -1455,7 +1450,11 @@ pub async fn catchup_feed(
 }
 
 /// `API::unsubscribeFeed` — remove the session user's feed, or `E_OPERATION_FAILED`.
-pub async fn unsubscribe_feed(state: &AppState, sess: &Sess, body: &Map<String, Value>) -> (i64, Value) {
+pub async fn unsubscribe_feed(
+    state: &AppState,
+    sess: &Sess,
+    body: &Map<String, Value>,
+) -> (i64, Value) {
     let uid = sess.data().uid().unwrap_or(0);
     let pool = state.db.pool();
     let feed_id = clean_int(body.get("feed_id"));
@@ -1480,7 +1479,11 @@ pub async fn unsubscribe_feed(state: &AppState, sess: &Sess, body: &Map<String, 
 /// (always unset in this port), then runs `RSSUtils::update_rss_feed`. An
 /// on-demand update for a feed already in flight (claimed by the running daemon
 /// loop within the last minute) is a no-op.
-pub async fn update_feed(state: &AppState, _sess: &Sess, body: &Map<String, Value>) -> (i64, Value) {
+pub async fn update_feed(
+    state: &AppState,
+    _sess: &Sess,
+    body: &Map<String, Value>,
+) -> (i64, Value) {
     let pool = state.db.pool();
     let feed_id = clean_int(body.get("feed_id")) as i32;
     let in_flight: Option<bool> = sqlx::query_scalar(
@@ -1550,7 +1553,11 @@ pub async fn subscribe_to_feed(
 /// unread / note / score. The value is a controlled SQL literal (a boolean,
 /// `NOT <field>`, a `quote($data)` string, or an int), matching the PHP's
 /// string-interpolated `SET <field> = <set_to>`.
-pub async fn update_article(state: &AppState, sess: &Sess, body: &Map<String, Value>) -> (i64, Value) {
+pub async fn update_article(
+    state: &AppState,
+    sess: &Sess,
+    body: &Map<String, Value>,
+) -> (i64, Value) {
     let uid = sess.data().uid().unwrap_or(0);
     let pool = state.db.pool();
     let article_ids = param_int_array(body, "article_ids");
@@ -1623,25 +1630,24 @@ pub async fn update_article(state: &AppState, sess: &Sess, body: &Map<String, Va
     if field == "marked" || field == "published" {
         let is_marked = field == "marked";
         let mut pctx = crate::pluginhost::dispatch::session_ctx(state, sess).await;
-        pctx
-            .run_hooks(
-                if is_marked {
-                    crate::pluginhost::HOOK_ARTICLES_MARK_TOGGLED
-                } else {
-                    crate::pluginhost::HOOK_ARTICLES_PUBLISH_TOGGLED
-                },
-                |plugin, host| {
-                    let ids = article_ids.clone();
-                    Box::pin(async move {
-                        if is_marked {
-                            plugin.hook_articles_mark_toggled(host, &ids).await
-                        } else {
-                            plugin.hook_articles_publish_toggled(host, &ids).await
-                        }
-                    })
-                },
-            )
-            .await;
+        pctx.run_hooks(
+            if is_marked {
+                crate::pluginhost::HOOK_ARTICLES_MARK_TOGGLED
+            } else {
+                crate::pluginhost::HOOK_ARTICLES_PUBLISH_TOGGLED
+            },
+            |plugin, host| {
+                let ids = article_ids.clone();
+                Box::pin(async move {
+                    if is_marked {
+                        plugin.hook_articles_mark_toggled(host, &ids).await
+                    } else {
+                        plugin.hook_articles_publish_toggled(host, &ids).await
+                    }
+                })
+            },
+        )
+        .await;
     }
     (STATUS_OK, json!({ "status": "OK", "updated": num_updated }))
 }

@@ -37,12 +37,12 @@ pub use template::master_url;
 
 use std::time::Duration;
 
-use anyhow::{anyhow, Context, Result};
-use sqlx::postgres::PgPoolOptions;
+use anyhow::{Context, Result, anyhow};
 use sqlx::PgPool;
+use sqlx::postgres::PgPoolOptions;
 use testcontainers_modules::postgres::Postgres;
-use testcontainers_modules::testcontainers::runners::AsyncRunner;
 use testcontainers_modules::testcontainers::core::Mount;
+use testcontainers_modules::testcontainers::runners::AsyncRunner;
 use testcontainers_modules::testcontainers::{ContainerAsync, ImageExt, ReuseDirective};
 
 /// Fixed name of the dedicated test Postgres container.

@@ -7,7 +7,7 @@
 
 mod common;
 
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 use sqlx::Row;
 use test_db::template::with_test_db;
 
@@ -49,196 +49,240 @@ async fn fetch(db: &Pool) -> Vec<(i32, String, String, String, Option<String>)> 
 
 #[tokio::test]
 async fn test_generate_app_password() {
-    with_test_db(|url| Box::pin(async move {
-        let (state, sess) = common::make_state(&url).await;
-        let db = state.db.pool();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = common::make_state(&url).await;
+            let db = state.db.pool();
 
-        let resp = ttrss::settings::generate_app_password(
-            &state,
-            &sess,
-            &request(&[("title", json!("My API"))]),
-        )
-        .await
-        .unwrap();
+            let resp = ttrss::settings::generate_app_password(
+                &state,
+                &sess,
+                &request(&[("title", json!("My API"))]),
+            )
+            .await
+            .unwrap();
 
-        let rows = fetch(db).await;
-        assert_eq!(rows.len(), 1);
-        let (_id, title, service, pwd_hash, last_used) = &rows[0];
-        assert_eq!(title, "My API");
-        assert_eq!(service, "_api");
-        assert!(pwd_hash.starts_with("SSHA-512:"), "got: {pwd_hash}");
-        // A freshly generated password has never been used.
-        assert!(last_used.is_none());
+            let rows = fetch(db).await;
+            assert_eq!(rows.len(), 1);
+            let (_id, title, service, pwd_hash, last_used) = &rows[0];
+            assert_eq!(title, "My API");
+            assert_eq!(service, "_api");
+            assert!(pwd_hash.starts_with("SSHA-512:"), "got: {pwd_hash}");
+            // A freshly generated password has never been used.
+            assert!(last_used.is_none());
 
-        // The plaintext is shown in the warning and verifies against the stored hash.
-        let pw = extract_strong(&resp);
-        assert_eq!(pw.len(), 16, "got: {pw}");
-        // All 16 chars are distinct.
-        assert_eq!(
-            pw.chars()
-                .collect::<std::collections::HashSet<char>>()
-                .len(),
-            16
-        );
-        assert!(ttrss::core::user::verify_app_password(pwd_hash, &pw));
+            // The plaintext is shown in the warning and verifies against the stored hash.
+            let pw = extract_strong(&resp);
+            assert_eq!(pw.len(), 16, "got: {pw}");
+            // All 16 chars are distinct.
+            assert_eq!(
+                pw.chars()
+                    .collect::<std::collections::HashSet<char>>()
+                    .len(),
+                16
+            );
+            assert!(ttrss::core::user::verify_app_password(pwd_hash, &pw));
 
-        // The response is the warning div + the refreshed list.
-        assert!(resp.contains("Generated password"));
-        assert!(resp.contains("Please remember it for future reference."));
-        assert!(resp.contains("app-password-list"));
-        assert!(resp.contains("My API"));
-        // `last_used` is NULL → "Never".
-        assert!(resp.contains("Never"));
-        Ok(())
-    })).await.unwrap();
+            // The response is the warning div + the refreshed list.
+            assert!(resp.contains("Generated password"));
+            assert!(resp.contains("Please remember it for future reference."));
+            assert!(resp.contains("app-password-list"));
+            assert!(resp.contains("My API"));
+            // `last_used` is NULL → "Never".
+            assert!(resp.contains("Never"));
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
 async fn test_generate_app_password_unique_chars() {
-    with_test_db(|url| Box::pin(async move {
-        let (state, sess) = common::make_state(&url).await;
-        let db = state.db.pool();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = common::make_state(&url).await;
+            let db = state.db.pool();
 
-        // The alphabet (no vowels / `l`/`o`/`u` lookalikes).
-        const ALPHABET: &[u8] = b"0123456789abcdfghjkmnpqrstvwxyzABCDFGHJKMNPQRSTVWXYZ*%+^";
+            // The alphabet (no vowels / `l`/`o`/`u` lookalikes).
+            const ALPHABET: &[u8] = b"0123456789abcdfghjkmnpqrstvwxyzABCDFGHJKMNPQRSTVWXYZ*%+^";
 
-        for _ in 0..20 {
-            let resp = ttrss::settings::generate_app_password(
-                &state,
-                &sess,
-                &request(&[("title", json!("x"))]),
-            )
-            .await
-            .unwrap();
-            let pw = extract_strong(&resp);
-            assert_eq!(pw.len(), 16);
-            for c in pw.bytes() {
-                assert!(ALPHABET.contains(&c), "char {c:?} not in alphabet");
+            for _ in 0..20 {
+                let resp = ttrss::settings::generate_app_password(
+                    &state,
+                    &sess,
+                    &request(&[("title", json!("x"))]),
+                )
+                .await
+                .unwrap();
+                let pw = extract_strong(&resp);
+                assert_eq!(pw.len(), 16);
+                for c in pw.bytes() {
+                    assert!(ALPHABET.contains(&c), "char {c:?} not in alphabet");
+                }
             }
-        }
-        assert_eq!(fetch(db).await.len(), 20);
-        Ok(())
-    })).await.unwrap();
+            assert_eq!(fetch(db).await.len(), 20);
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
 async fn test_delete_app_passwords() {
-    with_test_db(|url| Box::pin(async move {
-        let (state, sess) = common::make_state(&url).await;
-        let db = state.db.pool();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = common::make_state(&url).await;
+            let db = state.db.pool();
 
-        // Two passwords.
-        for t in ["A", "B"] {
-            let _ =
-                ttrss::settings::generate_app_password(&state, &sess, &request(&[("title", json!(t))]))
-                    .await
-                    .unwrap();
-        }
-        let rows = fetch(db).await;
-        assert_eq!(rows.len(), 2);
-        let keep_id = rows[0].0;
-        let del_id = rows[1].0;
-
-        // Delete one (the "B" row, the later title).
-        let resp =
-            ttrss::settings::delete_app_passwords(&state, &sess, &request(&[("ids", json!([del_id]))]))
+            // Two passwords.
+            for t in ["A", "B"] {
+                let _ = ttrss::settings::generate_app_password(
+                    &state,
+                    &sess,
+                    &request(&[("title", json!(t))]),
+                )
                 .await
                 .unwrap();
+            }
+            let rows = fetch(db).await;
+            assert_eq!(rows.len(), 2);
+            let keep_id = rows[0].0;
+            let del_id = rows[1].0;
 
-        let rows = fetch(db).await;
-        assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].0, keep_id);
-        // The refreshed list shows only the surviving row (one data row, no `>B<`).
-        assert!(resp.contains("app-password-list"));
-        assert_eq!(resp.matches("<tr data-row-id=").count(), 1);
-        assert!(
-            !resp.contains(">B<"),
-            "deleted title should not be in the list"
-        );
-        Ok(())
-    })).await.unwrap();
+            // Delete one (the "B" row, the later title).
+            let resp = ttrss::settings::delete_app_passwords(
+                &state,
+                &sess,
+                &request(&[("ids", json!([del_id]))]),
+            )
+            .await
+            .unwrap();
+
+            let rows = fetch(db).await;
+            assert_eq!(rows.len(), 1);
+            assert_eq!(rows[0].0, keep_id);
+            // The refreshed list shows only the surviving row (one data row, no `>B<`).
+            assert!(resp.contains("app-password-list"));
+            assert_eq!(resp.matches("<tr data-row-id=").count(), 1);
+            assert!(
+                !resp.contains(">B<"),
+                "deleted title should not be in the list"
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
 async fn test_delete_app_passwords_foreign_noop() {
-    with_test_db(|url| Box::pin(async move {
-        let (state, sess) = common::make_state(&url).await;
-        let db = state.db.pool();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = common::make_state(&url).await;
+            let db = state.db.pool();
 
-        // A password owned by a *different* user must not be deleted.
-        ttrss::settings::generate_app_password(&state, &sess, &request(&[("title", json!("mine"))]))
+            // A password owned by a *different* user must not be deleted.
+            ttrss::settings::generate_app_password(
+                &state,
+                &sess,
+                &request(&[("title", json!("mine"))]),
+            )
             .await
             .unwrap();
-        let my_id = fetch(db).await[0].0;
-        // Reassign it to a (nonexistent-for-uid-1) owner... use a fresh user.
-        sqlx::query("INSERT INTO ttrss_users (id, login, pwd_hash) VALUES (2, 'u2', 'SHA1:00')")
+            let my_id = fetch(db).await[0].0;
+            // Reassign it to a (nonexistent-for-uid-1) owner... use a fresh user.
+            sqlx::query(
+                "INSERT INTO ttrss_users (id, login, pwd_hash) VALUES (2, 'u2', 'SHA1:00')",
+            )
             .execute(db)
             .await
             .unwrap();
-        sqlx::query("UPDATE ttrss_app_passwords SET owner_uid = 2 WHERE id = $1")
-            .bind(my_id)
-            .execute(db)
-            .await
-            .unwrap();
-
-        // Now uid 1 owns nothing; deleting `my_id` as uid 1 is a no-op.
-        let _ =
-            ttrss::settings::delete_app_passwords(&state, &sess, &request(&[("ids", json!([my_id]))]))
+            sqlx::query("UPDATE ttrss_app_passwords SET owner_uid = 2 WHERE id = $1")
+                .bind(my_id)
+                .execute(db)
                 .await
                 .unwrap();
-        let count: i64 = sqlx::query_scalar("SELECT count(*) FROM ttrss_app_passwords WHERE id = $1")
-            .bind(my_id)
-            .fetch_one(db)
+
+            // Now uid 1 owns nothing; deleting `my_id` as uid 1 is a no-op.
+            let _ = ttrss::settings::delete_app_passwords(
+                &state,
+                &sess,
+                &request(&[("ids", json!([my_id]))]),
+            )
             .await
             .unwrap();
-        assert_eq!(count, 1, "foreign row must survive");
-        Ok(())
-    })).await.unwrap();
+            let count: i64 =
+                sqlx::query_scalar("SELECT count(*) FROM ttrss_app_passwords WHERE id = $1")
+                    .bind(my_id)
+                    .fetch_one(db)
+                    .await
+                    .unwrap();
+            assert_eq!(count, 1, "foreign row must survive");
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
 async fn test_delete_app_passwords_empty_ids_noop() {
-    with_test_db(|url| Box::pin(async move {
-        let (state, sess) = common::make_state(&url).await;
-        let db = state.db.pool();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = common::make_state(&url).await;
+            let db = state.db.pool();
 
-        ttrss::settings::generate_app_password(&state, &sess, &request(&[("title", json!("keep"))]))
+            ttrss::settings::generate_app_password(
+                &state,
+                &sess,
+                &request(&[("title", json!("keep"))]),
+            )
             .await
             .unwrap();
 
-        // No `ids` → no delete (avoids `IN ()`); the row survives, list still renders.
-        let resp = ttrss::settings::delete_app_passwords(&state, &sess, &request(&[]))
-            .await
-            .unwrap();
-        assert_eq!(fetch(db).await.len(), 1);
-        assert!(resp.contains("app-password-list"));
-        Ok(())
-    })).await.unwrap();
+            // No `ids` → no delete (avoids `IN ()`); the row survives, list still renders.
+            let resp = ttrss::settings::delete_app_passwords(&state, &sess, &request(&[]))
+                .await
+                .unwrap();
+            assert_eq!(fetch(db).await.len(), 1);
+            assert!(resp.contains("app-password-list"));
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
 async fn test_app_password_list_escapes_title() {
-    with_test_db(|url| Box::pin(async move {
-        let (state, sess) = common::make_state(&url).await;
-        let db = state.db.pool();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = common::make_state(&url).await;
+            let db = state.db.pool();
 
-        // A title with HTML-special characters (stored raw, cleaned only).
-        let title = "a&b<c";
-        sqlx::query(
-            "INSERT INTO ttrss_app_passwords (title, owner_uid, pwd_hash, service, created) \
+            // A title with HTML-special characters (stored raw, cleaned only).
+            let title = "a&b<c";
+            sqlx::query(
+                "INSERT INTO ttrss_app_passwords (title, owner_uid, pwd_hash, service, created) \
              VALUES ($1, 1, 'SSHA-512:x:y', '_api', now())",
-        )
-        .bind(title)
-        .execute(db)
-        .await
-        .unwrap();
-
-        let html = ttrss::settings::app_password_list(&state, &sess)
+            )
+            .bind(title)
+            .execute(db)
             .await
             .unwrap();
-        // The title is html-escaped in the rendered table.
-        assert!(html.contains("a&amp;b&lt;c"), "got:\n{html}");
-        assert!(!html.contains("a&b<c"), "raw title must not appear");
-        Ok(())
-    })).await.unwrap();
+
+            let html = ttrss::settings::app_password_list(&state, &sess)
+                .await
+                .unwrap();
+            // The title is html-escaped in the rendered table.
+            assert!(html.contains("a&amp;b&lt;c"), "got:\n{html}");
+            assert!(!html.contains("a&b<c"), "raw title must not appear");
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }

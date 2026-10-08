@@ -9,12 +9,12 @@
 //!
 //! `UrlHelper::url_to_youtube_vid` is the port's [`crate::headlines::url_to_youtube_vid`].
 
-use serde_json::Value;
 use async_trait::async_trait;
+use serde_json::Value;
 
 use crate::pluginhost::host::{HostCtx, PluginHost};
-use crate::pluginhost::{HOOK_IFRAME_WHITELISTED, HOOK_RENDER_ENCLOSURE};
 use crate::pluginhost::plugin::{About, Plugin};
+use crate::pluginhost::{HOOK_IFRAME_WHITELISTED, HOOK_RENDER_ENCLOSURE};
 
 /// The `af_youtube_embed` plugin (the PHP's `Af_Youtube_Embed`).
 #[derive(Clone, Copy)]
@@ -38,7 +38,10 @@ impl Plugin for AfYoutubeEmbed {
         "Af_Youtube_Embed"
     }
     fn about(&self) -> About {
-        About::new("Embed videos in Youtube RSS feeds (and whitelist Youtube iframes)", "fox")
+        About::new(
+            "Embed videos in Youtube RSS feeds (and whitelist Youtube iframes)",
+            "fox",
+        )
     }
     fn api_version(&self) -> i32 {
         2
@@ -50,12 +53,8 @@ impl Plugin for AfYoutubeEmbed {
 
     /// `hook_iframe_whitelisted($src)` — `$src` is the iframe's src *host* (the
     /// sanitizer extracts it); true when it is a YouTube host.
-    async fn hook_iframe_whitelisted(
-        &self,
-        _host: &mut HostCtx,
-        src: &str,
-    ) -> bool {
- YOUTUBE_HOSTS.contains(&src) 
+    async fn hook_iframe_whitelisted(&self, _host: &mut HostCtx, src: &str) -> bool {
+        YOUTUBE_HOSTS.contains(&src)
     }
 
     /// `hook_render_enclosure($entry, $id, $rv)` — render a YouTube enclosure as
@@ -68,7 +67,10 @@ impl Plugin for AfYoutubeEmbed {
         _article_id: i32,
         _rv: &Value,
     ) -> String {
-        let url = entry.get("content_url").and_then(Value::as_str).unwrap_or("");
+        let url = entry
+            .get("content_url")
+            .and_then(Value::as_str)
+            .unwrap_or("");
         match crate::headlines::url_to_youtube_vid(url) {
             Some(vid) => embed_markup(&vid),
             None => String::new(),
@@ -101,14 +103,18 @@ fn embed_markup(vid_id: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
     use super::*;
     use serde_json::json;
     use sqlx::postgres::PgPoolOptions;
+    use std::sync::Arc;
 
     /// A host with only `af_youtube_embed` + a lazy pool (these hooks never touch
     /// the DB).
-    fn setup() -> (Arc<PluginHost>, sqlx::postgres::PgPool, crate::core::config::Config) {
+    fn setup() -> (
+        Arc<PluginHost>,
+        sqlx::postgres::PgPool,
+        crate::core::config::Config,
+    ) {
         let host = Arc::new(PluginHost::startup(&[|| Box::new(AfYoutubeEmbed)]));
         let pool = PgPoolOptions::new()
             .connect_lazy("postgres://ttrss:ttrss@localhost/ttrss_test")
@@ -123,7 +129,10 @@ mod tests {
         let p = AfYoutubeEmbed;
         for h in YOUTUBE_HOSTS {
             let mut ctx = HostCtx::empty(Arc::clone(&host), pool.clone(), test_cfg.clone());
-            assert!(p.hook_iframe_whitelisted(&mut ctx, h).await, "should whitelist {h}");
+            assert!(
+                p.hook_iframe_whitelisted(&mut ctx, h).await,
+                "should whitelist {h}"
+            );
         }
         let mut ctx = HostCtx::empty(Arc::clone(&host), pool.clone(), test_cfg.clone());
         assert!(!p.hook_iframe_whitelisted(&mut ctx, "vimeo.com").await);
@@ -147,7 +156,9 @@ mod tests {
         assert!(out.contains("frameborder='0'"));
 
         let not_yt = json!({ "content_url": "https://vimeo.com/12345" });
-        let out = p.hook_render_enclosure(&mut ctx, &not_yt, 1, &json!({})).await;
+        let out = p
+            .hook_render_enclosure(&mut ctx, &not_yt, 1, &json!({}))
+            .await;
         assert_eq!(out, "");
     }
 
@@ -170,16 +181,24 @@ mod tests {
     /// core's iframe pass).
     #[tokio::test]
     async fn youtube_iframe_keeps_loose_sandbox() {
-        let host =
-            Arc::new(crate::pluginhost::PluginHost::startup(&crate::pluginhost::all_plugins()));
+        let host = Arc::new(crate::pluginhost::PluginHost::startup(
+            &crate::pluginhost::all_plugins(),
+        ));
         let pool = sqlx::postgres::PgPoolOptions::new()
             .connect_lazy("postgres://ttrss:ttrss@localhost/ttrss_test")
             .unwrap();
         let test_cfg = crate::core::config::Config::for_test();
-        let mut ctx =
-            HostCtx::for_user(Arc::clone(&host), pool.clone(), test_cfg.clone(), Some(1), None, 0, &[], &["af_youtube_embed"]);
-        let html =
-            "<div><iframe src=\"http://www.youtube.com/embed/abc123\" width=\"400\"></iframe></div>";
+        let mut ctx = HostCtx::for_user(
+            Arc::clone(&host),
+            pool.clone(),
+            test_cfg.clone(),
+            Some(1),
+            None,
+            0,
+            &[],
+            &["af_youtube_embed"],
+        );
+        let html = "<div><iframe src=\"http://www.youtube.com/embed/abc123\" width=\"400\"></iframe></div>";
         let out = crate::sanitizer::sanitize(
             html,
             false,
@@ -202,14 +221,23 @@ mod tests {
     /// sandbox even with the plugin active.
     #[tokio::test]
     async fn non_youtube_iframe_gets_restrictive_sandbox() {
-        let host =
-            Arc::new(crate::pluginhost::PluginHost::startup(&crate::pluginhost::all_plugins()));
+        let host = Arc::new(crate::pluginhost::PluginHost::startup(
+            &crate::pluginhost::all_plugins(),
+        ));
         let pool = sqlx::postgres::PgPoolOptions::new()
             .connect_lazy("postgres://ttrss:ttrss@localhost/ttrss_test")
             .unwrap();
         let test_cfg = crate::core::config::Config::for_test();
-        let mut ctx =
-            HostCtx::for_user(Arc::clone(&host), pool.clone(), test_cfg.clone(), Some(1), None, 0, &[], &["af_youtube_embed"]);
+        let mut ctx = HostCtx::for_user(
+            Arc::clone(&host),
+            pool.clone(),
+            test_cfg.clone(),
+            Some(1),
+            None,
+            0,
+            &[],
+            &["af_youtube_embed"],
+        );
         let html = "<div><iframe src=\"http://example.com/embed\" width=\"400\"></iframe></div>";
         let out = crate::sanitizer::sanitize(
             html,

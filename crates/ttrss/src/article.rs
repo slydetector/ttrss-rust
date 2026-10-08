@@ -17,15 +17,15 @@ use std::sync::OnceLock;
 
 use crate::util::{param_int_array, scalar_str};
 use kuchikiki::traits::TendrilSink;
-use kuchikiki::{parse_html, NodeRef};
-use serde_json::{json, Map, Value};
+use kuchikiki::{NodeRef, parse_html};
+use serde_json::{Map, Value, json};
 use sha1::Digest as _;
-use sqlx::Row;
 use sqlx::AssertSqlSafe;
+use sqlx::Row;
 
+use crate::AppState;
 use crate::sanitizer::rewrite_relative;
 use crate::session::Sess;
-use crate::AppState;
 
 // `Labels::{label_to_feed_id, feed_to_label_id}` (canonical home: labels.rs).
 pub use crate::labels::{feed_to_label_id, label_to_feed_id};
@@ -128,15 +128,14 @@ async fn mark_articles_by_id(
         .await;
     // `run_hooks(HOOK_ARTICLES_MARK_TOGGLED, $ids)` (RPC.php:268).
     let mut pctx = crate::pluginhost::dispatch::session_ctx(state, sess).await;
-    pctx
-        .run_hooks(
-            crate::pluginhost::HOOK_ARTICLES_MARK_TOGGLED,
-            |plugin, host| {
-                let ids = ids.to_vec();
-                Box::pin(async move { plugin.hook_articles_mark_toggled(host, &ids).await })
-            },
-        )
-        .await;
+    pctx.run_hooks(
+        crate::pluginhost::HOOK_ARTICLES_MARK_TOGGLED,
+        |plugin, host| {
+            let ids = ids.to_vec();
+            Box::pin(async move { plugin.hook_articles_mark_toggled(host, &ids).await })
+        },
+    )
+    .await;
 }
 
 /// `RPC::publishArticlesById`: publish / unpublish / toggle the given
@@ -170,15 +169,14 @@ async fn publish_articles_by_id(
         .await;
     // `run_hooks(HOOK_ARTICLES_PUBLISH_TOGGLED, $ids)` (RPC.php:296).
     let mut pctx = crate::pluginhost::dispatch::session_ctx(state, sess).await;
-    pctx
-        .run_hooks(
-            crate::pluginhost::HOOK_ARTICLES_PUBLISH_TOGGLED,
-            |plugin, host| {
-                let ids = ids.to_vec();
-                Box::pin(async move { plugin.hook_articles_publish_toggled(host, &ids).await })
-            },
-        )
-        .await;
+    pctx.run_hooks(
+        crate::pluginhost::HOOK_ARTICLES_PUBLISH_TOGGLED,
+        |plugin, host| {
+            let ids = ids.to_vec();
+            Box::pin(async move { plugin.hook_articles_publish_toggled(host, &ids).await })
+        },
+    )
+    .await;
 }
 
 /// `Article::_get_tags`: the tags of article `id` for `owner_uid` (the
@@ -377,25 +375,29 @@ pub async fn get_image(
             article.clone(),
             Value::Null,
         );
-        host
-            .chain_hooks_callback(
-                crate::pluginhost::HOOK_ARTICLE_IMAGE,
-                &mut state,
-                |plugin, host, st| {
-                    Box::pin(async move {
-                        let r = plugin
-                            .hook_article_image(host, &st.0, &st.1, &st.2, &st.3)
-                            .await;
-                        st.4 = r.clone();
-                        r
-                    })
-                },
-                // PHP: `return !empty($article_image)` — first hard match.
-                |r, _| r.get(0).and_then(Value::as_str).is_some_and(|s| !s.is_empty()),
-            )
-            .await;
+        host.chain_hooks_callback(
+            crate::pluginhost::HOOK_ARTICLE_IMAGE,
+            &mut state,
+            |plugin, host, st| {
+                Box::pin(async move {
+                    let r = plugin
+                        .hook_article_image(host, &st.0, &st.1, &st.2, &st.3)
+                        .await;
+                    st.4 = r.clone();
+                    r
+                })
+            },
+            // PHP: `return !empty($article_image)` — first hard match.
+            |r, _| {
+                r.get(0)
+                    .and_then(Value::as_str)
+                    .is_some_and(|s| !s.is_empty())
+            },
+        )
+        .await;
         if let Some(triple) = state.4.as_array() {
-            article_image = triple.first()
+            article_image = triple
+                .first()
                 .and_then(Value::as_str)
                 .unwrap_or("")
                 .to_string();
@@ -456,11 +458,10 @@ pub async fn get_image(
                     .get("content_type")
                     .and_then(Value::as_str)
                     .is_some_and(|ct| ct.contains("image/"));
-                if is_image
-                    && let Some(url) = enc.get("content_url").and_then(Value::as_str) {
-                        article_image = url.to_string();
-                        break;
-                    }
+                if is_image && let Some(url) = enc.get("content_url").and_then(Value::as_str) {
+                    article_image = url.to_string();
+                    break;
+                }
             }
         }
 
@@ -536,9 +537,10 @@ fn first_source_src(root: &NodeRef) -> Option<String> {
     while let Some(node) = stack.pop() {
         if let Some(el) = node.as_element()
             && el.name.local.to_string().eq_ignore_ascii_case("source")
-                && let Some(src) = el.attributes.borrow().get("src") {
-                    return Some(src.to_string());
-                }
+            && let Some(src) = el.attributes.borrow().get("src")
+        {
+            return Some(src.to_string());
+        }
         let children: Vec<NodeRef> = node.children().collect();
         for child in children.into_iter().rev() {
             stack.push(child);
@@ -698,16 +700,17 @@ pub async fn create_published_article(
         }
         // `run_hooks(HOOK_ARTICLES_PUBLISH_TOGGLED, [$ref_id])`
         // (Article.php:105/116).
-        pctx
-            .run_hooks(
-                crate::pluginhost::HOOK_ARTICLES_PUBLISH_TOGGLED,
-                |plugin, host| {
-                    Box::pin(async move {
-                        plugin.hook_articles_publish_toggled(host, &[ref_id as i64]).await
-                    })
-                },
-            )
-            .await;
+        pctx.run_hooks(
+            crate::pluginhost::HOOK_ARTICLES_PUBLISH_TOGGLED,
+            |plugin, host| {
+                Box::pin(async move {
+                    plugin
+                        .hook_articles_publish_toggled(host, &[ref_id as i64])
+                        .await
+                })
+            },
+        )
+        .await;
         for label in &labels {
             crate::labels::add_article(pool, ref_id as i64, label.trim(), owner_uid).await;
         }
@@ -738,16 +741,17 @@ pub async fn create_published_article(
             insert_shared_user_entry(&mut tx, ref_id, owner_uid).await;
             // `run_hooks(HOOK_ARTICLES_PUBLISH_TOGGLED, [$ref_id])`
             // (Article.php:116).
-            pctx
-                .run_hooks(
-                    crate::pluginhost::HOOK_ARTICLES_PUBLISH_TOGGLED,
-                    |plugin, host| {
-                        Box::pin(async move {
-                            plugin.hook_articles_publish_toggled(host, &[ref_id as i64]).await
-                        })
-                    },
-                )
-                .await;
+            pctx.run_hooks(
+                crate::pluginhost::HOOK_ARTICLES_PUBLISH_TOGGLED,
+                |plugin, host| {
+                    Box::pin(async move {
+                        plugin
+                            .hook_articles_publish_toggled(host, &[ref_id as i64])
+                            .await
+                    })
+                },
+            )
+            .await;
             for label in &labels {
                 crate::labels::add_article(pool, ref_id as i64, label.trim(), owner_uid).await;
             }
@@ -782,19 +786,21 @@ pub async fn labels_of(pool: &sqlx::PgPool, ids: &[i64], uid: i64) -> Vec<i64> {
         let cache: Option<String> = row.get(0);
         if let Some(cache) = cache
             && let Ok(v) = serde_json::from_str::<Value>(cache.trim())
-                && let Some(arr) = v.as_array() {
-                    for label in arr {
-                        // Only list-form entries carry a feed id; the
-                        // `{"no-labels":1}` object form is skipped.
-                        if let Some(items) = label.as_array()
-                            && let Some(first) = items.first().and_then(Value::as_i64) {
-                                let lid = feed_to_label_id(first);
-                                if seen.insert(lid) {
-                                    rv.push(lid);
-                                }
-                            }
+            && let Some(arr) = v.as_array()
+        {
+            for label in arr {
+                // Only list-form entries carry a feed id; the
+                // `{"no-labels":1}` object form is skipped.
+                if let Some(items) = label.as_array()
+                    && let Some(first) = items.first().and_then(Value::as_i64)
+                {
+                    let lid = feed_to_label_id(first);
+                    if seen.insert(lid) {
+                        rv.push(lid);
                     }
                 }
+            }
+        }
     }
     rv
 }
@@ -821,9 +827,10 @@ pub async fn feeds_of(pool: &sqlx::PgPool, ids: &[i64], uid: i64) -> Vec<i64> {
     for row in &rows {
         let feed_id: Option<i32> = row.get(0);
         if let Some(fid) = feed_id
-            && seen.insert(fid as i64) {
-                rv.push(fid as i64);
-            }
+            && seen.insert(fid as i64)
+        {
+            rv.push(fid as i64);
+        }
     }
     rv
 }
@@ -851,11 +858,7 @@ pub async fn catchup_selected(state: &AppState, sess: &Sess, extra: &Map<String,
 }
 
 /// `RPC::markSelected`.
-pub async fn mark_selected(
-    state: &AppState,
-    sess: &Sess,
-    extra: &Map<String, Value>,
-) -> Value {
+pub async fn mark_selected(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Value {
     let uid = sess.data().uid().unwrap_or(0);
     let pool = state.db.pool();
     let ids = param_int_array(extra, "ids");
@@ -869,11 +872,7 @@ pub async fn mark_selected(
 }
 
 /// `RPC::publishSelected`.
-pub async fn publish_selected(
-    state: &AppState,
-    sess: &Sess,
-    extra: &Map<String, Value>,
-) -> Value {
+pub async fn publish_selected(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Value {
     let uid = sess.data().uid().unwrap_or(0);
     let pool = state.db.pool();
     let ids = param_int_array(extra, "ids");
@@ -888,11 +887,7 @@ pub async fn publish_selected(
 
 /// `RPC::mark`: star / unstar one article (`mark` is the cleaned request
 /// string, cast to boolean by Postgres exactly as PHP's `marked = ?`).
-pub async fn mark(
-    state: &AppState,
-    sess: &Sess,
-    extra: &Map<String, Value>,
-) -> Value {
+pub async fn mark(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Value {
     let uid = sess.data().uid().unwrap_or(0);
     let mark = cleaned_str(extra, "mark");
     let id = cleaned_str(extra, "id");
@@ -908,26 +903,23 @@ pub async fn mark(
     // `run_hooks(HOOK_ARTICLES_MARK_TOGGLED, [$id])` (RPC.php:72).
     if let Ok(id_i) = id.parse::<i32>() {
         let mut pctx = crate::pluginhost::dispatch::session_ctx(state, sess).await;
-        pctx
-            .run_hooks(
-                crate::pluginhost::HOOK_ARTICLES_MARK_TOGGLED,
-                |plugin, host| {
-                    Box::pin(async move {
-                        plugin.hook_articles_mark_toggled(host, &[id_i as i64]).await
-                    })
-                },
-            )
-            .await;
+        pctx.run_hooks(
+            crate::pluginhost::HOOK_ARTICLES_MARK_TOGGLED,
+            |plugin, host| {
+                Box::pin(async move {
+                    plugin
+                        .hook_articles_mark_toggled(host, &[id_i as i64])
+                        .await
+                })
+            },
+        )
+        .await;
     }
     json!({ "message": "UPDATE_COUNTERS" })
 }
 
 /// `RPC::publ`: publish / unpublish one article (see [`mark`]).
-pub async fn publ(
-    state: &AppState,
-    sess: &Sess,
-    extra: &Map<String, Value>,
-) -> Value {
+pub async fn publ(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Value {
     let uid = sess.data().uid().unwrap_or(0);
     let pub_ = cleaned_str(extra, "pub");
     let id = cleaned_str(extra, "id");
@@ -943,16 +935,17 @@ pub async fn publ(
     // `run_hooks(HOOK_ARTICLES_PUBLISH_TOGGLED, [$id])` (RPC.php:100).
     if let Ok(id_i) = id.parse::<i32>() {
         let mut pctx = crate::pluginhost::dispatch::session_ctx(state, sess).await;
-        pctx
-            .run_hooks(
-                crate::pluginhost::HOOK_ARTICLES_PUBLISH_TOGGLED,
-                |plugin, host| {
-                    Box::pin(async move {
-                        plugin.hook_articles_publish_toggled(host, &[id_i as i64]).await
-                    })
-                },
-            )
-            .await;
+        pctx.run_hooks(
+            crate::pluginhost::HOOK_ARTICLES_PUBLISH_TOGGLED,
+            |plugin, host| {
+                Box::pin(async move {
+                    plugin
+                        .hook_articles_publish_toggled(host, &[id_i as i64])
+                        .await
+                })
+            },
+        )
+        .await;
     }
     json!({ "message": "UPDATE_COUNTERS" })
 }

@@ -7,11 +7,11 @@
 //! `k` → `prev_feed`, `K` → `prev_unread_feed` (the reverse of the default,
 //! which has `j` = next article, `k` = prev article).
 
-use crate::pluginhost::host::{HostCtx, PluginHost};
-use async_trait::async_trait;
-use crate::pluginhost::plugin::{About, Plugin};
 use crate::pluginhost::HOOK_HOTKEY_MAP;
-use serde_json::{json, Value};
+use crate::pluginhost::host::{HostCtx, PluginHost};
+use crate::pluginhost::plugin::{About, Plugin};
+use async_trait::async_trait;
+use serde_json::{Value, json};
 
 /// PHP's `class Hotkeys_Swap_JK extends Plugin`.
 #[derive(Clone, Copy)]
@@ -37,11 +37,7 @@ impl Plugin for HotkeysSwapJk {
     }
 
     /// `hook_hotkey_map($hotkeys)` — swap j/k to J/K (vi-style navigation).
-    async fn hook_hotkey_map(
-        &self,
-        _host: &mut HostCtx,
-        hotkeys: &Value,
-    ) -> Value {
+    async fn hook_hotkey_map(&self, _host: &mut HostCtx, hotkeys: &Value) -> Value {
         let mut m = hotkeys.clone();
         let obj = m.as_object_mut().unwrap();
         obj.insert("j".into(), json!("next_feed"));
@@ -54,9 +50,9 @@ impl Plugin for HotkeysSwapJk {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
     use super::*;
     use serde_json::json;
+    use std::sync::Arc;
 
     #[test]
     fn metadata() {
@@ -68,20 +64,28 @@ mod tests {
 
     #[tokio::test]
     async fn swaps_jk() {
-        let host = Arc::new(PluginHost::startup(&[|| Box::new(HotkeysSwapJk) as Box<dyn Plugin>]));
+        let host = Arc::new(PluginHost::startup(&[|| {
+            Box::new(HotkeysSwapJk) as Box<dyn Plugin>
+        }]));
         let pool = sqlx::postgres::PgPoolOptions::new()
             .connect_lazy("postgres://ttrss:ttrss@localhost/ttrss_test")
             .unwrap();
         let cfg = crate::core::config::Config::for_test();
-        let mut ctx =
-            HostCtx::for_user(Arc::clone(&host), pool.clone(), cfg.clone(), Some(1), None, 0, &[], &["hotkeys_swap_jk"]);
+        let mut ctx = HostCtx::for_user(
+            Arc::clone(&host),
+            pool.clone(),
+            cfg.clone(),
+            Some(1),
+            None,
+            0,
+            &[],
+            &["hotkeys_swap_jk"],
+        );
         let host = ctx.host_arc();
 
         let plugin = host.get_plugin("hotkeys_swap_jk").unwrap();
 
-        let result = plugin
-            .hook_hotkey_map(&mut ctx, &json!({}))
-            .await;
+        let result = plugin.hook_hotkey_map(&mut ctx, &json!({})).await;
         assert_eq!(result["j"], "next_feed");
         assert_eq!(result["J"], "next_unread_feed");
         assert_eq!(result["k"], "prev_feed");

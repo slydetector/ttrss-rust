@@ -57,12 +57,13 @@ pub fn parse_date(s: &str) -> Option<i64> {
         return Some(dt.and_utc().timestamp());
     }
     // `YYYY-MM` partial → the 1st (PHP `strtotime`'s day default).
-    if t.len() == 7 && t.as_bytes()[4] == b'-'
+    if t.len() == 7
+        && t.as_bytes()[4] == b'-'
         && let (Ok(y), Ok(m)) = (t[..4].parse::<i32>(), t[5..].parse::<u32>())
-            && let Some(d) = NaiveDate::from_ymd_opt(y, m, 1)
-        {
-            return Some(NaiveDateTime::new(d, NaiveTime::MIN).and_utc().timestamp());
-        }
+        && let Some(d) = NaiveDate::from_ymd_opt(y, m, 1)
+    {
+        return Some(NaiveDateTime::new(d, NaiveTime::MIN).and_utc().timestamp());
+    }
 
     // Everything else: `dateparser` (zoneless → UTC).
     if let Ok(dt) = dateparser::parse_with_timezone(t, &Utc) {
@@ -73,11 +74,18 @@ pub fn parse_date(s: &str) -> Option<i64> {
     // a space separator (a documented dateparser format) — only when the `T`
     // sits between digits (an ISO position), so month names are untouched.
     if let Some(i) = t.find('T')
-        && t[..i].chars().next_back().is_some_and(|c| c.is_ascii_digit())
-        && t[i + 1..].chars().next().is_some_and(|c| c.is_ascii_digit())
-        && let Ok(dt) = dateparser::parse_with_timezone(&t.replacen('T', " ", 1), &Utc) {
-            return Some(dt.timestamp());
-        }
+        && t[..i]
+            .chars()
+            .next_back()
+            .is_some_and(|c| c.is_ascii_digit())
+        && t[i + 1..]
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_digit())
+        && let Ok(dt) = dateparser::parse_with_timezone(&t.replacen('T', " ", 1), &Utc)
+    {
+        return Some(dt.timestamp());
+    }
     None
 }
 

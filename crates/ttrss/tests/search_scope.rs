@@ -21,13 +21,13 @@
 
 mod common;
 
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 use sqlx::Row;
-use ttrss::core::db::Db;
-use ttrss::headlines::{get_headlines_query, HeadlinesParams};
-use ttrss::session::Sess;
-use ttrss::AppState;
 use test_db::template::with_test_db;
+use ttrss::AppState;
+use ttrss::core::db::Db;
+use ttrss::headlines::{HeadlinesParams, get_headlines_query};
+use ttrss::session::Sess;
 
 async fn setup(url: &str) -> (AppState, Sess, Db) {
     let db = common::make_db_from_url(url).await.expect("test db");
@@ -81,199 +81,227 @@ async fn entries(db: &Db) -> Vec<Entry> {
 }
 #[tokio::test]
 async fn headline_fts_filters_rows() {
-    with_test_db(|url| Box::pin(async move {
-    let (_state, _sess, db) = setup(&url).await;
-    let lang = "english";
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (_state, _sess, db) = setup(&url).await;
+            let lang = "english";
 
-    // Bare words → FTS (stemmed, english config). Feed 1 = HN (refs 1-3),
-    // 2 = Register (4-6), 3 = Ars (7-8), 4 = MIT Tech Review (9-11).
-    assert_eq!(head_ids(&db, "1", "task", lang).await, vec![1]);
-    assert_eq!(head_ids(&db, "1", "performance", lang).await, vec![2]);
-    assert_eq!(head_ids(&db, "2", "outage", lang).await, vec![5]);
-    assert_eq!(head_ids(&db, "3", "kubernetes", lang).await, vec![8]);
-    assert_eq!(head_ids(&db, "4", "quantum", lang).await, vec![11]);
-    // Stemming: singular query matches the plural in the content.
-    assert_eq!(head_ids(&db, "1", "improvement", lang).await, vec![2]);
-    // No match inside the feed view (the word lives in another feed).
-    assert_eq!(head_ids(&db, "1", "outage", lang).await, Vec::<i32>::new());
-    // FTS operator: union of the two word sets within the feed.
-    assert_eq!(
-        head_ids(&db, "2", "autonomous|outage", lang).await,
-        vec![4, 5]
-    );
-    // "postgres" does not match "postgresql" (article 2, feed 1).
-    assert_eq!(
-        head_ids(&db, "1", "postgres", lang).await,
-        Vec::<i32>::new()
-    );
-        Ok(())
-    })).await.unwrap();
+            // Bare words → FTS (stemmed, english config). Feed 1 = HN (refs 1-3),
+            // 2 = Register (4-6), 3 = Ars (7-8), 4 = MIT Tech Review (9-11).
+            assert_eq!(head_ids(&db, "1", "task", lang).await, vec![1]);
+            assert_eq!(head_ids(&db, "1", "performance", lang).await, vec![2]);
+            assert_eq!(head_ids(&db, "2", "outage", lang).await, vec![5]);
+            assert_eq!(head_ids(&db, "3", "kubernetes", lang).await, vec![8]);
+            assert_eq!(head_ids(&db, "4", "quantum", lang).await, vec![11]);
+            // Stemming: singular query matches the plural in the content.
+            assert_eq!(head_ids(&db, "1", "improvement", lang).await, vec![2]);
+            // No match inside the feed view (the word lives in another feed).
+            assert_eq!(head_ids(&db, "1", "outage", lang).await, Vec::<i32>::new());
+            // FTS operator: union of the two word sets within the feed.
+            assert_eq!(
+                head_ids(&db, "2", "autonomous|outage", lang).await,
+                vec![4, 5]
+            );
+            // "postgres" does not match "postgresql" (article 2, feed 1).
+            assert_eq!(
+                head_ids(&db, "1", "postgres", lang).await,
+                Vec::<i32>::new()
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
 async fn headline_fts_empty_language_is_unexecutable() {
-    with_test_db(|url| Box::pin(async move {
-    let (_state, _sess, db) = setup(&url).await;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (_state, _sess, db) = setup(&url).await;
 
-    // Default search language "" → to_tsquery('', …) → parse error in the
-    // dry run → filter degrades to `false`, no rows, override message.
-    let q = get_headlines_query(&db, &params("1", "task", "")).await;
-    assert!(q.article_rows.is_empty());
-    assert_eq!(q.query_error_override, "Incorrect search syntax: task.");
-    assert_eq!(q.search_words, vec!["task".to_string()]);
-        Ok(())
-    })).await.unwrap();
+            // Default search language "" → to_tsquery('', …) → parse error in the
+            // dry run → filter degrades to `false`, no rows, override message.
+            let q = get_headlines_query(&db, &params("1", "task", "")).await;
+            assert!(q.article_rows.is_empty());
+            assert_eq!(q.query_error_override, "Incorrect search syntax: task.");
+            assert_eq!(q.search_words, vec!["task".to_string()]);
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
 async fn headline_title_like_filters() {
-    with_test_db(|url| Box::pin(async move {
-    let (_state, _sess, db) = setup(&url).await;
-    let lang = "english";
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (_state, _sess, db) = setup(&url).await;
+            let lang = "english";
 
-    // `title:` is a case-insensitive substring match on the title — no FTS
-    // involved, so it works with any (or no) search language.
-    assert_eq!(head_ids(&db, "1", "title:postgres", lang).await, vec![2]); // "PostgreSQL"
-    assert_eq!(head_ids(&db, "3", "title:Kubernetes", lang).await, vec![8]);
-    assert_eq!(head_ids(&db, "2", "title:outage", lang).await, vec![5]);
-    // Negation: everything except titles containing the word.
-    assert_eq!(head_ids(&db, "2", "-title:outage", lang).await, vec![4, 6]);
-        Ok(())
-    })).await.unwrap();
+            // `title:` is a case-insensitive substring match on the title — no FTS
+            // involved, so it works with any (or no) search language.
+            assert_eq!(head_ids(&db, "1", "title:postgres", lang).await, vec![2]); // "PostgreSQL"
+            assert_eq!(head_ids(&db, "3", "title:Kubernetes", lang).await, vec![8]);
+            assert_eq!(head_ids(&db, "2", "title:outage", lang).await, vec![5]);
+            // Negation: everything except titles containing the word.
+            assert_eq!(head_ids(&db, "2", "-title:outage", lang).await, vec![4, 6]);
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
 async fn headline_star_search() {
-    with_test_db(|url| Box::pin(async move {
-    let (_state, _sess, db) = setup(&url).await;
-    let lang = "english";
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (_state, _sess, db) = setup(&url).await;
+            let lang = "english";
 
-    // Only ref 3 is marked in feed 1; only ref 8 in feed 3.
-    assert_eq!(head_ids(&db, "1", "star:true", lang).await, vec![3]);
-    assert_eq!(head_ids(&db, "3", "star:true", lang).await, vec![8]);
-    assert_eq!(head_ids(&db, "1", "star:false", lang).await, vec![1, 2]);
-    // Combined: FTS + star in the same query.
-    assert_eq!(
-        head_ids(&db, "1", "task|webassembly star:true", lang).await,
-        vec![3]
-    );
-    assert_eq!(
-        head_ids(&db, "1", "task|webassembly star:false", lang).await,
-        vec![1]
-    );
-        Ok(())
-    })).await.unwrap();
+            // Only ref 3 is marked in feed 1; only ref 8 in feed 3.
+            assert_eq!(head_ids(&db, "1", "star:true", lang).await, vec![3]);
+            assert_eq!(head_ids(&db, "3", "star:true", lang).await, vec![8]);
+            assert_eq!(head_ids(&db, "1", "star:false", lang).await, vec![1, 2]);
+            // Combined: FTS + star in the same query.
+            assert_eq!(
+                head_ids(&db, "1", "task|webassembly star:true", lang).await,
+                vec![3]
+            );
+            assert_eq!(
+                head_ids(&db, "1", "task|webassembly star:false", lang).await,
+                vec![1]
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
 async fn headline_dry_run_errors() {
-    with_test_db(|url| Box::pin(async move {
-    let (_state, _sess, db) = setup(&url).await;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (_state, _sess, db) = setup(&url).await;
 
-    // `note:` resolves against `ttrss_user_entries.note` (valid SQL); the
-    // fixture has no notes until we add one.
-    sqlx::query("UPDATE ttrss_user_entries SET note = 'important abc' WHERE ref_id = 1")
-        .execute(db.pool())
-        .await
-        .expect("set note");
-    assert_eq!(head_ids(&db, "1", "note:abc", "").await, vec![1]);
-    assert_eq!(head_ids(&db, "1", "-note:abc", "").await, vec![2, 3]);
+            // `note:` resolves against `ttrss_user_entries.note` (valid SQL); the
+            // fixture has no notes until we add one.
+            sqlx::query("UPDATE ttrss_user_entries SET note = 'important abc' WHERE ref_id = 1")
+                .execute(db.pool())
+                .await
+                .expect("set note");
+            assert_eq!(head_ids(&db, "1", "note:abc", "").await, vec![1]);
+            assert_eq!(head_ids(&db, "1", "-note:abc", "").await, vec![2, 3]);
 
-    // Unrecognized `@date` values emit a fragment that errors at execution;
-    // the words carry the specific diagnostic.
-    let q = get_headlines_query(&db, &params("1", "@bogus-word", "")).await;
-    assert!(q.article_rows.is_empty());
-    assert_eq!(
-        q.query_error_override,
-        // (double period: the word carries its own, the template adds one)
-        "Incorrect search syntax: The date keyword \"bogus-word\" was not recognized.."
-    );
+            // Unrecognized `@date` values emit a fragment that errors at execution;
+            // the words carry the specific diagnostic.
+            let q = get_headlines_query(&db, &params("1", "@bogus-word", "")).await;
+            assert!(q.article_rows.is_empty());
+            assert_eq!(
+                q.query_error_override,
+                // (double period: the word carries its own, the template adds one)
+                "Incorrect search syntax: The date keyword \"bogus-word\" was not recognized.."
+            );
 
-    // A valid search leaves the override empty.
-    let q = get_headlines_query(&db, &params("1", "task", "english")).await;
-    assert!(q.query_error_override.is_empty());
-    assert_eq!(q.search_words, vec!["task".to_string()]);
-        Ok(())
-    })).await.unwrap();
+            // A valid search leaves the override empty.
+            let q = get_headlines_query(&db, &params("1", "task", "english")).await;
+            assert!(q.query_error_override.is_empty());
+            assert_eq!(q.search_words, vec!["task".to_string()]);
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
 async fn catchup_scoped_to_search() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess, db) = setup(&url).await;
-    let before = entries(&db).await;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess, db) = setup(&url).await;
+            let before = entries(&db).await;
 
-    // `RPC::catchupFeed` with a search: only the unread entries matching
-    // "task" (article 1 in feed 1) are marked read.
-    let result = ttrss::feeds::catchup_feed(
-        &state,
-        &sess,
-        &request(&[
-            ("feed_id", json!("1")),
-            ("search_query", json!("task")),
-            ("search_lang", json!("english")),
-        ]),
-    )
-    .await;
-    assert!(result.get("counters").is_some(), "got {result}");
+            // `RPC::catchupFeed` with a search: only the unread entries matching
+            // "task" (article 1 in feed 1) are marked read.
+            let result = ttrss::feeds::catchup_feed(
+                &state,
+                &sess,
+                &request(&[
+                    ("feed_id", json!("1")),
+                    ("search_query", json!("task")),
+                    ("search_lang", json!("english")),
+                ]),
+            )
+            .await;
+            assert!(result.get("counters").is_some(), "got {result}");
 
-    let after = entries(&db).await;
-    for (b, a) in before.iter().zip(&after) {
-        if b.ref_id == 1 {
-            assert!(!a.unread && a.last_read_set, "ref 1 should be read");
-        } else {
-            assert_eq!(a.unread, b.unread, "ref {} untouched", b.ref_id);
-            assert_eq!(a.last_read_set, b.last_read_set);
-        }
-    }
-        Ok(())
-    })).await.unwrap();
+            let after = entries(&db).await;
+            for (b, a) in before.iter().zip(&after) {
+                if b.ref_id == 1 {
+                    assert!(!a.unread && a.last_read_set, "ref 1 should be read");
+                } else {
+                    assert_eq!(a.unread, b.unread, "ref {} untouched", b.ref_id);
+                    assert_eq!(a.last_read_set, b.last_read_set);
+                }
+            }
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
 async fn catchup_search_with_mode_window() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess, db) = setup(&url).await;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess, db) = setup(&url).await;
 
-    // A FRESH unread "task" article in feed 1 (date_entered = NOW()).
-    sqlx::query(
-        "INSERT INTO ttrss_entries (id, title, guid, link, updated, content,
+            // A FRESH unread "task" article in feed 1 (date_entered = NOW()).
+            sqlx::query(
+                "INSERT INTO ttrss_entries (id, title, guid, link, updated, content,
             content_hash, date_entered, date_updated, tsvector_combined)
          VALUES (12, 'Fresh task queue article', 'tag:test:12',
             'https://example.com/12', NOW(), '<p>task</p>', 'h',
             NOW(), NOW(), to_tsvector('english', 'Fresh task queue article'))",
-    )
-    .execute(db.pool())
-    .await
-    .expect("insert fresh entry");
-    sqlx::query(
-        "INSERT INTO ttrss_user_entries
+            )
+            .execute(db.pool())
+            .await
+            .expect("insert fresh entry");
+            sqlx::query(
+                "INSERT INTO ttrss_user_entries
             (ref_id, uuid, feed_id, owner_uid, unread, marked, tag_cache, label_cache)
          VALUES (12, 'uuid-fresh-001', 1, 1, true, false, '', '')",
-    )
-    .execute(db.pool())
+            )
+            .execute(db.pool())
+            .await
+            .expect("insert fresh user entry");
+
+            // mode=1day: only entries OLDER than a day are in scope → the old
+            // article 1 is read, the fresh 12 is not.
+            ttrss::feeds::catchup_feed(
+                &state,
+                &sess,
+                &request(&[
+                    ("feed_id", json!("1")),
+                    ("mode", json!("1day")),
+                    ("search_query", json!("task")),
+                    ("search_lang", json!("english")),
+                ]),
+            )
+            .await;
+
+            let after = entries(&db).await;
+            let by_id = |id: i32| after.iter().find(|e| e.ref_id == id).unwrap();
+            assert!(!by_id(1).unread && by_id(1).last_read_set, "old ref 1 read");
+            assert!(by_id(12).unread, "fresh ref 12 excluded by the 1day window");
+            assert!(by_id(2).unread, "ref 2 untouched");
+            Ok(())
+        })
+    })
     .await
-    .expect("insert fresh user entry");
-
-    // mode=1day: only entries OLDER than a day are in scope → the old
-    // article 1 is read, the fresh 12 is not.
-    ttrss::feeds::catchup_feed(
-        &state,
-        &sess,
-        &request(&[
-            ("feed_id", json!("1")),
-            ("mode", json!("1day")),
-            ("search_query", json!("task")),
-            ("search_lang", json!("english")),
-        ]),
-    )
-    .await;
-
-    let after = entries(&db).await;
-    let by_id = |id: i32| after.iter().find(|e| e.ref_id == id).unwrap();
-    assert!(!by_id(1).unread && by_id(1).last_read_set, "old ref 1 read");
-    assert!(by_id(12).unread, "fresh ref 12 excluded by the 1day window");
-    assert!(by_id(2).unread, "ref 2 untouched");
-        Ok(())
-    })).await.unwrap();
+    .unwrap();
 }

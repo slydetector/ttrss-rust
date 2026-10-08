@@ -47,9 +47,9 @@ static RFC822_TS: LazyLock<regex::Regex> = LazyLock::new(|| {
 /// JSON-escaped form (`\\/`), because the PHP `json_encode` response body
 /// escapes `/` while the Rust `serde_json` body does not — so the two sides
 /// reach the normalizer in different forms.
-static SLASH_TS: LazyLock<regex::Regex> =
-    LazyLock::new(||
-        regex::Regex::new(r"\d{4}\\?/\d{2}\\?/\d{2}(?: \d{1,2}:\d{2}(?::\d{2})?)?").unwrap());
+static SLASH_TS: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(r"\d{4}\\?/\d{2}\\?/\d{2}(?: \d{1,2}:\d{2}(?::\d{2})?)?").unwrap()
+});
 
 /// Time-of-day only (PHP date("H:i")), e.g. "last login: 21:59".
 static TIME_ONLY: LazyLock<regex::Regex> =
@@ -74,8 +74,10 @@ static SMART_DATE: LazyLock<regex::Regex> = LazyLock::new(|| {
 
 static HEX64: LazyLock<regex::Regex> =
     LazyLock::new(|| regex::Regex::new(r"[0-9a-f]{64}").unwrap());
-static SHA1: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"\b[0-9a-f]{40}\b").unwrap());
-static HEX32: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"\b[0-9a-f]{32}\b").unwrap());
+static SHA1: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r"\b[0-9a-f]{40}\b").unwrap());
+static HEX32: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r"\b[0-9a-f]{32}\b").unwrap());
 
 /// Query string that is a bare timestamp cache-buster: `?1788113929` (6+ digits
 /// immediately after `?`). The exact value is file-mtime / "now"-dependent and
@@ -95,7 +97,8 @@ static UNIX_TS: LazyLock<regex::Regex> =
 /// Whitespace that exists only between two tags (i.e. `>  ...  <` with nothing
 /// but whitespace inside). Collapsing it compares HTML structure while leaving
 /// real text content (e.g. `>Use less traffic<`) untouched.
-static INTER_TAG_WS: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r">\s+<").unwrap());
+static INTER_TAG_WS: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r">\s+<").unwrap());
 
 /// URL authority with an explicit port, `://host:port` (e.g. in a `Location`
 /// header or a body URL). The oracle (8280) and the Rust server (8281) are the
@@ -153,11 +156,12 @@ pub fn normalize_json(value: &Value) -> Value {
                 // left as-is so a has-icon vs no-icon difference still diffs.
                 if k == "ts"
                     && let Value::Number(n) = v
-                        && let Some(i) = n.as_u64()
-                            && i >= 1_000_000_000 {
-                                out.insert(k.clone(), Value::String("<ts>".into()));
-                                continue;
-                            }
+                    && let Some(i) = n.as_u64()
+                    && i >= 1_000_000_000
+                {
+                    out.insert(k.clone(), Value::String("<ts>".into()));
+                    continue;
+                }
                 out.insert(k.clone(), normalize_json(v));
             }
             Value::Object(out)
@@ -223,9 +227,15 @@ mod tests {
     #[test]
     fn cache_bust_normalized() {
         assert_eq!(normalize_string("js/common.js?1788113929"), "js/common.js?");
-        assert_eq!(normalize_string("themes/light.css?1788113929"), "themes/light.css?");
+        assert_eq!(
+            normalize_string("themes/light.css?1788113929"),
+            "themes/light.css?"
+        );
         // short query params are NOT cache-busters and are left alone
-        assert_eq!(normalize_string("public.php?op=login"), "public.php?op=login");
+        assert_eq!(
+            normalize_string("public.php?op=login"),
+            "public.php?op=login"
+        );
     }
 
     #[test]
@@ -292,10 +302,7 @@ mod tests {
         // data that merely contains the pattern is left alone
         assert_eq!(normalize_string("42 items"), "42 items");
         // RFC822 is handled by its own (earlier) rule, not half-matched here
-        assert_eq!(
-            normalize_string("Fri, 04 Sep 2026 21:59:39 GMT"),
-            "<ts>"
-        );
+        assert_eq!(normalize_string("Fri, 04 Sep 2026 21:59:39 GMT"), "<ts>");
     }
 
     #[test]
@@ -325,7 +332,10 @@ mod tests {
         // has-icon vs no-icon difference is still detected.
         let c = serde_json::json!({"counters":[{"id":29,"ts":0}]});
         assert_ne!(normalize_json(&a), normalize_json(&c));
-        assert_eq!(normalize_json(&c), normalize_json(&serde_json::json!({"counters":[{"id":29,"ts":0}]})));
+        assert_eq!(
+            normalize_json(&c),
+            normalize_json(&serde_json::json!({"counters":[{"id":29,"ts":0}]}))
+        );
         // non-epoch `ts` values (e.g. small ints) are left alone
         let d = serde_json::json!({"ts":0});
         assert_eq!(normalize_json(&d), serde_json::json!({"ts":0}));
@@ -336,7 +346,10 @@ mod tests {
         assert_eq!(normalize_string("1788113929"), "<ts>");
         assert_eq!(normalize_string("cacheBust: 1788113929"), "cacheBust: <ts>");
         // a longer digit run has no boundary, so it's left alone
-        assert_eq!(normalize_string("12345678901234567890"), "12345678901234567890");
+        assert_eq!(
+            normalize_string("12345678901234567890"),
+            "12345678901234567890"
+        );
         // small ids are untouched
         assert_eq!(normalize_string("12345"), "12345");
     }

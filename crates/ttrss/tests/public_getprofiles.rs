@@ -10,9 +10,9 @@
 
 mod common;
 
-use ttrss::auth;
-use ttrss::AppState;
 use test_db::template::with_test_db;
+use ttrss::AppState;
+use ttrss::auth;
 
 async fn make_state(url: &str) -> AppState {
     let db = common::make_db_from_url(url).await.expect("test db");
@@ -20,11 +20,7 @@ async fn make_state(url: &str) -> AppState {
 }
 
 /// Insert a user + profiles; returns the user id.
-async fn add_user_with_profiles(
-    state: &AppState,
-    login: &str,
-    profiles: &[&str],
-) -> i32 {
+async fn add_user_with_profiles(state: &AppState, login: &str, profiles: &[&str]) -> i32 {
     let pool = state.db.pool();
     let uid: i32 = sqlx::query_scalar(
         "INSERT INTO ttrss_users (login, pwd_hash, access_level) VALUES ($1, 'SHA1:x', 0) RETURNING id",
@@ -46,73 +42,87 @@ async fn add_user_with_profiles(
 
 #[tokio::test]
 async fn test_getprofiles_empty_login_returns_empty() {
-    with_test_db(|url| Box::pin(async move {
-    let state = make_state(&url).await;
-    let v = auth::get_profiles(&state.db, "").await;
-    assert_eq!(v, serde_json::json!([]), "no login -> []: {v}");
-        Ok(())
-    })).await.unwrap();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let state = make_state(&url).await;
+            let v = auth::get_profiles(&state.db, "").await;
+            assert_eq!(v, serde_json::json!([]), "no login -> []: {v}");
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
 async fn test_getprofiles_unknown_login_returns_default_only() {
-    with_test_db(|url| Box::pin(async move {
-    let state = make_state(&url).await;
-    let v = auth::get_profiles(&state.db, "nouser").await;
-    assert_eq!(
-        v,
-        serde_json::json!([ { "label": "Default profile", "value": 0 } ]),
-        "unknown login -> default only: {v}"
-    );
-        Ok(())
-    })).await.unwrap();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let state = make_state(&url).await;
+            let v = auth::get_profiles(&state.db, "nouser").await;
+            assert_eq!(
+                v,
+                serde_json::json!([ { "label": "Default profile", "value": 0 } ]),
+                "unknown login -> default only: {v}"
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
 async fn test_getprofiles_lists_profiles_title_asc() {
-    with_test_db(|url| Box::pin(async move {
-    let state = make_state(&url).await;
-    // Inserted out of order; the response must be title-ascending.
-    let uid = add_user_with_profiles(&state, "profuser", &["Zeta", "Alpha", "Mid"]).await;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let state = make_state(&url).await;
+            // Inserted out of order; the response must be title-ascending.
+            let uid = add_user_with_profiles(&state, "profuser", &["Zeta", "Alpha", "Mid"]).await;
 
-    let v = auth::get_profiles(&state.db, "profuser").await;
-    let arr = v.as_array().expect("array");
-    assert_eq!(
-        arr.len(),
-        4,
-        "default + 3 profiles: {v}"
-    );
-    assert_eq!(arr[0], serde_json::json!({ "label": "Default profile", "value": 0 }));
-    let titles: Vec<&str> = arr[1..].iter().map(|p| p["label"].as_str().unwrap()).collect();
-    assert_eq!(titles, vec!["Alpha", "Mid", "Zeta"], "title asc: {v}");
-    // `value` carries the profile id (INT4).
-    let alpha_id: i32 = sqlx::query_scalar(
-        "SELECT id FROM ttrss_settings_profiles WHERE owner_uid = $1 AND title = 'Alpha'",
-    )
-    .bind(uid)
-    .fetch_one(state.db.pool())
+            let v = auth::get_profiles(&state.db, "profuser").await;
+            let arr = v.as_array().expect("array");
+            assert_eq!(arr.len(), 4, "default + 3 profiles: {v}");
+            assert_eq!(
+                arr[0],
+                serde_json::json!({ "label": "Default profile", "value": 0 })
+            );
+            let titles: Vec<&str> = arr[1..]
+                .iter()
+                .map(|p| p["label"].as_str().unwrap())
+                .collect();
+            assert_eq!(titles, vec!["Alpha", "Mid", "Zeta"], "title asc: {v}");
+            // `value` carries the profile id (INT4).
+            let alpha_id: i32 = sqlx::query_scalar(
+                "SELECT id FROM ttrss_settings_profiles WHERE owner_uid = $1 AND title = 'Alpha'",
+            )
+            .bind(uid)
+            .fetch_one(state.db.pool())
+            .await
+            .expect("alpha id");
+            assert_eq!(arr[1]["value"], serde_json::json!(alpha_id));
+            Ok(())
+        })
+    })
     .await
-    .expect("alpha id");
-    assert_eq!(arr[1]["value"], serde_json::json!(alpha_id));
-        Ok(())
-    })).await.unwrap();
+    .unwrap();
 }
 
 #[tokio::test]
 async fn test_getprofiles_login_case_insensitive() {
-    with_test_db(|url| Box::pin(async move {
-    let state = make_state(&url).await;
-    add_user_with_profiles(&state, "CaseUser", &["P1"]).await;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let state = make_state(&url).await;
+            add_user_with_profiles(&state, "CaseUser", &["P1"]).await;
 
-    for login in ["caseuser", "CASEUSER", "CaseUser"] {
-        let v = auth::get_profiles(&state.db, login).await;
-        let arr = v.as_array().expect("array");
-        assert_eq!(
-            arr.len(),
-            2,
-            "case-insensitive match for {login:?}: {v}"
-        );
-    }
-        Ok(())
-    })).await.unwrap();
+            for login in ["caseuser", "CASEUSER", "CaseUser"] {
+                let v = auth::get_profiles(&state.db, login).await;
+                let arr = v.as_array().expect("array");
+                assert_eq!(arr.len(), 2, "case-insensitive match for {login:?}: {v}");
+            }
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }

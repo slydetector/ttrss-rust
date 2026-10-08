@@ -9,14 +9,14 @@
 
 mod common;
 
+use axum::Router;
 use axum::body::Body;
 use axum::http::{Method, Request, StatusCode};
-use axum::Router;
-use tower::ServiceExt;
 use serde_json::Value;
-use ttrss::http;
-use ttrss::AppState;
 use test_db::template::with_test_db;
+use tower::ServiceExt;
+use ttrss::AppState;
+use ttrss::http;
 
 async fn make_state(url: &str) -> AppState {
     let db = common::make_db_from_url(url).await.expect("test db");
@@ -96,60 +96,72 @@ async fn expect_profiles(state: &AppState, v: &serde_json::Value, login: &str) {
 
 #[tokio::test]
 async fn test_getprofiles_form_post_populates_dropdown() {
-    with_test_db(|url| Box::pin(async move {
-    let state = make_state(&url).await;
-    // Inserted out of order; the response must be title-ascending.
-    add_user_with_profiles(&state, "httpprofile", &["Work", "Home"]).await;
-    let app = app(state.clone());
+    with_test_db(|url| {
+        Box::pin(async move {
+            let state = make_state(&url).await;
+            // Inserted out of order; the response must be title-ascending.
+            add_user_with_profiles(&state, "httpprofile", &["Work", "Home"]).await;
+            let app = app(state.clone());
 
-    let resp = app
-        .oneshot(post_form("op=getprofiles&login=httpprofile"))
-        .await
-        .expect("response");
-    assert_eq!(resp.status(), StatusCode::OK, "form POST must be 200");
-    let v = body_json(resp).await;
-    expect_profiles(&state, &v, "httpprofile").await;
-        Ok(())
-    })).await.unwrap();
+            let resp = app
+                .oneshot(post_form("op=getprofiles&login=httpprofile"))
+                .await
+                .expect("response");
+            assert_eq!(resp.status(), StatusCode::OK, "form POST must be 200");
+            let v = body_json(resp).await;
+            expect_profiles(&state, &v, "httpprofile").await;
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
 async fn test_getprofiles_query_string_still_works() {
-    with_test_db(|url| Box::pin(async move {
-    let state = make_state(&url).await;
-    add_user_with_profiles(&state, "queryprofile", &["Solo"]).await;
-    let app = app(state.clone());
+    with_test_db(|url| {
+        Box::pin(async move {
+            let state = make_state(&url).await;
+            add_user_with_profiles(&state, "queryprofile", &["Solo"]).await;
+            let app = app(state.clone());
 
-    let req = Request::builder()
-        .method(Method::GET)
-        .uri("/tt-rss/public.php?op=getprofiles&login=queryprofile")
-        .body(Body::empty())
-        .expect("request");
-    let resp = app.oneshot(req).await.expect("response");
-    assert_eq!(resp.status(), StatusCode::OK);
-    let v = body_json(resp).await;
-    expect_profiles(&state, &v, "queryprofile").await;
-        Ok(())
-    })).await.unwrap();
+            let req = Request::builder()
+                .method(Method::GET)
+                .uri("/tt-rss/public.php?op=getprofiles&login=queryprofile")
+                .body(Body::empty())
+                .expect("request");
+            let resp = app.oneshot(req).await.expect("response");
+            assert_eq!(resp.status(), StatusCode::OK);
+            let v = body_json(resp).await;
+            expect_profiles(&state, &v, "queryprofile").await;
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
 async fn test_getprofiles_form_post_missing_login_returns_empty() {
-    with_test_db(|url| Box::pin(async move {
-    let state = make_state(&url).await;
-    let app = app(state);
+    with_test_db(|url| {
+        Box::pin(async move {
+            let state = make_state(&url).await;
+            let app = app(state);
 
-    // `$_REQUEST["login"]` unset in either layer -> PHP `if ($login)` is
-    // false -> `[]` (the dropdown keeps its placeholder; the JS only fires
-    // with a non-empty value anyway).
-    let resp = app
-        .oneshot(post_form("op=getprofiles&login="))
-        .await
-        .expect("response");
-    assert_eq!(resp.status(), StatusCode::OK);
-    assert_eq!(body_json(resp).await, serde_json::json!([]));
-        Ok(())
-    })).await.unwrap();
+            // `$_REQUEST["login"]` unset in either layer -> PHP `if ($login)` is
+            // false -> `[]` (the dropdown keeps its placeholder; the JS only fires
+            // with a non-empty value anyway).
+            let resp = app
+                .oneshot(post_form("op=getprofiles&login="))
+                .await
+                .expect("response");
+            assert_eq!(resp.status(), StatusCode::OK);
+            assert_eq!(body_json(resp).await, serde_json::json!([]));
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // ── M5a.1: the client directory-URL API routes (`POST /api/`, `POST /api`) ──
@@ -166,12 +178,8 @@ async fn add_user_with_api_password(state: &AppState) -> &'static str {
     .await
     .expect("user insert");
     let salt = "testsalt";
-    let inner = ttrss::core::user::hash_password(
-        "apipass",
-        salt,
-        ttrss::core::user::ALGO_SSHA512,
-    )
-    .expect("hash");
+    let inner = ttrss::core::user::hash_password("apipass", salt, ttrss::core::user::ALGO_SSHA512)
+        .expect("hash");
     sqlx::query(
         "INSERT INTO ttrss_app_passwords (title, owner_uid, pwd_hash, service, created) \
          VALUES ('t', $1, $2, '_api', NOW())",
@@ -217,7 +225,11 @@ async fn expect_api_login_envelope(resp: axum::response::Response) {
         "application/json"
     );
     let v = body_json(resp).await;
-    assert_eq!(v.get("status").and_then(Value::as_i64), Some(0), "envelope={v:?}");
+    assert_eq!(
+        v.get("status").and_then(Value::as_i64),
+        Some(0),
+        "envelope={v:?}"
+    );
     let content = v.get("content").expect("content");
     assert!(
         content
@@ -231,43 +243,51 @@ async fn expect_api_login_envelope(resp: axum::response::Response) {
 
 #[tokio::test]
 async fn test_api_login_via_directory_url() {
-    with_test_db(|url| Box::pin(async move {
-    let state = make_state(&url).await;
-    add_user_with_api_password(&state).await;
-    let app = app(state);
+    with_test_db(|url| {
+        Box::pin(async move {
+            let state = make_state(&url).await;
+            add_user_with_api_password(&state).await;
+            let app = app(state);
 
-    // `ApiCommon.performRequest`: `<ttrss_url>/api/` (trailing slash, no
-    // index.php) — the client's actual endpoint.
-    let resp = app
-        .oneshot(post_json_api(
-            "/tt-rss/api/",
-            r#"{"op":"login","user":"apilogin","password":"apipass"}"#,
-        ))
-        .await
-        .expect("response");
-    expect_api_login_envelope(resp).await;
-        Ok(())
-    })).await.unwrap();
+            // `ApiCommon.performRequest`: `<ttrss_url>/api/` (trailing slash, no
+            // index.php) — the client's actual endpoint.
+            let resp = app
+                .oneshot(post_json_api(
+                    "/tt-rss/api/",
+                    r#"{"op":"login","user":"apilogin","password":"apipass"}"#,
+                ))
+                .await
+                .expect("response");
+            expect_api_login_envelope(resp).await;
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
 async fn test_api_login_via_bare_path() {
-    with_test_db(|url| Box::pin(async move {
-    let state = make_state(&url).await;
-    add_user_with_api_password(&state).await;
-    let app = app(state);
+    with_test_db(|url| {
+        Box::pin(async move {
+            let state = make_state(&url).await;
+            add_user_with_api_password(&state).await;
+            let app = app(state);
 
-    // The slash-less form: served directly (no Apache 301).
-    let resp = app
-        .oneshot(post_json_api(
-            "/tt-rss/api",
-            r#"{"op":"login","user":"apilogin","password":"apipass"}"#,
-        ))
-        .await
-        .expect("response");
-    expect_api_login_envelope(resp).await;
-        Ok(())
-    })).await.unwrap();
+            // The slash-less form: served directly (no Apache 301).
+            let resp = app
+                .oneshot(post_json_api(
+                    "/tt-rss/api",
+                    r#"{"op":"login","user":"apilogin","password":"apipass"}"#,
+                ))
+                .await
+                .expect("response");
+            expect_api_login_envelope(resp).await;
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 /// Insert a user with a *main* (web) password and **no** `_api` app password;
@@ -312,48 +332,62 @@ async fn add_user_with_main_password(
 /// scenario the Android client hits.
 #[tokio::test]
 async fn test_api_login_main_password_fallback() {
-    with_test_db(|url| Box::pin(async move {
-    let state = make_state(&url).await;
-    let login = add_user_with_main_password(&state, "mainlogin", "mainpass", false).await;
-    let app = app(state);
+    with_test_db(|url| {
+        Box::pin(async move {
+            let state = make_state(&url).await;
+            let login = add_user_with_main_password(&state, "mainlogin", "mainpass", false).await;
+            let app = app(state);
 
-    let resp = app
-        .oneshot(post_json_api(
-            "/tt-rss/api/",
-            &format!(r#"{{"op":"login","user":"{login}","password":"mainpass"}}"#),
-        ))
-        .await
-        .expect("response");
-    expect_api_login_envelope(resp).await;
-        Ok(())
-    })).await.unwrap();
+            let resp = app
+                .oneshot(post_json_api(
+                    "/tt-rss/api/",
+                    &format!(r#"{{"op":"login","user":"{login}","password":"mainpass"}}"#),
+                ))
+                .await
+                .expect("response");
+            expect_api_login_envelope(resp).await;
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 /// The fallback must NOT apply to OTP-enabled accounts: with OTP on and no
 /// app password, the regular password is rejected (app passwords only).
 #[tokio::test]
 async fn test_api_login_otp_enabled_requires_app_password() {
-    with_test_db(|url| Box::pin(async move {
-    let state = make_state(&url).await;
-    let login = add_user_with_main_password(&state, "otplogin", "otppass", true).await;
-    let app = app(state);
+    with_test_db(|url| {
+        Box::pin(async move {
+            let state = make_state(&url).await;
+            let login = add_user_with_main_password(&state, "otplogin", "otppass", true).await;
+            let app = app(state);
 
-    let resp = app
-        .oneshot(post_json_api(
-            "/tt-rss/api/",
-            &format!(r#"{{"op":"login","user":"{login}","password":"otppass"}}"#),
-        ))
-        .await
-        .expect("response");
-    let v = body_json(resp).await;
-    assert_eq!(v.get("status").and_then(Value::as_i64), Some(1), "envelope={v:?}");
-    assert_eq!(
-        v.get("content").and_then(|c| c.get("error")).and_then(Value::as_str),
-        Some("LOGIN_ERROR"),
-        "envelope={v:?}"
-    );
-        Ok(())
-    })).await.unwrap();
+            let resp = app
+                .oneshot(post_json_api(
+                    "/tt-rss/api/",
+                    &format!(r#"{{"op":"login","user":"{login}","password":"otppass"}}"#),
+                ))
+                .await
+                .expect("response");
+            let v = body_json(resp).await;
+            assert_eq!(
+                v.get("status").and_then(Value::as_i64),
+                Some(1),
+                "envelope={v:?}"
+            );
+            assert_eq!(
+                v.get("content")
+                    .and_then(|c| c.get("error"))
+                    .and_then(Value::as_str),
+                Some("LOGIN_ERROR"),
+                "envelope={v:?}"
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // docs/19 volume model: user themes live in `<data_dir>/themes.local` and are
@@ -361,62 +395,68 @@ async fn test_api_login_otp_enabled_requires_app_password() {
 // maps that prefix to the data dir.
 #[tokio::test]
 async fn test_local_theme_served_from_data_dir() {
-    with_test_db(|url| Box::pin(async move {
-        let mut cfg = common::test_config();
-        let tmp = tempfile::tempdir().expect("tempdir");
-        std::fs::create_dir_all(tmp.path().join("themes.local")).expect("mkdir");
-        std::fs::write(
-            tmp.path().join("themes.local/mytheme.css"),
-            "body { color: red; }",
-        )
-        .expect("write theme");
-        cfg.data_dir = tmp.path().to_path_buf();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let mut cfg = common::test_config();
+            let tmp = tempfile::tempdir().expect("tempdir");
+            std::fs::create_dir_all(tmp.path().join("themes.local")).expect("mkdir");
+            std::fs::write(
+                tmp.path().join("themes.local/mytheme.css"),
+                "body { color: red; }",
+            )
+            .expect("write theme");
+            cfg.data_dir = tmp.path().to_path_buf();
 
-        let db = common::make_db_from_url(&url).await.expect("test db");
-        let state = AppState::new(cfg, db);
-        let app = app(state);
+            let db = common::make_db_from_url(&url).await.expect("test db");
+            let state = AppState::new(cfg, db);
+            let app = app(state);
 
-        let req = Request::builder()
-            .method(Method::GET)
-            .uri("/tt-rss/themes.local/mytheme.css")
-            .body(Body::empty())
-            .expect("request");
-        let resp = app.oneshot(req).await.expect("response");
-        assert_eq!(resp.status(), StatusCode::OK, "local theme must be served");
-        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
-            .await
-            .expect("read body");
-        assert_eq!(&bytes[..], b"body { color: red; }");
-        Ok(())
-    }))
+            let req = Request::builder()
+                .method(Method::GET)
+                .uri("/tt-rss/themes.local/mytheme.css")
+                .body(Body::empty())
+                .expect("request");
+            let resp = app.oneshot(req).await.expect("response");
+            assert_eq!(resp.status(), StatusCode::OK, "local theme must be served");
+            let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+                .await
+                .expect("read body");
+            assert_eq!(&bytes[..], b"body { color: red; }");
+            Ok(())
+        })
+    })
     .await
     .unwrap();
 }
 
 #[tokio::test]
 async fn test_base_path_redirects_to_trailing_slash() {
-    with_test_db(|url| Box::pin(async move {
-    let state = make_state(&url).await;
-    let app = app(state);
+    with_test_db(|url| {
+        Box::pin(async move {
+            let state = make_state(&url).await;
+            let app = app(state);
 
-    // GET /tt-rss (no trailing slash) must 301 → /tt-rss/
-    let req = Request::builder()
-        .method(Method::GET)
-        .uri("/tt-rss")
-        .body(Body::empty())
-        .expect("request");
-    let resp = app.oneshot(req).await.expect("response");
-    assert_eq!(
-        resp.status(),
-        StatusCode::MOVED_PERMANENTLY,
-        "base path without slash must 301"
-    );
-    let location = resp
-        .headers()
-        .get("location")
-        .and_then(|v| v.to_str().ok())
-        .expect("Location header");
-    assert_eq!(location, "/tt-rss/", "redirect target");
-        Ok(())
-    })).await.unwrap();
+            // GET /tt-rss (no trailing slash) must 301 → /tt-rss/
+            let req = Request::builder()
+                .method(Method::GET)
+                .uri("/tt-rss")
+                .body(Body::empty())
+                .expect("request");
+            let resp = app.oneshot(req).await.expect("response");
+            assert_eq!(
+                resp.status(),
+                StatusCode::MOVED_PERMANENTLY,
+                "base path without slash must 301"
+            );
+            let location = resp
+                .headers()
+                .get("location")
+                .and_then(|v| v.to_str().ok())
+                .expect("Location header");
+            assert_eq!(location, "/tt-rss/", "redirect target");
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }

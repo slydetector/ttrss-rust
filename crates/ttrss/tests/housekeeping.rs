@@ -9,15 +9,17 @@
 mod common;
 
 use chrono::{Local, NaiveDate, NaiveDateTime, NaiveTime, TimeZone as _};
-use sqlx::AssertSqlSafe;
 use croner::Cron;
+use sqlx::AssertSqlSafe;
 use std::str::FromStr;
+use test_db::template::with_test_db;
 use ttrss::core::config::Config;
 use ttrss::core::db::Db;
-use test_db::template::with_test_db;
 
 /// A test `Config` with the housekeeping defaults.
-fn test_config() -> Config { common::test_config() }
+fn test_config() -> Config {
+    common::test_config()
+}
 
 /// Insert a user and return its id.
 async fn create_user(db: &Db, uid: i32, access_level: i32) -> i32 {
@@ -97,12 +99,10 @@ async fn user_entry_count(db: &Db, feed_id: i32) -> i64 {
 
 /// Age a `ttrss_entries` row's `date_updated` (and `updated`) by N days.
 async fn age_entry(db: &Db, entry_id: i32, days: i64) {
-    sqlx::query(
-        AssertSqlSafe(format!(
-            "UPDATE ttrss_entries SET date_updated = NOW() - INTERVAL '{days} day', \
+    sqlx::query(AssertSqlSafe(format!(
+        "UPDATE ttrss_entries SET date_updated = NOW() - INTERVAL '{days} day', \
              updated = NOW() - INTERVAL '{days} day' WHERE id = $1",
-        )),
-    )
+    )))
     .bind(entry_id)
     .execute(db.pool())
     .await
@@ -111,7 +111,9 @@ async fn age_entry(db: &Db, entry_id: i32, days: i64) {
 
 /// Set a file's mtime to an absolute `SystemTime` (ages it for the icon test).
 fn set_mtime(path: &std::path::Path, time: std::time::SystemTime) {
-    std::fs::File::open(path).and_then(|f| f.set_modified(time)).expect("set mtime");
+    std::fs::File::open(path)
+        .and_then(|f| f.set_modified(time))
+        .expect("set mtime");
 }
 
 // ---------------------------------------------------------------------------
@@ -127,23 +129,19 @@ fn test_is_due_daily() {
     );
     // `now` is 2 days later → the next daily run (2024-01-02 00:00) is in the past.
     let now = Local
-        .from_local_datetime(
-            &NaiveDateTime::new(
-                NaiveDate::from_ymd_opt(2024, 1, 3).unwrap(),
-                NaiveTime::from_hms_opt(0, 0, 0).unwrap(),
-            ),
-        )
+        .from_local_datetime(&NaiveDateTime::new(
+            NaiveDate::from_ymd_opt(2024, 1, 3).unwrap(),
+            NaiveTime::from_hms_opt(0, 0, 0).unwrap(),
+        ))
         .unwrap();
     assert!(ttrss::scheduler::is_due(&cron, last_run, now));
 
     // `now` is before the next daily run → not due.
     let now_early = Local
-        .from_local_datetime(
-            &NaiveDateTime::new(
-                NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
-                NaiveTime::from_hms_opt(12, 0, 0).unwrap(),
-            ),
-        )
+        .from_local_datetime(&NaiveDateTime::new(
+            NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+            NaiveTime::from_hms_opt(12, 0, 0).unwrap(),
+        ))
         .unwrap();
     assert!(!ttrss::scheduler::is_due(&cron, last_run, now_early));
 }
@@ -156,12 +154,10 @@ fn test_is_due_hourly() {
         NaiveTime::from_hms_opt(10, 0, 0).unwrap(),
     );
     let now = Local
-        .from_local_datetime(
-            &NaiveDateTime::new(
-                NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
-                NaiveTime::from_hms_opt(11, 30, 0).unwrap(),
-            ),
-        )
+        .from_local_datetime(&NaiveDateTime::new(
+            NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+            NaiveTime::from_hms_opt(11, 30, 0).unwrap(),
+        ))
         .unwrap();
     // The next hourly run (11:00) is before now (11:30) → due.
     assert!(ttrss::scheduler::is_due(&cron, last_run, now));
@@ -173,31 +169,38 @@ fn test_is_due_hourly() {
 
 #[tokio::test]
 async fn test_purge_orphans() {
-    with_test_db(|url| Box::pin(async move {
-    let db = common::make_db_from_url(&url).await.expect("test db");
-    let uid = create_user(&db, 400, 0).await;
-    let feed_id = create_feed(&db, 400, uid, "http://example.com/f400").await;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = common::make_db_from_url(&url).await.expect("test db");
+            let uid = create_user(&db, 400, 0).await;
+            let feed_id = create_feed(&db, 400, uid, "http://example.com/f400").await;
 
-    // An entry that has a user_entry (should survive).
-    let kept = create_entry(&db, "kept-400").await;
-    create_user_entry(&db, kept, feed_id, uid, false, true).await;
+            // An entry that has a user_entry (should survive).
+            let kept = create_entry(&db, "kept-400").await;
+            create_user_entry(&db, kept, feed_id, uid, false, true).await;
 
-    // An entry that has NO user_entry (an orphan — should be deleted).
-    let _orphan = create_entry(&db, "orphan-400").await;
+            // An entry that has NO user_entry (an orphan — should be deleted).
+            let _orphan = create_entry(&db, "orphan-400").await;
 
-    let deleted = ttrss::scheduler::purge_orphans(db.pool()).await.expect("purge_orphans");
-    assert_eq!(deleted, 1, "exactly one orphan should be deleted");
+            let deleted = ttrss::scheduler::purge_orphans(db.pool())
+                .await
+                .expect("purge_orphans");
+            assert_eq!(deleted, 1, "exactly one orphan should be deleted");
 
-    // The kept entry's user_entry still exists.
-    assert_eq!(user_entry_count(&db, feed_id).await, 1);
-    // The orphan entry is gone.
-    let orphan_left: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM ttrss_entries WHERE guid = 'orphan-400'")
-        .fetch_one(db.pool())
-        .await
-        .expect("count");
-    assert_eq!(orphan_left, 0);
-    Ok(())
-    })).await.unwrap();
+            // The kept entry's user_entry still exists.
+            assert_eq!(user_entry_count(&db, feed_id).await, 1);
+            // The orphan entry is gone.
+            let orphan_left: i64 =
+                sqlx::query_scalar("SELECT COUNT(*) FROM ttrss_entries WHERE guid = 'orphan-400'")
+                    .fetch_one(db.pool())
+                    .await
+                    .expect("count");
+            assert_eq!(orphan_left, 0);
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // ---------------------------------------------------------------------------
@@ -206,53 +209,61 @@ async fn test_purge_orphans() {
 
 #[tokio::test]
 async fn test_disable_failed_feeds() {
-    with_test_db(|url| Box::pin(async move {
-    let db = common::make_db_from_url(&url).await.expect("test db");
-    let cfg = test_config(); // daemon_unsuccessful_days_limit = 30
-    let uid = create_user(&db, 401, 0).await;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = common::make_db_from_url(&url).await.expect("test db");
+            let cfg = test_config(); // daemon_unsuccessful_days_limit = 30
+            let uid = create_user(&db, 401, 0).await;
 
-    // A feed that failed to update for > 30 days but is still being attempted
-    // (last_updated within the last day) → should be disabled.
-    let failing = create_feed(&db, 401, uid, "http://example.com/f401").await;
-    sqlx::query(
-        "UPDATE ttrss_feeds SET last_successful_update = NOW() - INTERVAL '60 day', \
+            // A feed that failed to update for > 30 days but is still being attempted
+            // (last_updated within the last day) → should be disabled.
+            let failing = create_feed(&db, 401, uid, "http://example.com/f401").await;
+            sqlx::query(
+                "UPDATE ttrss_feeds SET last_successful_update = NOW() - INTERVAL '60 day', \
          last_updated = NOW() - INTERVAL '1 hour' WHERE id = $1",
-    )
-    .bind(failing)
-    .execute(db.pool())
-    .await
-    .expect("stamp failing feed");
+            )
+            .bind(failing)
+            .execute(db.pool())
+            .await
+            .expect("stamp failing feed");
 
-    // A feed that failed > 30 days ago but is NOT being attempted (last_updated
-    // old) → should NOT be disabled.
-    let stale = create_feed(&db, 402, uid, "http://example.com/f402").await;
-    sqlx::query(
-        "UPDATE ttrss_feeds SET last_successful_update = NOW() - INTERVAL '60 day', \
+            // A feed that failed > 30 days ago but is NOT being attempted (last_updated
+            // old) → should NOT be disabled.
+            let stale = create_feed(&db, 402, uid, "http://example.com/f402").await;
+            sqlx::query(
+                "UPDATE ttrss_feeds SET last_successful_update = NOW() - INTERVAL '60 day', \
          last_updated = NOW() - INTERVAL '2 day' WHERE id = $1",
-    )
-    .bind(stale)
-    .execute(db.pool())
+            )
+            .bind(stale)
+            .execute(db.pool())
+            .await
+            .expect("stamp stale feed");
+
+            let disabled = ttrss::scheduler::disable_failed_feeds(db.pool(), &cfg)
+                .await
+                .expect("disable");
+            assert_eq!(disabled, 1, "exactly one feed should be disabled");
+
+            let failing_interval: i32 =
+                sqlx::query_scalar("SELECT update_interval FROM ttrss_feeds WHERE id = $1")
+                    .bind(failing)
+                    .fetch_one(db.pool())
+                    .await
+                    .expect("failing interval");
+            assert_eq!(failing_interval, -1, "failing feed should be disabled");
+
+            let stale_interval: i32 =
+                sqlx::query_scalar("SELECT update_interval FROM ttrss_feeds WHERE id = $1")
+                    .bind(stale)
+                    .fetch_one(db.pool())
+                    .await
+                    .expect("stale interval");
+            assert_eq!(stale_interval, 0, "stale feed should be left alone");
+            Ok(())
+        })
+    })
     .await
-    .expect("stamp stale feed");
-
-    let disabled = ttrss::scheduler::disable_failed_feeds(db.pool(), &cfg).await.expect("disable");
-    assert_eq!(disabled, 1, "exactly one feed should be disabled");
-
-    let failing_interval: i32 = sqlx::query_scalar("SELECT update_interval FROM ttrss_feeds WHERE id = $1")
-        .bind(failing)
-        .fetch_one(db.pool())
-        .await
-        .expect("failing interval");
-    assert_eq!(failing_interval, -1, "failing feed should be disabled");
-
-    let stale_interval: i32 = sqlx::query_scalar("SELECT update_interval FROM ttrss_feeds WHERE id = $1")
-        .bind(stale)
-        .fetch_one(db.pool())
-        .await
-        .expect("stale interval");
-    assert_eq!(stale_interval, 0, "stale feed should be left alone");
-    Ok(())
-    })).await.unwrap();
+    .unwrap();
 }
 
 // ---------------------------------------------------------------------------
@@ -303,39 +314,51 @@ async fn test_expire_error_log() {
 
 #[tokio::test]
 async fn test_cleanup_feed_icons() {
-    with_test_db(|url| Box::pin(async move {
-    let db = common::make_db_from_url(&url).await.expect("test db");
-    let mut cfg = test_config(); // cache_max_days = 7
-    let uid = create_user(&db, 403, 0).await;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = common::make_db_from_url(&url).await.expect("test db");
+            let mut cfg = test_config(); // cache_max_days = 7
+            let uid = create_user(&db, 403, 0).await;
 
-    // A temp dir to act as the feed-icon cache.
-    let dir = std::env::temp_dir().join(format!("ttrss_icons_test_{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(dir.join("feed-icons")).expect("create icon dir");
-    cfg.cache_dir = dir.clone();
+            // A temp dir to act as the feed-icon cache.
+            let dir = std::env::temp_dir().join(format!("ttrss_icons_test_{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(dir.join("feed-icons")).expect("create icon dir");
+            cfg.cache_dir = dir.clone();
 
-    // A feed that EXISTS (icon should be kept/refreshed) and a feed id that does
-    // NOT exist (icon should be deleted).
-    let existing_feed = create_feed(&db, 403, uid, "http://example.com/f403").await;
-    let missing_feed_id = 99999;
+            // A feed that EXISTS (icon should be kept/refreshed) and a feed id that does
+            // NOT exist (icon should be deleted).
+            let existing_feed = create_feed(&db, 403, uid, "http://example.com/f403").await;
+            let missing_feed_id = 99999;
 
-    // Write two icon files and age them to 10 days (past cache_max_days).
-    let existing_icon = dir.join("feed-icons").join(existing_feed.to_string());
-    std::fs::write(&existing_icon, b"icon-existing").expect("write existing icon");
-    let missing_icon = dir.join("feed-icons").join(missing_feed_id.to_string());
-    std::fs::write(&missing_icon, b"icon-missing").expect("write missing icon");
-    let old = std::time::SystemTime::now() - std::time::Duration::from_secs(86400 * 10);
-    set_mtime(&existing_icon, old);
-    set_mtime(&missing_icon, old);
+            // Write two icon files and age them to 10 days (past cache_max_days).
+            let existing_icon = dir.join("feed-icons").join(existing_feed.to_string());
+            std::fs::write(&existing_icon, b"icon-existing").expect("write existing icon");
+            let missing_icon = dir.join("feed-icons").join(missing_feed_id.to_string());
+            std::fs::write(&missing_icon, b"icon-missing").expect("write missing icon");
+            let old = std::time::SystemTime::now() - std::time::Duration::from_secs(86400 * 10);
+            set_mtime(&existing_icon, old);
+            set_mtime(&missing_icon, old);
 
-    let removed = ttrss::scheduler::cleanup_feed_icons(db.pool(), &cfg).await.expect("cleanup");
-    assert_eq!(removed, 1, "exactly one orphaned icon should be removed");
-    assert!(existing_icon.exists(), "existing feed's icon should be kept");
-    assert!(!missing_icon.exists(), "missing feed's icon should be removed");
+            let removed = ttrss::scheduler::cleanup_feed_icons(db.pool(), &cfg)
+                .await
+                .expect("cleanup");
+            assert_eq!(removed, 1, "exactly one orphaned icon should be removed");
+            assert!(
+                existing_icon.exists(),
+                "existing feed's icon should be kept"
+            );
+            assert!(
+                !missing_icon.exists(),
+                "missing feed's icon should be removed"
+            );
 
-    let _ = std::fs::remove_dir_all(&dir);
-    Ok(())
-    })).await.unwrap();
+            let _ = std::fs::remove_dir_all(&dir);
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // ---------------------------------------------------------------------------
@@ -344,43 +367,49 @@ async fn test_cleanup_feed_icons() {
 
 #[tokio::test]
 async fn test_record_run_upsert() {
-    with_test_db(|url| Box::pin(async move {
-    let db = common::make_db_from_url(&url).await.expect("test db");
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = common::make_db_from_url(&url).await.expect("test db");
 
-    // Insert.
-    ttrss::scheduler::record_run(db.pool(), "test_task", 3, 0, "@daily")
-        .await
-        .expect("insert record");
-    let row: (i32, i32, String) = sqlx::query_as(
-        "SELECT last_duration, last_rc, last_cron_expression \
+            // Insert.
+            ttrss::scheduler::record_run(db.pool(), "test_task", 3, 0, "@daily")
+                .await
+                .expect("insert record");
+            let row: (i32, i32, String) = sqlx::query_as(
+                "SELECT last_duration, last_rc, last_cron_expression \
          FROM ttrss_scheduled_tasks WHERE task_name = 'test_task'",
-    )
-    .fetch_one(db.pool())
-    .await
-    .expect("fetch record");
-    assert_eq!(row, (3, 0, "@daily".to_string()));
+            )
+            .fetch_one(db.pool())
+            .await
+            .expect("fetch record");
+            assert_eq!(row, (3, 0, "@daily".to_string()));
 
-    // Upsert (update the same row).
-    ttrss::scheduler::record_run(db.pool(), "test_task", 5, -100, "@hourly")
-        .await
-        .expect("update record");
-    let row2: (i32, i32, String) = sqlx::query_as(
-        "SELECT last_duration, last_rc, last_cron_expression \
+            // Upsert (update the same row).
+            ttrss::scheduler::record_run(db.pool(), "test_task", 5, -100, "@hourly")
+                .await
+                .expect("update record");
+            let row2: (i32, i32, String) = sqlx::query_as(
+                "SELECT last_duration, last_rc, last_cron_expression \
          FROM ttrss_scheduled_tasks WHERE task_name = 'test_task'",
-    )
-    .fetch_one(db.pool())
-    .await
-    .expect("fetch record 2");
-    assert_eq!(row2, (5, -100, "@hourly".to_string()));
+            )
+            .fetch_one(db.pool())
+            .await
+            .expect("fetch record 2");
+            assert_eq!(row2, (5, -100, "@hourly".to_string()));
 
-    // Still exactly one row.
-    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM ttrss_scheduled_tasks WHERE task_name = 'test_task'")
-        .fetch_one(db.pool())
-        .await
-        .expect("count");
-    assert_eq!(count, 1);
-    Ok(())
-    })).await.unwrap();
+            // Still exactly one row.
+            let count: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM ttrss_scheduled_tasks WHERE task_name = 'test_task'",
+            )
+            .fetch_one(db.pool())
+            .await
+            .expect("count");
+            assert_eq!(count, 1);
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
@@ -466,77 +495,98 @@ async fn test_run_due_tasks_runs_due_only() {
 
 #[tokio::test]
 async fn test_purge_feed() {
-    with_test_db(|url| Box::pin(async move {
-    let db = common::make_db_from_url(&url).await.expect("test db");
-    let cfg = test_config();
-    let uid = create_user(&db, 404, 0).await;
-    let feed_id = create_feed(&db, 404, uid, "http://example.com/f404").await;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = common::make_db_from_url(&url).await.expect("test db");
+            let cfg = test_config();
+            let uid = create_user(&db, 404, 0).await;
+            let feed_id = create_feed(&db, 404, uid, "http://example.com/f404").await;
 
-    // Set the feed's purge_interval to 7 days (so purge_feed(feed_id, 0) uses 7).
-    sqlx::query("UPDATE ttrss_feeds SET purge_interval = 7 WHERE id = $1")
-        .bind(feed_id)
-        .execute(db.pool())
-        .await
-        .expect("set purge interval");
+            // Set the feed's purge_interval to 7 days (so purge_feed(feed_id, 0) uses 7).
+            sqlx::query("UPDATE ttrss_feeds SET purge_interval = 7 WHERE id = $1")
+                .bind(feed_id)
+                .execute(db.pool())
+                .await
+                .expect("set purge interval");
 
-    // An old, unmarked, unread entry (should be purged).
-    let old_unread = create_entry(&db, "old-unread-404").await;
-    create_user_entry(&db, old_unread, feed_id, uid, false, true).await;
-    // An old, unmarked, read entry (should be purged — read is always purged).
-    let old_read = create_entry(&db, "old-read-404").await;
-    create_user_entry(&db, old_read, feed_id, uid, false, false).await;
-    // An old, MARKED entry (should survive — marked is never purged).
-    let old_marked = create_entry(&db, "old-marked-404").await;
-    create_user_entry(&db, old_marked, feed_id, uid, true, true).await;
-    // A recent, unmarked, unread entry (should survive — not old enough).
-    let recent_unread = create_entry(&db, "recent-unread-404").await;
-    create_user_entry(&db, recent_unread, feed_id, uid, false, true).await;
+            // An old, unmarked, unread entry (should be purged).
+            let old_unread = create_entry(&db, "old-unread-404").await;
+            create_user_entry(&db, old_unread, feed_id, uid, false, true).await;
+            // An old, unmarked, read entry (should be purged — read is always purged).
+            let old_read = create_entry(&db, "old-read-404").await;
+            create_user_entry(&db, old_read, feed_id, uid, false, false).await;
+            // An old, MARKED entry (should survive — marked is never purged).
+            let old_marked = create_entry(&db, "old-marked-404").await;
+            create_user_entry(&db, old_marked, feed_id, uid, true, true).await;
+            // A recent, unmarked, unread entry (should survive — not old enough).
+            let recent_unread = create_entry(&db, "recent-unread-404").await;
+            create_user_entry(&db, recent_unread, feed_id, uid, false, true).await;
 
-    // Age the three "old" entries to 10 days (past the 7-day purge interval).
-    age_entry(&db, old_unread, 10).await;
-    age_entry(&db, old_read, 10).await;
-    age_entry(&db, old_marked, 10).await;
+            // Age the three "old" entries to 10 days (past the 7-day purge interval).
+            age_entry(&db, old_unread, 10).await;
+            age_entry(&db, old_read, 10).await;
+            age_entry(&db, old_marked, 10).await;
 
-    let deleted = ttrss::feeds::purge_feed(db.pool(), &cfg, feed_id, 0).await;
-    assert_eq!(deleted, Some(2), "two old unmarked entries should be purged");
-    assert_eq!(user_entry_count(&db, feed_id).await, 2, "marked + recent should survive");
+            let deleted = ttrss::feeds::purge_feed(db.pool(), &cfg, feed_id, 0).await;
+            assert_eq!(
+                deleted,
+                Some(2),
+                "two old unmarked entries should be purged"
+            );
+            assert_eq!(
+                user_entry_count(&db, feed_id).await,
+                2,
+                "marked + recent should survive"
+            );
 
-    // Marked entry still present.
-    let marked_left: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM ttrss_user_entries WHERE ref_id = $1")
-        .bind(old_marked)
-        .fetch_one(db.pool())
-        .await
-        .expect("marked left");
-    assert_eq!(marked_left, 1);
-    Ok(())
-    })).await.unwrap();
+            // Marked entry still present.
+            let marked_left: i64 =
+                sqlx::query_scalar("SELECT COUNT(*) FROM ttrss_user_entries WHERE ref_id = $1")
+                    .bind(old_marked)
+                    .fetch_one(db.pool())
+                    .await
+                    .expect("marked left");
+            assert_eq!(marked_left, 1);
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
 async fn test_purge_feed_disabled() {
-    with_test_db(|url| Box::pin(async move {
-    let db = common::make_db_from_url(&url).await.expect("test db");
-    let cfg = test_config();
-    let uid = create_user(&db, 405, 0).await;
-    // A feed with purge_interval = 0; set the owner's PURGE_OLD_DAYS pref to 0
-    // so the effective interval is 0 (disabled).
-    let feed_id = create_feed(&db, 405, uid, "http://example.com/f405").await;
-    sqlx::query(
-        "INSERT INTO ttrss_user_prefs2 (owner_uid, pref_name, value, profile) \
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = common::make_db_from_url(&url).await.expect("test db");
+            let cfg = test_config();
+            let uid = create_user(&db, 405, 0).await;
+            // A feed with purge_interval = 0; set the owner's PURGE_OLD_DAYS pref to 0
+            // so the effective interval is 0 (disabled).
+            let feed_id = create_feed(&db, 405, uid, "http://example.com/f405").await;
+            sqlx::query(
+                "INSERT INTO ttrss_user_prefs2 (owner_uid, pref_name, value, profile) \
          VALUES ($1, 'PURGE_OLD_DAYS', '0', NULL)",
-    )
-    .bind(uid)
-    .execute(db.pool())
+            )
+            .bind(uid)
+            .execute(db.pool())
+            .await
+            .expect("set purge pref 0");
+
+            let old = create_entry(&db, "old-405").await;
+            create_user_entry(&db, old, feed_id, uid, false, true).await;
+            age_entry(&db, old, 70).await;
+
+            let deleted = ttrss::feeds::purge_feed(db.pool(), &cfg, feed_id, 0).await;
+            assert_eq!(deleted, None, "purging should be disabled (interval 0)");
+            assert_eq!(
+                user_entry_count(&db, feed_id).await,
+                1,
+                "the entry should survive"
+            );
+            Ok(())
+        })
+    })
     .await
-    .expect("set purge pref 0");
-
-    let old = create_entry(&db, "old-405").await;
-    create_user_entry(&db, old, feed_id, uid, false, true).await;
-    age_entry(&db, old, 70).await;
-
-    let deleted = ttrss::feeds::purge_feed(db.pool(), &cfg, feed_id, 0).await;
-    assert_eq!(deleted, None, "purging should be disabled (interval 0)");
-    assert_eq!(user_entry_count(&db, feed_id).await, 1, "the entry should survive");
-    Ok(())
-    })).await.unwrap();
+    .unwrap();
 }

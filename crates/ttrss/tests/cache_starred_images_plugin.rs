@@ -14,9 +14,9 @@ use test_db::template::with_test_db;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use ttrss::AppState;
 use ttrss::core::config::Config;
 use ttrss::core::db::Db;
-use ttrss::AppState;
 
 static COUNTER: AtomicUsize = AtomicUsize::new(0);
 
@@ -41,7 +41,7 @@ fn test_config() -> Config {
         http_429_throttle_interval: 3600,
         daemon_sleep_interval: 60,
         schedule_log_daemon_update_login_limit_users: String::from("@hourly"),
-    ..Default::default()
+        ..Default::default()
     }
 }
 
@@ -78,11 +78,7 @@ async fn plugin_data(pool: &sqlx::PgPool, article_id: i32) -> Option<String> {
 
 /// Seed a starred article for owner 1 (feed with `site_url` + content + a
 /// `marked` user_entry). Returns the article id.
-async fn seed_starred_article(
-    pool: &sqlx::PgPool,
-    site_url: &str,
-    content: &str,
-) -> i32 {
+async fn seed_starred_article(pool: &sqlx::PgPool, site_url: &str, content: &str) -> i32 {
     let feed_id: i32 = sqlx::query_scalar(
         "INSERT INTO ttrss_feeds (owner_uid, title, feed_url, site_url) \
          VALUES (1, 'Test feed', 'http://127.0.0.1:1/rss', $1) RETURNING id",
@@ -119,112 +115,139 @@ async fn seed_starred_article(
 
 #[tokio::test]
 async fn test_task_caches_starred_media() {
-    with_test_db(|url| Box::pin(async move {
-    use common::{Canned, MockServer};
+    with_test_db(|url| {
+        Box::pin(async move {
+            use common::{Canned, MockServer};
 
-    let base = cache_base();
-    let state = setup(&url, base.clone()).await;
+            let base = cache_base();
+            let state = setup(&url, base.clone()).await;
 
-    // A media file served over loopback.
-    let body: Vec<u8> = b"fake-png-bytes-0123456789".to_vec();
-    let server = MockServer::new(vec![Canned {
-        status: 200,
-        reason: "OK",
-        headers: vec![("Content-Type", "image/png".to_string())],
-        body: body.clone(),
-    }]);
-    let media_url = server.url("/img.png");
-    let site_url = server.url("/");
+            // A media file served over loopback.
+            let body: Vec<u8> = b"fake-png-bytes-0123456789".to_vec();
+            let server = MockServer::new(vec![Canned {
+                status: 200,
+                reason: "OK",
+                headers: vec![("Content-Type", "image/png".to_string())],
+                body: body.clone(),
+            }]);
+            let media_url = server.url("/img.png");
+            let site_url = server.url("/");
 
-    let article_id =
-        seed_starred_article(state.db.pool(), &site_url, &format!("<p>hi</p><img src=\"{media_url}\">"))
+            let article_id = seed_starred_article(
+                state.db.pool(),
+                &site_url,
+                &format!("<p>hi</p><img src=\"{media_url}\">"),
+            )
             .await;
 
-    run_task(&state, "cache_starred_images").await;
+            run_task(&state, "cache_starred_images").await;
 
-    // The article is marked done with the `starred_cache_images,<uid>` marker…
-    let data = plugin_data(state.db.pool(), article_id).await;
-    assert!(data
-        .as_deref()
-        .unwrap_or("")
-        .contains("starred_cache_images,1"),
-        "plugin_data = {data:?}");
+            // The article is marked done with the `starred_cache_images,<uid>` marker…
+            let data = plugin_data(state.db.pool(), article_id).await;
+            assert!(
+                data.as_deref()
+                    .unwrap_or("")
+                    .contains("starred_cache_images,1"),
+                "plugin_data = {data:?}"
+            );
 
-    // …and its media is on disk in the `starred-images` cache (a `<id>-<sha1>`
-    // file with the served bytes).
-    let media_dir = base.join("starred-images");
-    let cached = std::fs::read_dir(&media_dir)
-        .unwrap()
-        .flatten()
-        .map(|e| e.path())
-        .filter(|p| {
-            p.extension()
-                .map(|e| e != "status")
-                .unwrap_or(true)
-                && !p.file_name().unwrap().to_string_lossy().starts_with('.')
+            // …and its media is on disk in the `starred-images` cache (a `<id>-<sha1>`
+            // file with the served bytes).
+            let media_dir = base.join("starred-images");
+            let cached = std::fs::read_dir(&media_dir)
+                .unwrap()
+                .flatten()
+                .map(|e| e.path())
+                .filter(|p| {
+                    p.extension().map(|e| e != "status").unwrap_or(true)
+                        && !p.file_name().unwrap().to_string_lossy().starts_with('.')
+                })
+                .find(|p| {
+                    p.file_name()
+                        .unwrap()
+                        .to_string_lossy()
+                        .starts_with(&format!("{article_id}-"))
+                })
+                .unwrap_or_else(|| {
+                    panic!("no cached media file for {article_id} in {media_dir:?}")
+                });
+            assert_eq!(std::fs::read(&cached).unwrap(), body);
+            Ok(())
         })
-        .find(|p| p.file_name().unwrap().to_string_lossy().starts_with(&format!("{article_id}-")))
-        .unwrap_or_else(|| panic!("no cached media file for {article_id} in {media_dir:?}"));
-    assert_eq!(std::fs::read(&cached).unwrap(), body);
-        Ok(())
-    })).await.unwrap();
+    })
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
 async fn test_attempt_cap() {
-    with_test_db(|url| Box::pin(async move {
-    let base = cache_base();
-    let state = setup(&url, base.clone()).await;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let base = cache_base();
+            let state = setup(&url, base.clone()).await;
 
-    // An unreachable media URL (a closed loopback port → the fetch fails fast)
-    // so `cache_article_images` keeps retrying, capped at 5 attempts.
-    let article_id =
-        seed_starred_article(state.db.pool(), "http://127.0.0.1:1/", "<img src=\"http://127.0.0.1:1/nope.png\">")
+            // An unreachable media URL (a closed loopback port → the fetch fails fast)
+            // so `cache_article_images` keeps retrying, capped at 5 attempts.
+            let article_id = seed_starred_article(
+                state.db.pool(),
+                "http://127.0.0.1:1/",
+                "<img src=\"http://127.0.0.1:1/nope.png\">",
+            )
             .await;
 
-    for _ in 0..6 {
-        run_task(&state, "cache_starred_images").await;
-    }
+            for _ in 0..6 {
+                run_task(&state, "cache_starred_images").await;
+            }
 
-    // The per-article `.status` file records the capped attempt count (5)…
-    let status_dir = base.join("starred-images.status-files");
-    let status_file = std::fs::read_dir(&status_dir)
-        .unwrap_or_else(|e| panic!("status dir {status_dir:?} missing: {e}"))
-        .flatten()
-        .map(|e| e.path())
-        .find(|p| p.extension().map(|e| e == "status").unwrap_or(false))
-        .unwrap_or_else(|| panic!("no .status file in {status_dir:?}"));
-    let status: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(status_file).unwrap()).unwrap();
-    assert_eq!(status["attempt"].as_i64(), Some(5));
+            // The per-article `.status` file records the capped attempt count (5)…
+            let status_dir = base.join("starred-images.status-files");
+            let status_file = std::fs::read_dir(&status_dir)
+                .unwrap_or_else(|e| panic!("status dir {status_dir:?} missing: {e}"))
+                .flatten()
+                .map(|e| e.path())
+                .find(|p| p.extension().map(|e| e == "status").unwrap_or(false))
+                .unwrap_or_else(|| panic!("no .status file in {status_dir:?}"));
+            let status: serde_json::Value =
+                serde_json::from_str(&std::fs::read_to_string(status_file).unwrap()).unwrap();
+            assert_eq!(status["attempt"].as_i64(), Some(5));
 
-    // …and the article is NOT marked done (the media never cached).
-    assert_eq!(plugin_data(state.db.pool(), article_id).await, Some(String::new()));
-        Ok(())
-    })).await.unwrap();
+            // …and the article is NOT marked done (the media never cached).
+            assert_eq!(
+                plugin_data(state.db.pool(), article_id).await,
+                Some(String::new())
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
 async fn test_expire_removes_orphaned_media() {
-    with_test_db(|url| Box::pin(async move {
-    let base = cache_base();
-    let state = setup(&url, base.clone()).await;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let base = cache_base();
+            let state = setup(&url, base.clone()).await;
 
-    // A cache file (and status file) for an article that does not exist.
-    let media_dir = base.join("starred-images");
-    let status_dir = base.join("starred-images.status-files");
-    std::fs::create_dir_all(&media_dir).unwrap();
-    std::fs::create_dir_all(&status_dir).unwrap();
-    let orphan = media_dir.join("999-abc123");
-    let orphan_status = status_dir.join("999-abc123.status");
-    std::fs::write(&orphan, b"orphaned").unwrap();
-    std::fs::write(&orphan_status, b"{}").unwrap();
+            // A cache file (and status file) for an article that does not exist.
+            let media_dir = base.join("starred-images");
+            let status_dir = base.join("starred-images.status-files");
+            std::fs::create_dir_all(&media_dir).unwrap();
+            std::fs::create_dir_all(&status_dir).unwrap();
+            let orphan = media_dir.join("999-abc123");
+            let orphan_status = status_dir.join("999-abc123.status");
+            std::fs::write(&orphan, b"orphaned").unwrap();
+            std::fs::write(&orphan_status, b"{}").unwrap();
 
-    run_task(&state, "expire_caches").await;
+            run_task(&state, "expire_caches").await;
 
-    // Both orphaned files are gone (their article does not exist).
-    assert!(!orphan.exists());
-    assert!(!orphan_status.exists());
-        Ok(())
-    })).await.unwrap();
+            // Both orphaned files are gone (their article does not exist).
+            assert!(!orphan.exists());
+            assert!(!orphan_status.exists());
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }

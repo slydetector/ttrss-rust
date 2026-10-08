@@ -2,18 +2,18 @@
 //! `backend.php?op=Pref_Filters`).
 
 use minijinja::Environment;
-use serde_json::{json, Map, Value};
-use sqlx::Row;
+use serde_json::{Map, Value, json};
 use sqlx::AssertSqlSafe;
+use sqlx::Row;
 use std::collections::HashMap;
 
+use crate::AppState;
+use crate::i18n::{__, t_nsprintf, t_sprintf};
 use crate::prefs;
 use crate::session::Sess;
-use crate::time::{make_local_datetime, TzCtx};
+use crate::time::{TzCtx, make_local_datetime};
 use crate::util;
 use crate::util::htmlspecialchars;
-use crate::i18n::{__, t_sprintf, t_nsprintf};
-use crate::AppState;
 
 // `Pref_Filters` action / type constants.
 const ACTION_TAG: i64 = 4;
@@ -106,7 +106,11 @@ async fn get_rule_name(
     let filter_type_desc = filter_type_description(util::clean_int(rule.get("filter_type")))
         .unwrap_or_else(|| "unknown filter type".to_string());
     let inverse = rule.get("inverse").is_some();
-    let inverse_text = if inverse { __("(inverse)")} else { String::new() };
+    let inverse_text = if inverse {
+        __("(inverse)")
+    } else {
+        String::new()
+    };
     if html_format {
         let reg_exp = rule
             .get("reg_exp")
@@ -283,26 +287,27 @@ async fn rule_where(
     if let Some(mo) = match_on {
         let mo = mo.trim();
         if !mo.is_empty()
-            && let Ok(referenced) = serde_json::from_str::<Vec<Value>>(mo) {
-                let mut parts: Vec<String> = Vec::new();
-                for f in &referenced {
-                    if let Some(fid) = f.as_str() {
-                        if let Some(rest) = fid.strip_prefix("CAT:") {
-                            parts.push(
-                                crate::feeds::category_title(pool, rest.parse().unwrap_or(0), uid)
-                                    .await,
-                            );
-                        } else if fid.is_empty() {
-                            parts.push(__("All feeds"));
-                        } else {
-                            parts.push(
-                                crate::feeds::feed_title(pool, fid.parse().unwrap_or(0), uid).await,
-                            );
-                        }
+            && let Ok(referenced) = serde_json::from_str::<Vec<Value>>(mo)
+        {
+            let mut parts: Vec<String> = Vec::new();
+            for f in &referenced {
+                if let Some(fid) = f.as_str() {
+                    if let Some(rest) = fid.strip_prefix("CAT:") {
+                        parts.push(
+                            crate::feeds::category_title(pool, rest.parse().unwrap_or(0), uid)
+                                .await,
+                        );
+                    } else if fid.is_empty() {
+                        parts.push(__("All feeds"));
+                    } else {
+                        parts.push(
+                            crate::feeds::feed_title(pool, fid.parse().unwrap_or(0), uid).await,
+                        );
                     }
                 }
-                return parts.join(", ");
             }
+            return parts.join(", ");
+        }
     }
     if cat_filter {
         crate::feeds::category_title(pool, cat_id.unwrap_or(0), uid).await
@@ -640,7 +645,11 @@ async fn feed_multi_select(
         } else {
             ""
         };
-        rv.push_str(&format!("<option {} value=\"0\">{}</option>", sel, __("All feeds")));
+        rv.push_str(&format!(
+            "<option {} value=\"0\">{}</option>",
+            sel,
+            __("All feeds")
+        ));
     }
 
     if enable_cats {
@@ -1151,11 +1160,7 @@ pub async fn test_filter_do(
 /// (toolbar with the search form + the filter tree/store). The trailing
 /// `PluginHost` hook is a no-op (no plugins) and `__()` is the identity, so the
 /// button labels are their literal English text.
-pub async fn index(
-    state: &AppState,
-    sess: &Sess,
-    extra: &Map<String, Value>,
-) -> String {
+pub async fn index(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> String {
     let filter_search = if let Some(v) = extra.get("search") {
         let s = util::clean_str(v.as_str().unwrap_or(""));
         sess.with_mut(|d| {
@@ -1187,7 +1192,7 @@ pub async fn index(
                 sess,
                 crate::pluginhost::HOOK_PREFS_TAB,
                 "prefFilters",
-                            )
+            )
             .await,
         ),
     );

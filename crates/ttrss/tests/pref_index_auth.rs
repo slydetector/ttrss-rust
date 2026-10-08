@@ -9,13 +9,13 @@
 //! whitespace is not asserted.
 mod common;
 
+use test_db::template::with_test_db;
+use ttrss::AppState;
 use ttrss::core::config::Config;
 use ttrss::core::db::Db;
 use ttrss::core::phpser::Value as PValue;
 use ttrss::core::session::Session;
 use ttrss::session::Sess;
-use ttrss::AppState;
-use test_db::template::with_test_db;
 
 /// A test-only config (the handlers only need `db`).
 fn test_config() -> Config {
@@ -31,7 +31,7 @@ fn test_config() -> Config {
         docroot: std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../..")
             .join("tt-rss"),
-    ..Default::default()
+        ..Default::default()
     }
 }
 
@@ -58,100 +58,109 @@ fn normalize(s: &str) -> String {
 
 #[tokio::test]
 async fn test_index_auth_structure() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup(&url).await;
-    let db = state.db.pool();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            let db = state.db.pool();
 
-    let html = ttrss::pref_ui::index_auth(&state, &sess)
-        .await
-        .expect("render");
-    let n = normalize(&html);
+            let html = ttrss::pref_ui::index_auth(&state, &sess)
+                .await
+                .expect("render");
+            let n = normalize(&html);
 
-    // The tab container + the four pane titles.
-    assert!(n.contains("dijit.layout.TabContainer"));
-    for title in [
-        "Personaldata",
-        "Password",
-        "Apppasswords",
-        "Authenticator(OTP)",
-    ] {
-        assert!(
-            n.contains(&format!("title=\"{title}\"")),
-            "missing pane {title}"
-        );
-    }
+            // The tab container + the four pane titles.
+            assert!(n.contains("dijit.layout.TabContainer"));
+            for title in [
+                "Personaldata",
+                "Password",
+                "Apppasswords",
+                "Authenticator(OTP)",
+            ] {
+                assert!(
+                    n.contains(&format!("title=\"{title}\"")),
+                    "missing pane {title}"
+                );
+            }
 
-    // Personal data pane: form + fields + Save.
-    assert!(n.contains("changePersonalData"));
-    assert!(n.contains("name='full_name'"));
-    assert!(n.contains("name='email'"));
-    assert!(n.contains("Save"));
+            // Personal data pane: form + fields + Save.
+            assert!(n.contains("changePersonalData"));
+            assert!(n.contains("name='full_name'"));
+            assert!(n.contains("name='email'"));
+            assert!(n.contains("Save"));
 
-    // Password pane (auth_internal implements IAuthModule2).
-    assert!(n.contains("changepassword"));
-    assert!(n.contains("name='old_password'"));
-    assert!(n.contains("name='new_password'"));
-    assert!(n.contains("name='confirm_password'"));
-    assert!(n.contains("pwd_change_infobox"));
-    assert!(n.contains("Changepassword"));
+            // Password pane (auth_internal implements IAuthModule2).
+            assert!(n.contains("changepassword"));
+            assert!(n.contains("name='old_password'"));
+            assert!(n.contains("name='new_password'"));
+            assert!(n.contains("name='confirm_password'"));
+            assert!(n.contains("pwd_change_infobox"));
+            assert!(n.contains("Changepassword"));
 
-    // App passwords pane: holder + the two AJAX buttons.
-    assert!(n.contains("app_passwords_holder"));
-    assert!(n.contains("Helpers.AppPasswords.generate()"));
-    assert!(n.contains("Helpers.AppPasswords.removeSelected()"));
-    assert!(n.contains("Generatepassword"));
-    assert!(n.contains("Removeselected"));
+            // App passwords pane: holder + the two AJAX buttons.
+            assert!(n.contains("app_passwords_holder"));
+            assert!(n.contains("Helpers.AppPasswords.generate()"));
+            assert!(n.contains("Helpers.AppPasswords.removeSelected()"));
+            assert!(n.contains("Generatepassword"));
+            assert!(n.contains("Removeselected"));
 
-    // OTP disabled branch: QR image + formatted secret + enable form.
-    assert!(n.contains("data:image/png;base64,"), "missing QR data URI");
-    assert!(n.contains("otpenable"));
-    assert!(n.contains("OTPsecret:"));
-    assert!(n.contains("name='otp'"));
-    assert!(n.contains("EnableOTP"));
-    // No disable-form in the disabled branch.
-    assert!(!n.contains("otpdisable"));
+            // OTP disabled branch: QR image + formatted secret + enable form.
+            assert!(n.contains("data:image/png;base64,"), "missing QR data URI");
+            assert!(n.contains("otpenable"));
+            assert!(n.contains("OTPsecret:"));
+            assert!(n.contains("name='otp'"));
+            assert!(n.contains("EnableOTP"));
+            // No disable-form in the disabled branch.
+            assert!(!n.contains("otpdisable"));
 
-    // The generated secret is persisted (10 random bytes = 20 hex chars) and
-    // the pane shows its base32 form (unpadded) in the `<code>`.
-    let secret_hex: String = sqlx::query_scalar("SELECT otp_secret FROM ttrss_users WHERE id = 1")
-        .fetch_one(db)
-        .await
-        .expect("otp_secret");
-    assert_eq!(secret_hex.len(), 20, "unexpected otp_secret: {secret_hex}");
-    assert!(secret_hex.chars().all(|c| c.is_ascii_hexdigit()));
-    let b32 = ttrss::otp::base32_upper_unpadded(secret_hex.as_bytes());
-    assert!(
-        n.contains(&format!("<code>{b32}</code>")),
-        "missing formatted secret"
-    );
-        Ok(())
-    })).await.unwrap();
+            // The generated secret is persisted (10 random bytes = 20 hex chars) and
+            // the pane shows its base32 form (unpadded) in the `<code>`.
+            let secret_hex: String =
+                sqlx::query_scalar("SELECT otp_secret FROM ttrss_users WHERE id = 1")
+                    .fetch_one(db)
+                    .await
+                    .expect("otp_secret");
+            assert_eq!(secret_hex.len(), 20, "unexpected otp_secret: {secret_hex}");
+            assert!(secret_hex.chars().all(|c| c.is_ascii_hexdigit()));
+            let b32 = ttrss::otp::base32_upper_unpadded(secret_hex.as_bytes());
+            assert!(
+                n.contains(&format!("<code>{b32}</code>")),
+                "missing formatted secret"
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
 async fn test_index_auth_otp_enabled() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup(&url).await;
-    let db = state.db.pool();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            let db = state.db.pool();
 
-    // OTP already enabled → the pane shows the disable form (no QR / secret).
-    sqlx::query("UPDATE ttrss_users SET otp_enabled = true WHERE id = 1")
-        .execute(db)
-        .await
-        .expect("enable otp");
+            // OTP already enabled → the pane shows the disable form (no QR / secret).
+            sqlx::query("UPDATE ttrss_users SET otp_enabled = true WHERE id = 1")
+                .execute(db)
+                .await
+                .expect("enable otp");
 
-    let html = ttrss::pref_ui::index_auth(&state, &sess)
-        .await
-        .expect("render");
-    let n = normalize(&html);
+            let html = ttrss::pref_ui::index_auth(&state, &sess)
+                .await
+                .expect("render");
+            let n = normalize(&html);
 
-    assert!(n.contains("otpdisable"));
-    assert!(n.contains("DisableOTP"));
-    assert!(n.contains("name='password'"));
-    assert!(n.contains("Onetimepasswordsarecurrentlyenabled"));
-    // The disabled-branch artifacts are absent.
-    assert!(!n.contains("otpenable"));
-    assert!(!n.contains("data:image/png;base64,"));
-        Ok(())
-    })).await.unwrap();
+            assert!(n.contains("otpdisable"));
+            assert!(n.contains("DisableOTP"));
+            assert!(n.contains("name='password'"));
+            assert!(n.contains("Onetimepasswordsarecurrentlyenabled"));
+            // The disabled-branch artifacts are absent.
+            assert!(!n.contains("otpenable"));
+            assert!(!n.contains("data:image/png;base64,"));
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }

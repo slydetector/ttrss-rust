@@ -31,23 +31,22 @@
 //! The filters' `new()` pre-parses their CSS selectors (real setup, not
 //! default-initialization), so `Default` is intentionally absent.
 
-use regex::Regex;
 use async_trait::async_trait;
+use regex::Regex;
 use scraper::{ElementRef, Html, Selector};
 use serde_json::{Value, json};
 
+use crate::i18n::__;
 use crate::pluginhost::host::{HostCtx, PluginHost};
-use crate::i18n::{__};
 use crate::pluginhost::plugin::{About, BoxFuture, Plugin};
 use crate::pluginhost::{
-    HOOK_ARTICLE_FILTER, HOOK_FETCH_FEED, HOOK_FEED_BASIC_INFO, HOOK_PREFS_TAB, HOOK_SUBSCRIBE_FEED,
+    HOOK_ARTICLE_FILTER, HOOK_FEED_BASIC_INFO, HOOK_FETCH_FEED, HOOK_PREFS_TAB, HOOK_SUBSCRIBE_FEED,
 };
-use crate::urlhelper::{fetch, FetchOptions};
+use crate::urlhelper::{FetchOptions, fetch};
 
 /// The user agents the reference filters set to dodge bot-blocking.
 const IE_UA: &str = "Mozilla/5.0 (compatible; MSIE 10.0; Windows NT 6.1; WOW64; Trident/6.0)";
-const FF_UA: &str =
-    "Mozilla/5.0 (Windows NT 6.1; WOW64; rv:50.0) Gecko/20100101 Firefox/50.0";
+const FF_UA: &str = "Mozilla/5.0 (Windows NT 6.1; WOW64; rv:50.0) Gecko/20100101 Firefox/50.0";
 
 /// A comic strip filter (the PHP `Af_ComicFilter` subclass in `filters/`).
 pub trait ComicFilter: Send {
@@ -132,9 +131,8 @@ async fn fetch_first(url: &str, useragent: Option<&str>, sel: &Selector) -> Opti
 /// (the harness never reaches this — the fetch fails there).
 fn move_attr(html: &str, from: &str, to: &str) -> String {
     static DATA_SRC: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
-    let re = DATA_SRC.get_or_init(|| {
-        Regex::new(&format!(r#"(?:\s{to}="[^"]*")?\s*{from}="([^"]*)""#)).unwrap()
-    });
+    let re = DATA_SRC
+        .get_or_init(|| Regex::new(&format!(r#"(?:\s{to}="[^"]*")?\s*{from}="([^"]*)""#)).unwrap());
     re.replace_all(html, &format!(r#"{to}="$1""#)).into_owned()
 }
 
@@ -149,7 +147,9 @@ pub struct Cad {
 }
 impl Cad {
     pub fn new() -> Self {
-        Cad { sel: parse_sel("div.comicpage a img") }
+        Cad {
+            sel: parse_sel("div.comicpage a img"),
+        }
     }
     async fn do_process(&self, article: &mut Value) -> bool {
         if !s(article, "link").contains("orderofthestick.org") {
@@ -205,7 +205,9 @@ impl Dilbert {
         let mut tags: Vec<String> = Vec::new();
         for a in doc.select(&self.tags_sel) {
             let Some(href) = a.attr("href") else { continue };
-            let Some(query) = href.split('?').nth(1) else { continue };
+            let Some(query) = href.split('?').nth(1) else {
+                continue;
+            };
             if query.is_empty() {
                 continue;
             }
@@ -257,10 +259,11 @@ impl DanbyDraws {
         };
         // `//div[@id="comic"]` first, else the parent of the post image (the
         // PHP's `…/img[...]/..` — via ego_tree's `parent`, `ElementRef::wrap`).
-        let node = doc
-            .select(&self.comic_sel)
-            .next()
-            .or_else(|| doc.select(&self.img_sel).next().and_then(|el| el.parent().and_then(ElementRef::wrap)));
+        let node = doc.select(&self.comic_sel).next().or_else(|| {
+            doc.select(&self.img_sel)
+                .next()
+                .and_then(|el| el.parent().and_then(ElementRef::wrap))
+        });
         if let Some(node) = node {
             article["content"] = Value::String(node.html());
             return true;
@@ -283,7 +286,9 @@ pub struct DarkLegacy {
 }
 impl DarkLegacy {
     pub fn new() -> Self {
-        DarkLegacy { sel: parse_sel("div.comic") }
+        DarkLegacy {
+            sel: parse_sel("div.comic"),
+        }
     }
     async fn do_process(&self, article: &mut Value) -> bool {
         if !s(article, "guid").contains("darklegacycomics.com") {
@@ -311,7 +316,9 @@ pub struct DumbingOfAge {
 }
 impl DumbingOfAge {
     pub fn new() -> Self {
-        DumbingOfAge { sel: parse_sel("div#comic") }
+        DumbingOfAge {
+            sel: parse_sel("div#comic"),
+        }
     }
     async fn do_process(&self, article: &mut Value) -> bool {
         if !s(article, "link").contains("dumbingofage.com") {
@@ -339,7 +346,9 @@ pub struct Explosm {
 }
 impl Explosm {
     pub fn new() -> Self {
-        Explosm { sel: parse_sel("div[class*=\"MainComic__ComicImage\"] img") }
+        Explosm {
+            sel: parse_sel("div[class*=\"MainComic__ComicImage\"] img"),
+        }
     }
     async fn do_process(&self, article: &mut Value) -> bool {
         if !s(article, "link").contains("explosm.net/comics") {
@@ -371,7 +380,9 @@ pub struct Tfd {
 }
 impl Tfd {
     pub fn new() -> Self {
-        Tfd { sel: parse_sel("img[src*=\".gif\"]") }
+        Tfd {
+            sel: parse_sel("img[src*=\".gif\"]"),
+        }
     }
     async fn do_process(&self, article: &mut Value) -> bool {
         if !s(article, "link").contains("toothpastefordinner.com")
@@ -445,7 +456,9 @@ pub struct Twp {
 }
 impl Twp {
     pub fn new() -> Self {
-        Twp { sel: parse_sel("td center img") }
+        Twp {
+            sel: parse_sel("td center img"),
+        }
     }
     async fn do_process(&self, article: &mut Value) -> bool {
         if !s(article, "link").contains("twistedpretty.net") {
@@ -473,7 +486,9 @@ pub struct Whomp {
 }
 impl Whomp {
     pub fn new() -> Self {
-        Whomp { sel: parse_sel("img#cc-comic") }
+        Whomp {
+            sel: parse_sel("img#cc-comic"),
+        }
     }
     async fn do_process(&self, article: &mut Value) -> bool {
         if !s(article, "guid").contains("whompcomic.com") {
@@ -501,7 +516,9 @@ pub struct ComicClass {
 }
 impl ComicClass {
     pub fn new() -> Self {
-        ComicClass { sel: parse_sel("div.comic") }
+        ComicClass {
+            sel: parse_sel("div.comic"),
+        }
     }
     async fn do_process(&self, article: &mut Value) -> bool {
         if !s(article, "guid").contains("loadingartist.com") {
@@ -564,7 +581,11 @@ impl ComicPress {
         }
         let mut content = String::new();
         if let Some(node) = img {
-            content.push_str(&move_attr(&move_attr(&node.html(), "data-src", "src"), "data-srcset", "srcset"));
+            content.push_str(&move_attr(
+                &move_attr(&node.html(), "data-src", "src"),
+                "data-srcset",
+                "srcset",
+            ));
             content = move_attr(&content, "data-sizes", "sizes");
         }
         if let Some(node) = text {
@@ -576,7 +597,16 @@ impl ComicPress {
 }
 impl ComicFilter for ComicPress {
     fn supported(&self) -> &[&'static str] {
-        &["Buni", "Buttersafe", "Happy Jar", "CSection", "Extra Fabulous Comics", "Nedroid", "Stonetoss", "Powerup Comics"]
+        &[
+            "Buni",
+            "Buttersafe",
+            "Happy Jar",
+            "CSection",
+            "Extra Fabulous Comics",
+            "Nedroid",
+            "Stonetoss",
+            "Powerup Comics",
+        ]
     }
     fn process<'a>(&'a self, article: &'a mut Value) -> BoxFuture<'a, bool> {
         Box::pin(self.do_process(article))
@@ -615,11 +645,7 @@ impl Plugin for AfComics {
 
     /// `hook_article_filter` — run each filter's `process`; the first `true`
     /// stops the chain (the PHP returns `$article` either way).
-    async fn hook_article_filter(
-        &self,
-        _host: &mut HostCtx,
-        article: &mut Value,
-    ) -> Value {
+    async fn hook_article_filter(&self, _host: &mut HostCtx, article: &mut Value) -> Value {
         for f in all_filters() {
             if f.process(article).await {
                 break;
@@ -692,11 +718,7 @@ impl Plugin for AfComics {
 
     /// `hook_prefs_tab` — list the supported comics in the `prefFeeds` pane
     /// (the PHP's `<?php ?>` block).
-    async fn hook_prefs_tab(
-        &self,
-        host: &mut HostCtx,
-        tab: &str,
-    ) -> () {
+    async fn hook_prefs_tab(&self, host: &mut HostCtx, tab: &str) -> () {
         if tab != "prefFeeds" {
             return;
         }
@@ -742,16 +764,20 @@ fn parse_sel(css: &str) -> Selector {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
     use super::*;
     use crate::pluginhost::{
-        HOOK_FETCH_FEED, HOOK_FEED_BASIC_INFO, HOOK_ARTICLE_FILTER, HOOK_PREFS_TAB,
+        HOOK_ARTICLE_FILTER, HOOK_FEED_BASIC_INFO, HOOK_FETCH_FEED, HOOK_PREFS_TAB,
         HOOK_SUBSCRIBE_FEED,
     };
+    use std::sync::Arc;
 
     /// A host with only `af_comics` + a lazy pool (the hook-dispatch / prefs-tab
     /// tests never touch the DB).
-    fn setup() -> (Arc<PluginHost>, sqlx::postgres::PgPool, crate::core::config::Config) {
+    fn setup() -> (
+        Arc<PluginHost>,
+        sqlx::postgres::PgPool,
+        crate::core::config::Config,
+    ) {
         let host = Arc::new(PluginHost::startup(&[|| Box::new(AfComics)]));
         let pool = sqlx::postgres::PgPoolOptions::new()
             .connect_lazy("postgres://ttrss:ttrss@localhost/ttrss_test")
@@ -764,7 +790,16 @@ mod tests {
     #[tokio::test]
     async fn init_registers_the_five_hooks() {
         let (host, pool, test_cfg) = setup();
-        let ctx = HostCtx::for_user(Arc::clone(&host), pool.clone(), test_cfg.clone(), Some(1), None, 0, &[], &["af_comics"]);
+        let ctx = HostCtx::for_user(
+            Arc::clone(&host),
+            pool.clone(),
+            test_cfg.clone(),
+            Some(1),
+            None,
+            0,
+            &[],
+            &["af_comics"],
+        );
         for h in [
             HOOK_FETCH_FEED,
             HOOK_FEED_BASIC_INFO,
@@ -790,7 +825,13 @@ mod tests {
                 names.push(n.to_string());
             }
         }
-        for want in ["Ctrl+Alt+Del", "Dilbert", "The Oatmeal", "Three Word Phrase", "Loading Artist"] {
+        for want in [
+            "Ctrl+Alt+Del",
+            "Dilbert",
+            "The Oatmeal",
+            "Three Word Phrase",
+            "Loading Artist",
+        ] {
             assert!(names.iter().any(|n| n == want), "missing {want}");
         }
         assert_eq!(names.len(), 20);
@@ -801,9 +842,17 @@ mod tests {
     #[tokio::test]
     async fn no_match_leaves_article_unchanged() {
         let (host, pool, test_cfg) = setup();
-        let mut article =
-            json!({"link": "https://example.com/a", "guid": "https://example.com/a", "content": "orig"});
-        let mut ctx = HostCtx::for_user(Arc::clone(&host), pool.clone(), test_cfg.clone(), Some(1), None, 0, &[], &["af_comics"]);
+        let mut article = json!({"link": "https://example.com/a", "guid": "https://example.com/a", "content": "orig"});
+        let mut ctx = HostCtx::for_user(
+            Arc::clone(&host),
+            pool.clone(),
+            test_cfg.clone(),
+            Some(1),
+            None,
+            0,
+            &[],
+            &["af_comics"],
+        );
         let out = AfComics.hook_article_filter(&mut ctx, &mut article).await;
         assert_eq!(out, article);
     }
@@ -812,22 +861,48 @@ mod tests {
     /// match guard) without fetching.
     #[tokio::test]
     async fn filter_process_negative_guard() {
-        assert!(!Cad::new().process(&mut json!({"link": "https://example.com/x"})).await);
-        assert!(!Whomp::new().process(&mut json!({"guid": "https://example.com/x"})).await);
+        assert!(
+            !Cad::new()
+                .process(&mut json!({"link": "https://example.com/x"}))
+                .await
+        );
+        assert!(
+            !Whomp::new()
+                .process(&mut json!({"guid": "https://example.com/x"}))
+                .await
+        );
     }
 
     /// The prefs tab lists the supported comics; a non-`prefFeeds` tab is empty.
     #[tokio::test]
     async fn prefs_tab_lists_supported_comics() {
         let (host, pool, test_cfg) = setup();
-        let mut ctx = HostCtx::for_user(Arc::clone(&host), pool.clone(), test_cfg.clone(), Some(1), None, 0, &[], &["af_comics"]);
+        let mut ctx = HostCtx::for_user(
+            Arc::clone(&host),
+            pool.clone(),
+            test_cfg.clone(),
+            Some(1),
+            None,
+            0,
+            &[],
+            &["af_comics"],
+        );
         AfComics.hook_prefs_tab(&mut ctx, "prefFeeds").await;
         let out = std::mem::take(&mut ctx.output);
         assert!(out.contains("dijit.layout.AccordionPane"));
         assert!(out.contains("Ctrl+Alt+Del"));
         assert!(out.contains("The Oatmeal"));
 
-        let mut ctx2 = HostCtx::for_user(Arc::clone(&host), pool.clone(), test_cfg.clone(), Some(1), None, 0, &[], &["af_comics"]);
+        let mut ctx2 = HostCtx::for_user(
+            Arc::clone(&host),
+            pool.clone(),
+            test_cfg.clone(),
+            Some(1),
+            None,
+            0,
+            &[],
+            &["af_comics"],
+        );
         AfComics.hook_prefs_tab(&mut ctx2, "other").await;
         assert!(ctx2.output.is_empty());
     }
@@ -837,10 +912,23 @@ mod tests {
     #[tokio::test]
     async fn feed_hooks_pass_through() {
         let (host, pool, test_cfg) = setup();
-        let mut ctx = HostCtx::for_user(Arc::clone(&host), pool.clone(), test_cfg.clone(), Some(1), None, 0, &[], &["af_comics"]);
-        let out = AfComics.hook_fetch_feed(&mut ctx, "FEED", "https://x", 1, 0, 0, "", "").await;
+        let mut ctx = HostCtx::for_user(
+            Arc::clone(&host),
+            pool.clone(),
+            test_cfg.clone(),
+            Some(1),
+            None,
+            0,
+            &[],
+            &["af_comics"],
+        );
+        let out = AfComics
+            .hook_fetch_feed(&mut ctx, "FEED", "https://x", 1, 0, 0, "", "")
+            .await;
         assert_eq!(out, "FEED");
-        let out = AfComics.hook_subscribe_feed(&mut ctx, "C", "https://x", "", "").await;
+        let out = AfComics
+            .hook_subscribe_feed(&mut ctx, "C", "https://x", "", "")
+            .await;
         assert_eq!(out, "C");
         let mut bi = json!({"title": "t"});
         let out = AfComics

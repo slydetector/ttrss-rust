@@ -16,11 +16,11 @@
 
 mod common;
 
-use ttrss::core::config::Config;
 use std::sync::Arc;
+use ttrss::core::config::Config;
 use ttrss::core::db::Db;
 use ttrss::pluginhost::PluginHost;
-use ttrss::updates::{fetch_one_feed, FeedUpdateFlags};
+use ttrss::updates::{FeedUpdateFlags, fetch_one_feed};
 /// An empty plugin host — the `HOOK_ARTICLE_FILTER` chain is a no-op with
 /// no plugins (M7.9), so these tests exercise the plugin-free path.
 fn no_plugins() -> PluginHost {
@@ -181,99 +181,119 @@ async fn entry_title_count(db: &Db, title: &str) -> i64 {
 // aggregate / cross-feed invariants.
 #[tokio::test]
 async fn test_batch_smoke() {
-    with_test_db(|url| Box::pin(async move {
-    let db = common::make_db_from_url(&url).await.expect("test db");
-    let cfg = test_config();
-    let mock = MockServer::new(vec![
-        Canned {
-            status: 200,
-            reason: "OK",
-            headers: vec![("content-type", "application/atom+xml".to_string())],
-            body: FEED_A.as_bytes().to_vec(),
-        },
-        Canned {
-            status: 200,
-            reason: "OK",
-            headers: vec![("content-type", "application/atom+xml".to_string())],
-            body: FEED_B.as_bytes().to_vec(),
-        },
-        Canned {
-            status: 200,
-            reason: "OK",
-            headers: vec![("content-type", "application/atom+xml".to_string())],
-            body: FEED_C.as_bytes().to_vec(),
-        },
-    ]);
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = common::make_db_from_url(&url).await.expect("test db");
+            let cfg = test_config();
+            let mock = MockServer::new(vec![
+                Canned {
+                    status: 200,
+                    reason: "OK",
+                    headers: vec![("content-type", "application/atom+xml".to_string())],
+                    body: FEED_A.as_bytes().to_vec(),
+                },
+                Canned {
+                    status: 200,
+                    reason: "OK",
+                    headers: vec![("content-type", "application/atom+xml".to_string())],
+                    body: FEED_B.as_bytes().to_vec(),
+                },
+                Canned {
+                    status: 200,
+                    reason: "OK",
+                    headers: vec![("content-type", "application/atom+xml".to_string())],
+                    body: FEED_C.as_bytes().to_vec(),
+                },
+            ]);
 
-    let uid = create_user(&db, 400, 0).await;
-    // The batch: three feeds, each pointing at the mock (the server serves the
-    // canned responses in order, so the feeds are fetched A → B → C).
-    let feed_a = create_feed(&db, 401, uid, &mock.url("/feed-a")).await;
-    let feed_b = create_feed(&db, 402, uid, &mock.url("/feed-b")).await;
-    let feed_c = create_feed(&db, 403, uid, &mock.url("/feed-c")).await;
+            let uid = create_user(&db, 400, 0).await;
+            // The batch: three feeds, each pointing at the mock (the server serves the
+            // canned responses in order, so the feeds are fetched A → B → C).
+            let feed_a = create_feed(&db, 401, uid, &mock.url("/feed-a")).await;
+            let feed_b = create_feed(&db, 402, uid, &mock.url("/feed-b")).await;
+            let feed_c = create_feed(&db, 403, uid, &mock.url("/feed-c")).await;
 
-    // The fixture baseline (the seed's pre-existing articles), so the
-    // assertions measure the batch's contribution (a before/after delta) rather
-    // than an absolute total.
-    let entries_before = entry_count(&db).await;
-    let user_entries_before = user_entry_count(&db).await;
-    let unread_before = unread_count(&db).await;
+            // The fixture baseline (the seed's pre-existing articles), so the
+            // assertions measure the batch's contribution (a before/after delta) rather
+            // than an absolute total.
+            let entries_before = entry_count(&db).await;
+            let user_entries_before = user_entry_count(&db).await;
+            let unread_before = unread_count(&db).await;
 
-    // Replay the batch through the M6c.2 workhorse (fetch → pipeline).
-    let mut total_new = 0;
-    for feed_id in [feed_a, feed_b, feed_c] {
-        let outcome = fetch_one_feed(db.pool(), &cfg, Arc::new(no_plugins()), feed_id, &FeedUpdateFlags::default(), None).await.expect("fetch");
-        assert!(outcome.success, "feed {feed_id} failed: {:?}", outcome.error);
-        total_new += outcome.new_articles;
-    }
+            // Replay the batch through the M6c.2 workhorse (fetch → pipeline).
+            let mut total_new = 0;
+            for feed_id in [feed_a, feed_b, feed_c] {
+                let outcome = fetch_one_feed(
+                    db.pool(),
+                    &cfg,
+                    Arc::new(no_plugins()),
+                    feed_id,
+                    &FeedUpdateFlags::default(),
+                    None,
+                )
+                .await
+                .expect("fetch");
+                assert!(
+                    outcome.success,
+                    "feed {feed_id} failed: {:?}",
+                    outcome.error
+                );
+                total_new += outcome.new_articles;
+            }
 
-    // Invariant 1 — the total new entries: 6 feed items (3 + 2 + 1) collapse
-    // to 5 distinct articles — the shared article appears in Feed A and Feed B
-    // with an identical `content_hash`, so it is deduped to one `ttrss_entries`
-    // row (the cross-feed dedup hit).
-    assert_eq!(
-        entry_count(&db).await - entries_before,
-        5,
-        "expected 5 new distinct articles (6 feed items - 1 deduped)"
-    );
+            // Invariant 1 — the total new entries: 6 feed items (3 + 2 + 1) collapse
+            // to 5 distinct articles — the shared article appears in Feed A and Feed B
+            // with an identical `content_hash`, so it is deduped to one `ttrss_entries`
+            // row (the cross-feed dedup hit).
+            assert_eq!(
+                entry_count(&db).await - entries_before,
+                5,
+                "expected 5 new distinct articles (6 feed items - 1 deduped)"
+            );
 
-    // Invariant 2 — the per-user subscriptions: 5 new `ttrss_user_entries`
-    // (`ttrss_user_entries` is deduped by `(ref_id, owner_uid)`, so the shared
-    // article — the same `ref_id` in both feeds — is subscribed once, not twice).
-    assert_eq!(
-        user_entry_count(&db).await - user_entries_before,
-        5,
-        "expected 5 new per-user subscriptions"
-    );
+            // Invariant 2 — the per-user subscriptions: 5 new `ttrss_user_entries`
+            // (`ttrss_user_entries` is deduped by `(ref_id, owner_uid)`, so the shared
+            // article — the same `ref_id` in both feeds — is subscribed once, not twice).
+            assert_eq!(
+                user_entry_count(&db).await - user_entries_before,
+                5,
+                "expected 5 new per-user subscriptions"
+            );
 
-    // Invariant 3 — the workhorse reports 5 new articles (3 + 2 + 1 - 1 deduped).
-    assert_eq!(total_new, 5, "expected the workhorse to report 5 new articles");
+            // Invariant 3 — the workhorse reports 5 new articles (3 + 2 + 1 - 1 deduped).
+            assert_eq!(
+                total_new, 5,
+                "expected the workhorse to report 5 new articles"
+            );
 
-    // Invariant 4 — the shared article is present exactly once (deduped across
-    // Feed A and Feed B), even though it appeared in two feeds.
-    assert_eq!(
-        entry_title_count(&db, "Shared article").await,
-        1,
-        "expected the shared article deduped to one row"
-    );
+            // Invariant 4 — the shared article is present exactly once (deduped across
+            // Feed A and Feed B), even though it appeared in two feeds.
+            assert_eq!(
+                entry_title_count(&db, "Shared article").await,
+                1,
+                "expected the shared article deduped to one row"
+            );
 
-    // Invariant 5 — the counter-cache total: 5 new unread subscriptions (all
-    // new articles are unread).
-    assert_eq!(
-        unread_count(&db).await - unread_before,
-        5,
-        "expected 5 new unread subscriptions"
-    );
+            // Invariant 5 — the counter-cache total: 5 new unread subscriptions (all
+            // new articles are unread).
+            assert_eq!(
+                unread_count(&db).await - unread_before,
+                5,
+                "expected 5 new unread subscriptions"
+            );
 
-    // Invariant 6 — the cross-feed dedup is observable at the aggregate level:
-    // 6 feed items were fetched (3 + 2 + 1) but only 5 distinct articles
-    // remain, proving the cross-feed `content_hash` dedup fired (not merely a
-    // per-feed entry count).
-    assert_eq!(
-        entry_count(&db).await - entries_before,
-        5,
-        "expected the cross-feed dedup to collapse 6 items to 5 articles"
-    );
-    Ok(())
-    })).await.unwrap();
+            // Invariant 6 — the cross-feed dedup is observable at the aggregate level:
+            // 6 feed items were fetched (3 + 2 + 1) but only 5 distinct articles
+            // remain, proving the cross-feed `content_hash` dedup fired (not merely a
+            // per-feed entry count).
+            assert_eq!(
+                entry_count(&db).await - entries_before,
+                5,
+                "expected the cross-feed dedup to collapse 6 items to 5 articles"
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }

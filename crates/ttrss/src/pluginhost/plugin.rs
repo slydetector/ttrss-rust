@@ -397,7 +397,13 @@ pub trait Plugin: Send + Sync {
     /// - `feed_id` int — the feed being updated
     ///
     /// Return: nothing (`()`).
-    async fn hook_feed_parsed(&self, _host: &mut HostCtx, _parser: &FeedParser<'_>, _feed_id: i32) -> () {}
+    async fn hook_feed_parsed(
+        &self,
+        _host: &mut HostCtx,
+        _parser: &FeedParser<'_>,
+        _feed_id: i32,
+    ) -> () {
+    }
 
     /// `hook_update_task($cli_options)` — invoked when a feed update task
     /// finishes (daemon tick, after housekeeping). `HOOK_UPDATE_TASK`.
@@ -646,7 +652,8 @@ pub trait Plugin: Send + Sync {
         _allowed_elements: &[String],
         _disallowed_attributes: &[String],
         _article_id: i32,
-    ) -> () {}
+    ) -> () {
+    }
 
     /// `hook_render_article_api($params)` — article rendered for API clients
     /// (before the API response is sent). `HOOK_RENDER_ARTICLE_API`.
@@ -852,7 +859,13 @@ pub trait Plugin: Send + Sync {
     ///   values, …)
     ///
     /// Return: nothing (`()`); the hook echoes its output through the host.
-    async fn hook_prefs_save_feed(&self, _host: &mut HostCtx, _feed_id: i32, _params: &Value) -> () {}
+    async fn hook_prefs_save_feed(
+        &self,
+        _host: &mut HostCtx,
+        _feed_id: i32,
+        _params: &Value,
+    ) -> () {
+    }
 
     /// `hook_fetch_feed(...)` — override the built-in feed fetch, substituting
     /// the received data. `HOOK_FETCH_FEED`.
@@ -928,7 +941,12 @@ pub trait Plugin: Send + Sync {
     /// Return: the (possibly rewritten) row — it *replaces* the row for
     /// the rest of the loop. The default (empty array) is treated as "no
     /// change" by the port's chain (PHP would install an empty row).
-    async fn hook_query_headlines(&self, _host: &mut HostCtx, _row: &mut Value, _excerpt_length: i32) -> Value {
+    async fn hook_query_headlines(
+        &self,
+        _host: &mut HostCtx,
+        _row: &mut Value,
+        _excerpt_length: i32,
+    ) -> Value {
         Value::Array(vec![])
     }
 
@@ -1296,7 +1314,12 @@ pub trait Plugin: Send + Sync {
     ///
     /// Return: `true` — suppress the default removal; `false` (default) —
     /// proceed with it.
-    async fn hook_unsubscribe_feed(&self, _host: &mut HostCtx, _feed_id: i64, _owner_uid: i64) -> bool {
+    async fn hook_unsubscribe_feed(
+        &self,
+        _host: &mut HostCtx,
+        _feed_id: i64,
+        _owner_uid: i64,
+    ) -> bool {
         false
     }
 
@@ -1358,7 +1381,8 @@ pub trait Plugin: Send + Sync {
         _matched_filters: &Value,
         _matched_rules: &Value,
         _article_filter_actions: &Value,
-    ) -> () {}
+    ) -> () {
+    }
 
     /// `hook_get_full_text($url)` — plugins may provide full article text.
     /// `HOOK_GET_FULL_TEXT`.
@@ -1466,7 +1490,12 @@ pub trait Plugin: Send + Sync {
     ///
     /// Return: the (possibly rewritten) object. Read back field-by-field —
     /// a missing key keeps the enclosure's previous value.
-    async fn hook_enclosure_imported(&self, _host: &mut HostCtx, _enclosure: &mut Value, _feed: i32) -> Value {
+    async fn hook_enclosure_imported(
+        &self,
+        _host: &mut HostCtx,
+        _enclosure: &mut Value,
+        _feed: i32,
+    ) -> Value {
         Value::Null
     }
 
@@ -1511,7 +1540,11 @@ pub trait Plugin: Send + Sync {
     /// Return: `[query, skip_first_id]` — `query` str ("" = no override)
     /// and `skip_first_id` bool (skip the built-in `first_id` handling).
     /// The default `["", false]` declines.
-    async fn hook_headlines_custom_sort_override(&self, _host: &mut HostCtx, _order: &str) -> Value {
+    async fn hook_headlines_custom_sort_override(
+        &self,
+        _host: &mut HostCtx,
+        _order: &str,
+    ) -> Value {
         serde_json::json!(["", false])
     }
 
@@ -1696,5 +1729,6 @@ pub trait Plugin: Send + Sync {
     /// Parameters: `article_ids` — `&[i32]`, the affected article ref_ids.
     ///
     /// Return: nothing (`()`); the hook reacts to the toggle.
-    async fn hook_articles_publish_toggled(&self, _host: &mut HostCtx, _article_ids: &[i64]) -> () {}
+    async fn hook_articles_publish_toggled(&self, _host: &mut HostCtx, _article_ids: &[i64]) -> () {
+    }
 }

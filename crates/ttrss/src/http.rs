@@ -8,28 +8,28 @@
 
 //!   * `/healthz`.
 
-use crate::core::phpser::Value;use crate::i18n::{__};
+use crate::core::phpser::Value;
+use crate::i18n::__;
 
-use crate::core::session as core_session;
 use crate::core::config::Config;
+use crate::core::session as core_session;
 use crate::util::{ct_eq, now_unix, php_int_cast};
-use sqlx::Row;
 use crate::{
-    api, auth, diskcache, forgotpass, mime, nocache_headers, render, rpc, session, syndication,
-    with_trailing_slash, AppState,
+    AppState, api, auth, diskcache, forgotpass, mime, nocache_headers, render, rpc, session,
+    syndication, with_trailing_slash,
 };
 use axum::{
+    Router,
     body::Body,
     extract::{Extension, Form, Query, Request, State},
-    http::{header, HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Response},
     routing::{get, post},
-    Router,
 };
 use serde::Deserialize;
+use sqlx::Row;
 use tokio::fs;
 use tower_http::compression::CompressionLayer;
-
 
 /// Redirect `<base>` → `<base>/` (Apache DirectorySlash parity).
 /// Applied as a layer so it runs before route matching (the `nest` would
@@ -125,7 +125,13 @@ async fn index(
     let data = sess.data();
     if !data.is_logged_in() {
         // Not authenticated → login page.
-        let locale = crate::i18n::resolve_request_locale(&state.i18n, headers.get(axum::http::header::ACCEPT_LANGUAGE).and_then(|v| v.to_str().ok()), None);
+        let locale = crate::i18n::resolve_request_locale(
+            &state.i18n,
+            headers
+                .get(axum::http::header::ACCEPT_LANGUAGE)
+                .and_then(|v| v.to_str().ok()),
+            None,
+        );
         let html = crate::i18n::I18N
             .scope(
                 crate::i18n::I18nCtx {
@@ -166,14 +172,8 @@ async fn index(
     let rows = crate::prefs::load_rows_cached(&state.prefs_cache, &state.db, uid, profile).await;
     let user_lang_pref = crate::prefs::resolve("USER_LANGUAGE", &rows, profile);
     let user_lang = user_lang_pref.as_str();
-    let locale = crate::i18n::resolve_request_locale(
-        &state.i18n,
-        accept_language,
-        Some(user_lang),
-    );
-    let hide_logout = data
-        .get_bool("hide_logout")
-        .unwrap_or(false);
+    let locale = crate::i18n::resolve_request_locale(&state.i18n, accept_language, Some(user_lang));
+    let hide_logout = data.get_bool("hide_logout").unwrap_or(false);
     let html = crate::i18n::I18N
         .scope(
             crate::i18n::I18nCtx {
@@ -235,7 +235,13 @@ async fn prefs_page(
 ) -> Response {
     let data = sess.data();
     if !data.is_logged_in() {
-        let locale = crate::i18n::resolve_request_locale(&state.i18n, headers.get(axum::http::header::ACCEPT_LANGUAGE).and_then(|v| v.to_str().ok()), None);
+        let locale = crate::i18n::resolve_request_locale(
+            &state.i18n,
+            headers
+                .get(axum::http::header::ACCEPT_LANGUAGE)
+                .and_then(|v| v.to_str().ok()),
+            None,
+        );
         let html = crate::i18n::I18N
             .scope(
                 crate::i18n::I18nCtx {
@@ -275,14 +281,21 @@ async fn prefs_page(
     // non-admins the hook runs too — PHP's prefs.php has no access gate on
     // the hook).
     let mut pctx = crate::pluginhost::dispatch::session_ctx(&state, &sess).await;
-    pctx
-        .run_hooks(
-            crate::pluginhost::HOOK_PREFS_TABS,
-            |plugin, host| plugin.hook_prefs_tabs(host),
-        )
-        .await;
+    pctx.run_hooks(crate::pluginhost::HOOK_PREFS_TABS, |plugin, host| {
+        plugin.hook_prefs_tabs(host)
+    })
+    .await;
     let prefs_tabs_hooks = pctx.output.trim().to_string();
-    let html = render::render_prefs_page(csrf, ts, access_level, &theme_link, &user_css, &prefs_plugin_js, &prefs_css, &prefs_tabs_hooks);
+    let html = render::render_prefs_page(
+        csrf,
+        ts,
+        access_level,
+        &theme_link,
+        &user_css,
+        &prefs_plugin_js,
+        &prefs_css,
+        &prefs_tabs_hooks,
+    );
     let etag = format!("W/\"{}\"", md5_hex(&html));
     axum::http::Response::builder()
         .status(StatusCode::OK)
@@ -308,9 +321,11 @@ async fn resolve_active_plugins(state: &AppState, data: &core_session::Session) 
         .map(|s| s.trim().to_lowercase())
         .filter(|s| !s.is_empty())
         .collect();
-    let pref_rows = crate::prefs::load_rows_cached(&state.prefs_cache, &state.db, uid, profile).await;
-    let enabled =
-        crate::prefs::resolve(crate::prefs::_ENABLED_PLUGINS, &pref_rows, profile).as_str().to_string();
+    let pref_rows =
+        crate::prefs::load_rows_cached(&state.prefs_cache, &state.db, uid, profile).await;
+    let enabled = crate::prefs::resolve(crate::prefs::_ENABLED_PLUGINS, &pref_rows, profile)
+        .as_str()
+        .to_string();
     let user: Vec<String> = enabled
         .split(',')
         .map(|s| s.trim().to_lowercase())
@@ -362,7 +377,10 @@ fn plugin_assets(host: &crate::pluginhost::PluginHost, active: &[String]) -> (St
 
 /// The prefs page's plugin assets (PHP `prefs.php` loop): `get_prefs_css`/
 /// `get_prefs_js` — a different pair than the shell's.
-fn prefs_plugin_assets(host: &crate::pluginhost::PluginHost, active: &[String]) -> (String, String) {
+fn prefs_plugin_assets(
+    host: &crate::pluginhost::PluginHost,
+    active: &[String],
+) -> (String, String) {
     plugin_assets_for(host, active, |p| p.get_prefs_css(), |p| p.get_prefs_js())
 }
 
@@ -374,38 +392,35 @@ fn prefs_plugin_assets(host: &crate::pluginhost::PluginHost, active: &[String]) 
 async fn shell_hook_strings(state: &AppState, sess: &session::Sess) -> (String, String, String) {
     let mut pctx = crate::pluginhost::dispatch::session_ctx(state, sess).await;
     let mut feed_tree = String::new();
-    pctx
-        .run_hooks_callback::<String, _, _>(
-            crate::pluginhost::HOOK_FEED_TREE,
-            |plugin, host| Box::pin(async move { plugin.hook_feed_tree(host).await }),
-            |result, _| {
-                feed_tree.push_str(result);
-                false
-            },
-        )
-        .await;
+    pctx.run_hooks_callback::<String, _, _>(
+        crate::pluginhost::HOOK_FEED_TREE,
+        |plugin, host| Box::pin(async move { plugin.hook_feed_tree(host).await }),
+        |result, _| {
+            feed_tree.push_str(result);
+            false
+        },
+    )
+    .await;
     let mut toolbar = String::new();
-    pctx
-        .run_hooks_callback::<String, _, _>(
-            crate::pluginhost::HOOK_TOOLBAR_BUTTON,
-            |plugin, host| Box::pin(async move { plugin.hook_toolbar_button(host).await }),
-            |result, _| {
-                toolbar.push_str(result);
-                false
-            },
-        )
-        .await;
+    pctx.run_hooks_callback::<String, _, _>(
+        crate::pluginhost::HOOK_TOOLBAR_BUTTON,
+        |plugin, host| Box::pin(async move { plugin.hook_toolbar_button(host).await }),
+        |result, _| {
+            toolbar.push_str(result);
+            false
+        },
+    )
+    .await;
     let mut action_item = String::new();
-    pctx
-        .run_hooks_callback::<String, _, _>(
-            crate::pluginhost::HOOK_ACTION_ITEM,
-            |plugin, host| Box::pin(async move { plugin.hook_action_item(host).await }),
-            |result, _| {
-                action_item.push_str(result);
-                false
-            },
-        )
-        .await;
+    pctx.run_hooks_callback::<String, _, _>(
+        crate::pluginhost::HOOK_ACTION_ITEM,
+        |plugin, host| Box::pin(async move { plugin.hook_action_item(host).await }),
+        |result, _| {
+            action_item.push_str(result);
+            false
+        },
+    )
+    .await;
     (feed_tree, toolbar, action_item)
 }
 
@@ -419,12 +434,11 @@ async fn loginform_additional_buttons(state: &AppState) -> String {
         state.db.pool().clone(),
         state.config.clone(),
     );
-    lctx
-        .run_hooks(
-            crate::pluginhost::HOOK_LOGINFORM_ADDITIONAL_BUTTONS,
-            |plugin, host| plugin.hook_loginform_additional_buttons(host),
-        )
-        .await;
+    lctx.run_hooks(
+        crate::pluginhost::HOOK_LOGINFORM_ADDITIONAL_BUTTONS,
+        |plugin, host| plugin.hook_loginform_additional_buttons(host),
+    )
+    .await;
     lctx.output.trim().to_string()
 }
 
@@ -434,12 +448,11 @@ async fn loginform_additional_buttons(state: &AppState) -> String {
 /// plugin emits a button).
 async fn main_toolbar_buttons(state: &AppState, sess: &session::Sess) -> String {
     let mut pctx = crate::pluginhost::dispatch::session_ctx(state, sess).await;
-    pctx
-        .run_hooks(
-            crate::pluginhost::HOOK_MAIN_TOOLBAR_BUTTON,
-            |plugin, host| plugin.hook_main_toolbar_button(host),
-        )
-        .await;
+    pctx.run_hooks(
+        crate::pluginhost::HOOK_MAIN_TOOLBAR_BUTTON,
+        |plugin, host| plugin.hook_main_toolbar_button(host),
+    )
+    .await;
     pctx.output.trim().to_string()
 }
 
@@ -559,13 +572,17 @@ async fn public_handler(
                 ),
             };
             let request = public_request_map(&query, &form);
-            match crate::pluginhost::dispatch::public_dispatch(&state, &plugin, &pmethod, &request, &self_url)
-                .await
+            match crate::pluginhost::dispatch::public_dispatch(
+                &state, &plugin, &pmethod, &request, &self_url,
+            )
+            .await
             {
-                Ok(crate::pluginhost::plugin::MethodOutput::Json(v)) =>
-                    (StatusCode::OK, v.to_string()).into_response(),
-                Ok(crate::pluginhost::plugin::MethodOutput::Raw(s)) =>
-                    (StatusCode::OK, s).into_response(),
+                Ok(crate::pluginhost::plugin::MethodOutput::Json(v)) => {
+                    (StatusCode::OK, v.to_string()).into_response()
+                }
+                Ok(crate::pluginhost::plugin::MethodOutput::Raw(s)) => {
+                    (StatusCode::OK, s).into_response()
+                }
                 // A full response (custom status + Content-Type) — `share::get`.
                 Ok(crate::pluginhost::plugin::MethodOutput::Response {
                     status,
@@ -782,18 +799,17 @@ fn public_request_map(query: &PublicQuery, form: &PublicForm) -> serde_json::Val
     ];
     for (name, q, f) in named {
         if let Some(v) = (*f).or(*q) {
-            m.insert((*name).to_string(), serde_json::Value::String(v.to_string()));
+            m.insert(
+                (*name).to_string(),
+                serde_json::Value::String(v.to_string()),
+            );
         }
     }
     serde_json::Value::Object(m)
 }
 
 /// `Handler_Public::logout` + `UserHelper::logout`.
-async fn logout_flow(
-    state: &AppState,
-    sess: session::Sess,
-    form: &PublicForm,
-) -> Response {
+async fn logout_flow(state: &AppState, sess: session::Sess, form: &PublicForm) -> Response {
     let self_url = sess.self_url();
     // `validate_csrf`: `isset($csrf) && hash_equals($_SESSION['csrf_token'] ?? "", $csrf)`.
     let data = sess.data();
@@ -818,7 +834,10 @@ async fn logout_flow(
     }
     let (u_login, u_id) = {
         let d = sess.data();
-        (d.get_str("name").unwrap_or("").to_string(), d.uid().unwrap_or(0))
+        (
+            d.get_str("name").unwrap_or("").to_string(),
+            d.uid().unwrap_or(0),
+        )
     };
     let u_login_captured = u_login.clone();
     let sid = sess.id();
@@ -836,9 +855,11 @@ async fn logout_flow(
             },
             |result: &serde_json::Value, _plugin| {
                 if let Some(url) = result.get(0).and_then(|v| v.as_str())
-                    && !url.is_empty() && redirect_url.is_empty() {
-                        redirect_url = url.to_string();
-                    }
+                    && !url.is_empty()
+                    && redirect_url.is_empty()
+                {
+                    redirect_url = url.to_string();
+                }
                 false
             },
         )
@@ -932,8 +953,8 @@ async fn login_flow(
     // M7.20: the auth chain runs over the **system** plugins only (PHP
     // `load_all(KIND_SYSTEM, 0, true)` — per-user plugins never
     // participate in authentication).
-    let mut ctx = crate::pluginhost::dispatch::login_ctx(state)
-        .with_server_env(server_env.to_vec());
+    let mut ctx =
+        crate::pluginhost::dispatch::login_ctx(state).with_server_env(server_env.to_vec());
     let mut uid: Option<i32> = None;
     let mut auth_module: Option<&str> = None;
     let host = ctx.host_arc();
@@ -959,14 +980,13 @@ async fn login_flow(
         Some(id) => {
             // Re-read the user row for the session setup (the plugin only
             // returns the uid; the session needs login/access_level/pwd_hash).
-            let row = sqlx::query(
-                "SELECT login, access_level, pwd_hash FROM ttrss_users WHERE id = $1",
-            )
-            .bind(id)
-            .fetch_optional(ctx.pool())
-            .await
-            .ok()
-            .flatten();
+            let row =
+                sqlx::query("SELECT login, access_level, pwd_hash FROM ttrss_users WHERE id = $1")
+                    .bind(id)
+                    .fetch_optional(ctx.pool())
+                    .await
+                    .ok()
+                    .flatten();
             if let Some(r) = row {
                 let u_login: String = r.try_get("login").unwrap_or_default();
                 let access_level: i32 = r.try_get("access_level").unwrap_or(0);
@@ -1019,9 +1039,9 @@ async fn login_flow(
     }
 
     // Failure (or no plugin handled it): set the error and redirect.
-    let message = ctx.login_error.unwrap_or_else(|| {
-        __("Incorrect username or password")
-    });
+    let message = ctx
+        .login_error
+        .unwrap_or_else(|| __("Incorrect username or password"));
     let cur = sess.id();
     let sid = if cur.is_empty() {
         core_session::new_session_id()
@@ -1262,18 +1282,27 @@ mod tests {
     /// Regression: the port once fed the shell pair to the prefs page.
     #[test]
     fn page_assets_use_their_own_plugin_pair() {
-        let host = crate::pluginhost::PluginHost::startup(&[
-            || Box::new(crate::plugins::share::Share) as Box<dyn crate::pluginhost::Plugin>,
-        ]);
+        let host = crate::pluginhost::PluginHost::startup(&[|| {
+            Box::new(crate::plugins::share::Share) as Box<dyn crate::pluginhost::Plugin>
+        }]);
         let active = vec!["share".to_string()];
 
         let (shell_css, shell_js) = plugin_assets(&host, &active);
         assert!(shell_js.contains("shareArticle"), "shell must get share.js");
-        assert!(!shell_js.contains("clearKeys"), "prefs JS must not leak into the shell");
+        assert!(
+            !shell_js.contains("clearKeys"),
+            "prefs JS must not leak into the shell"
+        );
 
         let (prefs_css, prefs_js) = prefs_plugin_assets(&host, &active);
-        assert!(prefs_js.contains("clearKeys"), "prefs must get share_prefs.js");
-        assert!(!prefs_js.contains("shareArticle"), "shell JS must not leak into the prefs page");
+        assert!(
+            prefs_js.contains("clearKeys"),
+            "prefs must get share_prefs.js"
+        );
+        assert!(
+            !prefs_js.contains("shareArticle"),
+            "shell JS must not leak into the prefs page"
+        );
 
         // `share.css` exists, `share_prefs.css` does not — the shell gets the
         // CSS, the prefs page correctly gets none.
@@ -1289,7 +1318,7 @@ mod tests {
     /// `feed-icons/12`; treating the raw string as a filename 404'd (the bug).
     #[test]
     fn feed_icon_resolves_the_malformed_preview_id() {
-        use base64::{engine::general_purpose::STANDARD, Engine as _};
+        use base64::{Engine as _, engine::general_purpose::STANDARD};
         // A 1×1 transparent PNG, so `send_file`'s media-type guard passes → 200.
         let png = STANDARD
             .decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==")

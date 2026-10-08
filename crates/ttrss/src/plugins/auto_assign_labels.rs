@@ -12,15 +12,15 @@
 //! directly (the owner's label *definitions*); `Labels::label_to_feed_id` is the
 //! port's [`crate::labels::label_to_feed_id`].
 
-use regex::Regex;
 use async_trait::async_trait;
+use regex::Regex;
 use serde_json::{Value, json};
 use sqlx::Row;
 
 use crate::labels;
+use crate::pluginhost::HOOK_ARTICLE_FILTER;
 use crate::pluginhost::host::{HostCtx, PluginHost};
 use crate::pluginhost::plugin::{About, Plugin};
-use crate::pluginhost::HOOK_ARTICLE_FILTER;
 use crate::util::strip_tags;
 
 /// The `auto_assign_labels` plugin (the PHP's `Auto_Assign_Labels`).
@@ -50,11 +50,7 @@ impl Plugin for AutoAssignLabels {
 
     /// `hook_article_filter` — add each owner label whose caption matches the
     /// article (whole-word, case-insensitive) to the article's label list.
-    async fn hook_article_filter(
-        &self,
-        host: &mut HostCtx,
-        article: &mut Value,
-    ) -> Value {
+    async fn hook_article_filter(&self, host: &mut HostCtx, article: &mut Value) -> Value {
         let pool = host.pool();
         let owner: i32 = article
             .get("owner_uid")
@@ -89,9 +85,10 @@ impl Plugin for AutoAssignLabels {
                 continue;
             }
             if caption_word_match(caption, &haystack)
-                && let Some(arr) = cur.as_array_mut() {
-                    arr.push(label.clone());
-                }
+                && let Some(arr) = cur.as_array_mut()
+            {
+                arr.push(label.clone());
+            }
         }
         article["labels"] = cur;
         article.clone()
@@ -123,16 +120,19 @@ async fn get_all_labels(pool: &sqlx::PgPool, owner_uid: i32) -> Vec<Value> {
 
 /// `RSSUtils::labels_contains_caption` — true when a label's caption matches.
 fn labels_contains_caption(labels: &Value, caption: &str) -> bool {
-    labels
-        .as_array()
-        .is_some_and(|arr| arr.iter().any(|l| l.get(1).and_then(Value::as_str) == Some(caption)))
+    labels.as_array().is_some_and(|arr| {
+        arr.iter()
+            .any(|l| l.get(1).and_then(Value::as_str) == Some(caption))
+    })
 }
 
 /// The PHP's `preg_match("/\b$caption\b/i", …)` — a case-insensitive whole-word
 /// match of `$caption` in `$haystack`.
 fn caption_word_match(caption: &str, haystack: &str) -> bool {
     let pattern = format!(r"(?i)\b{}\b", regex::escape(caption));
-    Regex::new(&pattern).map(|re| re.is_match(haystack)).unwrap_or(false)
+    Regex::new(&pattern)
+        .map(|re| re.is_match(haystack))
+        .unwrap_or(false)
 }
 
 // ---------------------------------------------------------------------------
@@ -172,7 +172,10 @@ mod tests {
         assert_eq!(p.name(), "auto_assign_labels");
         assert_eq!(p.class_name(), "Auto_Assign_Labels");
         assert_eq!(p.api_version(), 2);
-        assert_eq!(p.about().description, "Assign labels automatically based on article title, content, and tags");
+        assert_eq!(
+            p.about().description,
+            "Assign labels automatically based on article title, content, and tags"
+        );
         assert_eq!(p.about().author, "fox");
     }
     #[test]

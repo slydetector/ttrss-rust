@@ -17,8 +17,8 @@
 use anyhow::{Context, Result};
 use chrono::{Local, NaiveDateTime, TimeZone as _};
 use croner::Cron;
+use sqlx::{AssertSqlSafe, PgPool, Row};
 use std::str::FromStr;
-use sqlx::{PgPool, Row, AssertSqlSafe};
 
 use crate::core::config::Config;
 
@@ -89,7 +89,9 @@ fn local_dt(naive: NaiveDateTime) -> chrono::DateTime<Local> {
     use chrono::LocalResult;
     match Local.from_local_datetime(&naive) {
         LocalResult::None => naive.and_utc().with_timezone(&Local),
-        other => other.earliest().expect("local datetime resolves to a value"),
+        other => other
+            .earliest()
+            .expect("local datetime resolves to a value"),
     }
 }
 
@@ -101,7 +103,8 @@ fn local_dt(naive: NaiveDateTime) -> chrono::DateTime<Local> {
 /// (`inclusive = false` → strictly after `last`).
 pub fn is_due(cron: &Cron, last_run: NaiveDateTime, now: chrono::DateTime<Local>) -> bool {
     let last = local_dt(last_run);
-    cron.find_next_occurrence(&last, false).is_ok_and(|next| next < now)
+    cron.find_next_occurrence(&last, false)
+        .is_ok_and(|next| next < now)
 }
 
 /// `Scheduler::run_due_tasks` — run the registered scheduled tasks that are
@@ -119,21 +122,20 @@ pub async fn run_due_tasks(pool: &PgPool, cfg: &Config, tasks: &[ScheduledTask])
             continue;
         };
 
-        let last_run: NaiveDateTime =
-            match sqlx::query_scalar(
-                "SELECT last_run FROM ttrss_scheduled_tasks WHERE task_name = $1",
-            )
-            .bind(task.name)
-            .fetch_optional(pool)
-            .await
-            .context("load scheduled task record")
-            {
-                Ok(r) => r.unwrap_or(EPOCH),
-                Err(e) => {
-                    tracing::error!(task = task.name, error = %e, "failed to load task record");
-                    continue;
-                }
-            };
+        let last_run: NaiveDateTime = match sqlx::query_scalar(
+            "SELECT last_run FROM ttrss_scheduled_tasks WHERE task_name = $1",
+        )
+        .bind(task.name)
+        .fetch_optional(pool)
+        .await
+        .context("load scheduled task record")
+        {
+            Ok(r) => r.unwrap_or(EPOCH),
+            Err(e) => {
+                tracing::error!(task = task.name, error = %e, "failed to load task record");
+                continue;
+            }
+        };
 
         if !is_due(&cron, last_run, now) {
             continue;
@@ -145,21 +147,18 @@ pub async fn run_due_tasks(pool: &PgPool, cfg: &Config, tasks: &[ScheduledTask])
         if rc == 0 {
             tracing::debug!(task = task.name, "scheduled task finished in {duration}s");
         } else {
-            tracing::warn!(task = task.name, rc, "scheduled task failed after {duration}s");
+            tracing::warn!(
+                task = task.name,
+                rc,
+                "scheduled task failed after {duration}s"
+            );
         }
 
         // Store the normalized expression (the PHP's `getExpression()`: the
         // `@daily` shorthand is expanded to `0 0 * * *`, etc.) — croner's
         // `pattern` renders the parsed fields back to that exact form.
         let cron_expr = cron.pattern.to_string();
-        let _ = record_run(
-            pool,
-            task.name,
-            duration,
-            rc,
-            &cron_expr,
-        )
-        .await;
+        let _ = record_run(pool, task.name, duration, rc, &cron_expr).await;
     }
 }
 
@@ -171,7 +170,9 @@ pub async fn purge_orphaned_scheduled_tasks(pool: &PgPool, registered: &[&str]) 
         tracing::error!("purge_orphaned_scheduled_tasks: invoked before tasks were registered");
         return 1;
     }
-    let qmarks: Vec<String> = (0..registered.len()).map(|i| format!("${}", i + 1)).collect();
+    let qmarks: Vec<String> = (0..registered.len())
+        .map(|i| format!("${}", i + 1))
+        .collect();
     let sql = format!(
         "DELETE FROM ttrss_scheduled_tasks WHERE task_name NOT IN ({}) \
          AND last_run < NOW() - INTERVAL '5 weeks'",
@@ -267,10 +268,9 @@ async fn run_task_inner(pool: &PgPool, cfg: &Config, name: &str) -> Result<i32> 
         // (`crate::digest::prepare_headlines_digest`); the mailer (SMTP send)
         // is not part of this port, so the task is a no-op.
         "send_headlines_digests" => Ok(0),
-        "purge_orphaned_scheduled_tasks" => Ok(purge_orphaned_scheduled_tasks(
-            pool,
-            &system_task_names(cfg),
-        ).await),
+        "purge_orphaned_scheduled_tasks" => {
+            Ok(purge_orphaned_scheduled_tasks(pool, &system_task_names(cfg)).await)
+        }
         other => Err(anyhow::anyhow!("unknown scheduled task: {other}")),
     }
 }
@@ -312,10 +312,12 @@ pub async fn disable_failed_feeds(pool: &PgPool, cfg: &Config) -> Result<i64> {
 
     let mut tx = pool.begin().await.context("begin disable_failed_feeds")?;
 
-    let rows = sqlx::query(AssertSqlSafe(format!("SELECT id, title, owner_uid FROM ttrss_feeds WHERE {qpart}")))
-        .fetch_all(&mut *tx)
-        .await
-        .context("select failing feeds")?;
+    let rows = sqlx::query(AssertSqlSafe(format!(
+        "SELECT id, title, owner_uid FROM ttrss_feeds WHERE {qpart}"
+    )))
+    .fetch_all(&mut *tx)
+    .await
+    .context("select failing feeds")?;
 
     for r in &rows {
         let id: i32 = r.get(0);
@@ -359,10 +361,7 @@ pub async fn cleanup_feed_icons(pool: &PgPool, cfg: &Config) -> std::io::Result<
             Ok(m) => m,
             Err(_) => continue,
         };
-        let age = now
-            .duration_since(mtime)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
+        let age = now.duration_since(mtime).map(|d| d.as_secs()).unwrap_or(0);
         if age < max_age {
             continue;
         }
@@ -397,12 +396,11 @@ pub async fn cleanup_feed_icons(pool: &PgPool, cfg: &Config) -> std::io::Result<
 /// `RSSUtils::expire_error_log` — delete `ttrss_error_log` rows older than a
 /// week. Returns the number of deleted rows.
 pub async fn expire_error_log(pool: &PgPool) -> Result<i64> {
-    let res = sqlx::query(
-        "DELETE FROM ttrss_error_log WHERE created_at < NOW() - INTERVAL '1 week'",
-    )
-    .execute(pool)
-    .await
-    .context("expire_error_log")?;
+    let res =
+        sqlx::query("DELETE FROM ttrss_error_log WHERE created_at < NOW() - INTERVAL '1 week'")
+            .execute(pool)
+            .await
+            .context("expire_error_log")?;
     Ok(res.rows_affected() as i64)
 }
 
@@ -451,11 +449,8 @@ pub async fn run_plugin_tasks(
     let tasks = plugins.scheduled_tasks();
     for task in tasks {
         let plugin = &plugins.plugin(task.plugin);
-        let full_name = crate::pluginhost::host::scheduled_task_name(
-            *plugin,
-            &task.task_name,
-            None,
-        );
+        let full_name =
+            crate::pluginhost::host::scheduled_task_name(*plugin, &task.task_name, None);
 
         let Ok(cron) = Cron::from_str(&task.cron) else {
             tracing::warn!(
@@ -466,21 +461,20 @@ pub async fn run_plugin_tasks(
             continue;
         };
 
-        let last_run: NaiveDateTime =
-            match sqlx::query_scalar(
-                "SELECT last_run FROM ttrss_scheduled_tasks WHERE task_name = $1",
-            )
-            .bind(&full_name)
-            .fetch_optional(pool)
-            .await
-            .context("load scheduled task record")
-            {
-                Ok(r) => r.unwrap_or(EPOCH),
-                Err(e) => {
-                    tracing::error!(task = %full_name, error = %e, "failed to load task record");
-                    continue;
-                }
-            };
+        let last_run: NaiveDateTime = match sqlx::query_scalar(
+            "SELECT last_run FROM ttrss_scheduled_tasks WHERE task_name = $1",
+        )
+        .bind(&full_name)
+        .fetch_optional(pool)
+        .await
+        .context("load scheduled task record")
+        {
+            Ok(r) => r.unwrap_or(EPOCH),
+            Err(e) => {
+                tracing::error!(task = %full_name, error = %e, "failed to load task record");
+                continue;
+            }
+        };
 
         if !is_due(&cron, last_run, now) {
             continue;

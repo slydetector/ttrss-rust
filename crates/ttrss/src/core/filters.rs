@@ -636,7 +636,7 @@ mod tests {
         assert_eq!(out.actions.len(), 1);
         assert_eq!(out.matched_rules.len(), 1);
         assert_eq!(out.matched_filters, vec![0]); // PHP: $matched_filters[0]["id"] == 1
-                                                  // The matching rule's captures are recorded on the matched rule.
+        // The matching rule's captures are recorded on the matched rule.
         assert_eq!(out.matched_rules[0].rule_index, Some(0));
         assert_eq!(
             out.matched_rules[0].regexp_matches,

@@ -10,7 +10,8 @@
 //! The M2 callers never pass `no_smart_dt`, so only the smart-date path is
 //! ported here.
 
-use crate::prefs;use crate::i18n::{__};
+use crate::i18n::__;
+use crate::prefs;
 
 use chrono::{DateTime, Datelike, NaiveDateTime, Timelike, Utc};
 
@@ -56,10 +57,11 @@ impl TzCtx {
         use chrono::{Offset as _, TimeZone as _};
         use std::str::FromStr;
         if let Ok(tz) = chrono_tz::Tz::from_str(&self.user_tz)
-            && let Some(utc) = DateTime::from_timestamp(unix_ts, 0) {
-                let off = tz.offset_from_utc_datetime(&utc.naive_utc());
-                return off.fix().local_minus_utc() as i64;
-            }
+            && let Some(utc) = DateTime::from_timestamp(unix_ts, 0)
+        {
+            let off = tz.offset_from_utc_datetime(&utc.naive_utc());
+            return off.fix().local_minus_utc() as i64;
+        }
         0 // unknown zone → UTC
     }
 }

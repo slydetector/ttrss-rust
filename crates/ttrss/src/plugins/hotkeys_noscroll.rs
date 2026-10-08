@@ -6,11 +6,11 @@
 //! to the `*_noscroll` article-navigation actions (which move between
 //! articles without scrolling the page).
 
-use crate::pluginhost::host::{HostCtx, PluginHost};
-use async_trait::async_trait;
-use crate::pluginhost::plugin::{About, Plugin};
 use crate::pluginhost::HOOK_HOTKEY_MAP;
-use serde_json::{json, Value};
+use crate::pluginhost::host::{HostCtx, PluginHost};
+use crate::pluginhost::plugin::{About, Plugin};
+use async_trait::async_trait;
+use serde_json::{Value, json};
 
 /// PHP's `class Hotkeys_Noscroll extends Plugin`.
 #[derive(Clone, Copy)]
@@ -39,11 +39,7 @@ impl Plugin for HotkeysNoscroll {
     }
 
     /// `hook_hotkey_map($hotkeys)` — map arrow keys + n/p to noscroll actions.
-    async fn hook_hotkey_map(
-        &self,
-        _host: &mut HostCtx,
-        hotkeys: &Value,
-    ) -> Value {
+    async fn hook_hotkey_map(&self, _host: &mut HostCtx, hotkeys: &Value) -> Value {
         let mut m = hotkeys.clone();
         let obj = m.as_object_mut().unwrap();
         obj.insert("(40)|Down".into(), json!("next_article_noscroll"));
@@ -56,9 +52,9 @@ impl Plugin for HotkeysNoscroll {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
     use super::*;
     use serde_json::json;
+    use std::sync::Arc;
 
     #[test]
     fn metadata() {
@@ -70,20 +66,28 @@ mod tests {
 
     #[tokio::test]
     async fn maps_noscroll_keys() {
-        let host = Arc::new(PluginHost::startup(&[|| Box::new(HotkeysNoscroll) as Box<dyn Plugin>]));
+        let host = Arc::new(PluginHost::startup(&[|| {
+            Box::new(HotkeysNoscroll) as Box<dyn Plugin>
+        }]));
         let pool = sqlx::postgres::PgPoolOptions::new()
             .connect_lazy("postgres://ttrss:ttrss@localhost/ttrss_test")
             .unwrap();
         let cfg = crate::core::config::Config::for_test();
-        let mut ctx =
-            HostCtx::for_user(Arc::clone(&host), pool.clone(), cfg.clone(), Some(1), None, 0, &[], &["hotkeys_noscroll"]);
+        let mut ctx = HostCtx::for_user(
+            Arc::clone(&host),
+            pool.clone(),
+            cfg.clone(),
+            Some(1),
+            None,
+            0,
+            &[],
+            &["hotkeys_noscroll"],
+        );
         let host = ctx.host_arc();
 
         let plugin = host.get_plugin("hotkeys_noscroll").unwrap();
 
-        let result = plugin
-            .hook_hotkey_map(&mut ctx, &json!({}))
-            .await;
+        let result = plugin.hook_hotkey_map(&mut ctx, &json!({})).await;
         assert_eq!(result["(40)|Down"], "next_article_noscroll");
         assert_eq!(result["(38)|Up"], "prev_article_noscroll");
         assert_eq!(result["n"], "next_article_noscroll");

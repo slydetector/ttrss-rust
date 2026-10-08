@@ -122,9 +122,10 @@ impl Value {
         if let Some(items) = self.as_array() {
             for (k, v) in items {
                 if let Key::Bytes(ks) = k
-                    && ks == key.as_bytes() {
-                        return Some(v);
-                    }
+                    && ks == key.as_bytes()
+                {
+                    return Some(v);
+                }
             }
         }
         None
@@ -201,7 +202,11 @@ fn php_float_str(f: f64) -> String {
         return "NAN".to_string();
     }
     if f.is_infinite() {
-        return if f > 0.0 { "INF".to_string() } else { "-INF".to_string() };
+        return if f > 0.0 {
+            "INF".to_string()
+        } else {
+            "-INF".to_string()
+        };
     }
     let s = format!("{f:e}");
     let (neg, rest) = match s.strip_prefix('-') {
@@ -610,10 +615,7 @@ mod tests {
             (Key::Bytes(b"id".to_vec()), Value::Int(7)),
             (
                 Key::Bytes(b"tags".to_vec()),
-                Value::Array(vec![
-                    (Key::Int(0), s(b"rss")),
-                    (Key::Int(1), s(b"xml")),
-                ]),
+                Value::Array(vec![(Key::Int(0), s(b"rss")), (Key::Int(1), s(b"xml"))]),
             ),
             (Key::Bytes(b"enabled".to_vec()), Value::Bool(true)),
         ]);
@@ -625,10 +627,7 @@ mod tests {
         // Negative and non-dense keys stay `i:` too.
         let v = Value::Array(vec![(Key::Int(-1), s(b"x"))]);
         assert_eq!(serialize(&v), b"a:1:{i:-1;s:1:\"x\";}");
-        let v = Value::Array(vec![
-            (Key::Int(0), s(b"a")),
-            (Key::Int(2), s(b"b")),
-        ]);
+        let v = Value::Array(vec![(Key::Int(0), s(b"a")), (Key::Int(2), s(b"b"))]);
         assert_eq!(serialize(&v), b"a:2:{i:0;s:1:\"a\";i:2;s:1:\"b\";}");
     }
 

@@ -16,11 +16,11 @@
 //! this plugin wraps it in the `Plugin::authenticate` contract.
 
 use crate::auth;
-use async_trait::async_trait;
-use crate::pluginhost::host::{HostCtx, PluginHost};
-use crate::i18n::{__};
-use crate::pluginhost::plugin::{About, MethodOutput, Plugin, PluginError};
+use crate::i18n::__;
 use crate::pluginhost::HOOK_AUTH_USER;
+use crate::pluginhost::host::{HostCtx, PluginHost};
+use crate::pluginhost::plugin::{About, MethodOutput, Plugin, PluginError};
+use async_trait::async_trait;
 use serde_json::Value;
 
 /// PHP's `class Auth_Internal extends Auth_Base implements IAuthModule2`.
@@ -102,12 +102,11 @@ impl Plugin for AuthInternal {
                     .and_then(|v| v.as_str())
                     .unwrap_or("");
                 match auth::change_password(host.pool(), uid, old_pw, new_pw).await {
-                    Some(_) => Ok(MethodOutput::Raw(
-                        __("Password has been changed."),
-                    )),
-                    None => Ok(MethodOutput::Raw(
-                        format!("ERROR: {}", __("Old password is incorrect.")),
-                    )),
+                    Some(_) => Ok(MethodOutput::Raw(__("Password has been changed."))),
+                    None => Ok(MethodOutput::Raw(format!(
+                        "ERROR: {}",
+                        __("Old password is incorrect.")
+                    ))),
                 }
             }
             _ => Err(PluginError::UnknownMethod(method.to_string())),

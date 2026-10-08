@@ -8,18 +8,17 @@
 
 mod common;
 
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
+use test_db::template::with_test_db;
+use ttrss::AppState;
 use ttrss::core::config::Config;
 use ttrss::core::db::Db;
 use ttrss::core::phpser::Value as PValue;
 use ttrss::core::session::Session;
 use ttrss::session::Sess;
-use ttrss::AppState;
-use test_db::template::with_test_db;
 
 const EM: char = '\u{2003}';
-const ATTRS: &str =
-    "required=\"1\" style=\"width : 100%; height : 300px\" dojoType=\"fox.form.ValidationMultiSelect\"";
+const ATTRS: &str = "required=\"1\" style=\"width : 100%; height : 300px\" dojoType=\"fox.form.ValidationMultiSelect\"";
 
 /// The fixed nested dataset (owner 1). IDs sit in the 900/9010 range: the
 /// template seed already owns category IDs 1–2 and feed IDs 1–4 for owner 1
@@ -92,7 +91,9 @@ fn expected_nested(selected: &[&str]) -> String {
     )
 }
 
-fn test_config() -> Config { common::test_config() }
+fn test_config() -> Config {
+    common::test_config()
+}
 
 async fn setup(url: &str) -> (AppState, Sess) {
     let db: Db = common::make_db_from_url(url).await.expect("test db");
@@ -114,100 +115,128 @@ fn request(pairs: &[(&str, Value)]) -> Map<String, Value> {
 /// section, and the `<select multiple=<TAB>rue"` opening — byte-for-byte the PHP.
 #[tokio::test]
 async fn test_editrule_nested() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup(&url).await;
-    insert_nested_dataset(state.db.pool()).await;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            insert_nested_dataset(state.db.pool()).await;
 
-    let result = ttrss::filters::editrule(&state, &sess, &request(&[("ids", json!(""))])).await;
-    let got = result["multiselect"].as_str().unwrap();
-    let want = expected_nested(&[]);
-    assert_eq!(got, &want, "nested multi-select mismatch");
-        Ok(())
-    })).await.unwrap();
+            let result =
+                ttrss::filters::editrule(&state, &sess, &request(&[("ids", json!(""))])).await;
+            let got = result["multiselect"].as_str().unwrap();
+            let want = expected_nested(&[]);
+            assert_eq!(got, &want, "nested multi-select mismatch");
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 /// `editrule` with a selection: `0` (All feeds), feed `9011`, and `CAT:903` get
 /// `selected="1"`.
 #[tokio::test]
 async fn test_editrule_selected() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup(&url).await;
-    insert_nested_dataset(state.db.pool()).await;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            insert_nested_dataset(state.db.pool()).await;
 
-    let result =
-        ttrss::filters::editrule(&state, &sess, &request(&[("ids", json!("0,9011,CAT:903"))])).await;
-    let got = result["multiselect"].as_str().unwrap();
-    let want = expected_nested(&["0", "9011", "CAT:903"]);
-    assert_eq!(got, &want, "selected multi-select mismatch");
-        Ok(())
-    })).await.unwrap();
+            let result = ttrss::filters::editrule(
+                &state,
+                &sess,
+                &request(&[("ids", json!("0,9011,CAT:903"))]),
+            )
+            .await;
+            let got = result["multiselect"].as_str().unwrap();
+            let want = expected_nested(&["0", "9011", "CAT:903"]);
+            assert_eq!(got, &want, "selected multi-select mismatch");
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 /// `editrule` with category + feed selection: `CAT:902`, `CAT:904`, and feed `9010`.
 #[tokio::test]
 async fn test_editrule_cat_selected() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup(&url).await;
-    insert_nested_dataset(state.db.pool()).await;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            insert_nested_dataset(state.db.pool()).await;
 
-    let result =
-        ttrss::filters::editrule(&state, &sess, &request(&[("ids", json!("CAT:902,CAT:904,9010"))]))
+            let result = ttrss::filters::editrule(
+                &state,
+                &sess,
+                &request(&[("ids", json!("CAT:902,CAT:904,9010"))]),
+            )
             .await;
-    let got = result["multiselect"].as_str().unwrap();
-    let want = expected_nested(&["CAT:902", "CAT:904", "9010"]);
-    assert_eq!(got, &want, "cat-selected multi-select mismatch");
-        Ok(())
-    })).await.unwrap();
+            let got = result["multiselect"].as_str().unwrap();
+            let want = expected_nested(&["CAT:902", "CAT:904", "9010"]);
+            assert_eq!(got, &want, "cat-selected multi-select mismatch");
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 /// `editrule` with `ENABLE_FEED_CATS` disabled: a flat, title-ordered feed list
 /// (no "All feeds", no "Uncategorized", no indentation) inside the same `<select>`.
 #[tokio::test]
 async fn test_editrule_flat() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup(&url).await;
-    let db = state.db.pool();
-    insert_nested_dataset(db).await;
-    // Disable feed categories (a user pref override for the default profile).
-    sqlx::query(
-        "INSERT INTO ttrss_user_prefs2 (owner_uid, pref_name, profile, value) \
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            let db = state.db.pool();
+            insert_nested_dataset(db).await;
+            // Disable feed categories (a user pref override for the default profile).
+            sqlx::query(
+                "INSERT INTO ttrss_user_prefs2 (owner_uid, pref_name, profile, value) \
          VALUES (1, 'ENABLE_FEED_CATS', NULL, 'false')",
-    )
-    .execute(db)
+            )
+            .execute(db)
+            .await
+            .unwrap();
+
+            let result =
+                ttrss::filters::editrule(&state, &sess, &request(&[("ids", json!("9011"))])).await;
+            let got = result["multiselect"].as_str().unwrap();
+
+            // Flat list, title order: All feeds (include_all_feeds), then the seed and
+            // fixture feeds together — Ars, Feed A1, Feed A2, Feed D, Feed M, Hacker
+            // News, MIT, The Register, TopZ, UnCat 1, UnCat 2 — no "Uncategorized",
+            // no em-space indentation, no categories.
+            let want = [
+                format!(
+                    "<select multiple={tab}rue\" id=\"feed_id\" name=\"feed_id\" {attrs}>",
+                    tab = '\t',
+                    attrs = ATTRS
+                ),
+                "<option  value=\"0\">All feeds</option>".to_string(),
+                "<option  value='3'>Ars Technica</option>".to_string(),
+                "<option  value='9011'>Feed A1</option>".to_string(),
+                "<option  value='9010'>Feed A2</option>".to_string(),
+                "<option  value='9013'>Feed D</option>".to_string(),
+                "<option  value='9012'>Feed M</option>".to_string(),
+                "<option  value='1'>Hacker News</option>".to_string(),
+                "<option  value='4'>MIT Tech Review</option>".to_string(),
+                "<option  value='2'>The Register</option>".to_string(),
+                "<option  value='9016'>TopZ</option>".to_string(),
+                "<option  value='9014'>UnCat 1</option>".to_string(),
+                "<option  value='9015'>UnCat 2</option>".to_string(),
+                "</select>".to_string(),
+            ]
+            .join("");
+            // The selected feed (9011) gets selected="1".
+            let want = want.replace(
+                "<option  value='9011'>",
+                "<option selected=\"1\" value='9011'>",
+            );
+            assert_eq!(got, &want, "flat multi-select mismatch");
+            Ok(())
+        })
+    })
     .await
     .unwrap();
-
-    let result = ttrss::filters::editrule(&state, &sess, &request(&[("ids", json!("9011"))])).await;
-    let got = result["multiselect"].as_str().unwrap();
-
-    // Flat list, title order: All feeds (include_all_feeds), then the seed and
-    // fixture feeds together — Ars, Feed A1, Feed A2, Feed D, Feed M, Hacker
-    // News, MIT, The Register, TopZ, UnCat 1, UnCat 2 — no "Uncategorized",
-    // no em-space indentation, no categories.
-    let want = [
-        format!(
-            "<select multiple={tab}rue\" id=\"feed_id\" name=\"feed_id\" {attrs}>",
-            tab = '\t',
-            attrs = ATTRS
-        ),
-        "<option  value=\"0\">All feeds</option>".to_string(),
-        "<option  value='3'>Ars Technica</option>".to_string(),
-        "<option  value='9011'>Feed A1</option>".to_string(),
-        "<option  value='9010'>Feed A2</option>".to_string(),
-        "<option  value='9013'>Feed D</option>".to_string(),
-        "<option  value='9012'>Feed M</option>".to_string(),
-        "<option  value='1'>Hacker News</option>".to_string(),
-        "<option  value='4'>MIT Tech Review</option>".to_string(),
-        "<option  value='2'>The Register</option>".to_string(),
-        "<option  value='9016'>TopZ</option>".to_string(),
-        "<option  value='9014'>UnCat 1</option>".to_string(),
-        "<option  value='9015'>UnCat 2</option>".to_string(),
-        "</select>".to_string(),
-    ]
-    .join("");
-    // The selected feed (9011) gets selected="1".
-    let want = want.replace("<option  value='9011'>", "<option selected=\"1\" value='9011'>");
-    assert_eq!(got, &want, "flat multi-select mismatch");
-        Ok(())
-    })).await.unwrap();
 }

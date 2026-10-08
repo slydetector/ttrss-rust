@@ -8,8 +8,8 @@
 //! (instead of preserving the previous scroll position).
 
 use crate::pluginhost::host::PluginHost;
-use async_trait::async_trait;
 use crate::pluginhost::plugin::{About, Plugin};
+use async_trait::async_trait;
 
 /// PHP's `class Hotkeys_Force_Top extends Plugin`.
 #[derive(Clone, Copy)]

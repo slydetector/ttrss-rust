@@ -3,12 +3,12 @@
 
 use roxmltree::Node;
 
+use super::NS_DC;
 use super::datetime::parse_date;
 use super::item::{
-    all_child_ns, all_desc_local, c14n, first_child_ns, first_desc_local, media_enclosures,
-    rewrite_content_to_base, subtree_or_text, text_content, xml_attr, xml_base, FeedEnclosure,
+    FeedEnclosure, all_child_ns, all_desc_local, c14n, first_child_ns, first_desc_local,
+    media_enclosures, rewrite_content_to_base, subtree_or_text, text_content, xml_attr, xml_base,
 };
-use super::NS_DC;
 use crate::urlhelper::rewrite_relative;
 use crate::util::{clean_str, normalize_categories, php_trim};
 
@@ -124,9 +124,10 @@ pub(super) fn get_enclosures<'a, 'input>(node: Node<'a, 'input>) -> Vec<FeedEncl
         let base = xml_base(link);
         let mut link_val = clean_str(href);
         if let Some(b) = &base
-            && let Some(rewritten) = rewrite_relative(b, &link_val) {
-                link_val = rewritten;
-            }
+            && let Some(rewritten) = rewrite_relative(b, &link_val)
+        {
+            link_val = rewritten;
+        }
         let enc = FeedEnclosure {
             enc_type: clean_str(link.attribute("type").unwrap_or("")),
             length: clean_str(link.attribute("length").unwrap_or("")),
@@ -143,12 +144,14 @@ pub(super) fn get_enclosures<'a, 'input>(node: Node<'a, 'input>) -> Vec<FeedEncl
 /// `xml:lang`, else `""`.
 pub(super) fn get_language<'a, 'input>(node: Node<'a, 'input>) -> String {
     if let Some(lang) = xml_attr(node, "lang")
-        && !lang.is_empty() {
-            return clean_str(lang);
-        }
+        && !lang.is_empty()
+    {
+        return clean_str(lang);
+    }
     if let Some(feed) = node.parent()
-        && feed.is_element() {
-            return clean_str(xml_attr(feed, "lang").unwrap_or(""));
-        }
+        && feed.is_element()
+    {
+        return clean_str(xml_attr(feed, "lang").unwrap_or(""));
+    }
     String::new()
 }

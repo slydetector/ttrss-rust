@@ -12,16 +12,16 @@
 //! control per pref (select/checkbox/spinner/textarea/…).
 
 use minijinja::Environment;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
+use crate::AppState;
 use crate::controls;
+use crate::i18n::{__, t_sprintf};
 use crate::otp;
 use crate::prefs;
 use crate::session::Sess;
 use crate::settings;
 use crate::util;
-use crate::AppState;
-use crate::i18n::{__, t_sprintf};
 
 /// `Pref_Prefs::BLOCK_SEPARATOR` — the sentinel in `pref_item_map` that
 /// renders as an `<hr/>` (omitted when a non-default profile is active).
@@ -109,15 +109,27 @@ fn pref_item_map() -> Vec<(&'static str, Vec<&'static str>)> {
 fn pref_help() -> Vec<(&'static str, &'static str, Option<&'static str>)> {
     vec![
         ("BLACKLISTED_TAGS", "Blacklisted tags", Some("")),
-        ("DEFAULT_SEARCH_LANGUAGE", "Default language", Some("Used for full-text search")),
-        ("CDM_AUTO_CATCHUP", "Mark read on scroll", Some("Mark articles as read as you scroll past them")),
+        (
+            "DEFAULT_SEARCH_LANGUAGE",
+            "Default language",
+            Some("Used for full-text search"),
+        ),
+        (
+            "CDM_AUTO_CATCHUP",
+            "Mark read on scroll",
+            Some("Mark articles as read as you scroll past them"),
+        ),
         ("CDM_EXPANDED", "Always expand articles", None),
         (
             "COMBINED_DISPLAY_MODE",
             "Combined mode",
             Some("Show flat list of articles instead of separate panels"),
         ),
-        ("CONFIRM_FEED_CATCHUP", "Confirm marking feeds as read", None),
+        (
+            "CONFIRM_FEED_CATCHUP",
+            "Confirm marking feeds as read",
+            None,
+        ),
         ("DEFAULT_UPDATE_INTERVAL", "Default update interval", None),
         ("DIGEST_CATCHUP", "Mark sent articles as read", None),
         (
@@ -125,39 +137,97 @@ fn pref_help() -> Vec<(&'static str, &'static str, Option<&'static str>)> {
             "Enable digest",
             Some("Send daily digest of new (and unread) headlines to your email address"),
         ),
-        ("DIGEST_PREFERRED_TIME", "Try to send around this time", Some("Time in UTC")),
-        ("ENABLE_API_ACCESS", "Enable API", Some("Allows accessing this account through the API")),
+        (
+            "DIGEST_PREFERRED_TIME",
+            "Try to send around this time",
+            Some("Time in UTC"),
+        ),
+        (
+            "ENABLE_API_ACCESS",
+            "Enable API",
+            Some("Allows accessing this account through the API"),
+        ),
         (
             "ENABLE_API_ACCESS_BROWSER",
             "Enable browser-based API access",
             Some("Allows accessing the API from browsers ('Enable API' must also be enabled)"),
         ),
         ("ENABLE_FEED_CATS", "Enable categories", None),
-        ("FRESH_ARTICLE_MAX_AGE", "Maximum age of fresh articles", Some("<strong>hours</strong>")),
-        ("RECENTLY_READ_MAX_AGE", "Maximum age of recently read articles", Some("<strong>hours</strong>")),
+        (
+            "FRESH_ARTICLE_MAX_AGE",
+            "Maximum age of fresh articles",
+            Some("<strong>hours</strong>"),
+        ),
+        (
+            "RECENTLY_READ_MAX_AGE",
+            "Maximum age of recently read articles",
+            Some("<strong>hours</strong>"),
+        ),
         ("HIDE_READ_FEEDS", "Hide read feeds", None),
-        ("HIDE_READ_SHOWS_SPECIAL", "Always show special feeds", Some("While hiding read feeds")),
+        (
+            "HIDE_READ_SHOWS_SPECIAL",
+            "Always show special feeds",
+            Some("While hiding read feeds"),
+        ),
         (
             "LONG_DATE_FORMAT",
             "Long date format",
-            Some("Syntax is identical to PHP <a href='https://www.php.net/manual/function.date.php'>date()</a> function."),
+            Some(
+                "Syntax is identical to PHP <a href='https://www.php.net/manual/function.date.php'>date()</a> function.",
+            ),
         ),
-        ("ON_CATCHUP_SHOW_NEXT_FEED", "Automatically show next feed", Some("After marking one as read")),
-        ("PURGE_OLD_DAYS", "Purge articles older than", Some("<strong>days</strong> (0 disables)")),
+        (
+            "ON_CATCHUP_SHOW_NEXT_FEED",
+            "Automatically show next feed",
+            Some("After marking one as read"),
+        ),
+        (
+            "PURGE_OLD_DAYS",
+            "Purge articles older than",
+            Some("<strong>days</strong> (0 disables)"),
+        ),
         ("PURGE_UNREAD_ARTICLES", "Purge unread articles", None),
         ("SHORT_DATE_FORMAT", "Short date format", None),
-        ("SHOW_CONTENT_PREVIEW", "Show content preview in headlines", None),
+        (
+            "SHOW_CONTENT_PREVIEW",
+            "Show content preview in headlines",
+            None,
+        ),
         ("SSL_CERT_SERIAL", "SSL client certificate", None),
         ("STRIP_IMAGES", "Do not embed media", None),
         ("USER_TIMEZONE", "Time zone", None),
-        ("VFEED_GROUP_BY_FEED", "Group by feed", Some("Group multiple-feed output by originating feed")),
+        (
+            "VFEED_GROUP_BY_FEED",
+            "Group by feed",
+            Some("Group multiple-feed output by originating feed"),
+        ),
         (prefs::USER_LANGUAGE, "Language", None),
         (prefs::USER_CSS_THEME, "Theme", None),
-        ("HEADLINES_NO_DISTINCT", "Don't enforce DISTINCT headlines", Some("May produce duplicate entries")),
-        ("DEBUG_HEADLINE_IDS", "Show article and feed IDs", Some("In the headlines buffer")),
-        ("DISABLE_CONDITIONAL_COUNTERS", "Disable conditional counter updates", Some("May increase server load")),
-        ("CDM_ENABLE_GRID", "Grid view", Some("On wider screens, if always expanded")),
-        ("DIGEST_MIN_SCORE", "Required score", Some("Include articles with this or above score")),
+        (
+            "HEADLINES_NO_DISTINCT",
+            "Don't enforce DISTINCT headlines",
+            Some("May produce duplicate entries"),
+        ),
+        (
+            "DEBUG_HEADLINE_IDS",
+            "Show article and feed IDs",
+            Some("In the headlines buffer"),
+        ),
+        (
+            "DISABLE_CONDITIONAL_COUNTERS",
+            "Disable conditional counter updates",
+            Some("May increase server load"),
+        ),
+        (
+            "CDM_ENABLE_GRID",
+            "Grid view",
+            Some("On wider screens, if always expanded"),
+        ),
+        (
+            "DIGEST_MIN_SCORE",
+            "Required score",
+            Some("Include articles with this or above score"),
+        ),
     ]
 }
 
@@ -292,8 +362,7 @@ fn build_control(name: &str, value: &str, ty: prefs::Type, ctx: &RenderCtx) -> S
         ),
         prefs::BLACKLISTED_TAGS => format!(
             "<div><textarea dojoType='dijit.form.SimpleTextarea' rows='4'\n\t\t\t\t\t\t\t\tstyle='width: 500px; font-size : 12px;'\n\t\t\t\t\t\t\t\tname='{}'>{}</textarea><br/>\n<div class='help-text-bottom text-muted'>Never apply these tags automatically (comma-separated list).</div>\n</div>",
-            name,
-            value
+            name, value
         ),
         prefs::USER_CSS_THEME => {
             let select = controls::select_hash(name, value, &ctx.theme_opts, &[], "");
@@ -312,15 +381,13 @@ fn build_control(name: &str, value: &str, ty: prefs::Type, ctx: &RenderCtx) -> S
             );
             format!("{}{}{}", select, btn_customize, btn_more)
         }
-        prefs::DEFAULT_UPDATE_INTERVAL => controls::select_hash(name, value, &ctx.intervals, &[], ""),
+        prefs::DEFAULT_UPDATE_INTERVAL => {
+            controls::select_hash(name, value, &ctx.intervals, &[], "")
+        }
         prefs::DEFAULT_SEARCH_LANGUAGE => controls::select_tag(name, value, &ctx.ts_languages, &[]),
         _ if ty == prefs::Type::Bool => {
             let is_disabled = name == "PURGE_UNREAD_ARTICLES" && ctx.force_purge != 0;
-            let is_checked = if is_disabled {
-                true
-            } else {
-                value == "true"
-            };
+            let is_checked = if is_disabled { true } else { value == "true" };
             let attrs: Vec<(&str, String)> = if is_disabled {
                 vec![("disabled", "1".to_string())]
             } else {
@@ -350,10 +417,7 @@ fn build_control(name: &str, value: &str, ty: prefs::Type, ctx: &RenderCtx) -> S
             let mut value = value.to_string();
             let attrs: Vec<(&str, String)> = if is_disabled {
                 value = ctx.force_purge.to_string();
-                vec![
-                    ("disabled", "1".to_string()),
-                    ("required", "1".to_string()),
-                ]
+                vec![("disabled", "1".to_string()), ("required", "1".to_string())]
             } else {
                 vec![("required", "1".to_string())]
             };
@@ -377,7 +441,10 @@ fn build_control(name: &str, value: &str, ty: prefs::Type, ctx: &RenderCtx) -> S
                 "",
                 &[
                     ("disabled", "1".to_string()),
-                    ("onclick", "dijit.byId('SSL_CERT_SERIAL').attr('value', '')".to_string()),
+                    (
+                        "onclick",
+                        "dijit.byId('SSL_CERT_SERIAL').attr('value', '')".to_string(),
+                    ),
                 ],
             );
             let btn_clear = controls::button_tag(
@@ -385,7 +452,10 @@ fn build_control(name: &str, value: &str, ty: prefs::Type, ctx: &RenderCtx) -> S
                 "",
                 &[
                     ("class", "alt-danger".to_string()),
-                    ("onclick", "dijit.byId('SSL_CERT_SERIAL').attr('value', '')".to_string()),
+                    (
+                        "onclick",
+                        "dijit.byId('SSL_CERT_SERIAL').attr('value', '')".to_string(),
+                    ),
                 ],
             );
             let btn_more = controls::button_tag(
@@ -582,9 +652,7 @@ pub async fn index(state: &AppState, sess: &Sess) -> Result<String, sqlx::Error>
                     help.map(__).unwrap_or_default(),
                     t_sprintf("Current server time: %s", &[ctx.server_time.as_str()])
                 ))
-            } else if name == prefs::FRESH_ARTICLE_MAX_AGE
-                || name == "RECENTLY_READ_MAX_AGE"
-            {
+            } else if name == prefs::FRESH_ARTICLE_MAX_AGE || name == "RECENTLY_READ_MAX_AGE" {
                 Some(format!("<strong>{}</strong>", __("hours")))
             } else {
                 help.map(__).filter(|s| !s.is_empty())
@@ -617,21 +685,21 @@ pub async fn index(state: &AppState, sess: &Sess) -> Result<String, sqlx::Error>
         sess,
         crate::pluginhost::HOOK_PREFS_TAB_SECTION,
         "prefPrefsPrefsInside",
-            )
+    )
     .await;
     let prefs_outside = crate::pluginhost::dispatch::prefs_chain(
         state,
         sess,
         crate::pluginhost::HOOK_PREFS_TAB_SECTION,
         "prefPrefsPrefsOutside",
-            )
+    )
     .await;
     let prefs_tabs = crate::pluginhost::dispatch::prefs_chain(
         state,
         sess,
         crate::pluginhost::HOOK_PREFS_TAB,
         "prefPrefs",
-            )
+    )
     .await;
 
     let rendered = index_env()

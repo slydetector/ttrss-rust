@@ -17,15 +17,15 @@
 
 mod common;
 
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
+use test_db::template::with_test_db;
+use ttrss::AppState;
 use ttrss::core::config::Config;
 use ttrss::core::db::Db;
 use ttrss::core::phpser::Value as PValue;
 use ttrss::core::session::Session;
 use ttrss::counters::{self, FeedOrTag};
 use ttrss::session::Sess;
-use ttrss::AppState;
-use test_db::template::with_test_db;
 
 /// `DbTestCase::setUp`: `$_SESSION["uid"] = 1`.
 const SESSION_UID: i64 = 1;
@@ -85,13 +85,18 @@ fn is_label_entry(v: &Value) -> bool {
 // PHP: test_get_counters_returns_int
 #[tokio::test]
 async fn test_get_counters_returns_int() {
-    with_test_db(|url| Box::pin(async move {
-    let db = setup(&url).await;
-    let result =
-        counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(-4), false, false, None).await;
-    assert!(result >= 0);
-        Ok(())
-    })).await.unwrap();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = setup(&url).await;
+            let result =
+                counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(-4), false, false, None)
+                    .await;
+            assert!(result >= 0);
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // ── Virtual feeds ───────────────────────────────────────────────────────────
@@ -99,101 +104,136 @@ async fn test_get_counters_returns_int() {
 // PHP: test_get_counters_feed_all
 #[tokio::test]
 async fn test_get_counters_feed_all() {
-    with_test_db(|url| Box::pin(async move {
-    let db = setup(&url).await;
-    // All 11 seeded articles belong to owner_uid=1
-    assert_eq!(
-        11,
-        counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(-4), false, false, None).await
-    );
-        Ok(())
-    })).await.unwrap();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = setup(&url).await;
+            // All 11 seeded articles belong to owner_uid=1
+            assert_eq!(
+                11,
+                counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(-4), false, false, None)
+                    .await
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // PHP: test_get_counters_feed_starred
 #[tokio::test]
 async fn test_get_counters_feed_starred() {
-    with_test_db(|url| Box::pin(async move {
-    let db = setup(&url).await;
-    // seed.sql: articles 3, 8, 11 are marked=true
-    assert_eq!(
-        3,
-        counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(-1), false, false, None).await
-    );
-        Ok(())
-    })).await.unwrap();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = setup(&url).await;
+            // seed.sql: articles 3, 8, 11 are marked=true
+            assert_eq!(
+                3,
+                counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(-1), false, false, None)
+                    .await
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // PHP: test_get_counters_feed_starred_unread_only
 #[tokio::test]
 async fn test_get_counters_feed_starred_unread_only() {
-    with_test_db(|url| Box::pin(async move {
-    let db = setup(&url).await;
-    // Starred articles: 3, 8, 11 — none are unread
-    assert_eq!(
-        0,
-        counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(-1), false, true, None).await
-    );
-        Ok(())
-    })).await.unwrap();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = setup(&url).await;
+            // Starred articles: 3, 8, 11 — none are unread
+            assert_eq!(
+                0,
+                counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(-1), false, true, None)
+                    .await
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // PHP: test_get_counters_feed_published
 #[tokio::test]
 async fn test_get_counters_feed_published() {
-    with_test_db(|url| Box::pin(async move {
-    let db = setup(&url).await;
-    // No articles are published in seed data
-    assert_eq!(
-        0,
-        counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(-2), false, false, None).await
-    );
-        Ok(())
-    })).await.unwrap();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = setup(&url).await;
+            // No articles are published in seed data
+            assert_eq!(
+                0,
+                counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(-2), false, false, None)
+                    .await
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // PHP: test_get_counters_feed_fresh
 #[tokio::test]
 async fn test_get_counters_feed_fresh() {
-    with_test_db(|url| Box::pin(async move {
-    let db = setup(&url).await;
-    // Fresh = unread + score >= 0 + within FRESH_ARTICLE_MAX_AGE.
-    // setUp() sets FRESH_ARTICLE_MAX_AGE=999999 so all unread articles are
-    // fresh: 1,2,4,5,6,7,9,10 = 8
-    assert_eq!(
-        8,
-        counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(-3), false, false, None).await
-    );
-        Ok(())
-    })).await.unwrap();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = setup(&url).await;
+            // Fresh = unread + score >= 0 + within FRESH_ARTICLE_MAX_AGE.
+            // setUp() sets FRESH_ARTICLE_MAX_AGE=999999 so all unread articles are
+            // fresh: 1,2,4,5,6,7,9,10 = 8
+            assert_eq!(
+                8,
+                counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(-3), false, false, None)
+                    .await
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // PHP: test_get_counters_feed_recently_read
 #[tokio::test]
 async fn test_get_counters_feed_recently_read() {
-    with_test_db(|url| Box::pin(async move {
-    let db = setup(&url).await;
-    // FEED_RECENTLY_READ always returns 0
-    assert_eq!(
-        0,
-        counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(-6), false, false, None).await
-    );
-        Ok(())
-    })).await.unwrap();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = setup(&url).await;
+            // FEED_RECENTLY_READ always returns 0
+            assert_eq!(
+                0,
+                counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(-6), false, false, None)
+                    .await
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // PHP: test_get_counters_feed_archived
 #[tokio::test]
 async fn test_get_counters_feed_archived() {
-    with_test_db(|url| Box::pin(async move {
-    let db = setup(&url).await;
-    // Archived = feed_id IS NULL — no articles have null feed_id
-    assert_eq!(
-        0,
-        counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(0), false, false, None).await
-    );
-        Ok(())
-    })).await.unwrap();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = setup(&url).await;
+            // Archived = feed_id IS NULL — no articles have null feed_id
+            assert_eq!(
+                0,
+                counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(0), false, false, None)
+                    .await
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // ── Regular feed IDs ────────────────────────────────────────────────────────
@@ -201,95 +241,124 @@ async fn test_get_counters_feed_archived() {
 // PHP: test_get_counters_by_feed_id
 #[tokio::test]
 async fn test_get_counters_by_feed_id() {
-    with_test_db(|url| Box::pin(async move {
-    let db = setup(&url).await;
-    // Default (unread_only=false) returns TOTAL count.
-    assert_eq!(
-        3,
-        counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(1), false, false, None).await,
-        "Feed 1 (Hacker News): articles 1,2,3 → total = 3"
-    );
-    assert_eq!(
-        3,
-        counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(2), false, false, None).await,
-        "Feed 2 (The Register): articles 4,5,6 → total = 3"
-    );
-    assert_eq!(
-        2,
-        counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(3), false, false, None).await,
-        "Feed 3 (Ars Technica): articles 7,8 → total = 2"
-    );
-    assert_eq!(
-        3,
-        counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(4), false, false, None).await,
-        "Feed 4 (MIT Tech Review): articles 9,10,11 → total = 3"
-    );
-        Ok(())
-    })).await.unwrap();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = setup(&url).await;
+            // Default (unread_only=false) returns TOTAL count.
+            assert_eq!(
+                3,
+                counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(1), false, false, None)
+                    .await,
+                "Feed 1 (Hacker News): articles 1,2,3 → total = 3"
+            );
+            assert_eq!(
+                3,
+                counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(2), false, false, None)
+                    .await,
+                "Feed 2 (The Register): articles 4,5,6 → total = 3"
+            );
+            assert_eq!(
+                2,
+                counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(3), false, false, None)
+                    .await,
+                "Feed 3 (Ars Technica): articles 7,8 → total = 2"
+            );
+            assert_eq!(
+                3,
+                counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(4), false, false, None)
+                    .await,
+                "Feed 4 (MIT Tech Review): articles 9,10,11 → total = 3"
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // PHP: test_get_counters_by_feed_id_all
 #[tokio::test]
 async fn test_get_counters_by_feed_id_all() {
-    with_test_db(|url| Box::pin(async move {
-    let db = setup(&url).await;
-    assert_eq!(
-        3,
-        counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(1), false, false, None).await
-    );
-    assert_eq!(
-        3,
-        counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(2), false, false, None).await
-    );
-    assert_eq!(
-        2,
-        counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(3), false, false, None).await
-    );
-    assert_eq!(
-        3,
-        counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(4), false, false, None).await
-    );
-        Ok(())
-    })).await.unwrap();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = setup(&url).await;
+            assert_eq!(
+                3,
+                counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(1), false, false, None)
+                    .await
+            );
+            assert_eq!(
+                3,
+                counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(2), false, false, None)
+                    .await
+            );
+            assert_eq!(
+                2,
+                counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(3), false, false, None)
+                    .await
+            );
+            assert_eq!(
+                3,
+                counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(4), false, false, None)
+                    .await
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // PHP: test_get_counters_by_feed_id_unread_only
 #[tokio::test]
 async fn test_get_counters_by_feed_id_unread_only() {
-    with_test_db(|url| Box::pin(async move {
-    let db = setup(&url).await;
-    assert_eq!(
-        2,
-        counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(1), false, true, None).await
-    );
-    assert_eq!(
-        3,
-        counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(2), false, true, None).await
-    );
-    assert_eq!(
-        1,
-        counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(3), false, true, None).await
-    );
-    assert_eq!(
-        2,
-        counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(4), false, true, None).await
-    );
-        Ok(())
-    })).await.unwrap();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = setup(&url).await;
+            assert_eq!(
+                2,
+                counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(1), false, true, None)
+                    .await
+            );
+            assert_eq!(
+                3,
+                counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(2), false, true, None)
+                    .await
+            );
+            assert_eq!(
+                1,
+                counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(3), false, true, None)
+                    .await
+            );
+            assert_eq!(
+                2,
+                counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(4), false, true, None)
+                    .await
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // PHP: test_get_counters_nonexistent_feed
 #[tokio::test]
 async fn test_get_counters_nonexistent_feed() {
-    with_test_db(|url| Box::pin(async move {
-    let db = setup(&url).await;
-    // Feed 999 doesn't exist and has no user entries
-    assert_eq!(
-        0,
-        counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(999), false, false, None).await
-    );
-        Ok(())
-    })).await.unwrap();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = setup(&url).await;
+            // Feed 999 doesn't exist and has no user entries
+            assert_eq!(
+                0,
+                counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(999), false, false, None)
+                    .await
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // ── Category view ───────────────────────────────────────────────────────────
@@ -297,93 +366,124 @@ async fn test_get_counters_nonexistent_feed() {
 // PHP: test_get_counters_category
 #[tokio::test]
 async fn test_get_counters_category() {
-    with_test_db(|url| Box::pin(async move {
-    let db = setup(&url).await;
-    // Category 1 (Technology): feeds 1,2,3 → articles 1-8
-    // Unread: 1,2,4,5,6,7 = 6
-    assert_eq!(
-        6,
-        counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(1), true, false, None).await
-    );
-        Ok(())
-    })).await.unwrap();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = setup(&url).await;
+            // Category 1 (Technology): feeds 1,2,3 → articles 1-8
+            // Unread: 1,2,4,5,6,7 = 6
+            assert_eq!(
+                6,
+                counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(1), true, false, None)
+                    .await
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // PHP: test_get_counters_category_all
 #[tokio::test]
 async fn test_get_counters_category_all() {
-    with_test_db(|url| Box::pin(async move {
-    let db = setup(&url).await;
-    // Category queries always call _get_cat_unread() → returns unread count
-    assert_eq!(
-        6,
-        counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(1), true, false, None).await
-    );
-        Ok(())
-    })).await.unwrap();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = setup(&url).await;
+            // Category queries always call _get_cat_unread() → returns unread count
+            assert_eq!(
+                6,
+                counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(1), true, false, None)
+                    .await
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // PHP: test_get_counters_category_unread_only
 #[tokio::test]
 async fn test_get_counters_category_unread_only() {
-    with_test_db(|url| Box::pin(async move {
-    let db = setup(&url).await;
-    // is_cat=true always returns unread via _get_cat_unread()
-    assert_eq!(
-        6,
-        counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(1), true, true, None).await
-    );
-        Ok(())
-    })).await.unwrap();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = setup(&url).await;
+            // is_cat=true always returns unread via _get_cat_unread()
+            assert_eq!(
+                6,
+                counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(1), true, true, None)
+                    .await
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // PHP: test_get_counters_category_science
 #[tokio::test]
 async fn test_get_counters_category_science() {
-    with_test_db(|url| Box::pin(async move {
-    let db = setup(&url).await;
-    // Category 2 (Science & Nature): feed 4 → articles 9,10,11
-    // Unread: 9,10 = 2
-    assert_eq!(
-        2,
-        counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(2), true, false, None).await
-    );
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = setup(&url).await;
+            // Category 2 (Science & Nature): feed 4 → articles 9,10,11
+            // Unread: 9,10 = 2
+            assert_eq!(
+                2,
+                counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(2), true, false, None)
+                    .await
+            );
 
-    // Total: 3 articles
-    assert_eq!(
-        3,
-        counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(2), false, false, None).await
-    );
-        Ok(())
-    })).await.unwrap();
+            // Total: 3 articles
+            assert_eq!(
+                3,
+                counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(2), false, false, None)
+                    .await
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // PHP: test_get_counters_category_uncategorized
 #[tokio::test]
 async fn test_get_counters_category_uncategorized() {
-    with_test_db(|url| Box::pin(async move {
-    let db = setup(&url).await;
-    // Category 0 = uncategorized — all seeded feeds have a category
-    assert_eq!(
-        0,
-        counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(0), true, false, None).await
-    );
-        Ok(())
-    })).await.unwrap();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = setup(&url).await;
+            // Category 0 = uncategorized — all seeded feeds have a category
+            assert_eq!(
+                0,
+                counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(0), true, false, None)
+                    .await
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // PHP: test_get_counters_category_special
 #[tokio::test]
 async fn test_get_counters_category_special() {
-    with_test_db(|url| Box::pin(async move {
-    let db = setup(&url).await;
-    // CATEGORY_SPECIAL (-1) returns 0
-    assert_eq!(
-        0,
-        counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(-1), true, false, None).await
-    );
-        Ok(())
-    })).await.unwrap();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = setup(&url).await;
+            // CATEGORY_SPECIAL (-1) returns 0
+            assert_eq!(
+                0,
+                counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(-1), true, false, None)
+                    .await
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // ── Tag feed ────────────────────────────────────────────────────────────────
@@ -391,51 +491,72 @@ async fn test_get_counters_category_special() {
 // PHP: test_get_counters_tag
 #[tokio::test]
 async fn test_get_counters_tag() {
-    with_test_db(|url| Box::pin(async move {
-    let db = setup(&url).await;
-    // Tags are stored in ttrss_tags table (not tag_cache).
-    // Seed data only populates tag_cache strings, not ttrss_tags rows.
-    assert_eq!(
-        0,
-        counters::get_counters(&db, SESSION_UID, FeedOrTag::Tag("rust"), false, false, None).await
-    );
-        Ok(())
-    })).await.unwrap();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = setup(&url).await;
+            // Tags are stored in ttrss_tags table (not tag_cache).
+            // Seed data only populates tag_cache strings, not ttrss_tags rows.
+            assert_eq!(
+                0,
+                counters::get_counters(
+                    &db,
+                    SESSION_UID,
+                    FeedOrTag::Tag("rust"),
+                    false,
+                    false,
+                    None
+                )
+                .await
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // PHP: test_get_counters_tag_nonexistent
 #[tokio::test]
 async fn test_get_counters_tag_nonexistent() {
-    with_test_db(|url| Box::pin(async move {
-    let db = setup(&url).await;
-    assert_eq!(
-        0,
-        counters::get_counters(
-            &db,
-            SESSION_UID,
-            FeedOrTag::Tag("nonexistent-tag"),
-            false,
-            false,
-            None
-        )
-        .await
-    );
-        Ok(())
-    })).await.unwrap();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = setup(&url).await;
+            assert_eq!(
+                0,
+                counters::get_counters(
+                    &db,
+                    SESSION_UID,
+                    FeedOrTag::Tag("nonexistent-tag"),
+                    false,
+                    false,
+                    None
+                )
+                .await
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // PHP: test_get_counters_tag_all
 #[tokio::test]
 async fn test_get_counters_tag_all() {
-    with_test_db(|url| Box::pin(async move {
-    let db = setup(&url).await;
-    // No tags in ttrss_tags table from seed data
-    assert_eq!(
-        0,
-        counters::get_counters(&db, SESSION_UID, FeedOrTag::Tag("ai"), false, false, None).await
-    );
-        Ok(())
-    })).await.unwrap();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = setup(&url).await;
+            // No tags in ttrss_tags table from seed data
+            assert_eq!(
+                0,
+                counters::get_counters(&db, SESSION_UID, FeedOrTag::Tag("ai"), false, false, None)
+                    .await
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // ── Label IDs ───────────────────────────────────────────────────────────────
@@ -502,33 +623,51 @@ async fn test_get_counters_label_id() {
 // PHP: test_get_counters_different_owner
 #[tokio::test]
 async fn test_get_counters_different_owner() {
-    with_test_db(|url| Box::pin(async move {
-    let db = setup(&url).await;
-    // Feed 1 exists but owner_uid=2 has no user entries
-    assert_eq!(
-        0,
-        counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(1), false, false, Some(2)).await
-    );
-    assert_eq!(
-        0,
-        counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(-4), false, false, Some(2)).await
-    );
-        Ok(())
-    })).await.unwrap();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = setup(&url).await;
+            // Feed 1 exists but owner_uid=2 has no user entries
+            assert_eq!(
+                0,
+                counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(1), false, false, Some(2))
+                    .await
+            );
+            assert_eq!(
+                0,
+                counters::get_counters(
+                    &db,
+                    SESSION_UID,
+                    FeedOrTag::Feed(-4),
+                    false,
+                    false,
+                    Some(2)
+                )
+                .await
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // PHP: test_get_counters_category_different_owner
 #[tokio::test]
 async fn test_get_counters_category_different_owner() {
-    with_test_db(|url| Box::pin(async move {
-    let db = setup(&url).await;
-    // Category 1 has no entries for owner_uid=2
-    assert_eq!(
-        0,
-        counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(1), true, false, Some(2)).await
-    );
-        Ok(())
-    })).await.unwrap();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = setup(&url).await;
+            // Category 1 has no entries for owner_uid=2
+            assert_eq!(
+                0,
+                counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(1), true, false, Some(2))
+                    .await
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // ── Cross-feed totals ───────────────────────────────────────────────────────
@@ -536,45 +675,63 @@ async fn test_get_counters_category_different_owner() {
 // PHP: test_get_counters_all_total
 #[tokio::test]
 async fn test_get_counters_all_total() {
-    with_test_db(|url| Box::pin(async move {
-    let db = setup(&url).await;
-    // FEED_ALL for uid=1 should include all 11 articles
-    assert_eq!(
-        11,
-        counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(-4), false, false, None).await
-    );
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = setup(&url).await;
+            // FEED_ALL for uid=1 should include all 11 articles
+            assert_eq!(
+                11,
+                counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(-4), false, false, None)
+                    .await
+            );
 
-    // Unread-only should be 8
-    assert_eq!(
-        8,
-        counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(-4), false, true, None).await
-    );
-        Ok(())
-    })).await.unwrap();
+            // Unread-only should be 8
+            assert_eq!(
+                8,
+                counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(-4), false, true, None)
+                    .await
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // PHP: test_get_counters_sum_per_feed
 #[tokio::test]
 async fn test_get_counters_sum_per_feed() {
-    with_test_db(|url| Box::pin(async move {
-    let db = setup(&url).await;
-    // Sum of individual feed counts should equal FEED_ALL total
-    let mut total = 0;
-    for i in 1..=4i64 {
-        total +=
-            counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(i), false, false, None).await;
-    }
-    assert_eq!(11, total);
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = setup(&url).await;
+            // Sum of individual feed counts should equal FEED_ALL total
+            let mut total = 0;
+            for i in 1..=4i64 {
+                total += counters::get_counters(
+                    &db,
+                    SESSION_UID,
+                    FeedOrTag::Feed(i),
+                    false,
+                    false,
+                    None,
+                )
+                .await;
+            }
+            assert_eq!(11, total);
 
-    // Unread sum
-    let mut unread_total = 0;
-    for i in 1..=4i64 {
-        unread_total +=
-            counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(i), false, true, None).await;
-    }
-    assert_eq!(8, unread_total);
-        Ok(())
-    })).await.unwrap();
+            // Unread sum
+            let mut unread_total = 0;
+            for i in 1..=4i64 {
+                unread_total +=
+                    counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(i), false, true, None)
+                        .await;
+            }
+            assert_eq!(8, unread_total);
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // ── Counters::get_feeds (via get_conditional) ───────────────────────────────
@@ -582,113 +739,126 @@ async fn test_get_counters_sum_per_feed() {
 // PHP: test_counters_get_feeds_returns_array
 #[tokio::test]
 async fn test_counters_get_feeds_returns_array() {
-    with_test_db(|url| Box::pin(async move {
-    let db = setup(&url).await;
-    let result = counters::get_conditional(
-        &db,
-        SESSION_UID,
-        Some(&[1, 2]),
-        None,
-        std::path::Path::new(ICON_DIR),
-    )
-    .await;
-    assert!(!result.is_empty());
-        Ok(())
-    })).await.unwrap();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = setup(&url).await;
+            let result = counters::get_conditional(
+                &db,
+                SESSION_UID,
+                Some(&[1, 2]),
+                None,
+                std::path::Path::new(ICON_DIR),
+            )
+            .await;
+            assert!(!result.is_empty());
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // PHP: test_counters_get_feeds_contains_requested_feeds
 #[tokio::test]
 async fn test_counters_get_feeds_contains_requested_feeds() {
-    with_test_db(|url| Box::pin(async move {
-    let db = setup(&url).await;
-    let result = counters::get_conditional(
-        &db,
-        SESSION_UID,
-        Some(&[1, 2]),
-        None,
-        std::path::Path::new(ICON_DIR),
-    )
-    .await;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = setup(&url).await;
+            let result = counters::get_conditional(
+                &db,
+                SESSION_UID,
+                Some(&[1, 2]),
+                None,
+                std::path::Path::new(ICON_DIR),
+            )
+            .await;
 
-    // Filter to only feed entries (see is_feed_entry for the PHP condition)
-    let feed_entries: Vec<&Value> = result.iter().filter(|v| is_feed_entry(v)).collect();
-    assert_eq!(
-        2,
-        feed_entries.len(),
-        "Should contain exactly feeds 1 and 2"
-    );
+            // Filter to only feed entries (see is_feed_entry for the PHP condition)
+            let feed_entries: Vec<&Value> = result.iter().filter(|v| is_feed_entry(v)).collect();
+            assert_eq!(
+                2,
+                feed_entries.len(),
+                "Should contain exactly feeds 1 and 2"
+            );
 
-    // Build lookup by id
-    let by_id: std::collections::HashMap<i64, &serde_json::Map<String, Value>> = feed_entries
-        .iter()
-        .map(|v| {
-            let m = v.as_object().unwrap();
-            (m.get("id").and_then(Value::as_i64).unwrap(), m)
+            // Build lookup by id
+            let by_id: std::collections::HashMap<i64, &serde_json::Map<String, Value>> =
+                feed_entries
+                    .iter()
+                    .map(|v| {
+                        let m = v.as_object().unwrap();
+                        (m.get("id").and_then(Value::as_i64).unwrap(), m)
+                    })
+                    .collect();
+
+            // Feed 1 (Hacker News): 2 unread, 1 marked
+            let f1 = by_id[&1];
+            assert_eq!(1, f1.get("id").and_then(Value::as_i64).unwrap());
+            assert_eq!(
+                2,
+                f1.get("counter").and_then(Value::as_i64).unwrap(),
+                "Feed 1 should have 2 unread"
+            );
+            assert_eq!(
+                1,
+                f1.get("markedcounter").and_then(Value::as_i64).unwrap(),
+                "Feed 1 should have 1 starred"
+            );
+            assert_eq!(
+                0,
+                f1.get("publishedcounter").and_then(Value::as_i64).unwrap()
+            );
+            assert!(f1.get("error").is_some());
+            assert!(f1.get("updated").is_some());
+
+            // Feed 2 (The Register): 3 unread, 0 marked
+            let f2 = by_id[&2];
+            assert_eq!(
+                3,
+                f2.get("counter").and_then(Value::as_i64).unwrap(),
+                "Feed 2 should have 3 unread"
+            );
+            assert_eq!(0, f2.get("markedcounter").and_then(Value::as_i64).unwrap());
+            Ok(())
         })
-        .collect();
-
-    // Feed 1 (Hacker News): 2 unread, 1 marked
-    let f1 = by_id[&1];
-    assert_eq!(1, f1.get("id").and_then(Value::as_i64).unwrap());
-    assert_eq!(
-        2,
-        f1.get("counter").and_then(Value::as_i64).unwrap(),
-        "Feed 1 should have 2 unread"
-    );
-    assert_eq!(
-        1,
-        f1.get("markedcounter").and_then(Value::as_i64).unwrap(),
-        "Feed 1 should have 1 starred"
-    );
-    assert_eq!(
-        0,
-        f1.get("publishedcounter").and_then(Value::as_i64).unwrap()
-    );
-    assert!(f1.get("error").is_some());
-    assert!(f1.get("updated").is_some());
-
-    // Feed 2 (The Register): 3 unread, 0 marked
-    let f2 = by_id[&2];
-    assert_eq!(
-        3,
-        f2.get("counter").and_then(Value::as_i64).unwrap(),
-        "Feed 2 should have 3 unread"
-    );
-    assert_eq!(0, f2.get("markedcounter").and_then(Value::as_i64).unwrap());
-        Ok(())
-    })).await.unwrap();
+    })
+    .await
+    .unwrap();
 }
 
 // PHP: test_counters_get_feeds_empty_array
 #[tokio::test]
 async fn test_counters_get_feeds_empty_array() {
-    with_test_db(|url| Box::pin(async move {
-    let db = setup(&url).await;
-    let result = counters::get_conditional(
-        &db,
-        SESSION_UID,
-        Some(&[]),
-        None,
-        std::path::Path::new(ICON_DIR),
-    )
-    .await;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = setup(&url).await;
+            let result = counters::get_conditional(
+                &db,
+                SESSION_UID,
+                Some(&[]),
+                None,
+                std::path::Path::new(ICON_DIR),
+            )
+            .await;
 
-    let feed_entries: Vec<&Value> = result
-        .iter()
-        .filter(|v| {
-            v.as_object()
-                .and_then(|m| m.get("id"))
-                .and_then(Value::as_i64)
-                .is_some_and(|id| id > 0)
+            let feed_entries: Vec<&Value> = result
+                .iter()
+                .filter(|v| {
+                    v.as_object()
+                        .and_then(|m| m.get("id"))
+                        .and_then(Value::as_i64)
+                        .is_some_and(|id| id > 0)
+                })
+                .collect();
+            assert!(
+                feed_entries.is_empty(),
+                "Empty feed_ids should yield no feed entries"
+            );
+            Ok(())
         })
-        .collect();
-    assert!(
-        feed_entries.is_empty(),
-        "Empty feed_ids should yield no feed entries"
-    );
-        Ok(())
-    })).await.unwrap();
+    })
+    .await
+    .unwrap();
 }
 
 // ── Rust-only regression: `get_cats` with a filtered cat list ──────────────
@@ -709,179 +879,203 @@ async fn test_counters_get_feeds_empty_array() {
 // lacks a category; Science & Nature (cat 2) holds none of feeds 1-2.
 #[tokio::test]
 async fn test_counters_get_conditional_feed_ids_category_rows() {
-    with_test_db(|url| Box::pin(async move {
-    let db = setup(&url).await;
-    let result = counters::get_conditional(
-        &db,
-        SESSION_UID,
-        Some(&[1, 2]),
-        None,
-        std::path::Path::new(ICON_DIR),
-    )
-    .await;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = setup(&url).await;
+            let result = counters::get_conditional(
+                &db,
+                SESSION_UID,
+                Some(&[1, 2]),
+                None,
+                std::path::Path::new(ICON_DIR),
+            )
+            .await;
 
-    let cat_entries: Vec<&Value> = result
-        .iter()
-        .filter(|v| {
-            v.as_object()
-                .and_then(|m| m.get("kind"))
-                .is_some_and(|k| k.as_str() == Some("cat"))
+            let cat_entries: Vec<&Value> = result
+                .iter()
+                .filter(|v| {
+                    v.as_object()
+                        .and_then(|m| m.get("kind"))
+                        .is_some_and(|k| k.as_str() == Some("cat"))
+                })
+                .collect();
+
+            let by_id: std::collections::HashMap<i64, &Value> = cat_entries
+                .iter()
+                .map(|v| {
+                    let m = v.as_object().unwrap();
+                    (m.get("id").and_then(Value::as_i64).unwrap(), *v)
+                })
+                .collect();
+
+            // Exactly the Labels entry, Technology, and uncategorized.
+            assert_eq!(
+                3,
+                cat_entries.len(),
+                "expected labels + Technology + uncategorized, got: {cat_entries:?}"
+            );
+            assert!(
+                by_id.contains_key(&ttrss::cats::CAT_LABELS),
+                "Labels category entry missing: {result:?}"
+            );
+
+            // Technology (cat 1) holds feeds 1-3: 6 unread, 2 marked, 0 published.
+            let tech = by_id[&1];
+            assert_eq!(
+                6,
+                tech.get("counter").and_then(Value::as_i64).unwrap(),
+                "Technology unread: {tech:?}"
+            );
+            assert_eq!(
+                2,
+                tech.get("markedcounter").and_then(Value::as_i64).unwrap(),
+                "Technology marked: {tech:?}"
+            );
+            assert_eq!(
+                0,
+                tech.get("publishedcounter")
+                    .and_then(Value::as_i64)
+                    .unwrap(),
+                "Technology published: {tech:?}"
+            );
+
+            // Uncategorized: no seeded feed lacks a category.
+            assert_eq!(
+                0,
+                by_id[&0].get("counter").and_then(Value::as_i64).unwrap(),
+                "uncategorized: {:?}",
+                by_id[&0]
+            );
+
+            // Science & Nature (cat 2) holds none of the requested feeds → absent.
+            assert!(
+                !by_id.contains_key(&2),
+                "cat 2 must not appear for feeds [1, 2]: {cat_entries:?}"
+            );
+            Ok(())
         })
-        .collect();
-
-    let by_id: std::collections::HashMap<i64, &Value> = cat_entries
-        .iter()
-        .map(|v| {
-            let m = v.as_object().unwrap();
-            (m.get("id").and_then(Value::as_i64).unwrap(), *v)
-        })
-        .collect();
-
-    // Exactly the Labels entry, Technology, and uncategorized.
-    assert_eq!(
-        3,
-        cat_entries.len(),
-        "expected labels + Technology + uncategorized, got: {cat_entries:?}"
-    );
-    assert!(
-        by_id.contains_key(&ttrss::cats::CAT_LABELS),
-        "Labels category entry missing: {result:?}"
-    );
-
-    // Technology (cat 1) holds feeds 1-3: 6 unread, 2 marked, 0 published.
-    let tech = by_id[&1];
-    assert_eq!(
-        6,
-        tech.get("counter").and_then(Value::as_i64).unwrap(),
-        "Technology unread: {tech:?}"
-    );
-    assert_eq!(
-        2,
-        tech.get("markedcounter").and_then(Value::as_i64).unwrap(),
-        "Technology marked: {tech:?}"
-    );
-    assert_eq!(
-        0,
-        tech.get("publishedcounter")
-            .and_then(Value::as_i64)
-            .unwrap(),
-        "Technology published: {tech:?}"
-    );
-
-    // Uncategorized: no seeded feed lacks a category.
-    assert_eq!(
-        0,
-        by_id[&0].get("counter").and_then(Value::as_i64).unwrap(),
-        "uncategorized: {:?}",
-        by_id[&0]
-    );
-
-    // Science & Nature (cat 2) holds none of the requested feeds → absent.
-    assert!(
-        !by_id.contains_key(&2),
-        "cat 2 must not appear for feeds [1, 2]: {cat_entries:?}"
-    );
-        Ok(())
-    })).await.unwrap();
+    })
+    .await
+    .unwrap();
 }
 // ── Counters::get_all() ─────────────────────────────────────────────────────
 
 // PHP: test_counters_get_all_returns_array
 #[tokio::test]
 async fn test_counters_get_all_returns_array() {
-    with_test_db(|url| Box::pin(async move {
-    let db = setup(&url).await;
-    let result = counters::get_all(&db, SESSION_UID, std::path::Path::new(ICON_DIR)).await;
-    assert!(!result.is_empty());
-        Ok(())
-    })).await.unwrap();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = setup(&url).await;
+            let result = counters::get_all(&db, SESSION_UID, std::path::Path::new(ICON_DIR)).await;
+            assert!(!result.is_empty());
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // PHP: test_counters_get_all_contains_global_unread
 #[tokio::test]
 async fn test_counters_get_all_contains_global_unread() {
-    with_test_db(|url| Box::pin(async move {
-    let db = setup(&url).await;
-    let result = counters::get_all(&db, SESSION_UID, std::path::Path::new(ICON_DIR)).await;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = setup(&url).await;
+            let result = counters::get_all(&db, SESSION_UID, std::path::Path::new(ICON_DIR)).await;
 
-    let global: Vec<&Value> = result
-        .iter()
-        .filter(|v| {
-            v.as_object()
-                .and_then(|m| m.get("id"))
-                .is_some_and(|id| id.as_str() == Some("global-unread"))
+            let global: Vec<&Value> = result
+                .iter()
+                .filter(|v| {
+                    v.as_object()
+                        .and_then(|m| m.get("id"))
+                        .is_some_and(|id| id.as_str() == Some("global-unread"))
+                })
+                .collect();
+            assert_eq!(1, global.len());
+            let m = global[0].as_object().unwrap();
+            assert!(m.get("counter").and_then(Value::as_i64).unwrap() >= 0);
+            Ok(())
         })
-        .collect();
-    assert_eq!(1, global.len());
-    let m = global[0].as_object().unwrap();
-    assert!(m.get("counter").and_then(Value::as_i64).unwrap() >= 0);
-        Ok(())
-    })).await.unwrap();
+    })
+    .await
+    .unwrap();
 }
 
 // PHP: test_counters_get_all_contains_virtual_feeds
 #[tokio::test]
 async fn test_counters_get_all_contains_virtual_feeds() {
-    with_test_db(|url| Box::pin(async move {
-    let db = setup(&url).await;
-    let result = counters::get_all(&db, SESSION_UID, std::path::Path::new(ICON_DIR)).await;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = setup(&url).await;
+            let result = counters::get_all(&db, SESSION_UID, std::path::Path::new(ICON_DIR)).await;
 
-    // Feeds::{FEED_ARCHIVED, FEED_STARRED, FEED_PUBLISHED, FEED_FRESH, FEED_ALL}
-    let virtual_ids = [0, -1, -2, -3, -4];
-    let virtual_entries: Vec<&Value> = result
-        .iter()
-        .filter(|v| {
-            v.as_object()
-                .and_then(|m| m.get("id"))
-                .and_then(Value::as_i64)
-                .is_some_and(|id| virtual_ids.contains(&id))
+            // Feeds::{FEED_ARCHIVED, FEED_STARRED, FEED_PUBLISHED, FEED_FRESH, FEED_ALL}
+            let virtual_ids = [0, -1, -2, -3, -4];
+            let virtual_entries: Vec<&Value> = result
+                .iter()
+                .filter(|v| {
+                    v.as_object()
+                        .and_then(|m| m.get("id"))
+                        .and_then(Value::as_i64)
+                        .is_some_and(|id| virtual_ids.contains(&id))
+                })
+                .collect();
+            assert!(
+                virtual_entries.len() >= 5,
+                "Should contain at least 5 virtual feed entries"
+            );
+
+            for entry in &virtual_entries {
+                assert!(entry.as_object().unwrap().get("counter").is_some());
+            }
+            Ok(())
         })
-        .collect();
-    assert!(
-        virtual_entries.len() >= 5,
-        "Should contain at least 5 virtual feed entries"
-    );
-
-    for entry in &virtual_entries {
-        assert!(entry.as_object().unwrap().get("counter").is_some());
-    }
-        Ok(())
-    })).await.unwrap();
+    })
+    .await
+    .unwrap();
 }
 
 // PHP: test_counters_get_all_contains_category_entries
 #[tokio::test]
 async fn test_counters_get_all_contains_category_entries() {
-    with_test_db(|url| Box::pin(async move {
-    let db = setup(&url).await;
-    let result = counters::get_all(&db, SESSION_UID, std::path::Path::new(ICON_DIR)).await;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = setup(&url).await;
+            let result = counters::get_all(&db, SESSION_UID, std::path::Path::new(ICON_DIR)).await;
 
-    let cat_entries: Vec<&Value> = result
-        .iter()
-        .filter(|v| {
-            v.as_object()
-                .and_then(|m| m.get("kind"))
-                .is_some_and(|k| k.as_str() == Some("cat"))
+            let cat_entries: Vec<&Value> = result
+                .iter()
+                .filter(|v| {
+                    v.as_object()
+                        .and_then(|m| m.get("kind"))
+                        .is_some_and(|k| k.as_str() == Some("cat"))
+                })
+                .collect();
+            // At least the Labels category + the 2 seed categories
+            assert!(!cat_entries.is_empty());
+            Ok(())
         })
-        .collect();
-    // At least the Labels category + the 2 seed categories
-    assert!(!cat_entries.is_empty());
-        Ok(())
-    })).await.unwrap();
+    })
+    .await
+    .unwrap();
 }
 
 // PHP: test_counters_get_all_contains_label_entries
 #[tokio::test]
 async fn test_counters_get_all_contains_label_entries() {
-    with_test_db(|url| Box::pin(async move {
-    let db = setup(&url).await;
-    let result = counters::get_all(&db, SESSION_UID, std::path::Path::new(ICON_DIR)).await;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = setup(&url).await;
+            let result = counters::get_all(&db, SESSION_UID, std::path::Path::new(ICON_DIR)).await;
 
-    let label_entries: Vec<&Value> = result.iter().filter(|v| is_label_entry(v)).collect();
-    // Seed data has 2 labels (test-label-1, test-label-2)
-    assert_eq!(2, label_entries.len(), "Should contain seed label entries");
-        Ok(())
-    })).await.unwrap();
+            let label_entries: Vec<&Value> = result.iter().filter(|v| is_label_entry(v)).collect();
+            // Seed data has 2 labels (test-label-1, test-label-2)
+            assert_eq!(2, label_entries.len(), "Should contain seed label entries");
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // ── Counters::get_labels() ──────────────────────────────────────────────────
@@ -889,60 +1083,76 @@ async fn test_counters_get_all_contains_label_entries() {
 // PHP: test_counters_get_labels_returns_array
 #[tokio::test]
 async fn test_counters_get_labels_returns_array() {
-    with_test_db(|url| Box::pin(async move {
-    let db = setup(&url).await;
-    let result = counters::get_labels(&db, SESSION_UID, None).await;
-    assert!(!result.is_empty());
-        Ok(())
-    })).await.unwrap();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = setup(&url).await;
+            let result = counters::get_labels(&db, SESSION_UID, None).await;
+            assert!(!result.is_empty());
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // PHP: test_counters_get_labels_with_ids
 #[tokio::test]
 async fn test_counters_get_labels_with_ids() {
-    with_test_db(|url| Box::pin(async move {
-    let db = setup(&url).await;
-    let label_ids = seed_label_ids(&db).await;
-    assert!(!label_ids.is_empty());
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = setup(&url).await;
+            let label_ids = seed_label_ids(&db).await;
+            assert!(!label_ids.is_empty());
 
-    let result = counters::get_labels(&db, SESSION_UID, Some(&label_ids)).await;
-    assert_eq!(
-        label_ids.len(),
-        result.len(),
-        "Should return entries for the requested labels"
-    );
+            let result = counters::get_labels(&db, SESSION_UID, Some(&label_ids)).await;
+            assert_eq!(
+                label_ids.len(),
+                result.len(),
+                "Should return entries for the requested labels"
+            );
 
-    for entry in &result {
-        let m = entry.as_object().unwrap();
-        assert!(m.get("id").is_some());
-        assert!(m.get("counter").is_some());
-        assert!(m.get("auxcounter").is_some());
-        assert!(m.get("description").is_some());
-    }
-        Ok(())
-    })).await.unwrap();
+            for entry in &result {
+                let m = entry.as_object().unwrap();
+                assert!(m.get("id").is_some());
+                assert!(m.get("counter").is_some());
+                assert!(m.get("auxcounter").is_some());
+                assert!(m.get("description").is_some());
+            }
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // PHP: test_counters_get_labels_empty_array
 #[tokio::test]
 async fn test_counters_get_labels_empty_array() {
-    with_test_db(|url| Box::pin(async move {
-    let db = setup(&url).await;
-    let result = counters::get_labels(&db, SESSION_UID, Some(&[])).await;
-    assert!(result.is_empty());
-        Ok(())
-    })).await.unwrap();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = setup(&url).await;
+            let result = counters::get_labels(&db, SESSION_UID, Some(&[])).await;
+            assert!(result.is_empty());
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // PHP: test_counters_get_labels_nonexistent_ids
 #[tokio::test]
 async fn test_counters_get_labels_nonexistent_ids() {
-    with_test_db(|url| Box::pin(async move {
-    let db = setup(&url).await;
-    let result = counters::get_labels(&db, SESSION_UID, Some(&[99999, 99998])).await;
-    assert!(result.is_empty());
-        Ok(())
-    })).await.unwrap();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = setup(&url).await;
+            let result = counters::get_labels(&db, SESSION_UID, Some(&[99999, 99998])).await;
+            assert!(result.is_empty());
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // ── Counters::get_conditional with label_ids ────────────────────────────────
@@ -950,56 +1160,64 @@ async fn test_counters_get_labels_nonexistent_ids() {
 // PHP: test_counters_get_conditional_with_label_ids
 #[tokio::test]
 async fn test_counters_get_conditional_with_label_ids() {
-    with_test_db(|url| Box::pin(async move {
-    let db = setup(&url).await;
-    let label_ids = seed_label_ids(&db).await;
-    assert!(!label_ids.is_empty());
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = setup(&url).await;
+            let label_ids = seed_label_ids(&db).await;
+            assert!(!label_ids.is_empty());
 
-    let result = counters::get_conditional(
-        &db,
-        SESSION_UID,
-        None,
-        Some(&label_ids),
-        std::path::Path::new(ICON_DIR),
-    )
-    .await;
+            let result = counters::get_conditional(
+                &db,
+                SESSION_UID,
+                None,
+                Some(&label_ids),
+                std::path::Path::new(ICON_DIR),
+            )
+            .await;
 
-    let label_entries: Vec<&Value> = result.iter().filter(|v| is_label_entry(v)).collect();
-    assert_eq!(label_ids.len(), label_entries.len());
-        Ok(())
-    })).await.unwrap();
+            let label_entries: Vec<&Value> = result.iter().filter(|v| is_label_entry(v)).collect();
+            assert_eq!(label_ids.len(), label_entries.len());
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // PHP: test_counters_get_conditional_with_both_feed_and_label_ids
 #[tokio::test]
 async fn test_counters_get_conditional_with_both_feed_and_label_ids() {
-    with_test_db(|url| Box::pin(async move {
-    let db = setup(&url).await;
-    let label_ids = seed_label_ids(&db).await;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = setup(&url).await;
+            let label_ids = seed_label_ids(&db).await;
 
-    let result = counters::get_conditional(
-        &db,
-        SESSION_UID,
-        Some(&[1, 2]),
-        Some(&label_ids),
-        std::path::Path::new(ICON_DIR),
-    )
-    .await;
+            let result = counters::get_conditional(
+                &db,
+                SESSION_UID,
+                Some(&[1, 2]),
+                Some(&label_ids),
+                std::path::Path::new(ICON_DIR),
+            )
+            .await;
 
-    let feed_entries: Vec<&Value> = result.iter().filter(|v| is_feed_entry(v)).collect();
-    let label_entries: Vec<&Value> = result.iter().filter(|v| is_label_entry(v)).collect();
+            let feed_entries: Vec<&Value> = result.iter().filter(|v| is_feed_entry(v)).collect();
+            let label_entries: Vec<&Value> = result.iter().filter(|v| is_label_entry(v)).collect();
 
-    assert!(
-        feed_entries.len() >= 2,
-        "Should contain at least 2 requested feed entries"
-    );
-    assert_eq!(
-        label_ids.len(),
-        label_entries.len(),
-        "Should contain label entries"
-    );
-        Ok(())
-    })).await.unwrap();
+            assert!(
+                feed_entries.len() >= 2,
+                "Should contain at least 2 requested feed entries"
+            );
+            assert_eq!(
+                label_ids.len(),
+                label_entries.len(),
+                "Should contain label entries"
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // ── get_all_counters handler (RPC glue) ─────────────────────────────────────
@@ -1024,7 +1242,7 @@ fn test_config() -> Config {
         cache_dir: std::path::PathBuf::from("no-such-test-icon-dir"),
         http_429_throttle_interval: 3600,
         daemon_sleep_interval: 60,
-    ..Default::default()
+        ..Default::default()
     }
 }
 
@@ -1071,149 +1289,169 @@ fn cat_entries(counters: &[Value]) -> Vec<&Value> {
 // string `seq` echoed as an int.
 #[tokio::test]
 async fn test_get_all_counters_handler_feed_ids_array() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup_state(&url).await;
-    let mut extra = Map::new();
-    extra.insert("seq".into(), json!("7"));
-    extra.insert("feed_id_count".into(), json!(2));
-    extra.insert("feed_ids".into(), json!(["1", "2"]));
-    let v = counters::get_all_counters(&state, &sess, &extra).await;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup_state(&url).await;
+            let mut extra = Map::new();
+            extra.insert("seq".into(), json!("7"));
+            extra.insert("feed_id_count".into(), json!(2));
+            extra.insert("feed_ids".into(), json!(["1", "2"]));
+            let v = counters::get_all_counters(&state, &sess, &extra).await;
 
-    assert_eq!(v["seq"], json!(7), "seq: (int) cast of the string '7'");
-    let c = v["counters"].as_array().expect("counters array");
+            assert_eq!(v["seq"], json!(7), "seq: (int) cast of the string '7'");
+            let c = v["counters"].as_array().expect("counters array");
 
-    assert_eq!(vec![1, 2], feed_ids_in(c), "only the requested feeds");
-    let f1 = c.iter().find(|v| v["id"] == json!(1)).unwrap();
-    assert_eq!(f1["counter"], json!(2), "feed 1 unread");
-    assert_eq!(f1["markedcounter"], json!(1), "feed 1 marked");
-    let f2 = c.iter().find(|v| v["id"] == json!(2)).unwrap();
-    assert_eq!(f2["counter"], json!(3), "feed 2 unread");
+            assert_eq!(vec![1, 2], feed_ids_in(c), "only the requested feeds");
+            let f1 = c.iter().find(|v| v["id"] == json!(1)).unwrap();
+            assert_eq!(f1["counter"], json!(2), "feed 1 unread");
+            assert_eq!(f1["markedcounter"], json!(1), "feed 1 marked");
+            let f2 = c.iter().find(|v| v["id"] == json!(2)).unwrap();
+            assert_eq!(f2["counter"], json!(3), "feed 2 unread");
 
-    // Categories of feeds 1-2: Labels + Technology (feeds 1-3: 6 unread) +
-    // uncategorized (0) — not Science & Nature (feed 4).
-    let cats = cat_entries(c);
-    let mut cat_ids: Vec<i64> = cats.iter().map(|v| v["id"].as_i64().unwrap()).collect();
-    cat_ids.sort_unstable();
-    assert_eq!(
-        vec![ttrss::cats::CAT_LABELS, 0, 1],
-        cat_ids,
-        "cat entries: {cats:?}"
-    );
+            // Categories of feeds 1-2: Labels + Technology (feeds 1-3: 6 unread) +
+            // uncategorized (0) — not Science & Nature (feed 4).
+            let cats = cat_entries(c);
+            let mut cat_ids: Vec<i64> = cats.iter().map(|v| v["id"].as_i64().unwrap()).collect();
+            cat_ids.sort_unstable();
+            assert_eq!(
+                vec![ttrss::cats::CAT_LABELS, 0, 1],
+                cat_ids,
+                "cat entries: {cats:?}"
+            );
 
-    // No label_ids param → PHP `get_labels(null)` → all seeded labels.
-    let labels: Vec<&Value> = c.iter().filter(|v| is_label_entry(v)).collect();
-    assert_eq!(2, labels.len(), "all seeded labels: {c:?}");
-        Ok(())
-    })).await.unwrap();
+            // No label_ids param → PHP `get_labels(null)` → all seeded labels.
+            let labels: Vec<&Value> = c.iter().filter(|v| is_label_entry(v)).collect();
+            assert_eq!(2, labels.len(), "all seeded labels: {c:?}");
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // Rust-only: absent `*_id_count` params → -1 → null → `Counters::get_all()`
 // — every feed, every category, numeric `seq` echoed as-is.
 #[tokio::test]
 async fn test_get_all_counters_handler_no_counts_returns_all() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup_state(&url).await;
-    let mut extra = Map::new();
-    extra.insert("seq".into(), json!(3));
-    let v = counters::get_all_counters(&state, &sess, &extra).await;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup_state(&url).await;
+            let mut extra = Map::new();
+            extra.insert("seq".into(), json!(3));
+            let v = counters::get_all_counters(&state, &sess, &extra).await;
 
-    assert_eq!(v["seq"], json!(3));
-    let c = v["counters"].as_array().expect("counters array");
-    assert_eq!(vec![1, 2, 3, 4], feed_ids_in(c), "all seeded feeds");
-    let mut cat_ids: Vec<i64> = cat_entries(c)
-        .iter()
-        .map(|v| v["id"].as_i64().unwrap())
-        .collect();
-    cat_ids.sort_unstable();
-    assert_eq!(
-        vec![ttrss::cats::CAT_LABELS, 0, 1, 2],
-        cat_ids,
-        "all categories + uncategorized + labels"
-    );
-        Ok(())
-    })).await.unwrap();
+            assert_eq!(v["seq"], json!(3));
+            let c = v["counters"].as_array().expect("counters array");
+            assert_eq!(vec![1, 2, 3, 4], feed_ids_in(c), "all seeded feeds");
+            let mut cat_ids: Vec<i64> = cat_entries(c)
+                .iter()
+                .map(|v| v["id"].as_i64().unwrap())
+                .collect();
+            cat_ids.sort_unstable();
+            assert_eq!(
+                vec![ttrss::cats::CAT_LABELS, 0, 1, 2],
+                cat_ids,
+                "all categories + uncategorized + labels"
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // Rust-only: an explicit `feed_id_count: -1` overrides the supplied `feed_ids`
 // (PHP: `$feed_id_count == -1 ? null : _param_to_int_array(...)`).
 #[tokio::test]
 async fn test_get_all_counters_handler_feed_id_count_minus_one() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup_state(&url).await;
-    let mut extra = Map::new();
-    extra.insert("feed_id_count".into(), json!(-1));
-    extra.insert("feed_ids".into(), json!(["1", "2"]));
-    let v = counters::get_all_counters(&state, &sess, &extra).await;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup_state(&url).await;
+            let mut extra = Map::new();
+            extra.insert("feed_id_count".into(), json!(-1));
+            extra.insert("feed_ids".into(), json!(["1", "2"]));
+            let v = counters::get_all_counters(&state, &sess, &extra).await;
 
-    let c = v["counters"].as_array().expect("counters array");
-    assert_eq!(
-        vec![1, 2, 3, 4],
-        feed_ids_in(c),
-        "count -1 → null → all feeds"
-    );
-        Ok(())
-    })).await.unwrap();
+            let c = v["counters"].as_array().expect("counters array");
+            assert_eq!(
+                vec![1, 2, 3, 4],
+                feed_ids_in(c),
+                "count -1 → null → all feeds"
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // Rust-only: `DISABLE_CONDITIONAL_COUNTERS` → `Counters::get_all()` even when
 // feed ids were supplied (PHP: `is_array($feed_ids) && !Prefs::get(...)`).
 #[tokio::test]
 async fn test_get_all_counters_handler_disable_conditional() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup_state(&url).await;
-    sqlx::query(
-        "INSERT INTO ttrss_user_prefs2 (owner_uid, pref_name, profile, value)
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup_state(&url).await;
+            sqlx::query(
+                "INSERT INTO ttrss_user_prefs2 (owner_uid, pref_name, profile, value)
          VALUES (1, 'DISABLE_CONDITIONAL_COUNTERS', NULL, '1')",
-    )
-    .execute(state.db.pool())
+            )
+            .execute(state.db.pool())
+            .await
+            .expect("set DISABLE_CONDITIONAL_COUNTERS");
+
+            let mut extra = Map::new();
+            extra.insert("feed_id_count".into(), json!(2));
+            extra.insert("feed_ids".into(), json!(["1", "2"]));
+            let v = counters::get_all_counters(&state, &sess, &extra).await;
+
+            let c = v["counters"].as_array().expect("counters array");
+            assert_eq!(
+                vec![1, 2, 3, 4],
+                feed_ids_in(c),
+                "pref gate → get_all() ignores the feed filter"
+            );
+            let mut cat_ids: Vec<i64> = cat_entries(c)
+                .iter()
+                .map(|v| v["id"].as_i64().unwrap())
+                .collect();
+            cat_ids.sort_unstable();
+            assert_eq!(
+                vec![ttrss::cats::CAT_LABELS, 0, 1, 2],
+                cat_ids,
+                "get_all() → all categories"
+            );
+            Ok(())
+        })
+    })
     .await
-    .expect("set DISABLE_CONDITIONAL_COUNTERS");
-
-    let mut extra = Map::new();
-    extra.insert("feed_id_count".into(), json!(2));
-    extra.insert("feed_ids".into(), json!(["1", "2"]));
-    let v = counters::get_all_counters(&state, &sess, &extra).await;
-
-    let c = v["counters"].as_array().expect("counters array");
-    assert_eq!(
-        vec![1, 2, 3, 4],
-        feed_ids_in(c),
-        "pref gate → get_all() ignores the feed filter"
-    );
-    let mut cat_ids: Vec<i64> = cat_entries(c)
-        .iter()
-        .map(|v| v["id"].as_i64().unwrap())
-        .collect();
-    cat_ids.sort_unstable();
-    assert_eq!(
-        vec![ttrss::cats::CAT_LABELS, 0, 1, 2],
-        cat_ids,
-        "get_all() → all categories"
-    );
-        Ok(())
-    })).await.unwrap();
+    .unwrap();
 }
 
 // Rust-only: `label_ids` on the conditional path → only the requested label
 // entries (PHP `get_conditional($feed_ids, $label_ids)` → `get_labels($label_ids)`).
 #[tokio::test]
 async fn test_get_all_counters_handler_label_ids_subset() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup_state(&url).await;
-    let mut extra = Map::new();
-    extra.insert("feed_id_count".into(), json!(2));
-    extra.insert("feed_ids".into(), json!(["1", "2"]));
-    extra.insert("label_id_count".into(), json!(1));
-    extra.insert("label_ids".into(), json!("1"));
-    let v = counters::get_all_counters(&state, &sess, &extra).await;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup_state(&url).await;
+            let mut extra = Map::new();
+            extra.insert("feed_id_count".into(), json!(2));
+            extra.insert("feed_ids".into(), json!(["1", "2"]));
+            extra.insert("label_id_count".into(), json!(1));
+            extra.insert("label_ids".into(), json!("1"));
+            let v = counters::get_all_counters(&state, &sess, &extra).await;
 
-    let c = v["counters"].as_array().expect("counters array");
-    let labels: Vec<&Value> = c.iter().filter(|v| is_label_entry(v)).collect();
-    assert_eq!(1, labels.len(), "only the requested label: {c:?}");
-    assert_eq!(
-        ttrss::labels::label_to_feed_id(1),
-        labels[0]["id"].as_i64().unwrap()
-    );
-        Ok(())
-    })).await.unwrap();
+            let c = v["counters"].as_array().expect("counters array");
+            let labels: Vec<&Value> = c.iter().filter(|v| is_label_entry(v)).collect();
+            assert_eq!(1, labels.len(), "only the requested label: {c:?}");
+            assert_eq!(
+                ttrss::labels::label_to_feed_id(1),
+                labels[0]["id"].as_i64().unwrap()
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }

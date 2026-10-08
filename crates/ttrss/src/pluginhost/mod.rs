@@ -26,10 +26,10 @@ pub mod plugin;
 pub mod storage;
 
 pub use host::{
-    method_url, public_method_url, feed_to_pfeed_id, pfeed_to_feed_id, scheduled_task_name,
-    HostCtx, PluginHost,
+    HostCtx, PluginHost, feed_to_pfeed_id, method_url, pfeed_to_feed_id, public_method_url,
+    scheduled_task_name,
 };
-pub use plugin::{About, Flags, Plugin, PluginError, API_VERSION_COMPAT};
+pub use plugin::{API_VERSION_COMPAT, About, Flags, Plugin, PluginError};
 
 /// `PluginHost::API_VERSION` — re-exported next to the registry for the
 /// startup check.
@@ -121,5 +121,3 @@ pub fn all_plugins() -> Vec<fn() -> Box<dyn Plugin>> {
         || Box::new(crate::plugins::toggle_sidebar::ToggleSidebar),
     ]
 }
-
-

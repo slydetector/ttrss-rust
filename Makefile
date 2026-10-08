@@ -208,6 +208,10 @@ test: ## run the full workspace test suite (cargo nextest)
 clippy: ## run clippy across the workspace
 	cargo clippy --workspace --all-targets
 
+.PHONY: fmt
+fmt: ## format the whole workspace (run before committing)
+	cargo fmt
+
 .PHONY: coverage
 coverage: ## run test coverage (cargo-llvm-cov): CLI summary + HTML report
 	@command -v cargo-llvm-cov >/dev/null 2>&1 || { echo "error: cargo-llvm-cov not found. Install:  cargo install cargo-llvm-cov"; exit 1; }

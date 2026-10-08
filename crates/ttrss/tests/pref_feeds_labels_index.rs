@@ -9,16 +9,18 @@
 mod common;
 
 use serde_json::{Map, Value};
+use test_db::template::with_test_db;
+use ttrss::AppState;
 use ttrss::core::config::Config;
 use ttrss::core::db::Db;
 use ttrss::core::phpser::Value as PValue;
 use ttrss::core::session::Session;
 use ttrss::session::Sess;
-use ttrss::AppState;
-use test_db::template::with_test_db;
 
 /// A test-only config (the handlers only need `db`).
-fn test_config() -> Config { common::test_config() }
+fn test_config() -> Config {
+    common::test_config()
+}
 
 /// Fresh fixtures + a session carrying `uid = 1` (the fixture owner).
 async fn setup(url: &str) -> (AppState, Sess) {
@@ -41,106 +43,114 @@ fn normalize(s: &str) -> String {
 
 #[tokio::test]
 async fn test_labels_index_structure() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup(&url).await;
-    let html = ttrss::labels::index(&state, &sess, &Map::new()).await;
-    let n = normalize(&html);
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            let html = ttrss::labels::index(&state, &sess, &Map::new()).await;
+            let n = normalize(&html);
 
-    // Layout: BorderContainer with a top toolbar pane + a center tree pane.
-    assert!(n.contains("dijit.layout.BorderContainer"));
-    assert!(n.contains("dijit.layout.ContentPane"));
+            // Layout: BorderContainer with a top toolbar pane + a center tree pane.
+            assert!(n.contains("dijit.layout.BorderContainer"));
+            assert!(n.contains("dijit.layout.ContentPane"));
 
-    // Toolbar: Select drop-down (All/None), Create label, Remove, Clear colors.
-    assert!(n.contains("fox.Toolbar"));
-    assert!(n.contains("fox.form.DropDownButton"));
-    assert!(n.contains("setAllChecked(true)"));
-    assert!(n.contains("setAllChecked(false)"));
-    assert!(n.contains("CommonDialogs.addLabel()"));
-    assert!(n.contains("Createlabel"));
-    assert!(n.contains("removeSelected()"));
-    assert!(n.contains("Remove"));
-    assert!(n.contains("resetColors()"));
-    assert!(n.contains("Clearcolors"));
+            // Toolbar: Select drop-down (All/None), Create label, Remove, Clear colors.
+            assert!(n.contains("fox.Toolbar"));
+            assert!(n.contains("fox.form.DropDownButton"));
+            assert!(n.contains("setAllChecked(true)"));
+            assert!(n.contains("setAllChecked(false)"));
+            assert!(n.contains("CommonDialogs.addLabel()"));
+            assert!(n.contains("Createlabel"));
+            assert!(n.contains("removeSelected()"));
+            assert!(n.contains("Remove"));
+            assert!(n.contains("resetColors()"));
+            assert!(n.contains("Clearcolors"));
 
-    // Tree: store fed by getlabeltree, the CheckBox model, and the tree itself.
-    assert!(n.contains("jsId='labelStore'"));
-    assert!(n.contains("backend.php?op=Pref_Labels&method=getlabeltree"));
-    assert!(n.contains("jsId='labelModel'"));
-    assert!(n.contains("lib.CheckBoxStoreModel"));
-    assert!(n.contains("id='labelTree'"));
-    assert!(n.contains("fox.PrefLabelTree"));
-    // Clicking a label row opens the edit dialog.
-    assert!(n.contains("editLabel(bare_id)"));
-        Ok(())
-    })).await.unwrap();
+            // Tree: store fed by getlabeltree, the CheckBox model, and the tree itself.
+            assert!(n.contains("jsId='labelStore'"));
+            assert!(n.contains("backend.php?op=Pref_Labels&method=getlabeltree"));
+            assert!(n.contains("jsId='labelModel'"));
+            assert!(n.contains("lib.CheckBoxStoreModel"));
+            assert!(n.contains("id='labelTree'"));
+            assert!(n.contains("fox.PrefLabelTree"));
+            // Clicking a label row opens the edit dialog.
+            assert!(n.contains("editLabel(bare_id)"));
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // ── Pref_Feeds::index ────────────────────────────────────────────────────────
 
 #[tokio::test]
 async fn test_feeds_index_structure() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup(&url).await;
-    let html = ttrss::feeds::index(&state, &sess, &Map::new()).await;
-    let n = normalize(&html);
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            let html = ttrss::feeds::index(&state, &sess, &Map::new()).await;
+            let n = normalize(&html);
 
-    // Layout: the left-positioned TabContainer with the three panes.
-    assert!(n.contains("dijit.layout.TabContainer"));
-    assert!(n.contains("title=\"<iclass='material-icons'>rss_feed</i>Myfeeds\""));
-    assert!(n.contains("title=\"<iclass='material-icons'>import_export</i>OPML\""));
-    assert!(n.contains("title=\"<iclass='material-icons'>share</i>Sharing\""));
+            // Layout: the left-positioned TabContainer with the three panes.
+            assert!(n.contains("dijit.layout.TabContainer"));
+            assert!(n.contains("title=\"<iclass='material-icons'>rss_feed</i>Myfeeds\""));
+            assert!(n.contains("title=\"<iclass='material-icons'>import_export</i>OPML\""));
+            assert!(n.contains("title=\"<iclass='material-icons'>share</i>Sharing\""));
 
-    // "My feeds" toolbar: feed-tree search, Select drop-down, the Feeds menu
-    // (ENABLE_FEED_CATS defaults to true → the Categories menu is present).
-    assert!(n.contains("id=\"feed_search\""));
-    assert!(n.contains("setAllChecked(true)"));
-    assert!(n.contains("CommonDialogs.subscribeToFeed()"));
-    assert!(n.contains("Subscribetofeed"));
-    assert!(n.contains("editSelectedFeed()"));
-    assert!(n.contains("Editselectedfeeds"));
-    assert!(n.contains("batchSubscribe()"));
-    assert!(n.contains("Batchsubscribe"));
-    assert!(n.contains("removeSelectedFeeds()"));
-    assert!(n.contains("Unsubscribe"));
-    assert!(n.contains("createCategory()"));
-    assert!(n.contains("Addcategory"));
-    assert!(n.contains("pref_feeds_errors_btn"));
-    assert!(n.contains("Feedswitherrors"));
-    assert!(n.contains("pref_feeds_inactive_btn"));
-    assert!(n.contains("Inactivefeeds"));
+            // "My feeds" toolbar: feed-tree search, Select drop-down, the Feeds menu
+            // (ENABLE_FEED_CATS defaults to true → the Categories menu is present).
+            assert!(n.contains("id=\"feed_search\""));
+            assert!(n.contains("setAllChecked(true)"));
+            assert!(n.contains("CommonDialogs.subscribeToFeed()"));
+            assert!(n.contains("Subscribetofeed"));
+            assert!(n.contains("editSelectedFeed()"));
+            assert!(n.contains("Editselectedfeeds"));
+            assert!(n.contains("batchSubscribe()"));
+            assert!(n.contains("Batchsubscribe"));
+            assert!(n.contains("removeSelectedFeeds()"));
+            assert!(n.contains("Unsubscribe"));
+            assert!(n.contains("createCategory()"));
+            assert!(n.contains("Addcategory"));
+            assert!(n.contains("pref_feeds_errors_btn"));
+            assert!(n.contains("Feedswitherrors"));
+            assert!(n.contains("pref_feeds_inactive_btn"));
+            assert!(n.contains("Inactivefeeds"));
 
-    // Feed tree: store fed by getfeedtree + the tree itself. No search term →
-    // empty value, autoExpand false.
-    assert!(n.contains("jsId=\"feedStore\""));
-    assert!(n.contains("backend.php?op=Pref_Feeds&method=getfeedtree"));
-    assert!(n.contains("id=\"feedTree\""));
-    assert!(n.contains("fox.PrefFeedTree"));
-    assert!(n.contains("value=\"\""));
-    assert!(n.contains("autoExpand=\"false\""));
+            // Feed tree: store fed by getfeedtree + the tree itself. No search term →
+            // empty value, autoExpand false.
+            assert!(n.contains("jsId=\"feedStore\""));
+            assert!(n.contains("backend.php?op=Pref_Feeds&method=getfeedtree"));
+            assert!(n.contains("id=\"feedTree\""));
+            assert!(n.contains("fox.PrefFeedTree"));
+            assert!(n.contains("value=\"\""));
+            assert!(n.contains("autoExpand=\"false\""));
 
-    // OPML pane: the import form (file input + hidden op/csrf/method + the
-    // import button), the export form with the settings checkbox, and the
-    // main-profile-only notice.
-    assert!(n.contains("id='opml_import_form'"));
-    assert!(n.contains("id='opml_file'"));
-    assert!(n.contains("name='op'"));
-    assert!(n.contains("name='csrf_token'"));
-    assert!(n.contains("value='importOpml'"));
-    assert!(n.contains("ImportOPML"));
-    assert!(n.contains("id='opmlExportForm'"));
-    assert!(n.contains("ExportOPML"));
-    assert!(n.contains("include_settings"));
-    assert!(n.contains("Includett-rsssettings"));
-    assert!(n.contains("OnlymainsettingsprofilecanbemigratedusingOPML."));
+            // OPML pane: the import form (file input + hidden op/csrf/method + the
+            // import button), the export form with the settings checkbox, and the
+            // main-profile-only notice.
+            assert!(n.contains("id='opml_import_form'"));
+            assert!(n.contains("id='opml_file'"));
+            assert!(n.contains("name='op'"));
+            assert!(n.contains("name='csrf_token'"));
+            assert!(n.contains("value='importOpml'"));
+            assert!(n.contains("ImportOPML"));
+            assert!(n.contains("id='opmlExportForm'"));
+            assert!(n.contains("ExportOPML"));
+            assert!(n.contains("include_settings"));
+            assert!(n.contains("Includett-rsssettings"));
+            assert!(n.contains("OnlymainsettingsprofilecanbemigratedusingOPML."));
 
-    // Sharing pane: the generated-URL notice, the two buttons.
-    assert!(n.contains("PublishedarticlescanbesubscribedbyanyonewhoknowsthefollowingURL:"));
-    assert!(n.contains("generatedFeed(-2,false)"));
-    assert!(n.contains("DisplayURL"));
-    assert!(n.contains("clearFeedAccessKeys()"));
-    assert!(n.contains("ClearallgeneratedURLs"));
-        Ok(())
-    })).await.unwrap();
+            // Sharing pane: the generated-URL notice, the two buttons.
+            assert!(n.contains("PublishedarticlescanbesubscribedbyanyonewhoknowsthefollowingURL:"));
+            assert!(n.contains("generatedFeed(-2,false)"));
+            assert!(n.contains("DisplayURL"));
+            assert!(n.contains("clearFeedAccessKeys()"));
+            assert!(n.contains("ClearallgeneratedURLs"));
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // ── `search` term: request param + session cache ─────────────────────────────
@@ -151,42 +161,46 @@ async fn test_feeds_index_structure() {
 // param recalls the cached term. A non-empty term also sets autoExpand=true.
 #[tokio::test]
 async fn test_feeds_index_search_term_and_cache() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup(&url).await;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
 
-    // 1. No search param → empty term, autoExpand false.
-    let html = ttrss::feeds::index(&state, &sess, &Map::new()).await;
-    let n = normalize(&html);
-    assert!(n.contains("value=\"\""));
-    assert!(n.contains("autoExpand=\"false\""));
+            // 1. No search param → empty term, autoExpand false.
+            let html = ttrss::feeds::index(&state, &sess, &Map::new()).await;
+            let n = normalize(&html);
+            assert!(n.contains("value=\"\""));
+            assert!(n.contains("autoExpand=\"false\""));
 
-    // 2. `search=a&b` → the term is cleaned (survives strip_tags), echoed
-    //    HTML-escaped, and autoExpand flips to true.
-    let mut extra = Map::new();
-    extra.insert("search".into(), Value::String("a&b".into()));
-    let html = ttrss::feeds::index(&state, &sess, &extra).await;
-    let n = normalize(&html);
-    assert!(
-        n.contains("value=\"a&amp;b\""),
-        "search term must be htmlspecialchars'd: {html}"
-    );
-    assert!(n.contains("autoExpand=\"true\""));
+            // 2. `search=a&b` → the term is cleaned (survives strip_tags), echoed
+            //    HTML-escaped, and autoExpand flips to true.
+            let mut extra = Map::new();
+            extra.insert("search".into(), Value::String("a&b".into()));
+            let html = ttrss::feeds::index(&state, &sess, &extra).await;
+            let n = normalize(&html);
+            assert!(
+                n.contains("value=\"a&amp;b\""),
+                "search term must be htmlspecialchars'd: {html}"
+            );
+            assert!(n.contains("autoExpand=\"true\""));
 
-    // 3. No param again → the session-cached term is recalled.
-    let html = ttrss::feeds::index(&state, &sess, &Map::new()).await;
-    let n = normalize(&html);
-    assert!(
-        n.contains("value=\"a&amp;b\""),
-        "cached search term must be recalled: {html}"
-    );
-    assert!(n.contains("autoExpand=\"true\""));
+            // 3. No param again → the session-cached term is recalled.
+            let html = ttrss::feeds::index(&state, &sess, &Map::new()).await;
+            let n = normalize(&html);
+            assert!(
+                n.contains("value=\"a&amp;b\""),
+                "cached search term must be recalled: {html}"
+            );
+            assert!(n.contains("autoExpand=\"true\""));
 
-    // 4. An empty-string param clears the cached term.
-    extra.insert("search".into(), Value::String("".into()));
-    let html = ttrss::feeds::index(&state, &sess, &extra).await;
-    let n = normalize(&html);
-    assert!(n.contains("value=\"\""));
-    assert!(n.contains("autoExpand=\"false\""));
-        Ok(())
-    })).await.unwrap();
+            // 4. An empty-string param clears the cached term.
+            extra.insert("search".into(), Value::String("".into()));
+            let html = ttrss::feeds::index(&state, &sess, &extra).await;
+            let n = normalize(&html);
+            assert!(n.contains("value=\"\""));
+            assert!(n.contains("autoExpand=\"false\""));
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }

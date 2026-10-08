@@ -14,7 +14,7 @@
 
 use html5ever::{LocalName, Namespace, QualName};
 use kuchikiki::traits::TendrilSink;
-use kuchikiki::{parse_html, ElementData, NodeData, NodeRef};
+use kuchikiki::{ElementData, NodeData, NodeRef, parse_html};
 use regex::Regex;
 use std::collections::BTreeSet;
 
@@ -169,14 +169,16 @@ fn allowed_elements(has_sandbox: bool) -> BTreeSet<String> {
 pub(crate) fn find_body(doc: &NodeRef) -> Option<NodeRef> {
     for html in doc.children() {
         if let Some(el) = html.as_element()
-            && el_name(el) == "html" {
-                for c in html.children() {
-                    if let Some(b) = c.as_element()
-                        && el_name(b) == "body" {
-                            return Some(c);
-                        }
+            && el_name(el) == "html"
+        {
+            for c in html.children() {
+                if let Some(b) = c.as_element()
+                    && el_name(b) == "body"
+                {
+                    return Some(c);
                 }
             }
+        }
     }
     None
 }
@@ -388,9 +390,10 @@ pub(crate) fn sanitize_core(
 
     // 5. Highlight words (if the feed has any).
     if let Some(words) = highlight_words_opt
-        && !words.is_empty() {
-            highlight_words(&body, words);
-        }
+        && !words.is_empty()
+    {
+        highlight_words(&body, words);
+    }
 
     // Serialize the body's children (the fragment), iteratively.
     let mut out = String::new();
@@ -465,7 +468,9 @@ fn rewrite_single_element(
         // rewrite coerces `false` to the empty string (href="").
         match rewrite_relative(base, &href, &name, "href", "") {
             Some(u) => {
-                el.attributes.borrow_mut().insert("href", libxml_space_encode(&u));
+                el.attributes
+                    .borrow_mut()
+                    .insert("href", libxml_space_encode(&u));
             }
             None => {
                 el.attributes.borrow_mut().insert("href", String::new());
@@ -485,10 +490,14 @@ fn rewrite_single_element(
     if let Some(src) = src {
         match rewrite_relative(base, &src, &name, "src", "") {
             Some(u) if u.to_lowercase().starts_with("data:") => {
-                el.attributes.borrow_mut().insert("src", libxml_space_encode(&u));
+                el.attributes
+                    .borrow_mut()
+                    .insert("src", libxml_space_encode(&u));
             }
             Some(u) if !has_disallowed_ip(&u) => {
-                el.attributes.borrow_mut().insert("src", libxml_space_encode(&u));
+                el.attributes
+                    .borrow_mut()
+                    .insert("src", libxml_space_encode(&u));
             }
             _ => {
                 should_replace_element = true;
@@ -501,9 +510,10 @@ fn rewrite_single_element(
         let mut validated: Vec<(String, String)> = Vec::new();
         for (url, size) in decode_srcset(&srcset) {
             if let Some(u) = rewrite_relative(base, &url, &name, "srcset", "")
-                && !has_disallowed_ip(&u) {
-                    validated.push((u, size));
-                }
+                && !has_disallowed_ip(&u)
+            {
+                validated.push((u, size));
+            }
         }
         if !validated.is_empty() {
             el.attributes
@@ -590,24 +600,28 @@ fn process_iframes(root: &NodeRef, admitted: Option<&BTreeSet<String>>) {
     let mut stack = vec![root.clone()];
     while let Some(node) = stack.pop() {
         if let Some(el) = node.as_element()
-            && el_name(el) == "iframe" {
-                // M7.11 — an iframe whose src host a plugin admitted via
-                // `HOOK_IFRAME_WHITELISTED` (in `admitted`) keeps the loose
-                // PHP sandbox value (the M5a.3 residual); the rest get the
-                // restrictive one (Sanitizer.php). The `allow` attribute the
-                // reference also sets is stripped later (a disallowed attr).
-                let src = el.attributes
-                    .borrow()
-                    .get("src")
-                    .map(|v| v.to_string())
-                    .unwrap_or_default();
-                let sandbox = if admitted.is_some_and(|s| s.contains(&url_host(&src))) {
-                    "allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"
-                } else {
-                    "allow-scripts"
-                };
-                el.attributes.borrow_mut().insert("sandbox", sandbox.to_string());
-            }
+            && el_name(el) == "iframe"
+        {
+            // M7.11 — an iframe whose src host a plugin admitted via
+            // `HOOK_IFRAME_WHITELISTED` (in `admitted`) keeps the loose
+            // PHP sandbox value (the M5a.3 residual); the rest get the
+            // restrictive one (Sanitizer.php). The `allow` attribute the
+            // reference also sets is stripped later (a disallowed attr).
+            let src = el
+                .attributes
+                .borrow()
+                .get("src")
+                .map(|v| v.to_string())
+                .unwrap_or_default();
+            let sandbox = if admitted.is_some_and(|s| s.contains(&url_host(&src))) {
+                "allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+            } else {
+                "allow-scripts"
+            };
+            el.attributes
+                .borrow_mut()
+                .insert("sandbox", sandbox.to_string());
+        }
         for c in node.children() {
             stack.push(c);
         }
@@ -651,9 +665,10 @@ fn collect_iframe_srcs(input: &str) -> Vec<String> {
     while let Some(node) = stack.pop() {
         if let Some(el) = node.as_element()
             && el_name(el) == "iframe"
-                && let Some(src) = el.attributes.borrow().get("src") {
-                    out.push(src.to_string());
-                }
+            && let Some(src) = el.attributes.borrow().get("src")
+        {
+            out.push(src.to_string());
+        }
         for c in node.children() {
             stack.push(c);
         }
@@ -706,14 +721,13 @@ pub async fn sanitize(
     // host set) before the core runs. The srcs are plain `String`s, so no
     // (non-`Send`) parse tree is held across the await that fires the hook.
     let mut admitted: BTreeSet<String> = BTreeSet::new();
-    if has_sandbox
-        && let Some(plugins) = plugins.as_mut() {
-            for src in collect_iframe_srcs(input) {
-                if iframe_whitelisted(plugins, &src).await {
-                    admitted.insert(url_host(&src));
-                }
+    if has_sandbox && let Some(plugins) = plugins.as_mut() {
+        for src in collect_iframe_srcs(input) {
+            if iframe_whitelisted(plugins, &src).await {
+                admitted.insert(url_host(&src));
             }
         }
+    }
     let mut out = sanitize_core(
         input,
         force_remove_images,
@@ -729,18 +743,16 @@ pub async fn sanitize(
         if !order.is_empty() {
             let site = site_url.unwrap_or("").to_string();
             let allowed: Vec<String> = ALLOWED_ELEMENTS.iter().map(|s| s.to_string()).collect();
-            let disallowed: Vec<String> = DISALLOWED_ATTRIBUTES.iter().map(|s| s.to_string()).collect();
+            let disallowed: Vec<String> = DISALLOWED_ATTRIBUTES
+                .iter()
+                .map(|s| s.to_string())
+                .collect();
             let host = plugins.host_arc();
             for idx in order {
                 let mut d = std::mem::take(&mut out);
-                host.plugin(idx).hook_sanitize(
-                    plugins,
-                    &mut d,
-                    &site,
-                    &allowed,
-                    &disallowed,
-                    article_id,
-                ).await;
+                host.plugin(idx)
+                    .hook_sanitize(plugins, &mut d, &site, &allowed, &disallowed, article_id)
+                    .await;
                 out = d;
             }
         }
@@ -1042,9 +1054,11 @@ fn parse_url(url: &str) -> Option<UrlParts> {
             }
         };
         if let Some(port) = &port
-            && !port.is_empty() && !port.bytes().all(|b| b.is_ascii_digit()) {
-                return None; // PHP: parse_url("http://x:abc/") === false
-            }
+            && !port.is_empty()
+            && !port.bytes().all(|b| b.is_ascii_digit())
+        {
+            return None; // PHP: parse_url("http://x:abc/") === false
+        }
         parts.host = Some(host);
         parts.port = port.filter(|p| !p.is_empty());
         parts.path = path;

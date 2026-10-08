@@ -67,7 +67,8 @@ jobs:
       # Toolchain gaps the stock image leaves for us:
       # - JS actions (like checkout) need node in the job container: GitHub
       #   injects it, the act-based self-hosted runner does not.
-      # - the rust:1.98 image lacks clippy (shadow/Dockerfile never needed it).
+      # - the rust:1.98 image lacks clippy + rustfmt (shadow/Dockerfile never
+      #   needed them; the fmt gate needs the latter).
       # - zstd: actions/cache falls back to single-threaded gzip (tar -z)
       #   without it; with it, cache save/restore is multi-threaded.
       # Each install is a no-op when the piece already exists, so the file
@@ -76,7 +77,7 @@ jobs:
         run: |
           command -v node >/dev/null 2>&1 || (apt-get update && apt-get install -y --no-install-recommends nodejs)
           command -v zstd >/dev/null 2>&1 || (apt-get update && apt-get install -y --no-install-recommends zstd)
-          rustup component add clippy
+          rustup component add clippy rustfmt
       - uses: actions/checkout@v4
         with:
           # The build reads plugin assets from the tt-rss reference submodule
@@ -95,6 +96,8 @@ jobs:
             /cargo-target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
       - run: cargo build --release -p ttrss --bin ttrss
+      # Pure rustfmt defaults (no config file) — the tree is kept fmt-clean.
+      - run: cargo fmt --all -- --check
       # Full suite: lib tests + the DB-backed integration binaries
       # (postgres service above).
       - run: cargo test

@@ -12,13 +12,13 @@
 
 mod common;
 
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
+use test_db::template::with_test_db;
+use ttrss::AppState;
 use ttrss::api;
 use ttrss::core::phpser::Value as PValue;
 use ttrss::core::session::Session;
 use ttrss::session::Sess;
-use ttrss::AppState;
-use test_db::template::with_test_db;
 
 /// Fixtures + a session carrying `uid = 1` (owner of all fixture rows) + the
 /// per-user API gate enabled (the `before_and_dispatch` auth check).
@@ -76,10 +76,7 @@ fn real_cats(content: &Value) -> std::collections::BTreeMap<i64, i64> {
     for e in content.as_array().expect("array response") {
         let id = e.get("id").and_then(Value::as_i64).expect("id");
         if id >= 1 {
-            m.insert(
-                id,
-                e.get("unread").and_then(Value::as_i64).expect("unread"),
-            );
+            m.insert(id, e.get("unread").and_then(Value::as_i64).expect("unread"));
         }
     }
     m
@@ -87,76 +84,98 @@ fn real_cats(content: &Value) -> std::collections::BTreeMap<i64, i64> {
 
 #[tokio::test]
 async fn test_flat_lists_nested_cat_and_omits_descendant_unread() {
-    with_test_db(|url| Box::pin(async move {
-        let (state, sess) = setup(&url).await;
-        add_nested_cat(state.db.pool()).await;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            add_nested_cat(state.db.pool()).await;
 
-        // No `enable_nested`: every category (roots and nested) is its own entry,
-        // and each counter covers only its direct feeds.
-        let (status, content) =
-            api::before_and_dispatch(&state, &sess, "getcategories", &request(&[]), None).await;
-        assert_eq!(status, 0);
-        let cats = real_cats(&content);
-        assert_eq!(cats.get(&1), Some(&6), "cat 1 direct unread; got {cats:?}");
-        assert_eq!(cats.get(&2), Some(&2), "cat 2 direct unread; got {cats:?}");
-        assert_eq!(cats.get(&3), Some(&1), "nested cat 3 listed; got {cats:?}");
-        Ok(())
-    })).await.unwrap();
+            // No `enable_nested`: every category (roots and nested) is its own entry,
+            // and each counter covers only its direct feeds.
+            let (status, content) =
+                api::before_and_dispatch(&state, &sess, "getcategories", &request(&[]), None).await;
+            assert_eq!(status, 0);
+            let cats = real_cats(&content);
+            assert_eq!(cats.get(&1), Some(&6), "cat 1 direct unread; got {cats:?}");
+            assert_eq!(cats.get(&2), Some(&2), "cat 2 direct unread; got {cats:?}");
+            assert_eq!(cats.get(&3), Some(&1), "nested cat 3 listed; got {cats:?}");
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
 async fn test_enable_nested_lists_roots_only_and_folds_descendants() {
-    with_test_db(|url| Box::pin(async move {
-        let (state, sess) = setup(&url).await;
-        add_nested_cat(state.db.pool()).await;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            add_nested_cat(state.db.pool()).await;
 
-        // `enable_nested` (the client's param): roots only, descendants' unread
-        // folded in (cat 1 = 6 direct + 1 in nested cat 3).
-        let (status, content) = api::before_and_dispatch(
-            &state,
-            &sess,
-            "getcategories",
-            &request(&[("enable_nested", json!("true"))]),
-            None,
-        )
-        .await;
-        assert_eq!(status, 0);
-        let cats = real_cats(&content);
-        assert_eq!(cats.get(&1), Some(&7), "cat 1 incl. descendants; got {cats:?}");
-        assert_eq!(cats.get(&2), Some(&2), "cat 2 unchanged; got {cats:?}");
-        assert!(!cats.contains_key(&3), "nested cat 3 must be absent; got {cats:?}");
-        Ok(())
-    })).await.unwrap();
+            // `enable_nested` (the client's param): roots only, descendants' unread
+            // folded in (cat 1 = 6 direct + 1 in nested cat 3).
+            let (status, content) = api::before_and_dispatch(
+                &state,
+                &sess,
+                "getcategories",
+                &request(&[("enable_nested", json!("true"))]),
+                None,
+            )
+            .await;
+            assert_eq!(status, 0);
+            let cats = real_cats(&content);
+            assert_eq!(
+                cats.get(&1),
+                Some(&7),
+                "cat 1 incl. descendants; got {cats:?}"
+            );
+            assert_eq!(cats.get(&2), Some(&2), "cat 2 unchanged; got {cats:?}");
+            assert!(
+                !cats.contains_key(&3),
+                "nested cat 3 must be absent; got {cats:?}"
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
 async fn test_enable_nested_unread_only_drops_zero_unread_roots() {
-    with_test_db(|url| Box::pin(async move {
-        let (state, sess) = setup(&url).await;
-        add_nested_cat(state.db.pool()).await;
-        // Read all of cat 2's feed so the root has zero unread.
-        sqlx::query("UPDATE ttrss_user_entries SET unread = false WHERE feed_id = 4")
-            .execute(state.db.pool())
-            .await
-            .expect("mark read");
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            add_nested_cat(state.db.pool()).await;
+            // Read all of cat 2's feed so the root has zero unread.
+            sqlx::query("UPDATE ttrss_user_entries SET unread = false WHERE feed_id = 4")
+                .execute(state.db.pool())
+                .await
+                .expect("mark read");
 
-        let (status, content) = api::before_and_dispatch(
-            &state,
-            &sess,
-            "getcategories",
-            &request(&[
-                ("enable_nested", json!("true")),
-                ("unread_only", json!("true")),
-            ]),
-            None,
-        )
-        .await;
-        assert_eq!(status, 0);
-        let cats = real_cats(&content);
-        assert_eq!(cats.get(&1), Some(&7), "cat 1 kept; got {cats:?}");
-        assert!(!cats.contains_key(&2), "cat 2 (zero unread) dropped; got {cats:?}");
-        Ok(())
-    })).await.unwrap();
+            let (status, content) = api::before_and_dispatch(
+                &state,
+                &sess,
+                "getcategories",
+                &request(&[
+                    ("enable_nested", json!("true")),
+                    ("unread_only", json!("true")),
+                ]),
+                None,
+            )
+            .await;
+            assert_eq!(status, 0);
+            let cats = real_cats(&content);
+            assert_eq!(cats.get(&1), Some(&7), "cat 1 kept; got {cats:?}");
+            assert!(
+                !cats.contains_key(&2),
+                "cat 2 (zero unread) dropped; got {cats:?}"
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 /// Without `include_empty`, the special cats are gated by `_is_cat_empty`,
@@ -166,31 +185,38 @@ async fn test_enable_nested_unread_only_drops_zero_unread_roots() {
 /// uncategorized feeds, so UNCATEGORIZED (id 0) is absent.
 #[tokio::test]
 async fn test_special_cats_without_include_empty() {
-    with_test_db(|url| Box::pin(async move {
-        let (state, sess) = setup(&url).await;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
 
-        let (status, content) =
-            api::before_and_dispatch(&state, &sess, "getcategories", &request(&[]), None).await;
-        assert_eq!(status, 0);
+            let (status, content) =
+                api::before_and_dispatch(&state, &sess, "getcategories", &request(&[]), None).await;
+            assert_eq!(status, 0);
 
-        let ids: Vec<i64> = content
-            .as_array()
-            .expect("array response")
-            .iter()
-            .map(|e| e.get("id").and_then(Value::as_i64).expect("id"))
-            .collect();
-        assert!(ids.contains(&-2), "LABELS present (labels exist): {ids:?}");
-        assert!(ids.contains(&-1), "SPECIAL never empty: {ids:?}");
-        assert!(!ids.contains(&0), "UNCATEGORIZED absent (no feeds): {ids:?}");
+            let ids: Vec<i64> = content
+                .as_array()
+                .expect("array response")
+                .iter()
+                .map(|e| e.get("id").and_then(Value::as_i64).expect("id"))
+                .collect();
+            assert!(ids.contains(&-2), "LABELS present (labels exist): {ids:?}");
+            assert!(ids.contains(&-1), "SPECIAL never empty: {ids:?}");
+            assert!(
+                !ids.contains(&0),
+                "UNCATEGORIZED absent (no feeds): {ids:?}"
+            );
 
-        // SPECIAL's unread is always 0 (PHP `_get_cat_unread` short-circuits it).
-        let special = content
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|e| e.get("id").and_then(Value::as_i64) == Some(-1))
-            .expect("SPECIAL entry");
-        assert_eq!(special.get("unread").and_then(Value::as_i64), Some(0));
-        Ok(())
-    })).await.unwrap();
+            // SPECIAL's unread is always 0 (PHP `_get_cat_unread` short-circuits it).
+            let special = content
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e.get("id").and_then(Value::as_i64) == Some(-1))
+                .expect("SPECIAL entry");
+            assert_eq!(special.get("unread").and_then(Value::as_i64), Some(0));
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }

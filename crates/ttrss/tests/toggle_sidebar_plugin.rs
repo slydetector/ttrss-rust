@@ -5,11 +5,12 @@
 mod common;
 
 use axum::body::Body;
-use std::sync::Arc;
 use axum::http::{Method, Request, StatusCode};
+use std::sync::Arc;
 use test_db::template::with_test_db;
 use tower::ServiceExt;
 
+use ttrss::AppState;
 use ttrss::core::config::Config;
 use ttrss::core::db::Db;
 use ttrss::core::phpser::Value as PValue;
@@ -17,7 +18,6 @@ use ttrss::core::session::Session;
 use ttrss::pluginhost::host::HostCtx;
 use ttrss::pluginhost::plugin::Plugin;
 use ttrss::plugins::toggle_sidebar::ToggleSidebar;
-use ttrss::AppState;
 
 fn test_config(plugins: &str) -> Config {
     let mut cfg = Config::for_test();
@@ -46,36 +46,44 @@ fn ctx(state: &AppState) -> HostCtx {
 // `hook_main_toolbar_button` renders the toggle button.
 #[tokio::test]
 async fn test_toolbar_button() {
-    with_test_db(|url| Box::pin(async move {
-    let state = setup(&url, "toggle_sidebar").await;
-    let mut host = ctx(&state);
-    let plugin = ToggleSidebar;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let state = setup(&url, "toggle_sidebar").await;
+            let mut host = ctx(&state);
+            let plugin = ToggleSidebar;
 
-    plugin.hook_main_toolbar_button(&mut host).await;
+            plugin.hook_main_toolbar_button(&mut host).await;
 
-    let output = &host.output;
-    assert!(output.contains("dijit.form.Button"));
-    assert!(output.contains("Plugins.Toggle_Sidebar.toggle"));
-    assert!(output.contains("chevron_left"));
-    assert!(output.contains("toggle-sidebar-label"));
-        Ok(())
-    })).await.unwrap();
+            let output = &host.output;
+            assert!(output.contains("dijit.form.Button"));
+            assert!(output.contains("Plugins.Toggle_Sidebar.toggle"));
+            assert!(output.contains("chevron_left"));
+            assert!(output.contains("toggle-sidebar-label"));
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // `get_js` returns the toggle JS.
 #[tokio::test]
 async fn test_get_js() {
-    with_test_db(|url| Box::pin(async move {
-    setup(&url, "toggle_sidebar").await;
-    let plugin = ToggleSidebar;
+    with_test_db(|url| {
+        Box::pin(async move {
+            setup(&url, "toggle_sidebar").await;
+            let plugin = ToggleSidebar;
 
-    let js = plugin.get_js();
-    assert!(js.contains("Plugins.Toggle_Sidebar"));
-    assert!(js.contains("Feeds.toggle"));
-    assert!(js.contains("chevron_left"));
-    assert!(js.contains("chevron_right"));
-        Ok(())
-    })).await.unwrap();
+            let js = plugin.get_js();
+            assert!(js.contains("Plugins.Toggle_Sidebar"));
+            assert!(js.contains("Feeds.toggle"));
+            assert!(js.contains("chevron_left"));
+            assert!(js.contains("chevron_right"));
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // ── M7.22 — the shell handler wiring (router-level, real session) ──────────
@@ -110,35 +118,50 @@ async fn shell_page(state: &AppState) -> String {
 /// order-0 and order-5 toolbar markers.
 #[tokio::test]
 async fn test_shell_carries_toolbar_button_when_plugin_active() {
-    with_test_db(|url| Box::pin(async move {
-    let state = setup(&url, "toggle_sidebar").await;
-    let html = shell_page(&state).await;
-    let marker_before = "<!-- order 0, default -->";
-    let marker_after = "<!-- order 5: alert icons -->";
-    let b = html.find(marker_before).expect("order-0 marker present (shell, not login page)");
-    let a = html.find(marker_after).expect("order-5 marker present");
-    let row = &html[b + marker_before.len()..a];
-    assert!(row.contains("dijit.form.Button"), "button row expected between the markers: {row}");
-    assert!(row.contains("Plugins.Toggle_Sidebar.toggle"));
-    assert!(row.contains("toggle-sidebar-label"));
-        Ok(())
-    })).await.unwrap();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let state = setup(&url, "toggle_sidebar").await;
+            let html = shell_page(&state).await;
+            let marker_before = "<!-- order 0, default -->";
+            let marker_after = "<!-- order 5: alert icons -->";
+            let b = html
+                .find(marker_before)
+                .expect("order-0 marker present (shell, not login page)");
+            let a = html.find(marker_after).expect("order-5 marker present");
+            let row = &html[b + marker_before.len()..a];
+            assert!(
+                row.contains("dijit.form.Button"),
+                "button row expected between the markers: {row}"
+            );
+            assert!(row.contains("Plugins.Toggle_Sidebar.toggle"));
+            assert!(row.contains("toggle-sidebar-label"));
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 /// No active plugin → the slot is empty (nothing but whitespace between the
 /// markers) — the PHP fallback for the stock set minus `toggle_sidebar`.
 #[tokio::test]
 async fn test_shell_toolbar_slot_empty_when_plugin_inactive() {
-    with_test_db(|url| Box::pin(async move {
-    let state = setup(&url, "").await;
-    let html = shell_page(&state).await;
-    let marker_before = "<!-- order 0, default -->";
-    let marker_after = "<!-- order 5: alert icons -->";
-    let b = html.find(marker_before).expect("order-0 marker present (shell, not login page)");
-    let a = html.find(marker_after).expect("order-5 marker present");
-    let row = &html[b + marker_before.len()..a];
-    assert!(row.trim().is_empty(), "no toolbar button expected: {row}");
-    assert!(!html.contains("toggle-sidebar-label"));
-        Ok(())
-    })).await.unwrap();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let state = setup(&url, "").await;
+            let html = shell_page(&state).await;
+            let marker_before = "<!-- order 0, default -->";
+            let marker_after = "<!-- order 5: alert icons -->";
+            let b = html
+                .find(marker_before)
+                .expect("order-0 marker present (shell, not login page)");
+            let a = html.find(marker_after).expect("order-5 marker present");
+            let row = &html[b + marker_before.len()..a];
+            assert!(row.trim().is_empty(), "no toolbar button expected: {row}");
+            assert!(!html.contains("toggle-sidebar-label"));
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }

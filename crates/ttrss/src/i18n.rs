@@ -41,9 +41,10 @@ impl I18nCache {
                 // A locale dir must contain LC_MESSAGES/messages.mo
                 if path.is_dir()
                     && path.join("LC_MESSAGES").join("messages.mo").is_file()
-                    && let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                        available_locales.push(name.to_string());
-                    }
+                    && let Some(name) = path.file_name().and_then(|n| n.to_str())
+                {
+                    available_locales.push(name.to_string());
+                }
             }
         }
         available_locales.sort();
@@ -95,7 +96,8 @@ impl I18nCache {
     /// For plural entries (msgid contains `\0`): both singular and plural forms
     /// are included as separate keys.
     pub fn translations_map(&self, locale: &str) -> Option<Vec<(String, String)>> {
-        self.load_raw_entries(locale).map(|entries| build_translations(&entries))
+        self.load_raw_entries(locale)
+            .map(|entries| build_translations(&entries))
     }
 
     /// Load (and cache) the raw `(msgid, msgstr)` pairs from a locale's `.mo`
@@ -237,10 +239,12 @@ pub fn resolve_locale(
 ) -> Option<String> {
     // 1. User preference wins (unless "auto").
     if let Some(pref) = user_pref
-        && !pref.is_empty() && pref != "auto"
-            && available.iter().any(|a| a == pref) {
-                return Some(pref.to_string());
-            }
+        && !pref.is_empty()
+        && pref != "auto"
+        && available.iter().any(|a| a == pref)
+    {
+        return Some(pref.to_string());
+    }
 
     // 2. Accept-Language header.
     let header = accept_language?;
@@ -290,7 +294,12 @@ pub fn translate(locale: Option<&str>, cache: &I18nCache, msg: &str) -> String {
 /// Translate and format: `vsprintf(translate(fmt), args)`. Matches PHP's
 /// `T_sprintf()`. Internal primitive (the bare [`t_sprintf`] reads the locale
 /// from the task-local).
-pub fn translate_sprintf(locale: Option<&str>, cache: &I18nCache, fmt: &str, args: &[&str]) -> String {
+pub fn translate_sprintf(
+    locale: Option<&str>,
+    cache: &I18nCache,
+    fmt: &str,
+    args: &[&str],
+) -> String {
     let translated = translate(locale, cache, fmt);
     // Replace the first %s or %d in order of appearance with each arg.
     let mut result = translated;
@@ -317,10 +326,18 @@ pub fn ngettext(
     n: i64,
 ) -> String {
     let Some(locale) = locale else {
-        return if n == 1 { singular.to_string() } else { plural.to_string() };
+        return if n == 1 {
+            singular.to_string()
+        } else {
+            plural.to_string()
+        };
     };
     let Some(catalog) = cache.catalog(locale) else {
-        return if n == 1 { singular.to_string() } else { plural.to_string() };
+        return if n == 1 {
+            singular.to_string()
+        } else {
+            plural.to_string()
+        };
     };
     // For catalogs with 3+ plural forms (the Slavic be/cs/pl/ru/uk), the
     // `gettext` crate's formula evaluator is broken — it splits on `&&`/`||`
@@ -373,37 +390,27 @@ tokio::task_local! {
 /// the original (English) string when not scoped. The only plain-translate
 /// call sites should use — the minijinja `__` is this same function.
 pub fn __(msg: &str) -> String {
-    I18N
-        .try_with(|ctx| translate(ctx.locale.as_deref(), &ctx.cache, msg))
+    I18N.try_with(|ctx| translate(ctx.locale.as_deref(), &ctx.cache, msg))
         .unwrap_or_else(|_| msg.to_string())
 }
 
 /// Translate + format (`T_sprintf`), using the request's locale. English
 /// fallback: format without translating.
 pub fn t_sprintf(fmt: &str, args: &[&str]) -> String {
-    I18N
-        .try_with(|ctx| translate_sprintf(ctx.locale.as_deref(), &ctx.cache, fmt, args))
+    I18N.try_with(|ctx| translate_sprintf(ctx.locale.as_deref(), &ctx.cache, fmt, args))
         .unwrap_or_else(|_| crate::util::vsprintf(fmt, args))
 }
 
 /// Plural-aware translate + format (`T_nsprintf`), using the request's
 /// locale. English fallback: pick the form by `n`, then format.
 pub fn t_nsprintf(singular: &str, plural: &str, n: i64, args: &[&str]) -> String {
-    I18N
-        .try_with(|ctx| {
-            translate_nsprintf(
-                ctx.locale.as_deref(),
-                &ctx.cache,
-                singular,
-                plural,
-                n,
-                args,
-            )
-        })
-        .unwrap_or_else(|_| {
-            let form = if n == 1 { singular } else { plural };
-            crate::util::vsprintf(form, args)
-        })
+    I18N.try_with(|ctx| {
+        translate_nsprintf(ctx.locale.as_deref(), &ctx.cache, singular, plural, n, args)
+    })
+    .unwrap_or_else(|_| {
+        let form = if n == 1 { singular } else { plural };
+        crate::util::vsprintf(form, args)
+    })
 }
 
 /// Resolve the locale for a request: reads the `USER_LANGUAGE` pref (if set
@@ -417,7 +424,11 @@ pub fn resolve_request_locale(
     accept_language: Option<&str>,
     user_language_pref: Option<&str>,
 ) -> Option<String> {
-    resolve_locale(accept_language, user_language_pref, cache.available_locales())
+    resolve_locale(
+        accept_language,
+        user_language_pref,
+        cache.available_locales(),
+    )
 }
 
 /// Resolve the user's UI locale for a server-rendered surface (M10.3), the
@@ -431,8 +442,7 @@ pub async fn resolve_user_locale(
     profile: Option<i32>,
     accept_language: Option<&str>,
 ) -> Option<String> {
-    let rows =
-        crate::prefs::load_rows_cached(&state.prefs_cache, &state.db, uid, profile).await;
+    let rows = crate::prefs::load_rows_cached(&state.prefs_cache, &state.db, uid, profile).await;
     let user_lang_pref = crate::prefs::resolve("USER_LANGUAGE", &rows, profile);
     let user_lang = user_lang_pref.as_str();
     resolve_request_locale(&state.i18n, accept_language, Some(user_lang))
@@ -446,14 +456,19 @@ mod tests {
         I18nCache::new(PathBuf::from("../../tt-rss/locale"))
     }
 
-
     #[test]
     fn test_available_locales() {
         let cache = test_cache();
         let locales = cache.available_locales();
         assert!(!locales.is_empty(), "should find locales");
-        assert!(locales.contains(&"de_DE".to_string()), "de_DE should be available");
-        assert!(locales.contains(&"fr_FR".to_string()), "fr_FR should be available");
+        assert!(
+            locales.contains(&"de_DE".to_string()),
+            "de_DE should be available"
+        );
+        assert!(
+            locales.contains(&"fr_FR".to_string()),
+            "fr_FR should be available"
+        );
     }
 
     #[test]
@@ -461,7 +476,10 @@ mod tests {
         let cache = test_cache();
         let cat = cache.catalog("de_DE").expect("de_DE catalog");
         let translated = cat.gettext("Loading, please wait...");
-        assert_ne!(translated, "Loading, please wait...", "should be translated");
+        assert_ne!(
+            translated, "Loading, please wait...",
+            "should be translated"
+        );
     }
 
     #[test]
@@ -474,7 +492,11 @@ mod tests {
     fn test_translations_map_de_de() {
         let cache = test_cache();
         let map = cache.translations_map("de_DE").expect("de_DE translations");
-        assert!(map.len() > 100, "should have many entries, got {}", map.len());
+        assert!(
+            map.len() > 100,
+            "should have many entries, got {}",
+            map.len()
+        );
         // Spot-check a known translation.
         let entry = map
             .iter()
@@ -572,7 +594,8 @@ mod tests {
     #[test]
     fn test_t_sprintf() {
         let cache = test_cache();
-        let result = translate_sprintf(None, &cache, "Hello %s, you have %d items", &["world", "5"]);
+        let result =
+            translate_sprintf(None, &cache, "Hello %s, you have %d items", &["world", "5"]);
         assert_eq!(result, "Hello world, you have 5 items");
     }
 
@@ -607,8 +630,14 @@ mod tests {
     #[test]
     fn test_ngettext_no_locale() {
         let cache = test_cache();
-        assert_eq!(ngettext(None, &cache, "%d article", "%d articles", 1), "%d article");
-        assert_eq!(ngettext(None, &cache, "%d article", "%d articles", 5), "%d articles");
+        assert_eq!(
+            ngettext(None, &cache, "%d article", "%d articles", 1),
+            "%d article"
+        );
+        assert_eq!(
+            ngettext(None, &cache, "%d article", "%d articles", 5),
+            "%d articles"
+        );
     }
 
     #[test]
@@ -688,12 +717,33 @@ mod tests {
         // (other). The `gettext` crate alone returns form 0 (singular) for every
         // n>1 (its formula-precedence bug); the CLDR path picks the right form.
         // This test fails on the crate-only path (n=2, 22, 25 would be `день`).
-        assert_eq!(ngettext(Some("ru_RU"), &cache, "%d day", "%d days", 1), "%d день");
-        assert_eq!(ngettext(Some("ru_RU"), &cache, "%d day", "%d days", 2), "%d дня");
-        assert_eq!(ngettext(Some("ru_RU"), &cache, "%d day", "%d days", 5), "%d дней");
-        assert_eq!(ngettext(Some("ru_RU"), &cache, "%d day", "%d days", 11), "%d дней");
-        assert_eq!(ngettext(Some("ru_RU"), &cache, "%d day", "%d days", 21), "%d день");
-        assert_eq!(ngettext(Some("ru_RU"), &cache, "%d day", "%d days", 22), "%d дня");
-        assert_eq!(ngettext(Some("ru_RU"), &cache, "%d day", "%d days", 25), "%d дней");
+        assert_eq!(
+            ngettext(Some("ru_RU"), &cache, "%d day", "%d days", 1),
+            "%d день"
+        );
+        assert_eq!(
+            ngettext(Some("ru_RU"), &cache, "%d day", "%d days", 2),
+            "%d дня"
+        );
+        assert_eq!(
+            ngettext(Some("ru_RU"), &cache, "%d day", "%d days", 5),
+            "%d дней"
+        );
+        assert_eq!(
+            ngettext(Some("ru_RU"), &cache, "%d day", "%d days", 11),
+            "%d дней"
+        );
+        assert_eq!(
+            ngettext(Some("ru_RU"), &cache, "%d day", "%d days", 21),
+            "%d день"
+        );
+        assert_eq!(
+            ngettext(Some("ru_RU"), &cache, "%d day", "%d days", 22),
+            "%d дня"
+        );
+        assert_eq!(
+            ngettext(Some("ru_RU"), &cache, "%d day", "%d days", 25),
+            "%d дней"
+        );
     }
 }

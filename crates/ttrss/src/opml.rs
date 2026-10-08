@@ -14,19 +14,20 @@
 use std::collections::HashMap;
 
 use crate::core::config::SCHEMA_VERSION;
-use crate::core::db::Db;use crate::i18n::{__, t_sprintf};
+use crate::core::db::Db;
 use crate::feeds::{category_title, feed_title};
+use crate::i18n::{__, t_sprintf};
 
 use axum::http::StatusCode;
-use quick_xml::events::Event;
 use quick_xml::Reader;
 use quick_xml::XmlVersion;
+use quick_xml::events::Event;
 use serde::Serialize;
 use serde_json::{Map, Value};
 use sqlx::Row;
 
-use crate::session::Sess;
 use crate::AppState;
+use crate::session::Sess;
 use crate::util::{format_error, htmlspecialchars, php_int_cast};
 
 /// The serializable OPML document (quick-xml `serde` types). `Outline` is
@@ -289,7 +290,9 @@ async fn build_settings_section(pool: &sqlx::PgPool, uid: i64) -> String {
     let mut out = String::new();
 
     // tt-rss-prefs — the `profile IS NULL` user prefs, by name.
-    out.push_str(&format!("    <outline text=\"tt-rss-prefs\" schema-version=\"{SCHEMA_VERSION}\">\n"));
+    out.push_str(&format!(
+        "    <outline text=\"tt-rss-prefs\" schema-version=\"{SCHEMA_VERSION}\">\n"
+    ));
     let prefs = sqlx::query(
         "SELECT pref_name, value FROM ttrss_user_prefs2 \
          WHERE profile IS NULL AND owner_uid = $1 ORDER BY pref_name",
@@ -308,12 +311,15 @@ async fn build_settings_section(pool: &sqlx::PgPool, uid: i64) -> String {
     out.push_str("    </outline>\n");
 
     // tt-rss-labels — every label with its colors.
-    out.push_str(&format!("    <outline text=\"tt-rss-labels\" schema-version=\"{SCHEMA_VERSION}\">\n"));
-    let labels = sqlx::query("SELECT caption, fg_color, bg_color FROM ttrss_labels2 WHERE owner_uid = $1")
-        .bind(uid)
-        .fetch_all(pool)
-        .await
-        .expect("fetch labels");
+    out.push_str(&format!(
+        "    <outline text=\"tt-rss-labels\" schema-version=\"{SCHEMA_VERSION}\">\n"
+    ));
+    let labels =
+        sqlx::query("SELECT caption, fg_color, bg_color FROM ttrss_labels2 WHERE owner_uid = $1")
+            .bind(uid)
+            .fetch_all(pool)
+            .await
+            .expect("fetch labels");
     for r in &labels {
         out.push_str(&format!(
             "      <outline label-name=\"{}\" label-fg-color=\"{}\" label-bg-color=\"{}\"/>\n",
@@ -325,7 +331,9 @@ async fn build_settings_section(pool: &sqlx::PgPool, uid: i64) -> String {
     out.push_str("    </outline>\n");
 
     // tt-rss-filters — one CDATA outline per filter (a JSON snapshot).
-    out.push_str(&format!("    <outline text=\"tt-rss-filters\" schema-version=\"{SCHEMA_VERSION}\">\n"));
+    out.push_str(&format!(
+        "    <outline text=\"tt-rss-filters\" schema-version=\"{SCHEMA_VERSION}\">\n"
+    ));
     let filters = sqlx::query("SELECT id FROM ttrss_filters2 WHERE owner_uid = $1 ORDER BY id")
         .bind(uid)
         .fetch_all(pool)
@@ -445,7 +453,8 @@ async fn build_filter_json(pool: &sqlx::PgPool, filter_id: i64, uid: i64) -> Str
         } else {
             // Legacy: `feed` = the feed (or category, when `cat_filter`) title, or "" if
             // the referenced id is missing — PHP: `(cat_filter && cat_id) || feed_id`.
-            let has = (cat_filter && cat_id.is_some_and(|c| c != 0)) || feed_id.is_some_and(|f| f != 0);
+            let has =
+                (cat_filter && cat_id.is_some_and(|c| c != 0)) || feed_id.is_some_and(|f| f != 0);
             let title = if has {
                 if cat_filter {
                     category_title(pool, cat_id.unwrap_or(0) as i64, uid).await
@@ -463,11 +472,13 @@ async fn build_filter_json(pool: &sqlx::PgPool, filter_id: i64, uid: i64) -> Str
 
     // --- actions ---
     let mut actions: Vec<Value> = Vec::new();
-    let arows = sqlx::query("SELECT action_id, action_param FROM ttrss_filters2_actions WHERE filter_id = $1")
-        .bind(filter_id as i32)
-        .fetch_all(pool)
-        .await
-        .expect("filter actions");
+    let arows = sqlx::query(
+        "SELECT action_id, action_param FROM ttrss_filters2_actions WHERE filter_id = $1",
+    )
+    .bind(filter_id as i32)
+    .fetch_all(pool)
+    .await
+    .expect("filter actions");
     for a in &arows {
         let mut action = Map::new();
         action.insert("action_id".into(), Value::from(a.get::<i32, _>(0)));
@@ -670,7 +681,14 @@ fn opml_notice(body: &mut String, msg: &str, nest: usize) {
 }
 
 /// `OPML::opml_import_feed` — insert a feed (deduped by `feed_url` + owner).
-async fn opml_import_feed(db: &Db, uid: i64, node: &XmlNode, cat_id: i64, body: &mut String, depth: usize) {
+async fn opml_import_feed(
+    db: &Db,
+    uid: i64,
+    node: &XmlNode,
+    cat_id: i64,
+    body: &mut String,
+    depth: usize,
+) {
     let pool = db.pool();
     let feed_title = attr(node, "text")
         .or_else(|| attr(node, "title"))
@@ -694,7 +712,11 @@ async fn opml_import_feed(db: &Db, uid: i64, node: &XmlNode, cat_id: i64, body: 
     .flatten()
     .is_some();
     // PHP notices the feed by title, or the URL when the title is missing.
-    let display = if feed_title.is_empty() { feed_url.as_str() } else { feed_title.as_str() };
+    let display = if feed_title.is_empty() {
+        feed_url.as_str()
+    } else {
+        feed_title.as_str()
+    };
     if exists {
         opml_notice(body, &format!("Duplicate feed: {display}"), depth);
         return;
@@ -706,9 +728,13 @@ async fn opml_import_feed(db: &Db, uid: i64, node: &XmlNode, cat_id: i64, body: 
         feed_title
     };
     // PHP casts these with (int) — lenient leading-numeric-prefix parse — not strict parse.
-    let update_interval = attr(node, "ttrssUpdateInterval").map(php_int_cast).unwrap_or(0);
+    let update_interval = attr(node, "ttrssUpdateInterval")
+        .map(php_int_cast)
+        .unwrap_or(0);
     let order_id = attr(node, "ttrssSortOrder").map(php_int_cast).unwrap_or(0);
-    let purge_interval = attr(node, "ttrssPurgeInterval").map(php_int_cast).unwrap_or(0);
+    let purge_interval = attr(node, "ttrssPurgeInterval")
+        .map(php_int_cast)
+        .unwrap_or(0);
     let cat = (cat_id != 0).then_some(cat_id);
     sqlx::query(
         "INSERT INTO ttrss_feeds (title, feed_url, owner_uid, cat_id, site_url, order_id, update_interval, purge_interval) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)")
@@ -740,7 +766,11 @@ async fn opml_import_preference(
         None => return,
     };
     let pref_value = attr(node, "value").unwrap_or("");
-    opml_notice(body, &format!("Setting preference key {pref_name} to {pref_value}"), depth);
+    opml_notice(
+        body,
+        &format!("Setting preference key {pref_name} to {pref_value}"),
+        depth,
+    );
     crate::prefs::set(db, pref_name, pref_value, uid, profile, true).await;
 }
 
@@ -752,10 +782,18 @@ async fn opml_import_label(db: &Db, uid: i64, node: &XmlNode, body: &mut String,
         None => return,
     };
     if crate::labels::find_id(db.pool(), label_name, uid).await != 0 {
-        opml_notice(body, &format!("Duplicate label: {}", htmlspecialchars(label_name)), depth);
+        opml_notice(
+            body,
+            &format!("Duplicate label: {}", htmlspecialchars(label_name)),
+            depth,
+        );
         return;
     }
-    opml_notice(body, &format!("Adding label {}", htmlspecialchars(label_name)), depth);
+    opml_notice(
+        body,
+        &format!("Adding label {}", htmlspecialchars(label_name)),
+        depth,
+    );
     crate::labels::create(
         db,
         label_name,
@@ -944,8 +982,10 @@ async fn opml_import_category(
                     .map(|t| mb_truncate(t, 250).to_string())
                     .or_else(|| attr(node, "title").map(|t| mb_truncate(t, 250).to_string()))
                     .unwrap_or_default();
-                let is_settings =
-                    matches!(title.as_str(), "tt-rss-prefs" | "tt-rss-labels" | "tt-rss-filters");
+                let is_settings = matches!(
+                    title.as_str(),
+                    "tt-rss-prefs" | "tt-rss-labels" | "tt-rss-filters"
+                );
                 let new_cat_id = if is_settings {
                     0
                 } else if get_feed_category(db, &title, uid, cat_id).await != 0 {
@@ -955,7 +995,12 @@ async fn opml_import_category(
                     add_cat_low(db, &title, uid, (cat_id != 0).then_some(cat_id), order_id).await;
                     get_feed_category(db, &title, uid, cat_id).await
                 };
-                stack.push((outline_children(nodes, oi), new_cat_id, Some(title), depth + 1));
+                stack.push((
+                    outline_children(nodes, oi),
+                    new_cat_id,
+                    Some(title),
+                    depth + 1,
+                ));
             } else {
                 let dst_cat_id = if cat_id != 0 { cat_id } else { default_cat_id };
                 match cat_title.as_deref() {

@@ -11,8 +11,8 @@ use std::collections::HashMap;
 use chrono::{DateTime, Timelike, Utc};
 use chrono_tz::Tz;
 use serde_json::Value;
-use sqlx::Row as _;
 use sqlx::AssertSqlSafe;
+use sqlx::Row as _;
 
 use crate::prefs;
 use crate::time::TzCtx;

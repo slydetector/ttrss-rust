@@ -9,15 +9,15 @@
 //! `getphpinfo` surfaces Rust/server diagnostics in place of `phpinfo()`.
 mod common;
 
-use serde_json::{json, Map};
+use serde_json::{Map, json};
+use test_db::template::with_test_db;
+use ttrss::AppState;
 use ttrss::core::config::Config;
 use ttrss::core::db::Db;
 use ttrss::core::phpser::Value as PValue;
 use ttrss::core::session::Session;
 use ttrss::session::Sess;
 use ttrss::system;
-use ttrss::AppState;
-use test_db::template::with_test_db;
 
 /// A test-only config (the handlers only need `db` + `config`).
 fn test_config() -> Config {
@@ -33,7 +33,7 @@ fn test_config() -> Config {
         docroot: std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../..")
             .join("tt-rss"),
-    ..Default::default()
+        ..Default::default()
     }
 }
 
@@ -73,24 +73,28 @@ fn count_log_rows(html: &str) -> usize {
 /// `index` renders the accordion with all four panes (assumes SQL logging).
 #[tokio::test]
 async fn test_index_structure() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup(&url).await;
-    let html = system::index(&state, &sess, &Map::new()).await;
-    for marker in [
-        "dijit.layout.AccordionContainer",
-        "Event log",
-        "Email configuration",
-        "Scheduled tasks",
-        "Server Information",
-        "mail_address",
-        "value=\"sendTestEmail\"",
-        "getphpinfo",
-        "getscheduledtasks",
-    ] {
-        assert!(html.contains(marker), "index should contain {marker:?}");
-    }
-        Ok(())
-    })).await.unwrap();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            let html = system::index(&state, &sess, &Map::new()).await;
+            for marker in [
+                "dijit.layout.AccordionContainer",
+                "Event log",
+                "Email configuration",
+                "Scheduled tasks",
+                "Server Information",
+                "mail_address",
+                "value=\"sendTestEmail\"",
+                "getphpinfo",
+                "getscheduledtasks",
+            ] {
+                assert!(html.contains(marker), "index should contain {marker:?}");
+            }
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 /// `_log_viewer` severity filter: default (Warnings, errno 512) shows both an
@@ -98,68 +102,76 @@ async fn test_index_structure() {
 /// E_USER_ERROR row; "Everything" (1024) shows both.
 #[tokio::test]
 async fn test_log_viewer_severity() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup(&url).await;
-    seed_error(state.db.pool(), 256, "a user error").await;
-    seed_error(state.db.pool(), 2, "a warning").await;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            seed_error(state.db.pool(), 256, "a user error").await;
+            seed_error(state.db.pool(), 2, "a warning").await;
 
-    // Default severity (512 = Warnings): both rows.
-    let default_html = system::index(&state, &sess, &Map::new()).await;
-    assert_eq!(
-        count_log_rows(&default_html),
-        2,
-        "default (Warnings) shows both"
-    );
+            // Default severity (512 = Warnings): both rows.
+            let default_html = system::index(&state, &sess, &Map::new()).await;
+            assert_eq!(
+                count_log_rows(&default_html),
+                2,
+                "default (Warnings) shows both"
+            );
 
-    // Severity 256 (Errors): only the E_USER_ERROR row.
-    let errors_html = system::index(
-        &state,
-        &sess,
-        &Map::from_iter([("severity".into(), json!(256))]),
-    )
-    .await;
-    assert_eq!(
-        count_log_rows(&errors_html),
-        1,
-        "Errors shows only errno 256"
-    );
-    assert!(errors_html.contains("a user error"));
-    assert!(!errors_html.contains("a warning"));
+            // Severity 256 (Errors): only the E_USER_ERROR row.
+            let errors_html = system::index(
+                &state,
+                &sess,
+                &Map::from_iter([("severity".into(), json!(256))]),
+            )
+            .await;
+            assert_eq!(
+                count_log_rows(&errors_html),
+                1,
+                "Errors shows only errno 256"
+            );
+            assert!(errors_html.contains("a user error"));
+            assert!(!errors_html.contains("a warning"));
 
-    // Severity 1024 (Everything): both rows.
-    let all_html = system::index(
-        &state,
-        &sess,
-        &Map::from_iter([("severity".into(), json!(1024))]),
-    )
-    .await;
-    assert_eq!(count_log_rows(&all_html), 2, "Everything shows both");
-        Ok(())
-    })).await.unwrap();
+            // Severity 1024 (Everything): both rows.
+            let all_html = system::index(
+                &state,
+                &sess,
+                &Map::from_iter([("severity".into(), json!(1024))]),
+            )
+            .await;
+            assert_eq!(count_log_rows(&all_html), 2, "Everything shows both");
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 /// `clearLog` deletes all error-log rows.
 #[tokio::test]
 async fn test_clear_log() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, _) = setup(&url).await;
-    seed_error(state.db.pool(), 256, "one").await;
-    seed_error(state.db.pool(), 2, "two").await;
-    let before: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM ttrss_error_log")
-        .fetch_one(state.db.pool())
-        .await
-        .expect("count before");
-    assert_eq!(before, 2);
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, _) = setup(&url).await;
+            seed_error(state.db.pool(), 256, "one").await;
+            seed_error(state.db.pool(), 2, "two").await;
+            let before: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM ttrss_error_log")
+                .fetch_one(state.db.pool())
+                .await
+                .expect("count before");
+            assert_eq!(before, 2);
 
-    system::clear_log(&state).await;
+            system::clear_log(&state).await;
 
-    let after: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM ttrss_error_log")
-        .fetch_one(state.db.pool())
-        .await
-        .expect("count after");
-    assert_eq!(after, 0, "error log is cleared");
-        Ok(())
-    })).await.unwrap();
+            let after: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM ttrss_error_log")
+                .fetch_one(state.db.pool())
+                .await
+                .expect("count after");
+            assert_eq!(after, 0, "error log is cleared");
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 /// `sendTestEmail` is a no-op: `rc = 0` + a "not supported" error.
@@ -175,21 +187,25 @@ fn test_send_test_email_noop() {
 /// dump, and omits the db password / encryption key.
 #[tokio::test]
 async fn test_get_php_info() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, _) = setup(&url).await;
-    let html = system::get_php_info(&state);
-    assert!(
-        html.contains(ttrss::core::config::VERSION),
-        "shows the version"
-    );
-    assert!(
-        html.contains("http://127.0.0.1:8280/tt-rss/"),
-        "shows self_url"
-    );
-    assert!(html.contains("postgres"), "shows the db name");
-    // The password (`postgres`) appears as the db name too, so assert the
-    // encryption key is absent by the omission of its (None) — nothing to leak.
-    assert!(!html.contains("E_ERROR"), "not a phpinfo() dump");
-        Ok(())
-    })).await.unwrap();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, _) = setup(&url).await;
+            let html = system::get_php_info(&state);
+            assert!(
+                html.contains(ttrss::core::config::VERSION),
+                "shows the version"
+            );
+            assert!(
+                html.contains("http://127.0.0.1:8280/tt-rss/"),
+                "shows self_url"
+            );
+            assert!(html.contains("postgres"), "shows the db name");
+            // The password (`postgres`) appears as the db name too, so assert the
+            // encryption key is absent by the omission of its (None) — nothing to leak.
+            assert!(!html.contains("E_ERROR"), "not a phpinfo() dump");
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }

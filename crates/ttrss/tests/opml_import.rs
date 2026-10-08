@@ -10,10 +10,8 @@
 mod common;
 
 use sqlx::AssertSqlSafe;
-use ttrss::session::Sess;
 use test_db::template::with_test_db;
-
-
+use ttrss::session::Sess;
 
 /// A logged-in session for `uid` (mirrors the `opml_export.rs` setup).
 fn sess_for(uid: i64) -> Sess {
@@ -236,70 +234,82 @@ async fn test_import_unknown_feed_title() {
 
 #[tokio::test]
 async fn test_import_parse_error_returns_error() {
-    with_test_db(|url| Box::pin(async move {
-    let state = common::make_app_state(&url).await;
-    let sess = sess_for(1);
-    let body = ttrss::opml::import(&state, &sess, Some(b"this is not xml <<<")).await;
-    assert!(
-        body.contains("Error while parsing document.<br/>"),
-        "parse error reported: {body}"
-    );
-        Ok(())
-    })).await.unwrap();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let state = common::make_app_state(&url).await;
+            let sess = sess_for(1);
+            let body = ttrss::opml::import(&state, &sess, Some(b"this is not xml <<<")).await;
+            assert!(
+                body.contains("Error while parsing document.<br/>"),
+                "parse error reported: {body}"
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
 async fn test_import_labels() {
-    with_test_db(|url| Box::pin(async move {
-    let state = common::make_app_state(&url).await;
-    let sess = sess_for(1);
-    let opml = r##"<opml version="1.0"><body>
+    with_test_db(|url| {
+        Box::pin(async move {
+            let state = common::make_app_state(&url).await;
+            let sess = sess_for(1);
+            let opml = r##"<opml version="1.0"><body>
       <outline text="tt-rss-labels">
         <outline label-name="My Label" label-fg-color="#ff0000" label-bg-color="#00ff00"/>
         <outline label-name="Second Label"/>
       </outline>
     </body></opml>"##;
-    let _ = ttrss::opml::import(&state, &sess, Some(opml.as_bytes())).await;
+            let _ = ttrss::opml::import(&state, &sess, Some(opml.as_bytes())).await;
 
-    let row: Option<(String, String)> = sqlx::query_as(
+            let row: Option<(String, String)> = sqlx::query_as(
         "SELECT fg_color, bg_color FROM ttrss_labels2 WHERE owner_uid = 1 AND caption = 'My Label'",
     )
     .fetch_optional(state.db.pool())
     .await
     .expect("label query");
-    let (fg, bg) = row.expect("My Label created");
-    assert_eq!(fg, "#ff0000");
-    assert_eq!(bg, "#00ff00");
-    let second = count(
+            let (fg, bg) = row.expect("My Label created");
+            assert_eq!(fg, "#ff0000");
+            assert_eq!(bg, "#00ff00");
+            let second = count(
         state.db.pool(),
         "SELECT count(*) FROM ttrss_labels2 WHERE owner_uid = 1 AND caption = 'Second Label'",
     )
     .await;
-    assert_eq!(second, 1, "Second Label created (default colors)");
-        Ok(())
-    })).await.unwrap();
+            assert_eq!(second, 1, "Second Label created (default colors)");
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
 async fn test_import_labels_dedup() {
-    with_test_db(|url| Box::pin(async move {
-    let state = common::make_app_state(&url).await;
-    let sess = sess_for(1);
-    let opml = r#"<opml version="1.0"><body>
+    with_test_db(|url| {
+        Box::pin(async move {
+            let state = common::make_app_state(&url).await;
+            let sess = sess_for(1);
+            let opml = r#"<opml version="1.0"><body>
       <outline text="tt-rss-labels">
         <outline label-name="Dup Label"/>
       </outline>
     </body></opml>"#;
-    let _ = ttrss::opml::import(&state, &sess, Some(opml.as_bytes())).await;
-    let _ = ttrss::opml::import(&state, &sess, Some(opml.as_bytes())).await;
-    let n = count(
-        state.db.pool(),
-        "SELECT count(*) FROM ttrss_labels2 WHERE owner_uid = 1 AND caption = 'Dup Label'",
-    )
-    .await;
-    assert_eq!(n, 1, "label deduped by caption");
-        Ok(())
-    })).await.unwrap();
+            let _ = ttrss::opml::import(&state, &sess, Some(opml.as_bytes())).await;
+            let _ = ttrss::opml::import(&state, &sess, Some(opml.as_bytes())).await;
+            let n = count(
+                state.db.pool(),
+                "SELECT count(*) FROM ttrss_labels2 WHERE owner_uid = 1 AND caption = 'Dup Label'",
+            )
+            .await;
+            assert_eq!(n, 1, "label deduped by caption");
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
@@ -375,18 +385,22 @@ async fn test_import_filter() {
 
 #[tokio::test]
 async fn test_import_no_file_reports_upload_error() {
-    with_test_db(|url| Box::pin(async move {
-    let state = common::make_app_state(&url).await;
-    let sess = sess_for(1);
-    let body = ttrss::opml::import(&state, &sess, None).await;
-    // PHP: `$_FILES['opml_file']['error']` = UPLOAD_ERR_NO_FILE (4) → `print_error`.
-    assert!(
-        body.contains("Upload failed with error code 4"),
-        "no-file error: {body}"
-    );
-    assert!(body.contains("alert alert-danger"), "error div: {body}");
-        Ok(())
-    })).await.unwrap();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let state = common::make_app_state(&url).await;
+            let sess = sess_for(1);
+            let body = ttrss::opml::import(&state, &sess, None).await;
+            // PHP: `$_FILES['opml_file']['error']` = UPLOAD_ERR_NO_FILE (4) → `print_error`.
+            assert!(
+                body.contains("Upload failed with error code 4"),
+                "no-file error: {body}"
+            );
+            assert!(body.contains("alert alert-danger"), "error div: {body}");
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 /// A full session (uid + access level + stored pwd hash + CSRF token), so
@@ -397,14 +411,19 @@ fn sess_authed(uid: i64) -> Sess {
     d.set("access_level", ttrss::core::phpser::Value::Int(10));
     d.set(
         "pwd_hash",
-        ttrss::core::phpser::Value::Bytes(b"SHA1:5baa61e4c9b93f3f0682250b6cf8331b7ee68fd8".to_vec()),
+        ttrss::core::phpser::Value::Bytes(
+            b"SHA1:5baa61e4c9b93f3f0682250b6cf8331b7ee68fd8".to_vec(),
+        ),
     );
     d.set(
         "auth_module",
         ttrss::core::phpser::Value::Bytes(b"auth_internal".to_vec()),
     );
     d.set("name", ttrss::core::phpser::Value::Bytes(b"admin".to_vec()));
-    d.set("csrf_token", ttrss::core::phpser::Value::Bytes(b"tok".to_vec()));
+    d.set(
+        "csrf_token",
+        ttrss::core::phpser::Value::Bytes(b"tok".to_vec()),
+    );
     let s = Sess::new("test-sid".to_string());
     s.replace("test-sid".to_string(), d);
     s

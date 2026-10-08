@@ -15,13 +15,13 @@
 //! multiple-feed-URLs select form) was un-deferred at M7.14 when `HostCtx`
 //! started carrying `&Config`.
 
-use serde_json::Value;
-use async_trait::async_trait;
-use crate::pluginhost::host::{HostCtx, PluginHost};
-use crate::pluginhost::plugin::{About, MethodOutput, Plugin, PluginError, };
+use crate::i18n::__;
 use crate::pluginhost::HOOK_PREFS_TAB;
+use crate::pluginhost::host::{HostCtx, PluginHost};
+use crate::pluginhost::plugin::{About, MethodOutput, Plugin, PluginError};
 use crate::{controls, util};
-use crate::i18n::{__};
+use async_trait::async_trait;
+use serde_json::Value;
 
 /// PHP's `class Bookmarklets extends Plugin` (stateless → `Copy`).
 #[derive(Clone, Copy)]
@@ -64,11 +64,7 @@ impl Plugin for Bookmarklets {
 
     /// `Bookmarklets::hook_prefs_tab($tab)` — the `prefFeeds` AccordionPane
     /// with the two bookmarklet links + the "More info…" button.
-    async fn hook_prefs_tab(
-        &self,
-        host: &mut HostCtx,
-        tab: &str,
-    ) -> () {
+    async fn hook_prefs_tab(&self, host: &mut HostCtx, tab: &str) -> () {
         let this = *self;
         if tab != "prefFeeds" {
             return;
@@ -95,20 +91,12 @@ impl Plugin for Bookmarklets {
 impl Bookmarklets {
     /// `Bookmarklets::hook_prefs_tab` (printed) — the `prefFeeds` AccordionPane.
     async fn hook_prefs_tab_output(&self, host: &mut HostCtx) {
-        let bm_subscribe_url = crate::pluginhost::host::public_method_url(
-            &host.self_url,
-            self,
-            "subscribe",
-            &[],
-        )
-        .unwrap_or_default();
-        let bm_share_url = crate::pluginhost::host::public_method_url(
-            &host.self_url,
-            self,
-            "sharepopup",
-            &[],
-        )
-        .unwrap_or_default();
+        let bm_subscribe_url =
+            crate::pluginhost::host::public_method_url(&host.self_url, self, "subscribe", &[])
+                .unwrap_or_default();
+        let bm_share_url =
+            crate::pluginhost::host::public_method_url(&host.self_url, self, "sharepopup", &[])
+                .unwrap_or_default();
 
         // PHP: `str_replace("'", "\'", __('Subscribe to %s in Tiny Tiny RSS?'))`
         let confirm_str = __("Subscribe to %s in Tiny Tiny RSS?");
@@ -138,7 +126,9 @@ impl Bookmarklets {
         );
 
         let bl_title = __("Bookmarklets");
-        let bl_drag = __("Drag the link below to your browser toolbar, open the feed you're interested in in your browser and click on the link to subscribe to it.");
+        let bl_drag = __(
+            "Drag the link below to your browser toolbar, open the feed you're interested in in your browser and click on the link to subscribe to it.",
+        );
         let bl_sub = __("Subscribe in Tiny Tiny RSS");
         let bl_use = __("Use this bookmarklet to publish arbitrary pages using Tiny Tiny RSS");
         let bl_share = __("Share with Tiny Tiny RSS");
@@ -182,13 +172,9 @@ impl Bookmarklets {
 
         if uid == 0 {
             // Not logged in — the login form (simplified).
-            let return_to = crate::pluginhost::host::public_method_url(
-                &host.self_url,
-                self,
-                "sharepopup",
-                &[],
-            )
-            .unwrap_or_default();
+            let return_to =
+                crate::pluginhost::host::public_method_url(&host.self_url, self, "sharepopup", &[])
+                    .unwrap_or_default();
             let body = format!(
                 "<!DOCTYPE html><html><head><title>{share_popup_title}</title></head>\n\
                  <body class='flat ttrss_utility share_popup css_loading'>\n\
@@ -231,10 +217,12 @@ impl Bookmarklets {
             // PHP's `_create_published_article` builds a *fresh*
             // owner-scoped host (`load_all(KIND_ALL, $owner_uid)`) for the
             // HOOK_GET_FULL_TEXT chain — rebuild it from this context.
-            let pref_rows = crate::prefs::load_rows_pool(host.pool(), uid as i64, host.profile).await;
-            let enabled = crate::prefs::resolve(crate::prefs::_ENABLED_PLUGINS, &pref_rows, host.profile)
-                .as_str()
-                .to_string();
+            let pref_rows =
+                crate::prefs::load_rows_pool(host.pool(), uid as i64, host.profile).await;
+            let enabled =
+                crate::prefs::resolve(crate::prefs::_ENABLED_PLUGINS, &pref_rows, host.profile)
+                    .as_str()
+                    .to_string();
             let system: Vec<String> = host
                 .cfg
                 .plugins
@@ -286,10 +274,7 @@ impl Bookmarklets {
         let url = util::htmlspecialchars(&util::clean_str(
             params.get("url").and_then(|v| v.as_str()).unwrap_or(""),
         ));
-        let csrf = host
-            .owner_uid
-            .map(|_| String::from(""))
-            .unwrap_or_default();
+        let csrf = host.owner_uid.map(|_| String::from("")).unwrap_or_default();
 
         let form = format!(
             "<!DOCTYPE html><html><head><title>{share_popup_title}</title></head>\n\
@@ -316,7 +301,11 @@ impl Bookmarklets {
             url = url,
             csrf = csrf,
             share_btn = controls::submit_tag(&__("Share")),
-            cancel_btn = controls::button_tag(&__("Cancel"), "", &[("onclick", "window.close()".to_string())]),
+            cancel_btn = controls::button_tag(
+                &__("Cancel"),
+                "",
+                &[("onclick", "window.close()".to_string())]
+            ),
         );
 
         Ok(MethodOutput::Response {
@@ -347,18 +336,24 @@ impl Bookmarklets {
         let login_label = __("Login:");
         let password_label = __("Password:");
 
-        let feed_url = util::clean_str(params.get("feed_url").and_then(|v| v.as_str()).unwrap_or(""));
-        let csrf = util::clean_str(params.get("csrf_token").and_then(|v| v.as_str()).unwrap_or(""));
+        let feed_url = util::clean_str(
+            params
+                .get("feed_url")
+                .and_then(|v| v.as_str())
+                .unwrap_or(""),
+        );
+        let csrf = util::clean_str(
+            params
+                .get("csrf_token")
+                .and_then(|v| v.as_str())
+                .unwrap_or(""),
+        );
 
         let body = if uid == 0 {
             // Not logged in — the login form (simplified).
-            let return_to = crate::pluginhost::host::public_method_url(
-                &host.self_url,
-                self,
-                "subscribe",
-                &[],
-            )
-            .unwrap_or_default();
+            let return_to =
+                crate::pluginhost::host::public_method_url(&host.self_url, self, "subscribe", &[])
+                    .unwrap_or_default();
             format!(
                 "<!DOCTYPE html><html><head><title>{subscribe_title}</title></head>\n\
                  <body class='flat ttrss_utility share_popup css_loading'>\n\

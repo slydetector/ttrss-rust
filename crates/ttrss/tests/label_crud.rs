@@ -9,22 +9,22 @@
 
 mod common;
 
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
+use test_db::template::with_test_db;
+use ttrss::AppState;
 use ttrss::core::config::Config;
 use ttrss::core::db::Db;
 use ttrss::core::phpser::Value as PValue;
 use ttrss::core::session::Session;
 use ttrss::session::Sess;
-use ttrss::AppState;
-use test_db::template::with_test_db;
 
 /// A test-only config (the handlers only need `db`).
-fn test_config() -> Config { common::test_config() }
+fn test_config() -> Config {
+    common::test_config()
+}
 
 /// Fresh fixtures + a session carrying `uid = 1` (owner of all fixture rows).
-async fn setup(
-    url: &str,
-) -> (AppState, Sess) {
+async fn setup(url: &str) -> (AppState, Sess) {
     let db: Db = common::make_db_from_url(url).await.expect("test db");
     let state = AppState::new(test_config(), db);
     let mut data = Session::new();
@@ -88,94 +88,118 @@ async fn label_action_count(db: &Db, param: &str) -> i64 {
 /// `Pref_Labels::edit`: returns the label row as a JSON object.
 #[tokio::test]
 async fn test_edit() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup(&url).await;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
 
-    let v = ttrss::labels::edit(&state, &sess, &request(&[("id", json!(1))])).await;
-    let v = v.expect("label found");
-    assert_eq!(v["caption"], "test-label-1");
-    assert_eq!(v["id"], 1);
-    assert_eq!(v["owner_uid"], 1);
-    assert_eq!(v["fg_color"], "");
-    assert_eq!(v["bg_color"], "");
+            let v = ttrss::labels::edit(&state, &sess, &request(&[("id", json!(1))])).await;
+            let v = v.expect("label found");
+            assert_eq!(v["caption"], "test-label-1");
+            assert_eq!(v["id"], 1);
+            assert_eq!(v["owner_uid"], 1);
+            assert_eq!(v["fg_color"], "");
+            assert_eq!(v["bg_color"], "");
 
-    // Another owner's labels are not visible (owner_uid filter).
-    let mut data = Session::new();
-    data.set("uid", PValue::Int(999));
-    let sess2 = Sess::new("other-sid".to_string());
-    sess2.replace("other-sid".to_string(), data);
-    assert!(
-        ttrss::labels::edit(&state, &sess2, &request(&[("id", json!(1))]))
-            .await
-            .is_none()
-    );
-        Ok(())
-    })).await.unwrap();
+            // Another owner's labels are not visible (owner_uid filter).
+            let mut data = Session::new();
+            data.set("uid", PValue::Int(999));
+            let sess2 = Sess::new("other-sid".to_string());
+            sess2.replace("other-sid".to_string(), data);
+            assert!(
+                ttrss::labels::edit(&state, &sess2, &request(&[("id", json!(1))]))
+                    .await
+                    .is_none()
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 /// `Pref_Labels::edit`: a nonexistent id returns `None` (PHP prints nothing).
 #[tokio::test]
 async fn test_edit_not_found() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup(&url).await;
-    assert!(
-        ttrss::labels::edit(&state, &sess, &request(&[("id", json!(9999))]))
-            .await
-            .is_none()
-    );
-        Ok(())
-    })).await.unwrap();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            assert!(
+                ttrss::labels::edit(&state, &sess, &request(&[("id", json!(9999))]))
+                    .await
+                    .is_none()
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 /// `Pref_Labels::add`: creates the label and returns `Created label <b>..</b>`;
 /// a duplicate caption is not created and returns empty.
 #[tokio::test]
 async fn test_add_label() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup(&url).await;
-    let db = &state.db;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            let db = &state.db;
 
-    let out = ttrss::labels::add_label(&state, &sess, &request(&[("caption", json!("My Label"))]))
-        .await
-        .expect("add");
-    assert_eq!(out, "Created label <b>My Label</b>");
-    assert_eq!(ttrss::labels::find_id(db.pool(), "My Label", 1).await, 3);
+            let out = ttrss::labels::add_label(
+                &state,
+                &sess,
+                &request(&[("caption", json!("My Label"))]),
+            )
+            .await
+            .expect("add");
+            assert_eq!(out, "Created label <b>My Label</b>");
+            assert_eq!(ttrss::labels::find_id(db.pool(), "My Label", 1).await, 3);
 
-    // A duplicate caption is not created (case-insensitive) and returns empty.
-    let out = ttrss::labels::add_label(&state, &sess, &request(&[("caption", json!("my label"))]))
-        .await
-        .expect("add dup");
-    assert_eq!(out, "");
-    assert_eq!(ttrss::labels::find_id(db.pool(), "my label", 1).await, 3);
+            // A duplicate caption is not created (case-insensitive) and returns empty.
+            let out = ttrss::labels::add_label(
+                &state,
+                &sess,
+                &request(&[("caption", json!("my label"))]),
+            )
+            .await
+            .expect("add dup");
+            assert_eq!(out, "");
+            assert_eq!(ttrss::labels::find_id(db.pool(), "my label", 1).await, 3);
 
-    // An empty caption creates nothing.
-    let out = ttrss::labels::add_label(&state, &sess, &request(&[("caption", json!(""))]))
-        .await
-        .expect("add empty");
-    assert_eq!(out, "");
-    assert_eq!(ttrss::labels::find_id(db.pool(), "", 1).await, 0);
-        Ok(())
-    })).await.unwrap();
+            // An empty caption creates nothing.
+            let out = ttrss::labels::add_label(&state, &sess, &request(&[("caption", json!(""))]))
+                .await
+                .expect("add empty");
+            assert_eq!(out, "");
+            assert_eq!(ttrss::labels::find_id(db.pool(), "", 1).await, 0);
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 /// `Pref_Labels::add`: `output` set suppresses the message (still creates).
 #[tokio::test]
 async fn test_add_label_output_suppress() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup(&url).await;
-    let db = &state.db;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            let db = &state.db;
 
-    let out = ttrss::labels::add_label(
-        &state,
-        &sess,
-        &request(&[("caption", json!("Quiet Label")), ("output", json!("1"))]),
-    )
+            let out = ttrss::labels::add_label(
+                &state,
+                &sess,
+                &request(&[("caption", json!("Quiet Label")), ("output", json!("1"))]),
+            )
+            .await
+            .expect("add");
+            assert_eq!(out, "");
+            assert_eq!(ttrss::labels::find_id(db.pool(), "Quiet Label", 1).await, 3);
+            Ok(())
+        })
+    })
     .await
-    .expect("add");
-    assert_eq!(out, "");
-    assert_eq!(ttrss::labels::find_id(db.pool(), "Quiet Label", 1).await, 3);
-        Ok(())
-    })).await.unwrap();
+    .unwrap();
 }
 
 /// `Pref_Labels::remove`: removes the label, its access key, and clears the
@@ -275,133 +299,155 @@ async fn test_save_rename() {
 /// already uses is a no-op (returns the old caption).
 #[tokio::test]
 async fn test_save_collision() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup(&url).await;
-    let db = &state.db;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            let db = &state.db;
 
-    let out = ttrss::labels::save(
-        &state,
-        &sess,
-        &request(&[("id", json!(1)), ("caption", json!("test-label-2"))]),
-    )
+            let out = ttrss::labels::save(
+                &state,
+                &sess,
+                &request(&[("id", json!(1)), ("caption", json!("test-label-2"))]),
+            )
+            .await
+            .expect("save");
+            assert_eq!(out, "test-label-1");
+            assert_eq!(
+                label_row(db, 1).await.expect("label 1")["caption"],
+                "test-label-1"
+            );
+            Ok(())
+        })
+    })
     .await
-    .expect("save");
-    assert_eq!(out, "test-label-1");
-    assert_eq!(
-        label_row(db, 1).await.expect("label 1")["caption"],
-        "test-label-1"
-    );
-        Ok(())
-    })).await.unwrap();
+    .unwrap();
 }
 
 /// `Pref_Labels::save`: a nonexistent label is a no-op (returns empty).
 #[tokio::test]
 async fn test_save_not_found() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup(&url).await;
-    let out = ttrss::labels::save(
-        &state,
-        &sess,
-        &request(&[("id", json!(9999)), ("caption", json!("X"))]),
-    )
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            let out = ttrss::labels::save(
+                &state,
+                &sess,
+                &request(&[("id", json!(9999)), ("caption", json!("X"))]),
+            )
+            .await
+            .expect("save");
+            assert_eq!(out, "");
+            Ok(())
+        })
+    })
     .await
-    .expect("save");
-    assert_eq!(out, "");
-        Ok(())
-    })).await.unwrap();
+    .unwrap();
 }
 
 /// `Pref_Labels::colorset`: `kind = "both"` sets both fg and bg colors and
 /// clears the owner's label caches.
 #[tokio::test]
 async fn test_colorset_both() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup(&url).await;
-    let db = &state.db;
-    let pool = db.pool();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            let db = &state.db;
+            let pool = db.pool();
 
-    // Set a label cache so we can verify colorset clears it.
-    sqlx::query("UPDATE ttrss_user_entries SET label_cache = '[1]' WHERE owner_uid = 1")
-        .execute(pool)
-        .await
-        .expect("set cache");
+            // Set a label cache so we can verify colorset clears it.
+            sqlx::query("UPDATE ttrss_user_entries SET label_cache = '[1]' WHERE owner_uid = 1")
+                .execute(pool)
+                .await
+                .expect("set cache");
 
-    ttrss::labels::colorset(
-        &state,
-        &sess,
-        &request(&[
-            ("kind", json!("both")),
-            ("ids", json!(1)),
-            ("fg", json!("#111111")),
-            ("bg", json!("#222222")),
-        ]),
-    )
+            ttrss::labels::colorset(
+                &state,
+                &sess,
+                &request(&[
+                    ("kind", json!("both")),
+                    ("ids", json!(1)),
+                    ("fg", json!("#111111")),
+                    ("bg", json!("#222222")),
+                ]),
+            )
+            .await
+            .expect("colorset");
+
+            let row = label_row(db, 1).await.expect("label 1");
+            assert_eq!(row["fg_color"], "#111111");
+            assert_eq!(row["bg_color"], "#222222");
+            // The label caches are cleared.
+            for c in label_caches(db).await {
+                assert_eq!(c, "");
+            }
+            // The other label is unaffected.
+            assert_eq!(label_row(db, 2).await.expect("label 2")["fg_color"], "");
+            Ok(())
+        })
+    })
     .await
-    .expect("colorset");
-
-    let row = label_row(db, 1).await.expect("label 1");
-    assert_eq!(row["fg_color"], "#111111");
-    assert_eq!(row["bg_color"], "#222222");
-    // The label caches are cleared.
-    for c in label_caches(db).await {
-        assert_eq!(c, "");
-    }
-    // The other label is unaffected.
-    assert_eq!(label_row(db, 2).await.expect("label 2")["fg_color"], "");
-        Ok(())
-    })).await.unwrap();
+    .unwrap();
 }
 
 /// `Pref_Labels::colorset`: `kind = "fg"` sets only the fg column (from
 /// `color`), leaving bg unchanged.
 #[tokio::test]
 async fn test_colorset_single() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup(&url).await;
-    let db = &state.db;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            let db = &state.db;
 
-    ttrss::labels::colorset(
-        &state,
-        &sess,
-        &request(&[
-            ("kind", json!("fg")),
-            ("ids", json!(1)),
-            ("color", json!("#abcdef")),
-        ]),
-    )
+            ttrss::labels::colorset(
+                &state,
+                &sess,
+                &request(&[
+                    ("kind", json!("fg")),
+                    ("ids", json!(1)),
+                    ("color", json!("#abcdef")),
+                ]),
+            )
+            .await
+            .expect("colorset");
+
+            let row = label_row(db, 1).await.expect("label 1");
+            assert_eq!(row["fg_color"], "#abcdef");
+            assert_eq!(row["bg_color"], "");
+            Ok(())
+        })
+    })
     .await
-    .expect("colorset");
-
-    let row = label_row(db, 1).await.expect("label 1");
-    assert_eq!(row["fg_color"], "#abcdef");
-    assert_eq!(row["bg_color"], "");
-        Ok(())
-    })).await.unwrap();
+    .unwrap();
 }
 
 /// `Pref_Labels::colorreset`: resets the selected labels' colors to `''`.
 #[tokio::test]
 async fn test_colorreset() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup(&url).await;
-    let db = &state.db;
-    let pool = db.pool();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            let db = &state.db;
+            let pool = db.pool();
 
-    sqlx::query("UPDATE ttrss_labels2 SET fg_color = '#111', bg_color = '#222' WHERE id = 1")
-        .execute(pool)
-        .await
-        .expect("set colors");
+            sqlx::query(
+                "UPDATE ttrss_labels2 SET fg_color = '#111', bg_color = '#222' WHERE id = 1",
+            )
+            .execute(pool)
+            .await
+            .expect("set colors");
 
-    ttrss::labels::colorreset(&state, &sess, &request(&[("ids", json!(1))]))
-        .await
-        .expect("colorreset");
+            ttrss::labels::colorreset(&state, &sess, &request(&[("ids", json!(1))]))
+                .await
+                .expect("colorreset");
 
-    let row = label_row(db, 1).await.expect("label 1");
-    assert_eq!(row["fg_color"], "");
-    assert_eq!(row["bg_color"], "");
-    // The other label is unaffected.
-    assert_eq!(label_row(db, 2).await.expect("label 2")["fg_color"], "");
-        Ok(())
-    })).await.unwrap();
+            let row = label_row(db, 1).await.expect("label 1");
+            assert_eq!(row["fg_color"], "");
+            assert_eq!(row["bg_color"], "");
+            // The other label is unaffected.
+            assert_eq!(label_row(db, 2).await.expect("label 2")["fg_color"], "");
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }

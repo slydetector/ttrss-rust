@@ -26,7 +26,7 @@ use crate::core::config::Config;
 use crate::core::feed::FeedParser;
 use crate::feeds::decrypt_feed_pass;
 use crate::pluginhost::PluginHost;
-use crate::urlhelper::{fetch, FetchOptions, rewrite_relative};
+use crate::urlhelper::{FetchOptions, fetch, rewrite_relative};
 use crate::util::clean_str;
 
 /// PHP `RSSUtils::is_gzipped($feed_data)` — true if the data begins with the
@@ -485,7 +485,10 @@ mod tests {
         // A different owner_uid flows through verbatim.
         assert_eq!(
             make_guid_hashed(10, "x"),
-            format!("{{\"ver\":2,\"uid\":10,\"hash\":\"SHA1:{}\"}}", crate::util::sha1_hex("x"))
+            format!(
+                "{{\"ver\":2,\"uid\":10,\"hash\":\"SHA1:{}\"}}",
+                crate::util::sha1_hex("x")
+            )
         );
     }
     // ------------------------------------------------------------------------

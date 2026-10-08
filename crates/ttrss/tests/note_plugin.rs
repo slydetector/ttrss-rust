@@ -13,19 +13,19 @@
 
 mod common;
 
-use test_db::template::with_test_db;
 use std::sync::Arc;
+use test_db::template::with_test_db;
 
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
+use ttrss::AppState;
 use ttrss::core::config::Config;
 use ttrss::core::db::Db;
 use ttrss::core::phpser::Value as PValue;
 use ttrss::core::session::Session;
 use ttrss::pluginhost::dispatch::pluginhandler;
-use ttrss::pluginhost::{HostCtx, PluginHost};
 use ttrss::pluginhost::plugin::MethodOutput;
+use ttrss::pluginhost::{HostCtx, PluginHost};
 use ttrss::session::Sess;
-use ttrss::AppState;
 
 fn test_config(plugins: &str) -> Config {
     Config {
@@ -39,7 +39,7 @@ fn test_config(plugins: &str) -> Config {
         http_429_throttle_interval: 3600,
         daemon_sleep_interval: 60,
         schedule_log_daemon_update_login_limit_users: String::from("@hourly"),
-    ..Default::default()
+        ..Default::default()
     }
 }
 
@@ -90,85 +90,118 @@ fn json_of(v: &MethodOutput) -> &Value {
     }
 }
 
-
 // Save + load: `setnote` writes the note (tags stripped, as `clean()`), and
 // `edit` returns the dialog body with the note in the textarea.
 #[tokio::test]
 async fn test_setnote_then_edit() {
-    with_test_db(|url| Box::pin(async move {
-    let state = setup(&url, "note").await;
-    let sess = session(1);
+    with_test_db(|url| {
+        Box::pin(async move {
+            let state = setup(&url, "note").await;
+            let sess = session(1);
 
-    let v = pluginhandler(&state, &sess, "tok", "setnote", &req("1", Some("hello note"))).await.unwrap();
-    let j = json_of(&v);
-    assert_eq!(j["id"], 1);
-    assert_eq!(j["note"], "hello note");
+            let v = pluginhandler(
+                &state,
+                &sess,
+                "tok",
+                "setnote",
+                &req("1", Some("hello note")),
+            )
+            .await
+            .unwrap();
+            let j = json_of(&v);
+            assert_eq!(j["id"], 1);
+            assert_eq!(j["note"], "hello note");
 
-    let v = pluginhandler(&state, &sess, "tok", "edit", &req("1", None)).await.unwrap();
-    let html = raw(&v);
-    // The form the dialog posts back to (hidden op/plugin/method + id).
-    assert!(html.contains("name=\"op\""), "{html}");
-    assert!(html.contains("value=\"PluginHandler\""), "{html}");
-    assert!(html.contains("name=\"plugin\""), "{html}");
-    assert!(html.contains("value=\"note\""), "{html}");
-    assert!(html.contains("name=\"method\""), "{html}");
-    assert!(html.contains("value=\"setnote\""), "{html}");
-    assert!(html.contains("name=\"id\""), "{html}");
-    assert!(html.contains("value=\"1\""), "{html}");
-    // The note, in the textarea.
-    assert!(html.contains("name='note'>hello note</textarea>"), "{html}");
-    // The footer.
-    assert!(html.contains("<footer class='text-center'>"), "{html}");
-    assert!(html.contains(">Save</button>"), "{html}");
-    assert!(html.contains(">Cancel</button>"), "{html}");
-        Ok(())
-    })).await.unwrap();
+            let v = pluginhandler(&state, &sess, "tok", "edit", &req("1", None))
+                .await
+                .unwrap();
+            let html = raw(&v);
+            // The form the dialog posts back to (hidden op/plugin/method + id).
+            assert!(html.contains("name=\"op\""), "{html}");
+            assert!(html.contains("value=\"PluginHandler\""), "{html}");
+            assert!(html.contains("name=\"plugin\""), "{html}");
+            assert!(html.contains("value=\"note\""), "{html}");
+            assert!(html.contains("name=\"method\""), "{html}");
+            assert!(html.contains("value=\"setnote\""), "{html}");
+            assert!(html.contains("name=\"id\""), "{html}");
+            assert!(html.contains("value=\"1\""), "{html}");
+            // The note, in the textarea.
+            assert!(html.contains("name='note'>hello note</textarea>"), "{html}");
+            // The footer.
+            assert!(html.contains("<footer class='text-center'>"), "{html}");
+            assert!(html.contains(">Save</button>"), "{html}");
+            assert!(html.contains(">Cancel</button>"), "{html}");
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // `clean()` strips tags from the stored note (PHP's `clean($_REQUEST["note"])`).
 #[tokio::test]
 async fn test_setnote_strips_tags() {
-    with_test_db(|url| Box::pin(async move {
-    let state = setup(&url, "note").await;
-    let sess = session(1);
+    with_test_db(|url| {
+        Box::pin(async move {
+            let state = setup(&url, "note").await;
+            let sess = session(1);
 
-    let v = pluginhandler(&state, &sess, "tok", "setnote", &req("1", Some("a<b>c"))).await.unwrap();
-    assert_eq!(json_of(&v)["note"], "ac");
-        Ok(())
-    })).await.unwrap();
+            let v = pluginhandler(&state, &sess, "tok", "setnote", &req("1", Some("a<b>c")))
+                .await
+                .unwrap();
+            assert_eq!(json_of(&v)["note"], "ac");
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // `edit` for an article without a `ttrss_user_entries` row: footer only, no
 // textarea (the row appears when the article is first read).
 #[tokio::test]
 async fn test_edit_no_row_footer_only() {
-    with_test_db(|url| Box::pin(async move {
-    let state = setup(&url, "note").await;
-    let sess = session(1);
+    with_test_db(|url| {
+        Box::pin(async move {
+            let state = setup(&url, "note").await;
+            let sess = session(1);
 
-    let v = pluginhandler(&state, &sess, "tok", "edit", &req("9999", None)).await.unwrap();
-    let html = raw(&v);
-    assert!(!html.contains("<textarea"), "{html}");
-    assert!(html.contains("<footer class='text-center'>"), "{html}");
-        Ok(())
-    })).await.unwrap();
+            let v = pluginhandler(&state, &sess, "tok", "edit", &req("9999", None))
+                .await
+                .unwrap();
+            let html = raw(&v);
+            assert!(!html.contains("<textarea"), "{html}");
+            assert!(html.contains("<footer class='text-center'>"), "{html}");
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // `setnote` for an article without a row is a no-op (PHP's `UPDATE` without
 // `INSERT`) — a later `edit` still sees no textarea.
 #[tokio::test]
 async fn test_setnote_no_row_noop() {
-    with_test_db(|url| Box::pin(async move {
-    let state = setup(&url, "note").await;
-    let sess = session(1);
+    with_test_db(|url| {
+        Box::pin(async move {
+            let state = setup(&url, "note").await;
+            let sess = session(1);
 
-    let v = pluginhandler(&state, &sess, "tok", "setnote", &req("9999", Some("x"))).await.unwrap();
-    assert_eq!(json_of(&v)["id"], 9999);
+            let v = pluginhandler(&state, &sess, "tok", "setnote", &req("9999", Some("x")))
+                .await
+                .unwrap();
+            assert_eq!(json_of(&v)["id"], 9999);
 
-    let v = pluginhandler(&state, &sess, "tok", "edit", &req("9999", None)).await.unwrap();
-    assert!(!raw(&v).contains("<textarea"));
-        Ok(())
-    })).await.unwrap();
+            let v = pluginhandler(&state, &sess, "tok", "edit", &req("9999", None))
+                .await
+                .unwrap();
+            assert!(!raw(&v).contains("<textarea"));
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // Owner scoping: a note is per (article, owner). Owner 1's `setnote`/`edit`
@@ -230,94 +263,134 @@ async fn test_owner_scoping() {
 // (entry 2's row exists with an empty note → the textarea renders empty).
 #[tokio::test]
 async fn test_per_article_scoping() {
-    with_test_db(|url| Box::pin(async move {
-    let state = setup(&url, "note").await;
-    let sess = session(1);
+    with_test_db(|url| {
+        Box::pin(async move {
+            let state = setup(&url, "note").await;
+            let sess = session(1);
 
-    let v = pluginhandler(&state, &sess, "tok", "setnote", &req("1", Some("entry one"))).await.unwrap();
-    assert_eq!(json_of(&v)["note"], "entry one");
+            let v = pluginhandler(
+                &state,
+                &sess,
+                "tok",
+                "setnote",
+                &req("1", Some("entry one")),
+            )
+            .await
+            .unwrap();
+            assert_eq!(json_of(&v)["note"], "entry one");
 
-    let v = pluginhandler(&state, &sess, "tok", "edit", &req("2", None)).await.unwrap();
-    let html = raw(&v);
-    assert!(html.contains("<textarea"), "{html}"); // row exists (note empty)
-    assert!(!html.contains("entry one"), "{html}");
+            let v = pluginhandler(&state, &sess, "tok", "edit", &req("2", None))
+                .await
+                .unwrap();
+            let html = raw(&v);
+            assert!(html.contains("<textarea"), "{html}"); // row exists (note empty)
+            assert!(!html.contains("entry one"), "{html}");
 
-    let v = pluginhandler(&state, &sess, "tok", "edit", &req("1", None)).await.unwrap();
-    assert!(raw(&v).contains("name='note'>entry one</textarea>"));
-        Ok(())
-    })).await.unwrap();
+            let v = pluginhandler(&state, &sess, "tok", "edit", &req("1", None))
+                .await
+                .unwrap();
+            assert!(raw(&v).contains("name='note'>entry one</textarea>"));
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // The plugin-level CSRF gate: `note` does not `csrf_ignore`, so a bad token
 // is rejected even for an existing method.
 #[tokio::test]
 async fn test_csrf_fail() {
-    with_test_db(|url| Box::pin(async move {
-    let state = setup(&url, "note").await;
-    let sess = session(1);
+    with_test_db(|url| {
+        Box::pin(async move {
+            let state = setup(&url, "note").await;
+            let sess = session(1);
 
-    let v = pluginhandler(&state, &sess, "WRONG", "setnote", &req("1", Some("x"))).await.unwrap();
-    assert_eq!(code(json_of(&v)), "E_UNAUTHORIZED");
-        Ok(())
-    })).await.unwrap();
+            let v = pluginhandler(&state, &sess, "WRONG", "setnote", &req("1", Some("x")))
+                .await
+                .unwrap();
+            assert_eq!(code(json_of(&v)), "E_UNAUTHORIZED");
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // Active-set gating: a registered but system-disabled plugin is an unknown
 // plugin (PHP's per-request host only loads the enabled set).
 #[tokio::test]
 async fn test_inactive_plugin_unknown() {
-    with_test_db(|url| Box::pin(async move {
-    let state = setup(&url, "auth_internal").await; // `note` not enabled
-    let sess = session(1);
+    with_test_db(|url| {
+        Box::pin(async move {
+            let state = setup(&url, "auth_internal").await; // `note` not enabled
+            let sess = session(1);
 
-    let v = pluginhandler(&state, &sess, "tok", "edit", &req("1", None)).await.unwrap();
-    assert_eq!(code(json_of(&v)), "E_UNKNOWN_PLUGIN");
-        Ok(())
-    })).await.unwrap();
+            let v = pluginhandler(&state, &sess, "tok", "edit", &req("1", None))
+                .await
+                .unwrap();
+            assert_eq!(code(json_of(&v)), "E_UNKNOWN_PLUGIN");
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // The button row (`hook_article_button`): the exact markup the article list
 // gets from the hook (attribute order + visible text as PHP's literal).
 #[tokio::test]
 async fn test_button_row() {
-    with_test_db(|url| Box::pin(async move {
-    let state = setup(&url, "note").await;
-    let plugin = state.plugins.get_plugin("note").expect("note registered");
-    let mut ctx = HostCtx::empty(Arc::clone(&state.plugins), state.db.pool().clone(), state.config.clone());
+    with_test_db(|url| {
+        Box::pin(async move {
+            let state = setup(&url, "note").await;
+            let plugin = state.plugins.get_plugin("note").expect("note registered");
+            let mut ctx = HostCtx::empty(
+                Arc::clone(&state.plugins),
+                state.db.pool().clone(),
+                state.config.clone(),
+            );
 
-    let row = plugin
-        .hook_article_button(&mut ctx, &json!({ "id": 42 }))
-        .await;
-    assert_eq!(
-        row,
-        "<i class='material-icons' onclick=\"Plugins.Note.edit(42)\" \
+            let row = plugin
+                .hook_article_button(&mut ctx, &json!({ "id": 42 }))
+                .await;
+            assert_eq!(
+                row,
+                "<i class='material-icons' onclick=\"Plugins.Note.edit(42)\" \
          style='cursor : pointer' title=\"Edit article note\">note</i>"
-    );
-        Ok(())
-    })).await.unwrap();
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // `method_exists` parity: case-insensitive, exactly the two methods.
 #[tokio::test]
 async fn test_method_exists() {
-    with_test_db(|url| Box::pin(async move {
-    let state = setup(&url, "note").await;
-    let plugin = state.plugins.get_plugin("note").expect("note registered");
+    with_test_db(|url| {
+        Box::pin(async move {
+            let state = setup(&url, "note").await;
+            let plugin = state.plugins.get_plugin("note").expect("note registered");
 
-    for m in ["edit", "setnote", "EDIT", "SetNote"] {
-        assert!(plugin.has_public_method(m), "{m}");
-    }
-    for m in ["set", "getnote", "clear", ""] {
-        assert!(!plugin.has_public_method(m), "{m}");
-    }
+            for m in ["edit", "setnote", "EDIT", "SetNote"] {
+                assert!(plugin.has_public_method(m), "{m}");
+            }
+            for m in ["set", "getnote", "clear", ""] {
+                assert!(!plugin.has_public_method(m), "{m}");
+            }
 
-    // The registry exposes the plugin under both the dir name and resolves
-    // case-insensitively (PHP `get_plugin` lowercases).
-    let _ = state.plugins.get_plugin("NOTE").expect("case-insensitive");
-    let _ = state.plugins.get_plugin("note");
-    let _ = state.plugins.get_plugin("nonexistent");
-        Ok(())
-    })).await.unwrap();
+            // The registry exposes the plugin under both the dir name and resolves
+            // case-insensitively (PHP `get_plugin` lowercases).
+            let _ = state.plugins.get_plugin("NOTE").expect("case-insensitive");
+            let _ = state.plugins.get_plugin("note");
+            let _ = state.plugins.get_plugin("nonexistent");
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // The registry `about()` metadata (the plugin list surface, M4).

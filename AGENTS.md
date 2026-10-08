@@ -53,6 +53,7 @@ The PHP reference in `tt-rss/` is a git submodule (pinned by the superproject)
 - **Write in small, verifiable blocks** — one function or test at a time,
   checking in (`cargo check`/`cargo test`) between steps so a failure points at
   a small, isolated change.
+- **make fmt before committing; never cargo fmt with file args (loses edition → tree-wide churn).**
 - **Run expensive commands once, grep the saved output many times** — capture
   stdout (`tee /tmp/test_out.txt`) and grep it for follow-ups instead of
   re-running `cargo test`.

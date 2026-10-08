@@ -7,7 +7,7 @@
 //! (de)serializing via [`crate::core::phpser`].
 
 use aead::{Aead, KeyInit};
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use chacha20poly1305::{XChaCha20Poly1305, XNonce};
 use rand::RngCore;
 

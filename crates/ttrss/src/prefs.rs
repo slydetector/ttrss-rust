@@ -10,7 +10,7 @@
 
 use crate::core::config::sql_bool_to_bool;
 use crate::core::db::Db;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use sqlx::{PgPool, Row};
 
 /// Pref-name constants (mirror `Prefs::*` in classes/Prefs.php).
@@ -375,11 +375,7 @@ fn php_int(s: &str) -> i64 {
             .and_then(|v| v.checked_add((d - b'0') as i64))
             .unwrap_or(0);
     }
-    if neg {
-        -v
-    } else {
-        v
-    }
+    if neg { -v } else { v }
 }
 
 /// `Config::cast_to(value, type_hint)`.
@@ -453,7 +449,11 @@ pub async fn load_rows_cached(
     profile: Option<i32>,
 ) -> Vec<(String, Option<i32>, String)> {
     // Fast path: cache hit.
-    if let Some(rows) = cache.read().ok().and_then(|c| c.get(&(uid, profile)).cloned()) {
+    if let Some(rows) = cache
+        .read()
+        .ok()
+        .and_then(|c| c.get(&(uid, profile)).cloned())
+    {
         return rows;
     }
     // Slow path: query + populate.

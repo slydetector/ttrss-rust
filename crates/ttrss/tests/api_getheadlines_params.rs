@@ -18,16 +18,16 @@
 
 mod common;
 
-use serde_json::{json, Map, Value};
+use common::{Canned, MockServer};
+use serde_json::{Map, Value, json};
+use sqlx::AssertSqlSafe;
+use test_db::template::with_test_db;
+use ttrss::AppState;
 use ttrss::api;
 use ttrss::core::db::Db;
 use ttrss::core::phpser::Value as PValue;
 use ttrss::core::session::Session;
 use ttrss::session::Sess;
-use ttrss::AppState;
-use sqlx::AssertSqlSafe;
-use common::{Canned, MockServer};
-use test_db::template::with_test_db;
 
 const MOCK_FEED: &str = include_str!("../../../tt-rss/tests_integration/feed.xml");
 
@@ -87,7 +87,8 @@ async fn add_search_fixtures(pool: &sqlx::PgPool) {
                 tsvector_combined, lang)
              VALUES ({id}, '{title}', 'tag:example.com,2026:{id}', 'https://example.com/{id}',
                      {entered}, 'body', 'SHA1:0000000000000000000000000000000000000000',
-                     {entered}, {entered}, to_tsvector('simple', '{title}' || ' body'), 'en')")))
+                     {entered}, {entered}, to_tsvector('simple', '{title}' || ' body'), 'en')"
+        )))
         .execute(pool)
         .await
         .expect("entry insert");
@@ -105,65 +106,105 @@ async fn add_search_fixtures(pool: &sqlx::PgPool) {
 
 #[tokio::test]
 async fn test_search_filters_headlines() {
-    with_test_db(|url| Box::pin(async move {
-        let (state, sess) = setup(&url).await;
-        let pool = state.db.pool();
-        // Plain FTS words need a search language (the API path leaves
-        // `search_language` at "" → the `DEFAULT_SEARCH_LANGUAGE` pref).
-        sqlx::query(
-            "INSERT INTO ttrss_user_prefs2 (owner_uid, pref_name, profile, value)
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            let pool = state.db.pool();
+            // Plain FTS words need a search language (the API path leaves
+            // `search_language` at "" → the `DEFAULT_SEARCH_LANGUAGE` pref).
+            sqlx::query(
+                "INSERT INTO ttrss_user_prefs2 (owner_uid, pref_name, profile, value)
              VALUES (1, 'DEFAULT_SEARCH_LANGUAGE', NULL, 'simple')",
-        )
-        .execute(pool)
-        .await
-        .expect("language pref");
-        add_search_fixtures(pool).await;
+            )
+            .execute(pool)
+            .await
+            .expect("language pref");
+            add_search_fixtures(pool).await;
 
-        // No search → both articles (newest first).
-        assert_eq!(ids(&state, &sess, &[("feed_id", json!(5))]).await, vec![51, 50]);
-        // `search=zebra` → only the zebra article (the port once ignored it).
-        assert_eq!(
-            ids(&state, &sess, &[("feed_id", json!(5)), ("search", json!("zebra"))]).await,
-            vec![50],
-            "search must filter the headline list"
-        );
-        // `search=quokka` → only the quokka article.
-        assert_eq!(
-            ids(&state, &sess, &[("feed_id", json!(5)), ("search", json!("quokka"))]).await,
-            vec![51],
-        );
-        Ok(())
-    }))
+            // No search → both articles (newest first).
+            assert_eq!(
+                ids(&state, &sess, &[("feed_id", json!(5))]).await,
+                vec![51, 50]
+            );
+            // `search=zebra` → only the zebra article (the port once ignored it).
+            assert_eq!(
+                ids(
+                    &state,
+                    &sess,
+                    &[("feed_id", json!(5)), ("search", json!("zebra"))]
+                )
+                .await,
+                vec![50],
+                "search must filter the headline list"
+            );
+            // `search=quokka` → only the quokka article.
+            assert_eq!(
+                ids(
+                    &state,
+                    &sess,
+                    &[("feed_id", json!(5)), ("search", json!("quokka"))]
+                )
+                .await,
+                vec![51],
+            );
+            Ok(())
+        })
+    })
     .await
     .unwrap();
 }
 
 #[tokio::test]
 async fn test_check_first_id_changed_result_set() {
-    with_test_db(|url| Box::pin(async move {
-        let (state, sess) = setup(&url).await;
-        add_search_fixtures(state.db.pool()).await;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            add_search_fixtures(state.db.pool()).await;
 
-        // `offset > 0` + a matching `check_first_id` (the current top id, 51)
-        // → the page is served.
-        assert_eq!(
-            ids(&state, &sess, &[("feed_id", json!(5)), ("skip", json!(1)), ("check_first_id", json!(51))]).await,
-            vec![50],
-        );
-        // A stale `check_first_id` → the result set changed → an empty list
-        // (PHP returns `[-1, …]`; the API renders it as no headlines).
-        assert_eq!(
-            ids(&state, &sess, &[("feed_id", json!(5)), ("skip", json!(1)), ("check_first_id", json!(50))]).await,
-            Vec::<i64>::new(),
-            "changed result set must signal via an empty list"
-        );
-        // `offset = 0` → the check is skipped (PHP's `offset > 0` gate).
-        assert_eq!(
-            ids(&state, &sess, &[("feed_id", json!(5)), ("check_first_id", json!(50))]).await,
-            vec![51, 50],
-        );
-        Ok(())
-    }))
+            // `offset > 0` + a matching `check_first_id` (the current top id, 51)
+            // → the page is served.
+            assert_eq!(
+                ids(
+                    &state,
+                    &sess,
+                    &[
+                        ("feed_id", json!(5)),
+                        ("skip", json!(1)),
+                        ("check_first_id", json!(51))
+                    ]
+                )
+                .await,
+                vec![50],
+            );
+            // A stale `check_first_id` → the result set changed → an empty list
+            // (PHP returns `[-1, …]`; the API renders it as no headlines).
+            assert_eq!(
+                ids(
+                    &state,
+                    &sess,
+                    &[
+                        ("feed_id", json!(5)),
+                        ("skip", json!(1)),
+                        ("check_first_id", json!(50))
+                    ]
+                )
+                .await,
+                Vec::<i64>::new(),
+                "changed result set must signal via an empty list"
+            );
+            // `offset = 0` → the check is skipped (PHP's `offset > 0` gate).
+            assert_eq!(
+                ids(
+                    &state,
+                    &sess,
+                    &[("feed_id", json!(5)), ("check_first_id", json!(50))]
+                )
+                .await,
+                vec![51, 50],
+            );
+            Ok(())
+        })
+    })
     .await
     .unwrap();
 }
@@ -172,7 +213,11 @@ async fn test_check_first_id_changed_result_set() {
 fn feed_mock(status: u16) -> MockServer {
     MockServer::new(vec![Canned {
         status,
-        reason: if status == 200 { "OK" } else { "Internal Server Error" },
+        reason: if status == 200 {
+            "OK"
+        } else {
+            "Internal Server Error"
+        },
         headers: vec![("content-type", "application/atom+xml".to_string())],
         body: MOCK_FEED.as_bytes().to_vec(),
     }])
@@ -249,20 +294,33 @@ async fn test_force_update_stale_feed_fetches() {
 /// fetch was attempted (a failed fetch would stamp `last_error`).
 #[tokio::test]
 async fn test_force_update_recent_feed_resets_stamps() {
-    with_test_db(|url| Box::pin(async move {
-        let (state, sess) = setup(&url).await;
-        let pool = state.db.pool();
-        let mock = feed_mock(500);
-        add_force_feed(pool, &mock.url("/feed"), "2099-01-01 00:00:00", false).await;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            let pool = state.db.pool();
+            let mock = feed_mock(500);
+            add_force_feed(pool, &mock.url("/feed"), "2099-01-01 00:00:00", false).await;
 
-        ids(&state, &sess, &[("feed_id", json!(5)), ("force_update", json!(true))]).await;
+            ids(
+                &state,
+                &sess,
+                &[("feed_id", json!(5)), ("force_update", json!(true))],
+            )
+            .await;
 
-        let (lu, lus, err) = stamps(pool).await;
-        assert!(lu.starts_with("1970-01-01"), "last_updated reset, got {lu}");
-        assert!(lus.starts_with("1970-01-01"), "last_update_started reset, got {lus}");
-        assert!(err.as_deref().unwrap_or("").is_empty(), "no fetch attempted within the flood control: {err:?}");
-        Ok(())
-    }))
+            let (lu, lus, err) = stamps(pool).await;
+            assert!(lu.starts_with("1970-01-01"), "last_updated reset, got {lu}");
+            assert!(
+                lus.starts_with("1970-01-01"),
+                "last_update_started reset, got {lus}"
+            );
+            assert!(
+                err.as_deref().unwrap_or("").is_empty(),
+                "no fetch attempted within the flood control: {err:?}"
+            );
+            Ok(())
+        })
+    })
     .await
     .unwrap();
 }
@@ -271,20 +329,33 @@ async fn test_force_update_recent_feed_resets_stamps() {
 /// either — same stamp reset.
 #[tokio::test]
 async fn test_force_update_cache_images_feed_resets_stamps() {
-    with_test_db(|url| Box::pin(async move {
-        let (state, sess) = setup(&url).await;
-        let pool = state.db.pool();
-        let mock = feed_mock(500);
-        add_force_feed(pool, &mock.url("/feed"), "2020-01-01 00:00:00", true).await;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            let pool = state.db.pool();
+            let mock = feed_mock(500);
+            add_force_feed(pool, &mock.url("/feed"), "2020-01-01 00:00:00", true).await;
 
-        ids(&state, &sess, &[("feed_id", json!(5)), ("force_update", json!(true))]).await;
+            ids(
+                &state,
+                &sess,
+                &[("feed_id", json!(5)), ("force_update", json!(true))],
+            )
+            .await;
 
-        let (lu, lus, err) = stamps(pool).await;
-        assert!(lu.starts_with("1970-01-01"), "last_updated reset, got {lu}");
-        assert!(lus.starts_with("1970-01-01"), "last_update_started reset, got {lus}");
-        assert!(err.as_deref().unwrap_or("").is_empty(), "cache-images feeds are not fetched synchronously: {err:?}");
-        Ok(())
-    }))
+            let (lu, lus, err) = stamps(pool).await;
+            assert!(lu.starts_with("1970-01-01"), "last_updated reset, got {lu}");
+            assert!(
+                lus.starts_with("1970-01-01"),
+                "last_update_started reset, got {lus}"
+            );
+            assert!(
+                err.as_deref().unwrap_or("").is_empty(),
+                "cache-images feeds are not fetched synchronously: {err:?}"
+            );
+            Ok(())
+        })
+    })
     .await
     .unwrap();
 }

@@ -13,19 +13,19 @@ mod common;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use serde_json::{json, Value};
+use common::{Canned, MockServer};
+use serde_json::{Value, json};
+use test_db::template::with_test_db;
 use ttrss::core::config::Config;
 use ttrss::core::db::Db;
 use ttrss::feeds::subscribe;
 use ttrss::pluginhost::host::HostCtx;
 use ttrss::pluginhost::{
-    About, Plugin, PluginHost, HOOK_FETCH_FEED, HOOK_FEED_BASIC_INFO, HOOK_PRE_SUBSCRIBE,
-    HOOK_SUBSCRIBE_FEED,
+    About, HOOK_FEED_BASIC_INFO, HOOK_FETCH_FEED, HOOK_PRE_SUBSCRIBE, HOOK_SUBSCRIBE_FEED, Plugin,
+    PluginHost,
 };
 use ttrss::rss_utils::update_basic_info;
-use ttrss::updates::{fetch_one_feed, FeedUpdateFlags};
-use common::{Canned, MockServer};
-use test_db::template::with_test_db;
+use ttrss::updates::{FeedUpdateFlags, fetch_one_feed};
 
 /// A valid RSS feed with a single article (the `HOOK_FETCH_FEED` stub's output).
 const STUB_FETCH_XML: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
@@ -274,30 +274,32 @@ async fn feed_site_url(db: &Db, feed_id: i32) -> String {
 // populate the fields).
 #[tokio::test]
 async fn test_feed_basic_info_hook_supplies_title_skipping_fetch() {
-    with_test_db(|url| Box::pin(async move {
-        let db = common::make_db_from_url(&url).await.expect("test db");
-        let mut cfg = test_config();
-        cfg.plugins = "basic_info_stub".to_string();
-        let uid = create_user(&db, 400, 0).await;
-        let feed_id = create_feed(
-            &db,
-            401,
-            uid,
-            "[Unknown]",
-            "http://nonexistent.invalid/feed.xml",
-        )
-        .await;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = common::make_db_from_url(&url).await.expect("test db");
+            let mut cfg = test_config();
+            cfg.plugins = "basic_info_stub".to_string();
+            let uid = create_user(&db, 400, 0).await;
+            let feed_id = create_feed(
+                &db,
+                401,
+                uid,
+                "[Unknown]",
+                "http://nonexistent.invalid/feed.xml",
+            )
+            .await;
 
-        let host = Arc::new(PluginHost::startup(&[|| Box::new(BasicInfoStub)]));
-        update_basic_info(db.pool(), &cfg, &host, feed_id as i32).await;
+            let host = Arc::new(PluginHost::startup(&[|| Box::new(BasicInfoStub)]));
+            update_basic_info(db.pool(), &cfg, &host, feed_id as i32).await;
 
-        assert_eq!(feed_title(&db, feed_id as i32).await, "STUB BASIC TITLE");
-        assert_eq!(
-            feed_site_url(&db, feed_id as i32).await,
-            "http://basic.stub.example"
-        );
-        Ok(())
-    }))
+            assert_eq!(feed_title(&db, feed_id as i32).await, "STUB BASIC TITLE");
+            assert_eq!(
+                feed_site_url(&db, feed_id as i32).await,
+                "http://basic.stub.example"
+            );
+            Ok(())
+        })
+    })
     .await
     .unwrap();
 }
@@ -307,40 +309,45 @@ async fn test_feed_basic_info_hook_supplies_title_skipping_fetch() {
 // URL below points at nothing, so only the hook's data could be ingested).
 #[tokio::test]
 async fn test_fetch_feed_hook_supplies_data_skipping_fetch() {
-    with_test_db(|url| Box::pin(async move {
-        let db = common::make_db_from_url(&url).await.expect("test db");
-        let mut cfg = test_config();
-        cfg.plugins = "fetch_stub".to_string();
-        let uid = create_user(&db, 410, 0).await;
-        let feed_id = create_feed(
-            &db,
-            411,
-            uid,
-            "Test Feed",
-            "http://nonexistent.invalid/feed.xml",
-        )
-        .await;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = common::make_db_from_url(&url).await.expect("test db");
+            let mut cfg = test_config();
+            cfg.plugins = "fetch_stub".to_string();
+            let uid = create_user(&db, 410, 0).await;
+            let feed_id = create_feed(
+                &db,
+                411,
+                uid,
+                "Test Feed",
+                "http://nonexistent.invalid/feed.xml",
+            )
+            .await;
 
-        let host = Arc::new(PluginHost::startup(&[|| Box::new(FetchStub)]));
-        let outcome = fetch_one_feed(
-            db.pool(),
-            &cfg,
-            Arc::clone(&host),
-            feed_id as i32,
-            &FeedUpdateFlags::default(),
-            None,
-        )
-        .await
-        .expect("fetch");
+            let host = Arc::new(PluginHost::startup(&[|| Box::new(FetchStub)]));
+            let outcome = fetch_one_feed(
+                db.pool(),
+                &cfg,
+                Arc::clone(&host),
+                feed_id as i32,
+                &FeedUpdateFlags::default(),
+                None,
+            )
+            .await
+            .expect("fetch");
 
-        assert!(
-            outcome.success,
-            "the hook-supplied feed should parse, got {:?}",
-            outcome.error
-        );
-        assert_eq!(outcome.new_articles, 1, "the hook's single article should be ingested");
-        Ok(())
-    }))
+            assert!(
+                outcome.success,
+                "the hook-supplied feed should parse, got {:?}",
+                outcome.error
+            );
+            assert_eq!(
+                outcome.new_articles, 1,
+                "the hook's single article should be ingested"
+            );
+            Ok(())
+        })
+    })
     .await
     .unwrap();
 }
@@ -351,40 +358,42 @@ async fn test_fetch_feed_hook_supplies_data_skipping_fetch() {
 // hook replacing it with a valid feed makes the feed be created (code 1).
 #[tokio::test]
 async fn test_subscribe_feed_hook_transforms_content() {
-    with_test_db(|url| Box::pin(async move {
-        let db = common::make_db_from_url(&url).await.expect("test db");
-        let mut cfg = test_config();
-        cfg.plugins = "subscribe_stub".to_string();
-        let uid = create_user(&db, 420, 0).await;
-        let mock = MockServer::new(vec![Canned {
-            status: 200,
-            reason: "OK",
-            headers: vec![("content-type", "text/plain".to_string())],
-            body: b"this is not a feed".to_vec(),
-        }]);
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = common::make_db_from_url(&url).await.expect("test db");
+            let mut cfg = test_config();
+            cfg.plugins = "subscribe_stub".to_string();
+            let uid = create_user(&db, 420, 0).await;
+            let mock = MockServer::new(vec![Canned {
+                status: 200,
+                reason: "OK",
+                headers: vec![("content-type", "text/plain".to_string())],
+                body: b"this is not a feed".to_vec(),
+            }]);
 
-        let host = Arc::new(PluginHost::startup(&[|| Box::new(SubscribeStub)]));
-        let rc = subscribe(
-            &cfg,
-            db.pool(),
-            &host,
-            uid as i64,
-            0,
-            &mock.url("/feed"),
-            0,
-            "",
-            "",
-            0,
-        )
-        .await;
+            let host = Arc::new(PluginHost::startup(&[|| Box::new(SubscribeStub)]));
+            let rc = subscribe(
+                &cfg,
+                db.pool(),
+                &host,
+                uid as i64,
+                0,
+                &mock.url("/feed"),
+                0,
+                "",
+                "",
+                0,
+            )
+            .await;
 
-        assert_eq!(
-            rc.get("code").and_then(|v| v.as_i64()),
-            Some(1),
-            "the hook's valid content should be parsed and the feed created: {rc}"
-        );
-        Ok(())
-    }))
+            assert_eq!(
+                rc.get("code").and_then(|v| v.as_i64()),
+                Some(1),
+                "the hook's valid content should be parsed and the feed created: {rc}"
+            );
+            Ok(())
+        })
+    })
     .await
     .unwrap();
 }

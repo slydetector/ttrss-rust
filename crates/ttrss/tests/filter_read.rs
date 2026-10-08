@@ -8,22 +8,22 @@
 
 mod common;
 
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
+use test_db::template::with_test_db;
+use ttrss::AppState;
 use ttrss::core::config::Config;
 use ttrss::core::db::Db;
 use ttrss::core::phpser::Value as PValue;
 use ttrss::core::session::Session;
 use ttrss::session::Sess;
-use ttrss::AppState;
-use test_db::template::with_test_db;
 
 /// A test-only config (the handlers only need `db`).
-fn test_config() -> Config { common::test_config() }
+fn test_config() -> Config {
+    common::test_config()
+}
 
 /// Fresh fixtures + a session carrying `uid = 1` (owner of the fixture rows).
-async fn setup(
-    url: &str,
-) -> (AppState, Sess) {
+async fn setup(url: &str) -> (AppState, Sess) {
     let db: Db = common::make_db_from_url(url).await.expect("test db");
     let state = AppState::new(test_config(), db);
     let mut data = Session::new();
@@ -56,48 +56,58 @@ async fn insert_filter(db: &Db, title: &str) -> i32 {
 /// actions, and the `filter_types` / `action_types` maps (type 5 unsupported).
 #[tokio::test]
 async fn test_edit_new_filter() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup(&url).await;
-    let Some(json) = ttrss::filters::edit(&state, &sess, &request(&[("id", json!(0))])).await
-    else {
-        panic!("expected Some for a new filter");
-    };
-    assert_eq!(json["id"], 0);
-    assert_eq!(json["enabled"], true);
-    assert_eq!(json["match_any_rule"], false);
-    assert_eq!(json["inverse"], false);
-    assert_eq!(json["title"], "");
-    assert_eq!(json["rules"].as_array().unwrap().len(), 0);
-    assert_eq!(json["actions"].as_array().unwrap().len(), 0);
-    assert_eq!(json["filter_types"]["1"], "Title");
-    assert_eq!(json["filter_types"]["2"], "Content");
-    assert_eq!(json["filter_types"]["3"], "Title or Content");
-    assert_eq!(json["filter_types"]["4"], "Link");
-    assert_eq!(json["filter_types"]["6"], "Author");
-    assert_eq!(json["filter_types"]["7"], "Article Tags");
-    assert!(
-        json["filter_types"].get("5").is_none(),
-        "type 5 is unsupported"
-    );
-    assert_eq!(json["action_types"]["1"], "Delete article");
-    assert_eq!(json["action_types"]["4"], "Assign tags");
-    assert_eq!(json["action_types"]["7"], "Assign label");
-    assert_eq!(json["action_types"]["10"], "Ignore tags");
-    assert!(json["plugin_actions"].is_object());
-    assert!(json["labels"].is_array());
-        Ok(())
-    })).await.unwrap();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            let Some(json) =
+                ttrss::filters::edit(&state, &sess, &request(&[("id", json!(0))])).await
+            else {
+                panic!("expected Some for a new filter");
+            };
+            assert_eq!(json["id"], 0);
+            assert_eq!(json["enabled"], true);
+            assert_eq!(json["match_any_rule"], false);
+            assert_eq!(json["inverse"], false);
+            assert_eq!(json["title"], "");
+            assert_eq!(json["rules"].as_array().unwrap().len(), 0);
+            assert_eq!(json["actions"].as_array().unwrap().len(), 0);
+            assert_eq!(json["filter_types"]["1"], "Title");
+            assert_eq!(json["filter_types"]["2"], "Content");
+            assert_eq!(json["filter_types"]["3"], "Title or Content");
+            assert_eq!(json["filter_types"]["4"], "Link");
+            assert_eq!(json["filter_types"]["6"], "Author");
+            assert_eq!(json["filter_types"]["7"], "Article Tags");
+            assert!(
+                json["filter_types"].get("5").is_none(),
+                "type 5 is unsupported"
+            );
+            assert_eq!(json["action_types"]["1"], "Delete article");
+            assert_eq!(json["action_types"]["4"], "Assign tags");
+            assert_eq!(json["action_types"]["7"], "Assign label");
+            assert_eq!(json["action_types"]["10"], "Ignore tags");
+            assert!(json["plugin_actions"].is_object());
+            assert!(json["labels"].is_array());
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 /// `edit` on a missing filter (nonzero id, not owned) returns `None`.
 #[tokio::test]
 async fn test_edit_not_found() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup(&url).await;
-    let json = ttrss::filters::edit(&state, &sess, &request(&[("id", json!(999999))])).await;
-    assert!(json.is_none(), "missing filter should print nothing");
-        Ok(())
-    })).await.unwrap();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            let json =
+                ttrss::filters::edit(&state, &sess, &request(&[("id", json!(999999))])).await;
+            assert!(json.is_none(), "missing filter should print nothing");
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 /// `edit` on a filter with rules + actions returns the full prefill: the rule
@@ -105,13 +115,14 @@ async fn test_edit_not_found() {
 /// action list (with `action_param_label` and names), and the type maps.
 #[tokio::test]
 async fn test_edit_existing() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup(&url).await;
-    let db = state.db.pool();
-    let fid = insert_filter(&state.db, "My filter").await;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            let db = state.db.pool();
+            let fid = insert_filter(&state.db, "My filter").await;
 
-    // A title rule on feed 1 (Hacker News) and a tag rule on all feeds.
-    sqlx::query(
+            // A title rule on feed 1 (Hacker News) and a tag rule on all feeds.
+            sqlx::query(
         "INSERT INTO ttrss_filters2_rules (filter_id, reg_exp, filter_type, feed_id, cat_id, \
          match_on, cat_filter, inverse) VALUES \
          ($1, '(?i)rust', 1, 1, NULL, NULL, false, false), \
@@ -121,125 +132,144 @@ async fn test_edit_existing() {
     .execute(db)
     .await
     .unwrap();
-    // A tag action and a score action.
-    sqlx::query(
-        "INSERT INTO ttrss_filters2_actions (filter_id, action_id, action_param) VALUES \
+            // A tag action and a score action.
+            sqlx::query(
+                "INSERT INTO ttrss_filters2_actions (filter_id, action_id, action_param) VALUES \
          ($1, 4, 'hello, world'), ($1, 6, '5')",
-    )
-    .bind(fid)
-    .execute(db)
+            )
+            .bind(fid)
+            .execute(db)
+            .await
+            .unwrap();
+
+            let Some(json) =
+                ttrss::filters::edit(&state, &sess, &request(&[("id", json!(fid))])).await
+            else {
+                panic!("expected Some");
+            };
+            assert_eq!(json["id"], fid);
+            assert_eq!(json["title"], "My filter");
+            assert_eq!(json["enabled"], true);
+
+            let rules = json["rules"].as_array().unwrap();
+            assert_eq!(rules.len(), 2, "two rules: {json}");
+            // Ordered by reg_exp: "(?i)rust" < "(?i)tag".
+            assert_eq!(rules[0]["reg_exp"], "(?i)rust");
+            assert_eq!(rules[0]["filter_type"], 1);
+            assert_eq!(rules[0]["feed_id"], json!(["1"]));
+            assert!(
+                rules[0].get("inverse").is_none(),
+                "inverse false is omitted"
+            );
+            assert!(rules[0]["name"].as_str().unwrap().contains("Hacker News"));
+            assert!(rules[0]["name"].as_str().unwrap().contains("Title"));
+
+            assert_eq!(rules[1]["reg_exp"], "(?i)tag");
+            assert_eq!(rules[1]["filter_type"], 7);
+            assert_eq!(
+                rules[1]["feed_id"],
+                json!(["0"]),
+                "no feed => \"All feeds\" (0)"
+            );
+            assert!(rules[1]["name"].as_str().unwrap().contains("All feeds"));
+
+            let actions = json["actions"].as_array().unwrap();
+            assert_eq!(actions.len(), 2, "two actions: {json}");
+            assert_eq!(actions[0]["action_id"], 4);
+            assert_eq!(actions[0]["action_param"], "hello, world");
+            assert_eq!(actions[0]["action_param_label"], "hello, world");
+            assert_eq!(actions[0]["name"], "Assign tags: hello, world");
+            assert_eq!(actions[1]["action_id"], 6);
+            assert_eq!(actions[1]["name"], "Modify score: 5");
+            Ok(())
+        })
+    })
     .await
     .unwrap();
-
-    let Some(json) = ttrss::filters::edit(&state, &sess, &request(&[("id", json!(fid))])).await
-    else {
-        panic!("expected Some");
-    };
-    assert_eq!(json["id"], fid);
-    assert_eq!(json["title"], "My filter");
-    assert_eq!(json["enabled"], true);
-
-    let rules = json["rules"].as_array().unwrap();
-    assert_eq!(rules.len(), 2, "two rules: {json}");
-    // Ordered by reg_exp: "(?i)rust" < "(?i)tag".
-    assert_eq!(rules[0]["reg_exp"], "(?i)rust");
-    assert_eq!(rules[0]["filter_type"], 1);
-    assert_eq!(rules[0]["feed_id"], json!(["1"]));
-    assert!(
-        rules[0].get("inverse").is_none(),
-        "inverse false is omitted"
-    );
-    assert!(rules[0]["name"].as_str().unwrap().contains("Hacker News"));
-    assert!(rules[0]["name"].as_str().unwrap().contains("Title"));
-
-    assert_eq!(rules[1]["reg_exp"], "(?i)tag");
-    assert_eq!(rules[1]["filter_type"], 7);
-    assert_eq!(
-        rules[1]["feed_id"],
-        json!(["0"]),
-        "no feed => \"All feeds\" (0)"
-    );
-    assert!(rules[1]["name"].as_str().unwrap().contains("All feeds"));
-
-    let actions = json["actions"].as_array().unwrap();
-    assert_eq!(actions.len(), 2, "two actions: {json}");
-    assert_eq!(actions[0]["action_id"], 4);
-    assert_eq!(actions[0]["action_param"], "hello, world");
-    assert_eq!(actions[0]["action_param_label"], "hello, world");
-    assert_eq!(actions[0]["name"], "Assign tags: hello, world");
-    assert_eq!(actions[1]["action_id"], 6);
-    assert_eq!(actions[1]["name"], "Modify score: 5");
-        Ok(())
-    })).await.unwrap();
 }
 
 /// `printRuleName` renders the HTML rule name; a non-object / invalid JSON
 /// yields the PHP's literal error strings.
 #[tokio::test]
 async fn test_print_rule_name() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup(&url).await;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
 
-    let rule = json!({ "reg_exp": "(?i)rust", "filter_type": 1, "feed_id": ["1"] });
-    let name = ttrss::filters::print_rule_name(
-        &state,
-        &sess,
-        &request(&[("rule", json!(rule.to_string()))]),
-    )
-    .await;
-    assert!(
+            let rule = json!({ "reg_exp": "(?i)rust", "filter_type": 1, "feed_id": ["1"] });
+            let name = ttrss::filters::print_rule_name(
+                &state,
+                &sess,
+                &request(&[("rule", json!(rule.to_string()))]),
+            )
+            .await;
+            assert!(
         name.contains(
             "(?i)rust on <span class='field'>Title</span> in <span class='feed'>Hacker News</span>"
         ),
         "got {name}"
     );
-    assert!(name.starts_with("<span class='filterRule '"), "got {name}");
+            assert!(name.starts_with("<span class='filterRule '"), "got {name}");
 
-    // A non-object JSON decodes to "invalid rule JSON".
-    let name =
-        ttrss::filters::print_rule_name(&state, &sess, &request(&[("rule", json!("123"))])).await;
-    assert_eq!(name, "invalid rule JSON");
+            // A non-object JSON decodes to "invalid rule JSON".
+            let name =
+                ttrss::filters::print_rule_name(&state, &sess, &request(&[("rule", json!("123"))]))
+                    .await;
+            assert_eq!(name, "invalid rule JSON");
 
-    // An unparseable string is "malformed rule JSON".
-    let name =
-        ttrss::filters::print_rule_name(&state, &sess, &request(&[("rule", json!("{not json"))]))
+            // An unparseable string is "malformed rule JSON".
+            let name = ttrss::filters::print_rule_name(
+                &state,
+                &sess,
+                &request(&[("rule", json!("{not json"))]),
+            )
             .await;
-    assert_eq!(name, "malformed rule JSON");
-        Ok(())
-    })).await.unwrap();
+            assert_eq!(name, "malformed rule JSON");
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 /// `printActionName` renders the action name; a missing / non-object param
 /// yields the PHP's literal error strings.
 #[tokio::test]
 async fn test_print_action_name() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup(&url).await;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
 
-    let action = json!({ "action_id": 4, "action_param": "hello, world" });
-    let name = ttrss::filters::print_action_name(
-        &state,
-        &sess,
-        &request(&[("action", json!(action.to_string()))]),
-    )
-    .await;
-    assert_eq!(name, "Assign tags: hello, world");
-
-    // A label action appends the label name.
-    let action = json!({ "action_id": 7, "action_param": "Work" });
-    let name = ttrss::filters::print_action_name(
-        &state,
-        &sess,
-        &request(&[("action", json!(action.to_string()))]),
-    )
-    .await;
-    assert_eq!(name, "Assign label: Work");
-
-    // A non-object JSON decodes to "invalid action JSON".
-    let name =
-        ttrss::filters::print_action_name(&state, &sess, &request(&[("action", json!("42"))]))
+            let action = json!({ "action_id": 4, "action_param": "hello, world" });
+            let name = ttrss::filters::print_action_name(
+                &state,
+                &sess,
+                &request(&[("action", json!(action.to_string()))]),
+            )
             .await;
-    assert_eq!(name, "invalid action JSON");
-        Ok(())
-    })).await.unwrap();
+            assert_eq!(name, "Assign tags: hello, world");
+
+            // A label action appends the label name.
+            let action = json!({ "action_id": 7, "action_param": "Work" });
+            let name = ttrss::filters::print_action_name(
+                &state,
+                &sess,
+                &request(&[("action", json!(action.to_string()))]),
+            )
+            .await;
+            assert_eq!(name, "Assign label: Work");
+
+            // A non-object JSON decodes to "invalid action JSON".
+            let name = ttrss::filters::print_action_name(
+                &state,
+                &sess,
+                &request(&[("action", json!("42"))]),
+            )
+            .await;
+            assert_eq!(name, "invalid action JSON");
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }

@@ -8,9 +8,8 @@
 
 mod common;
 
-use ttrss::session::Sess;
 use test_db::template::with_test_db;
-
+use ttrss::session::Sess;
 
 /// The feed-tree export (no settings): both categories, all four feeds, each
 /// nested under its category, with `htmlUrl`, and *no* `ttrss*` attributes.
@@ -82,30 +81,33 @@ async fn test_export_include_settings() {
 /// The `export` handler returns the OPML as a download (content-type + filename).
 #[tokio::test]
 async fn test_export_handler() {
-    with_test_db(|url| Box::pin(async move {
-    let state = common::make_app_state(&url).await;
-    let mut data = ttrss::core::session::Session::new();
-    data.set("uid", ttrss::core::phpser::Value::Int(1));
-    data.set("name", ttrss::core::phpser::Value::Bytes(b"admin".to_vec()));
-    let sess = Sess::new("test-sid".to_string());
-    sess.replace("test-sid".to_string(), data);
+    with_test_db(|url| {
+        Box::pin(async move {
+            let state = common::make_app_state(&url).await;
+            let mut data = ttrss::core::session::Session::new();
+            data.set("uid", ttrss::core::phpser::Value::Int(1));
+            data.set("name", ttrss::core::phpser::Value::Bytes(b"admin".to_vec()));
+            let sess = Sess::new("test-sid".to_string());
+            sess.replace("test-sid".to_string(), data);
 
+            let extra = serde_json::Map::new();
+            let (status, ct, disp, body) = ttrss::opml::export(&state, &sess, &extra).await;
 
-    let extra = serde_json::Map::new();
-    let (status, ct, disp, body) = ttrss::opml::export(&state, &sess, &extra).await;
-
-    assert_eq!(status, axum::http::StatusCode::OK);
-    assert_eq!(ct, "application/xml+opml");
-    let disp = disp.expect("content-disposition");
-    assert!(
-        disp.starts_with("attachment; filename=tt-rss_admin_"),
-        "disposition: {disp}"
-    );
-    assert!(disp.ends_with(".opml"), "disposition: {disp}");
-    assert!(body.contains("<opml version=\"1.0\">"), "body: {body}");
-    assert!(body.contains("text=\"Hacker News\""), "body: {body}");
-        Ok(())
-    })).await.unwrap();
+            assert_eq!(status, axum::http::StatusCode::OK);
+            assert_eq!(ct, "application/xml+opml");
+            let disp = disp.expect("content-disposition");
+            assert!(
+                disp.starts_with("attachment; filename=tt-rss_admin_"),
+                "disposition: {disp}"
+            );
+            assert!(disp.ends_with(".opml"), "disposition: {disp}");
+            assert!(body.contains("<opml version=\"1.0\">"), "body: {body}");
+            assert!(body.contains("text=\"Hacker News\""), "body: {body}");
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 /// Empty categories are RETAINED. PHP `opml_export_category` emits every
@@ -116,25 +118,31 @@ async fn test_export_handler() {
 /// import.
 #[tokio::test]
 async fn test_export_retains_empty_category() {
-    with_test_db(|url| Box::pin(async move {
-    let state = common::make_app_state(&url).await;
-    // Add an empty category (no feeds, no sub-cats).
-    sqlx::query("INSERT INTO ttrss_feed_categories (owner_uid, title) VALUES (1, 'Empty Cat')")
-        .execute(state.db.pool())
-        .await
-        .expect("insert empty cat");
+    with_test_db(|url| {
+        Box::pin(async move {
+            let state = common::make_app_state(&url).await;
+            // Add an empty category (no feeds, no sub-cats).
+            sqlx::query(
+                "INSERT INTO ttrss_feed_categories (owner_uid, title) VALUES (1, 'Empty Cat')",
+            )
+            .execute(state.db.pool())
+            .await
+            .expect("insert empty cat");
 
-    let opml = ttrss::opml::build_opml(state.db.pool(), 1, false).await;
-    // The empty category is emitted as a self-closing outline (no children).
-    assert!(
-        opml.contains("    <outline text=\"Empty Cat\"/>"),
-        "empty category retained: {opml}"
-    );
-    // The real categories remain.
-    assert!(opml.contains("text=\"Technology\""));
-    assert!(opml.contains("text=\"Science &amp; Nature\""));
-        Ok(())
-    })).await.unwrap();
+            let opml = ttrss::opml::build_opml(state.db.pool(), 1, false).await;
+            // The empty category is emitted as a self-closing outline (no children).
+            assert!(
+                opml.contains("    <outline text=\"Empty Cat\"/>"),
+                "empty category retained: {opml}"
+            );
+            // The real categories remain.
+            assert!(opml.contains("text=\"Technology\""));
+            assert!(opml.contains("text=\"Science &amp; Nature\""));
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 /// Settings round trip: export owner 1's prefs/labels/filters with
@@ -261,5 +269,4 @@ async fn test_export_import_settings_roundtrip() {
       assert_eq!(n_actions, 2, "original + imported action");
           Ok(())
       })).await.unwrap();
-  }
-
+}

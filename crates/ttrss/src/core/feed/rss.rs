@@ -5,8 +5,8 @@ use roxmltree::Node;
 
 use super::datetime::parse_date;
 use super::item::{
-    all_child_ns, all_desc_local, first_child_local, first_child_ns, first_desc_local,
-    media_enclosures, subtree_or_text, text_content, FeedEnclosure,
+    FeedEnclosure, all_child_ns, all_desc_local, first_child_local, first_child_ns,
+    first_desc_local, media_enclosures, subtree_or_text, text_content,
 };
 use super::{NS_ATOM, NS_CONTENT, NS_DC};
 use crate::util::{clean_str, normalize_categories, php_trim};
@@ -42,10 +42,12 @@ pub(super) fn get_link<'a, 'input>(node: Node<'a, 'input>) -> String {
         }
     }
     if let Some(guid) = first_desc_local(node, "guid")
-        && guid.attributes().next().is_some() && guid.attribute("isPermaLink") == Some("true") {
-            let text = text_content(guid);
-            return clean_str(php_trim(&text));
-        }
+        && guid.attributes().next().is_some()
+        && guid.attribute("isPermaLink") == Some("true")
+    {
+        let text = text_content(guid);
+        return clean_str(php_trim(&text));
+    }
     if let Some(link) = first_desc_local(node, "link") {
         let text = text_content(link);
         return clean_str(php_trim(&text));

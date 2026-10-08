@@ -1,10 +1,10 @@
 //! Scenario executor: performs the HTTP exchanges and records fixtures.
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use serde::Serialize;
 use serde_json::json;
-use sqlx::Row;
 use sqlx::AssertSqlSafe;
+use sqlx::Row;
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::time::Duration;
@@ -41,9 +41,7 @@ pub async fn run(
     std::fs::create_dir_all(out).with_context(|| format!("creating {}", out.display()))?;
     // Clear stale fixtures: step numbering shifts when scenarios change, and a
     // leftover `NNN_*.json` from an older run would otherwise poison the diff.
-    for entry in std::fs::read_dir(out)
-        .with_context(|| format!("reading {}", out.display()))?
-    {
+    for entry in std::fs::read_dir(out).with_context(|| format!("reading {}", out.display()))? {
         let p = entry?.path();
         if p.is_file() && p.extension().is_some_and(|e| e == "json") {
             std::fs::remove_file(&p)
@@ -78,7 +76,16 @@ pub async fn run(
         if step.sleep_ms > 0 {
             tokio::time::sleep(Duration::from_millis(step.sleep_ms)).await;
         }
-        let result = run_step(&client, &base_url, step, &mut vars, i, out, db_pool.as_ref()).await;
+        let result = run_step(
+            &client,
+            &base_url,
+            step,
+            &mut vars,
+            i,
+            out,
+            db_pool.as_ref(),
+        )
+        .await;
         match result {
             Ok(()) => {}
             Err(e) => {
@@ -92,7 +99,10 @@ pub async fn run(
     }
 
     if failures > 0 {
-        anyhow::bail!("{failures} step(s) failed; fixtures still written to {}", out.display());
+        anyhow::bail!(
+            "{failures} step(s) failed; fixtures still written to {}",
+            out.display()
+        );
     }
     let executed = file.steps.iter().filter(|s| !s.skip).count();
     println!(
@@ -133,13 +143,23 @@ fn flatten_vars(v: &serde_json::Value, prefix: &str, out: &mut BTreeMap<String, 
     match v {
         serde_json::Value::Object(map) => {
             for (k, val) in map {
-                let key = if prefix.is_empty() { k.clone() } else { format!("{prefix}.{k}") };
+                let key = if prefix.is_empty() {
+                    k.clone()
+                } else {
+                    format!("{prefix}.{k}")
+                };
                 flatten_vars(val, &key, out);
             }
         }
-        serde_json::Value::String(s) => { out.insert(prefix.to_string(), s.clone()); }
-        serde_json::Value::Number(n) => { out.insert(prefix.to_string(), n.to_string()); }
-        serde_json::Value::Bool(b) => { out.insert(prefix.to_string(), b.to_string()); }
+        serde_json::Value::String(s) => {
+            out.insert(prefix.to_string(), s.clone());
+        }
+        serde_json::Value::Number(n) => {
+            out.insert(prefix.to_string(), n.to_string());
+        }
+        serde_json::Value::Bool(b) => {
+            out.insert(prefix.to_string(), b.to_string());
+        }
         _ => {}
     }
 }
@@ -181,7 +201,9 @@ fn decode_cell(row: &sqlx::postgres::PgRow, i: usize) -> serde_json::Value {
         return serde_json::json!(v);
     }
     if let Ok(v) = row.try_get::<Option<String>, _>(i) {
-        return v.map(serde_json::Value::from).unwrap_or(serde_json::Value::Null);
+        return v
+            .map(serde_json::Value::from)
+            .unwrap_or(serde_json::Value::Null);
     }
     serde_json::Value::Null
 }
@@ -226,18 +248,23 @@ async fn run_step(
         // Substitute {{...}} placeholders in all string values.
         substitute_json(&mut body, vars)?;
         // Auto-inject API session id for subsequent API calls.
-        if step.path.starts_with("/api/index.php") && body.get("sid").is_none()
+        if step.path.starts_with("/api/index.php")
+            && body.get("sid").is_none()
             && let Some(sid) = vars.get("api_sid")
-                && let serde_json::Value::Object(map) = &mut body {
-                    map.insert("sid".to_string(), json!(sid));
-                }
+            && let serde_json::Value::Object(map) = &mut body
+        {
+            map.insert("sid".to_string(), json!(sid));
+        }
         req = req.json(&body);
     }
     for (k, v) in &step.headers {
         req = req.header(k, substitute(v, vars)?);
     }
 
-    let resp = req.send().await.with_context(|| format!("sending {method} {url}"))?;
+    let resp = req
+        .send()
+        .await
+        .with_context(|| format!("sending {method} {url}"))?;
     let status = resp.status().as_u16();
     // Capture the resulting DB state (M3 mutations) if this step declares it.
     let db_state = capture_db_state(db_pool, step.db_state.as_deref()).await?;
@@ -276,17 +303,36 @@ async fn run_step(
     }
 
     if let Some(expected) = step.expect_status
-        && status != expected {
-            eprintln!(
-                "[run] step {}: expected status {expected}, got {status}",
-                step.name
-            );
-            // record anyway; treat as failure
-            write_exchange(out, seq, step, &url, &headers, status, &bytes, db_state.as_ref())?;
-            return Err(anyhow!("status mismatch"));
-        }
+        && status != expected
+    {
+        eprintln!(
+            "[run] step {}: expected status {expected}, got {status}",
+            step.name
+        );
+        // record anyway; treat as failure
+        write_exchange(
+            out,
+            seq,
+            step,
+            &url,
+            &headers,
+            status,
+            &bytes,
+            db_state.as_ref(),
+        )?;
+        return Err(anyhow!("status mismatch"));
+    }
 
-    write_exchange(out, seq, step, &url, &headers, status, &bytes, db_state.as_ref())?;
+    write_exchange(
+        out,
+        seq,
+        step,
+        &url,
+        &headers,
+        status,
+        &bytes,
+        db_state.as_ref(),
+    )?;
     println!("[run] {:03} {:<32} {status}", seq + 1, step.name);
     Ok(())
 }
@@ -342,9 +388,17 @@ fn write_exchange(
         step: step.name.clone(),
         method: method.to_string(),
         url: url.to_string(),
-        form: if step.form.is_empty() { None } else { Some(step.form.clone()) },
+        form: if step.form.is_empty() {
+            None
+        } else {
+            Some(step.form.clone())
+        },
         body_b64,
-        body_encoding: if is_binary { "binary".into() } else { "text".into() },
+        body_encoding: if is_binary {
+            "binary".into()
+        } else {
+            "text".into()
+        },
         status,
         headers: headers.to_vec(),
         body_text,
@@ -361,7 +415,13 @@ fn write_exchange(
 
 fn sanitize_name(name: &str) -> String {
     name.chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect()
 }
 

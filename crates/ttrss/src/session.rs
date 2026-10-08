@@ -5,7 +5,8 @@
 //! handle to handlers, and persist it back after the request if it changed.
 //! Anonymous requests (no cookie) never touch the database.
 
-use crate::core::db::Db;use crate::i18n::{__};
+use crate::core::db::Db;
+use crate::i18n::__;
 
 use crate::core::phpser::Value;
 use crate::core::session::{self, Session};
@@ -119,9 +120,10 @@ pub fn cookie_sid(req: &Request) -> Option<String> {
     let raw = req.headers().get(header::COOKIE)?.to_str().ok()?;
     for part in raw.split(';') {
         if let Some((k, v)) = part.trim().split_once('=')
-            && k == SESSION_NAME {
-                return Some(v.trim().to_string());
-            }
+            && k == SESSION_NAME
+        {
+            return Some(v.trim().to_string());
+        }
     }
     None
 }
@@ -271,7 +273,9 @@ pub async fn validate_session(
             if access_level == user::ACCESS_LEVEL_DISABLED {
                 sess.set(
                     "login_error_msg",
-                    Value::Bytes(__("Session failed to validate (account is disabled)").into_bytes()),
+                    Value::Bytes(
+                        __("Session failed to validate (account is disabled)").into_bytes(),
+                    ),
                 );
                 return false;
             }
@@ -281,18 +285,15 @@ pub async fn validate_session(
             s.replace("validate-session".into(), data);
             let mut pctx = crate::pluginhost::dispatch::session_ctx(state, &s).await;
             let mut hook_result = true;
-            pctx
-                .run_hooks_callback::<bool, _, _>(
-                    crate::pluginhost::HOOK_VALIDATE_SESSION,
-                    |plugin, host| {
-                        Box::pin(async move { plugin.hook_validate_session(host).await })
-                    },
-                    |result, _| {
-                        hook_result = *result;
-                        !result
-                    },
-                )
-                .await;
+            pctx.run_hooks_callback::<bool, _, _>(
+                crate::pluginhost::HOOK_VALIDATE_SESSION,
+                |plugin, host| Box::pin(async move { plugin.hook_validate_session(host).await }),
+                |result, _| {
+                    hook_result = *result;
+                    !result
+                },
+            )
+            .await;
             hook_result
         }
         None => {

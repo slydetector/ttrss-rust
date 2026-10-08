@@ -694,9 +694,10 @@ pub async fn fetch(opts: &FetchOptions) -> FetchResult {
         .connect_timeout(connect_timeout)
         .redirect(redirect_policy);
     if let Some(proxy) = &opts.proxy
-        && let Ok(p) = reqwest::Proxy::all(proxy) {
-            builder = builder.proxy(p);
-        }
+        && let Ok(p) = reqwest::Proxy::all(proxy)
+    {
+        builder = builder.proxy(p);
+    }
     let Ok(client) = builder.build() else {
         res.error = "Failed to build HTTP client.".into();
         return res;
@@ -819,13 +820,15 @@ async fn send_once(
 
     // Conditional request (skipped for POST, matching the PHP).
     if let Some(lm) = &opts.last_modified
-        && !is_post {
-            req = req.header("If-Modified-Since", lm);
-        }
+        && !is_post
+    {
+        req = req.header("If-Modified-Since", lm);
+    }
     if let Some(etag) = &opts.etag
-        && !is_post {
-            req = req.header("If-None-Match", etag);
-        }
+        && !is_post
+    {
+        req = req.header("If-None-Match", etag);
+    }
     if let Some(acc) = &opts.http_accept {
         req = req.header("Accept", acc);
     }
@@ -838,9 +841,11 @@ async fn send_once(
 
     if is_basic_or_digest
         && let (Some(login), Some(pass)) = (&opts.login, &opts.pass)
-            && !login.is_empty() && !pass.is_empty() {
-                req = req.basic_auth(login, Some(pass));
-            }
+        && !login.is_empty()
+        && !pass.is_empty()
+    {
+        req = req.basic_auth(login, Some(pass));
+    }
 
     if let Some(post) = &opts.post_query {
         req = req.form(post);
@@ -888,9 +893,7 @@ mod tests {
     fn user_agent_override() {
         // `TTRSS_HTTP_USER_AGENT` surface (gap-scan §F): unset/blank → the
         // PHP default; set → verbatim.
-        let default = format!(
-            "Tiny Tiny RSS/{VERSION} (https://github.com/tt-rss/tt-rss)"
-        );
+        let default = format!("Tiny Tiny RSS/{VERSION} (https://github.com/tt-rss/tt-rss)");
         assert_eq!(ua_for(None), default);
         assert_eq!(ua_for(Some("")), default);
         assert_eq!(ua_for(Some("   ")), default);

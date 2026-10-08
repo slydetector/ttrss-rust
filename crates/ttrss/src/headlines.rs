@@ -10,23 +10,23 @@
 //! (regular feed / category / vfeeds / labels / tags / search), not tuned to
 //! the corpus: the same branch conditions assemble the same SQL fragments.
 
-use serde_json::{json, Map, Value};
-use sqlx::Row;
+use serde_json::{Map, Value, json};
 use sqlx::AssertSqlSafe;
+use sqlx::Row;
 
+use crate::AppState;
 use crate::cats::{CAT_LABELS, CAT_SPECIAL, CAT_UNCATEGORIZED};
 use crate::prefs;
 use crate::sanitizer;
 use crate::session::Sess;
 use crate::time::{self, TzCtx};
 use crate::util::{basename, param_to_bool, strip_tags, truncate_string};
-use crate::AppState;
 
 use crate::feeds::{
     FEED_ALL, FEED_ARCHIVED, FEED_FRESH, FEED_PUBLISHED, FEED_RECENTLY_READ, FEED_STARRED,
 };
-use crate::labels::{feed_to_label_id, LABEL_BASE_INDEX};
 use crate::i18n::{__, t_sprintf};
+use crate::labels::{LABEL_BASE_INDEX, feed_to_label_id};
 
 // `Feeds::FEED_ERROR` (functions.php): the virtual "error feed" pseudo-id.
 pub(crate) const FEED_ERROR: i64 = -7;
@@ -79,40 +79,88 @@ pub(crate) fn row_to_plugin_value(
     let date_entered: Option<chrono::NaiveDateTime> = r.get(I_DATE_ENTERED);
     let mut m = Map::new();
     m.insert("id".into(), json!(r.get::<i32, _>(0).to_string()));
-    m.insert("date_entered".into(), Value::from(date_entered.as_ref().map(time::naive_to_pg_text)));
+    m.insert(
+        "date_entered".into(),
+        Value::from(date_entered.as_ref().map(time::naive_to_pg_text)),
+    );
     m.insert(
         "yyiw".into(),
-        json!(date_entered.map(|d| d.format("%G-%V").to_string()).unwrap_or_default()),
+        json!(
+            date_entered
+                .map(|d| d.format("%G-%V").to_string())
+                .unwrap_or_default()
+        ),
     );
     m.insert("guid".into(), Value::from(r.get::<String, _>(3)));
     m.insert("title".into(), Value::from(r.get::<String, _>(I_TITLE)));
     m.insert(
         "updated".into(),
-        Value::from(r.get::<Option<chrono::NaiveDateTime>, _>(I_UPDATED).as_ref().map(time::naive_to_pg_text)),
+        Value::from(
+            r.get::<Option<chrono::NaiveDateTime>, _>(I_UPDATED)
+                .as_ref()
+                .map(time::naive_to_pg_text),
+        ),
     );
-    m.insert("label_cache".into(), Value::from(r.get::<String, _>(I_LABEL_CACHE)));
-    m.insert("tag_cache".into(), Value::from(r.get::<String, _>(I_TAG_CACHE)));
+    m.insert(
+        "label_cache".into(),
+        Value::from(r.get::<String, _>(I_LABEL_CACHE)),
+    );
+    m.insert(
+        "tag_cache".into(),
+        Value::from(r.get::<String, _>(I_TAG_CACHE)),
+    );
     m.insert(
         "always_display_enclosures".into(),
         Value::from(char1(r.get::<Option<bool>, _>(I_ALWAYS_ENC))),
     );
-    m.insert("site_url".into(), Value::from(r.get::<Option<String>, _>(I_SITE_URL)));
-    m.insert("note".into(), Value::from(r.get::<Option<String>, _>(I_NOTE)));
-    m.insert("num_comments".into(), json!(r.get::<i32, _>(I_NUM_COMMENTS).to_string()));
-    m.insert("comments".into(), Value::from(r.get::<String, _>(I_COMMENTS)));
-    m.insert("int_id".into(), json!(r.get::<i32, _>(I_INT_ID).to_string()));
+    m.insert(
+        "site_url".into(),
+        Value::from(r.get::<Option<String>, _>(I_SITE_URL)),
+    );
+    m.insert(
+        "note".into(),
+        Value::from(r.get::<Option<String>, _>(I_NOTE)),
+    );
+    m.insert(
+        "num_comments".into(),
+        json!(r.get::<i32, _>(I_NUM_COMMENTS).to_string()),
+    );
+    m.insert(
+        "comments".into(),
+        Value::from(r.get::<String, _>(I_COMMENTS)),
+    );
+    m.insert(
+        "int_id".into(),
+        json!(r.get::<i32, _>(I_INT_ID).to_string()),
+    );
     m.insert("uuid".into(), Value::from(r.get::<String, _>(I_UUID)));
-    m.insert("lang".into(), Value::from(r.get::<Option<String>, _>(I_LANG)));
-    m.insert("hide_images".into(), Value::from(char1(r.get::<Option<bool>, _>(I_HIDE_IMAGES))));
-    m.insert("unread".into(), Value::from(if r.get::<bool, _>(I_UNREAD) { "t" } else { "f" }));
+    m.insert(
+        "lang".into(),
+        Value::from(r.get::<Option<String>, _>(I_LANG)),
+    );
+    m.insert(
+        "hide_images".into(),
+        Value::from(char1(r.get::<Option<bool>, _>(I_HIDE_IMAGES))),
+    );
+    m.insert(
+        "unread".into(),
+        Value::from(if r.get::<bool, _>(I_UNREAD) { "t" } else { "f" }),
+    );
     m.insert(
         "feed_id".into(),
         Value::from(r.get::<Option<i32>, _>(I_FEED_ID).map(|f| f.to_string())),
     );
-    m.insert("marked".into(), Value::from(if r.get::<bool, _>(I_MARKED) { "t" } else { "f" }));
+    m.insert(
+        "marked".into(),
+        Value::from(if r.get::<bool, _>(I_MARKED) { "t" } else { "f" }),
+    );
     m.insert(
         "published".into(),
-        Value::from(if r.get::<bool, _>(I_PUBLISHED) { "t" } else { "f" }),
+        Value::from(if r.get::<bool, _>(I_PUBLISHED) {
+            "t"
+        } else {
+            "f"
+        }),
     );
     m.insert("link".into(), Value::from(r.get::<String, _>(I_LINK)));
     m.insert(
@@ -140,7 +188,10 @@ pub(crate) fn row_to_plugin_value(
         ),
     );
     if is_vfeed_row {
-        m.insert("feed_title".into(), Value::from(r.get::<Option<String>, _>(I_VF_TITLE)));
+        m.insert(
+            "feed_title".into(),
+            Value::from(r.get::<Option<String>, _>(I_VF_TITLE)),
+        );
         m.insert(
             "favicon_avg_color".into(),
             Value::from(r.get::<Option<String>, _>(I_VF_FAVICON)),
@@ -148,34 +199,52 @@ pub(crate) fn row_to_plugin_value(
     }
     m.insert(
         "content".into(),
-        Value::from(r.get::<String, _>(if is_vfeed_row { I_VF_CONTENT } else { I_CONTENT })),
+        Value::from(r.get::<String, _>(if is_vfeed_row {
+            I_VF_CONTENT
+        } else {
+            I_CONTENT
+        })),
     );
-    m.insert("author".into(), Value::from(r.get::<String, _>(if is_vfeed_row { 28 } else { 26 })));
+    m.insert(
+        "author".into(),
+        Value::from(r.get::<String, _>(if is_vfeed_row { 28 } else { 26 })),
+    );
     m.insert(
         "score".into(),
-        json!(r.get::<i32, _>(if is_vfeed_row { 29 } else { 27 }).to_string()),
+        json!(
+            r.get::<i32, _>(if is_vfeed_row { 29 } else { 27 })
+                .to_string()
+        ),
     );
     m.insert(
         "num_labels".into(),
-        json!(r.get::<i64, _>(if is_vfeed_row { 30 } else { 28 }).to_string()),
+        json!(
+            r.get::<i64, _>(if is_vfeed_row { 30 } else { 28 })
+                .to_string()
+        ),
     );
     m.insert(
         "num_enclosures".into(),
-        json!(r.get::<i64, _>(if is_vfeed_row { 31 } else { 29 }).to_string()),
+        json!(
+            r.get::<i64, _>(if is_vfeed_row { 31 } else { 29 })
+                .to_string()
+        ),
     );
-    m.insert("content_preview".into(), Value::from(content_preview.to_string()));
+    m.insert(
+        "content_preview".into(),
+        Value::from(content_preview.to_string()),
+    );
     if let Some(tags) = tags {
-        m.insert("tags".into(), Value::Array(tags.iter().map(|t| Value::from(t.as_str())).collect()));
+        m.insert(
+            "tags".into(),
+            Value::Array(tags.iter().map(|t| Value::from(t.as_str())).collect()),
+        );
     }
     Value::Object(m)
 }
 
 /// `Feeds::view`.
-pub async fn view(
-    state: &AppState,
-    sess: &Sess,
-    extra: &Map<String, Value>,
-) -> Value {
+pub async fn view(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Value {
     let data = sess.data();
     let uid = data.uid().unwrap_or(0);
     let profile = data.profile().map(|p| p as i32);
@@ -265,9 +334,7 @@ pub async fn view(
     };
 
     if !owned {
-        return generate_error_feed(&__(
-            "Feed not found.",
-        ));
+        return generate_error_feed(&__("Feed not found."));
     }
 
     // `Prefs::set` for the two view prefs (the PHP side effect, Feeds.php).
@@ -308,21 +375,22 @@ pub async fn view(
     }
 
     if let Some(f) = feed_num
-        && !cat_view && f > 0 {
-            let _ = sqlx::query(
-                "UPDATE ttrss_feeds SET last_viewed = NOW() WHERE id = $1 AND owner_uid = $2",
-            )
-            .bind(f)
-            .bind(uid)
-            .execute(pool)
-            .await;
-        }
+        && !cat_view
+        && f > 0
+    {
+        let _ = sqlx::query(
+            "UPDATE ttrss_feeds SET last_viewed = NOW() WHERE id = $1 AND owner_uid = $2",
+        )
+        .bind(f)
+        .bind(uid)
+        .execute(pool)
+        .await;
+    }
 
     // M7.6: the HOOK_SANITIZE / plugin context (built once per request);
     // the custom-sort override chain (below) needs it.
     let mut pctx = crate::pluginhost::dispatch::session_ctx(state, sess).await;
-    let (override_order, skip_first_id_check) =
-        order_to_override_query(&mut pctx, &order_by).await;
+    let (override_order, skip_first_id_check) = order_to_override_query(&mut pctx, &order_by).await;
 
     // `$_REQUEST["query"] ?? ""` (no active search in the SPA `view` calls).
     let search = extra
@@ -473,30 +541,31 @@ pub(crate) async fn order_to_override_query(
     {
         let order_owned = order.to_string();
         let mut override_result: Option<(String, bool)> = None;
-        host
-            .run_hooks_callback::<serde_json::Value, _, _>(
-                crate::pluginhost::HOOK_HEADLINES_CUSTOM_SORT_OVERRIDE,
-                |plugin, host_ctx| {
-                    let o = order_owned.clone();
-                    Box::pin(async move {
-                        plugin.hook_headlines_custom_sort_override(host_ctx, &o).await
-                    })
-                },
-                |result, _| {
-                    let q = result
-                        .get(0)
-                        .and_then(serde_json::Value::as_str)
-                        .unwrap_or("")
-                        .to_string();
-                    let skip = result
-                        .get(1)
-                        .and_then(serde_json::Value::as_bool)
-                        .unwrap_or(false);
-                    override_result = Some((q.clone(), skip));
-                    !q.is_empty()
-                },
-            )
-            .await;
+        host.run_hooks_callback::<serde_json::Value, _, _>(
+            crate::pluginhost::HOOK_HEADLINES_CUSTOM_SORT_OVERRIDE,
+            |plugin, host_ctx| {
+                let o = order_owned.clone();
+                Box::pin(async move {
+                    plugin
+                        .hook_headlines_custom_sort_override(host_ctx, &o)
+                        .await
+                })
+            },
+            |result, _| {
+                let q = result
+                    .get(0)
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
+                let skip = result
+                    .get(1)
+                    .and_then(serde_json::Value::as_bool)
+                    .unwrap_or(false);
+                override_result = Some((q.clone(), skip));
+                !q.is_empty()
+            },
+        )
+        .await;
         if let Some((q, skip)) = override_result
             && !q.is_empty()
         {
@@ -563,15 +632,15 @@ async fn format_headlines_list(
     // update stamps so the in-process updater re-fetches it.
     if method == "ForceUpdate"
         && let Some(f) = feed_num
-            && f > 0
-        {
-            let _ = sqlx::query(
+        && f > 0
+    {
+        let _ = sqlx::query(
                 "UPDATE ttrss_feeds SET last_updated = '1970-01-01', last_update_started = '1970-01-01' WHERE id = $1",
             )
             .bind(f)
             .execute(pool)
             .await;
-        }
+    }
 
     // `m=MarkAllReadGR:<feed>` (legacy/other clients — the frozen JS never
     // sends it) — `Feeds::_catchup($method_split[1], false)`.
@@ -665,7 +734,9 @@ async fn format_headlines_list(
         &mut plugin_buttons,
         |plugin, host, acc| {
             Box::pin(async move {
-                let r = plugin.hook_headline_toolbar_button(host, feed_id, cat_view).await;
+                let r = plugin
+                    .hook_headline_toolbar_button(host, feed_id, cat_view)
+                    .await;
                 acc.push_str(&r);
                 r
             })
@@ -723,7 +794,9 @@ async fn format_headlines_list(
             |plugin, host, acc| {
                 let q = qfh_ret.clone();
                 Box::pin(async move {
-                    let r = plugin.hook_headlines_before(host, feed_id, cat_view, &q).await;
+                    let r = plugin
+                        .hook_headlines_before(host, feed_id, cat_view, &q)
+                        .await;
                     acc.push_str(&r);
                     r
                 })
@@ -828,9 +901,7 @@ async fn format_headlines_list(
                     |plugin, host, row| {
                         Box::pin(async move {
                             let mut local = row.clone();
-                            let res = plugin
-                                .hook_query_headlines(host, &mut local, 250)
-                                .await;
+                            let res = plugin.hook_query_headlines(host, &mut local, 250).await;
                             *row = res.clone();
                             res
                         })
@@ -839,8 +910,10 @@ async fn format_headlines_list(
                 )
                 .await;
 
-                    let h_str = |name: &str| row_val.get(name).and_then(Value::as_str).map(String::from);
-                let h_i = |name: &str, cur: i64| row_val.get(name).and_then(Value::as_i64).unwrap_or(cur);
+                let h_str =
+                    |name: &str| row_val.get(name).and_then(Value::as_str).map(String::from);
+                let h_i =
+                    |name: &str, cur: i64| row_val.get(name).and_then(Value::as_i64).unwrap_or(cur);
                 let h_t = |name: &str, cur: bool| match h_str(name).as_deref() {
                     Some("t") => true,
                     Some("f") => false,
@@ -1026,10 +1099,7 @@ async fn format_headlines_list(
         line.insert("num_labels".into(), json!(num_labels));
         line.insert("content_preview".into(), json!(content_preview));
         if archived && vfeed_title.is_none() {
-            line.insert(
-                "feed_title".into(),
-                json!(__("Archived articles")),
-            );
+            line.insert("feed_title".into(), json!(__("Archived articles")));
         }
         line.insert("labels".into(), labels);
         if vfeed_title.is_none() && !archived {
@@ -1080,14 +1150,10 @@ async fn format_headlines_list(
                 &tz
             )),
         );
-        let imported_at =
-            time::make_local_datetime(date_entered_str.as_deref(), false, &tz);
+        let imported_at = time::make_local_datetime(date_entered_str.as_deref(), false, &tz);
         line.insert(
             "imported".into(),
-            json!(t_sprintf(
-                "Imported at %s",
-                &[imported_at.as_str()]
-            )),
+            json!(t_sprintf("Imported at %s", &[imported_at.as_str()])),
         );
         line.insert(
             "tags".into(),
@@ -1129,24 +1195,16 @@ async fn format_headlines_list(
             query_error_override.clone()
         } else {
             match view_mode {
-                "unread" => __(
-                    "No unread articles found to display.",
-                ),
-                "updated" => __(
-                    "No updated articles found to display.",
-                ),
-                "marked" => __(
-                    "No starred articles found to display.",
-                ),
+                "unread" => __("No unread articles found to display."),
+                "updated" => __("No updated articles found to display."),
+                "marked" => __("No starred articles found to display."),
                 _ => {
                     if feed_num.map(|f| f < LABEL_BASE_INDEX).unwrap_or(false) {
                         __(
                             "No articles found to display. You can assign articles to labels manually from article header context menu (applies to all selected articles) or use a filter.",
                         )
                     } else {
-                        __(
-                            "No articles found to display.",
-                        )
+                        __("No articles found to display.")
                     }
                 }
             }
@@ -1177,16 +1235,13 @@ async fn format_headlines_list(
                 msg.push_str(&format!("<strong>{message}</strong>"));
             }
             msg.push_str("<p><span class=\"text-muted\">");
-            let last_updated_str =
-                time::make_local_datetime(last_updated.as_deref(), false, &tz);
+            let last_updated_str = time::make_local_datetime(last_updated.as_deref(), false, &tz);
             msg.push_str(&t_sprintf(
                 "Feeds last updated at %s",
                 &[last_updated_str.as_str()],
             ));
             if num_errors > 0 {
-                let err_link = __(
-                    "Some feeds have update errors (click for details)",
-                );
+                let err_link = __("Some feeds have update errors (click for details)");
                 msg.push_str(&format!(
                     "<br/><a class=\"text-muted\" href=\"#\" onclick=\"CommonDialogs.showFeedsWithErrors(); return false\">{err_link}</a>"
                 ));
@@ -1231,27 +1286,26 @@ async fn article_buttons(host: &mut crate::pluginhost::host::HostCtx, line: &Val
     // (result, plugin) pair; it always returns `false` (no short-circuit).
     let mut out = String::new();
     let line = line.clone();
-    host
-        .run_hooks_callback::<String, _, _>(
-            crate::pluginhost::HOOK_ARTICLE_BUTTON,
-            |plugin, host_ctx| {
-                let line = line.clone();
-                Box::pin(async move { plugin.hook_article_button(host_ctx, &line).await })
-            },
-            |result, plugin| {
-                if !result.is_empty() {
-                    match button_xml_roundtrip(result, plugin.class_name()) {
-                        Some(xml) => out.push_str(&xml),
-                        None => tracing::warn!(
-                            plugin = plugin.class_name(),
-                            "plugin: content provided in HOOK_ARTICLE_BUTTON is not valid XML"
-                        ),
-                    }
+    host.run_hooks_callback::<String, _, _>(
+        crate::pluginhost::HOOK_ARTICLE_BUTTON,
+        |plugin, host_ctx| {
+            let line = line.clone();
+            Box::pin(async move { plugin.hook_article_button(host_ctx, &line).await })
+        },
+        |result, plugin| {
+            if !result.is_empty() {
+                match button_xml_roundtrip(result, plugin.class_name()) {
+                    Some(xml) => out.push_str(&xml),
+                    None => tracing::warn!(
+                        plugin = plugin.class_name(),
+                        "plugin: content provided in HOOK_ARTICLE_BUTTON is not valid XML"
+                    ),
                 }
-                false
-            },
-        )
-        .await;
+            }
+            false
+        },
+    )
+    .await;
     out
 }
 
@@ -1295,11 +1349,7 @@ fn tag_name(open_tag: &str) -> Option<&str> {
     let name = open_tag[1..].trim_start();
     let end = name.find(char::is_whitespace).unwrap_or(name.len());
     let name = &name[..end];
-    if name.is_empty() {
-        None
-    } else {
-        Some(name)
-    }
+    if name.is_empty() { None } else { Some(name) }
 }
 
 /// Attribute pairs of an opening tag, in document order. Quoted values are
@@ -1387,12 +1437,17 @@ fn unescape_xml(s: &str) -> Option<String> {
 
 /// PHP `saveXML` escaping for attribute values.
 fn xml_escape_attr(s: &str) -> String {
-    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
 }
 
 /// PHP `saveXML` escaping for text content (character data).
 fn xml_escape_body(s: &str) -> String {
-    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }
 
 /// `Article::_format_enclosures`.
@@ -1448,23 +1503,22 @@ async fn format_enclosures(
         hide_images,
     );
     let mut override_result: Option<Value> = None;
-    host
-        .chain_hooks_callback::<(String, Value, i32, bool, String, bool), Value, _, _>(
-            crate::pluginhost::HOOK_FORMAT_ENCLOSURES,
-            &mut state,
-            |plugin, host, st| {
-                Box::pin(async move {
-                    plugin
-                        .hook_format_enclosures(host, &st.0, &st.1, st.2, st.3, &st.4, st.5)
-                        .await
-                })
-            },
-            |r, _| {
-                override_result = Some(r.clone());
-                false
-            },
-        )
-        .await;
+    host.chain_hooks_callback::<(String, Value, i32, bool, String, bool), Value, _, _>(
+        crate::pluginhost::HOOK_FORMAT_ENCLOSURES,
+        &mut state,
+        |plugin, host, st| {
+            Box::pin(async move {
+                plugin
+                    .hook_format_enclosures(host, &st.0, &st.1, st.2, st.3, &st.4, st.5)
+                    .await
+            })
+        },
+        |r, _| {
+            override_result = Some(r.clone());
+            false
+        },
+    )
+    .await;
     if let Some(res) = override_result {
         match res.as_array().filter(|a| a.len() == 2) {
             Some(a) => {
@@ -1506,21 +1560,20 @@ async fn format_enclosures(
         // HOOK_RENDER_ENCLOSURE — per-enclosure inline HTML (af_youtube_embed).
         let mut render_state = (enc.clone(), id, Value::Object(rv.clone()));
         let mut rendered: Option<String> = None;
-        host
-            .chain_hooks_callback::<(Value, i32, Value), String, _, _>(
-                crate::pluginhost::HOOK_RENDER_ENCLOSURE,
-                &mut render_state,
-                |plugin, host, st| {
-                    Box::pin(async move {
-                        plugin.hook_render_enclosure(host, &st.0, st.1, &st.2).await
-                    })
-                },
-                |r, _| {
-                    rendered = Some(r.clone());
-                    false
-                },
-            )
-            .await;
+        host.chain_hooks_callback::<(Value, i32, Value), String, _, _>(
+            crate::pluginhost::HOOK_RENDER_ENCLOSURE,
+            &mut render_state,
+            |plugin, host, st| {
+                Box::pin(
+                    async move { plugin.hook_render_enclosure(host, &st.0, st.1, &st.2).await },
+                )
+            },
+            |r, _| {
+                rendered = Some(r.clone());
+                false
+            },
+        )
+        .await;
         let rendered = rendered.unwrap_or_default();
         if !rendered.is_empty() {
             formatted.push_str(&rendered);
@@ -1528,21 +1581,22 @@ async fn format_enclosures(
             // HOOK_ENCLOSURE_ENTRY — entry-map rewrite (cache_starred_images).
             let mut entry_state = (enc.clone(), id, Value::Object(rv.clone()));
             let mut rewritten: Option<Value> = None;
-            host
-                .chain_hooks_callback::<(Value, i32, Value), Value, _, _>(
-                    crate::pluginhost::HOOK_ENCLOSURE_ENTRY,
-                    &mut entry_state,
-                    |plugin, host, st| {
-                        Box::pin(async move {
-                            plugin.hook_enclosure_entry(host, &mut st.0, st.1, &st.2).await
-                        })
-                    },
-                    |r, _| {
-                        rewritten = Some(r.clone());
-                        false
-                    },
-                )
-                .await;
+            host.chain_hooks_callback::<(Value, i32, Value), Value, _, _>(
+                crate::pluginhost::HOOK_ENCLOSURE_ENTRY,
+                &mut entry_state,
+                |plugin, host, st| {
+                    Box::pin(async move {
+                        plugin
+                            .hook_enclosure_entry(host, &mut st.0, st.1, &st.2)
+                            .await
+                    })
+                },
+                |r, _| {
+                    rewritten = Some(r.clone());
+                    false
+                },
+            )
+            .await;
             entries.push(rewritten.unwrap_or_else(|| enc.clone()));
         }
         rv.insert("formatted".into(), json!(formatted));
@@ -1573,9 +1627,10 @@ pub(crate) fn url_to_youtube_vid(url: &str) -> Option<String> {
     ];
     for p in patterns {
         if let Ok(re) = regex::Regex::new(p)
-            && let Some(caps) = re.captures(&url) {
-                return Some(caps[1].to_string());
-            }
+            && let Some(caps) = re.captures(&url)
+        {
+            return Some(caps[1].to_string());
+        }
     }
     None
 }
@@ -1739,7 +1794,10 @@ impl HeadlinesParams {
 /// feeds / categories / virtual feeds / labels / tags). The session profile
 /// is unavailable in this context, so prefs resolve against the default
 /// profile (matching the integration-test session, which carries none).
-pub async fn get_headlines_query(db: &crate::core::db::Db, params: &HeadlinesParams) -> HeadlinesQuery {
+pub async fn get_headlines_query(
+    db: &crate::core::db::Db,
+    params: &HeadlinesParams,
+) -> HeadlinesQuery {
     let feed_num: Option<i64> = params.feed.trim().parse::<i64>().ok();
     let rows = prefs::load_rows(db, params.owner_uid, None).await;
     get_headlines(
@@ -1845,9 +1903,11 @@ async fn get_headlines(
                 crate::counters::get_counters(db, uid, feed_or_tag, cat_view, true, None).await;
             if cat_view
                 && let Some(f) = feed_num
-                    && f > 0 && include_children {
-                        unread += crate::counters::cat_children_unread(pool, uid, f).await;
-                    }
+                && f > 0
+                && include_children
+            {
+                unread += crate::counters::cat_children_unread(pool, uid, f).await;
+            }
             if unread > 0 {
                 view_query_part = " unread = true AND ".into();
             }
@@ -2324,8 +2384,8 @@ async fn feed_title_of(feed: i64, pool: &sqlx::PgPool, uid: i64) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
     use super::*;
+    use std::sync::Arc;
 
     #[test]
     fn url_to_youtube_vid_cases() {
@@ -2435,7 +2495,9 @@ mod tests {
     #[tokio::test]
     async fn article_buttons_chain_matches_oracle() {
         use crate::pluginhost::host::HostCtx;
-        let host = Arc::new(crate::pluginhost::PluginHost::startup(&crate::pluginhost::all_plugins()));
+        let host = Arc::new(crate::pluginhost::PluginHost::startup(
+            &crate::pluginhost::all_plugins(),
+        ));
         let pool = sqlx::postgres::PgPoolOptions::new()
             .connect_lazy("postgres://ttrss:ttrss@localhost/ttrss_test")
             .unwrap();
@@ -2451,7 +2513,16 @@ mod tests {
             &["af_psql_trgm", "note", "share"],
         );
         // No active plugins → no buttons.
-        let mut empty = HostCtx::for_user(Arc::clone(&host), pool.clone(), test_cfg.clone(), Some(1), None, 0, &[], &[]);
+        let mut empty = HostCtx::for_user(
+            Arc::clone(&host),
+            pool.clone(),
+            test_cfg.clone(),
+            Some(1),
+            None,
+            0,
+            &[],
+            &[],
+        );
         let line = serde_json::json!({ "id": 1, "uuid": "" });
         assert_eq!(article_buttons(&mut empty, &line).await, "");
 
@@ -2474,6 +2545,4 @@ mod tests {
         let out = article_buttons(&mut ctx, &line).await;
         assert!(out.contains("share-icon-3 is-shared"));
     }
-
-
 }

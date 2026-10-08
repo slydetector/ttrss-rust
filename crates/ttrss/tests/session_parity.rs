@@ -16,13 +16,13 @@ mod common;
 
 use base64::Engine as _;
 use rand::RngCore;
+use test_db::template::with_test_db;
 use ttrss::auth;
 use ttrss::core::db::Db;
 use ttrss::core::phpser::Value;
 use ttrss::core::session as core_session;
 use ttrss::core::session::Session;
 use ttrss::session as sessions;
-use test_db::template::with_test_db;
 
 /// `schema.sql`'s initial admin user password hash: SHA1("password").
 const ADMIN_PWD_HASH: &str = "SHA1:5baa61e4c9b93f3f0682250b6cf8331b7ee68fd8";
@@ -92,9 +92,7 @@ async fn disabled_user_session(db: &Db) -> Session {
 
 /// `UserHelperTest::setUp` on top of the harness-injected pool: a `testuser`
 /// with the known SSHA-512 password `testpass123`.
-async fn setup_with_testuser(
-    url: &str,
-) -> Db {
+async fn setup_with_testuser(url: &str) -> Db {
     let db = common::make_db_from_url(url).await.expect("test db");
     let (hash, salt) = test_db::ssha512_password("testuser", "testpass123");
     sqlx::query(
@@ -114,32 +112,40 @@ async fn setup_with_testuser(
 // PHP: test_exists_returns_false_for_nonexistent_session
 #[tokio::test]
 async fn test_exists_returns_false_for_nonexistent_session() {
-    with_test_db(|url| Box::pin(async move {
-    let db = common::make_db_from_url(&url).await.expect("test db");
-    let id = "nonexistent-session-id".to_string();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = common::make_db_from_url(&url).await.expect("test db");
+            let id = "nonexistent-session-id".to_string();
 
-    assert!(
-        !sessions::exists(db.pool(), &id).await,
-        "exists() should return false for a session that has never been written"
-    );
-        Ok(())
-    })).await.unwrap();
+            assert!(
+                !sessions::exists(db.pool(), &id).await,
+                "exists() should return false for a session that has never been written"
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // PHP: test_exists_returns_true_after_write
 #[tokio::test]
 async fn test_exists_returns_true_after_write() {
-    with_test_db(|url| Box::pin(async move {
-    let db = common::make_db_from_url(&url).await.expect("test db");
-    let id = "exists-test-id";
-    assert!(sessions::write(db.pool(), None, id, "test-data-for-exists").await);
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = common::make_db_from_url(&url).await.expect("test db");
+            let id = "exists-test-id";
+            assert!(sessions::write(db.pool(), None, id, "test-data-for-exists").await);
 
-    assert!(
-        sessions::exists(db.pool(), id).await,
-        "exists() should return true after a successful write"
-    );
-        Ok(())
-    })).await.unwrap();
+            assert!(
+                sessions::exists(db.pool(), id).await,
+                "exists() should return true after a successful write"
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // ── write() ─────────────────────────────────────────────────────────────────
@@ -147,43 +153,51 @@ async fn test_exists_returns_true_after_write() {
 // PHP: test_write_stores_data_in_database
 #[tokio::test]
 async fn test_write_stores_data_in_database() {
-    with_test_db(|url| Box::pin(async move {
-    let db = common::make_db_from_url(&url).await.expect("test db");
-    let id = "write-store-test";
-    let data = "hello world";
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = common::make_db_from_url(&url).await.expect("test db");
+            let id = "write-store-test";
+            let data = "hello world";
 
-    assert!(sessions::write(db.pool(), None, id, data).await);
+            assert!(sessions::write(db.pool(), None, id, data).await);
 
-    let stored = get_stored_data(&db, id)
-        .await
-        .expect("Session row should exist in database");
-    assert_eq!(
-        b64(data),
-        stored,
-        "Stored data should be base64-encoded version of the original"
-    );
-        Ok(())
-    })).await.unwrap();
+            let stored = get_stored_data(&db, id)
+                .await
+                .expect("Session row should exist in database");
+            assert_eq!(
+                b64(data),
+                stored,
+                "Stored data should be base64-encoded version of the original"
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // PHP: test_write_overwrites_existing_session
 #[tokio::test]
 async fn test_write_overwrites_existing_session() {
-    with_test_db(|url| Box::pin(async move {
-    let db = common::make_db_from_url(&url).await.expect("test db");
-    let id = "write-overwrite-test";
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = common::make_db_from_url(&url).await.expect("test db");
+            let id = "write-overwrite-test";
 
-    assert!(sessions::write(db.pool(), None, id, "original data").await);
-    assert!(sessions::write(db.pool(), None, id, "updated data").await);
+            assert!(sessions::write(db.pool(), None, id, "original data").await);
+            assert!(sessions::write(db.pool(), None, id, "updated data").await);
 
-    let stored = get_stored_data(&db, id).await.expect("row exists");
-    assert_eq!(
-        b64("updated data"),
-        stored,
-        "Second write should overwrite the first"
-    );
-        Ok(())
-    })).await.unwrap();
+            let stored = get_stored_data(&db, id).await.expect("row exists");
+            assert_eq!(
+                b64("updated data"),
+                stored,
+                "Second write should overwrite the first"
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // ── read() ──────────────────────────────────────────────────────────────────
@@ -191,100 +205,120 @@ async fn test_write_overwrites_existing_session() {
 // PHP: test_read_returns_written_data
 #[tokio::test]
 async fn test_read_returns_written_data() {
-    with_test_db(|url| Box::pin(async move {
-    let db = common::make_db_from_url(&url).await.expect("test db");
-    let id = "read-roundtrip";
-    let data = "session payload";
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = common::make_db_from_url(&url).await.expect("test db");
+            let id = "read-roundtrip";
+            let data = "session payload";
 
-    assert!(sessions::write(db.pool(), None, id, data).await);
-    let result = sessions::read(db.pool(), None, id).await;
+            assert!(sessions::write(db.pool(), None, id, data).await);
+            let result = sessions::read(db.pool(), None, id).await;
 
-    assert_eq!(
-        result.as_deref(),
-        Some(data),
-        "read() should return the exact data that was written"
-    );
-        Ok(())
-    })).await.unwrap();
+            assert_eq!(
+                result.as_deref(),
+                Some(data),
+                "read() should return the exact data that was written"
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // PHP: test_read_returns_empty_string_for_new_session
 #[tokio::test]
 async fn test_read_returns_empty_string_for_new_session() {
-    with_test_db(|url| Box::pin(async move {
-    let db = common::make_db_from_url(&url).await.expect("test db");
-    let id = "read-auto-create";
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = common::make_db_from_url(&url).await.expect("test db");
+            let id = "read-auto-create";
 
-    let result = sessions::read(db.pool(), None, id).await;
+            let result = sessions::read(db.pool(), None, id).await;
 
-    assert_eq!(
-        result.as_deref(),
-        Some(""),
-        "read() for a new session should return empty string"
-    );
-    assert!(
-        sessions::exists(db.pool(), id).await,
-        "read() should auto-create the session in the database"
-    );
-        Ok(())
-    })).await.unwrap();
+            assert_eq!(
+                result.as_deref(),
+                Some(""),
+                "read() for a new session should return empty string"
+            );
+            assert!(
+                sessions::exists(db.pool(), id).await,
+                "read() should auto-create the session in the database"
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // PHP: test_read_with_unicode_data
 #[tokio::test]
 async fn test_read_with_unicode_data() {
-    with_test_db(|url| Box::pin(async move {
-    let db = common::make_db_from_url(&url).await.expect("test db");
-    let id = "read-unicode";
-    let data = "こんにちは世界 🌍 Привет мир 你好世界";
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = common::make_db_from_url(&url).await.expect("test db");
+            let id = "read-unicode";
+            let data = "こんにちは世界 🌍 Привет мир 你好世界";
 
-    assert!(sessions::write(db.pool(), None, id, data).await);
-    let result = sessions::read(db.pool(), None, id).await;
+            assert!(sessions::write(db.pool(), None, id, data).await);
+            let result = sessions::read(db.pool(), None, id).await;
 
-    assert_eq!(
-        result.as_deref(),
-        Some(data),
-        "Unicode data should roundtrip correctly"
-    );
-        Ok(())
-    })).await.unwrap();
+            assert_eq!(
+                result.as_deref(),
+                Some(data),
+                "Unicode data should roundtrip correctly"
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // PHP: test_read_with_large_payload
 #[tokio::test]
 async fn test_read_with_large_payload() {
-    with_test_db(|url| Box::pin(async move {
-    let db = common::make_db_from_url(&url).await.expect("test db");
-    let id = "read-large";
-    let data = "A".repeat(50_000); // 50 KB
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = common::make_db_from_url(&url).await.expect("test db");
+            let id = "read-large";
+            let data = "A".repeat(50_000); // 50 KB
 
-    assert!(sessions::write(db.pool(), None, id, &data).await);
-    let result = sessions::read(db.pool(), None, id).await;
+            assert!(sessions::write(db.pool(), None, id, &data).await);
+            let result = sessions::read(db.pool(), None, id).await;
 
-    assert_eq!(
-        result.as_deref(),
-        Some(data.as_str()),
-        "Large payload should roundtrip correctly"
-    );
-        Ok(())
-    })).await.unwrap();
+            assert_eq!(
+                result.as_deref(),
+                Some(data.as_str()),
+                "Large payload should roundtrip correctly"
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // PHP: test_read_returns_false_on_failure
 #[tokio::test]
 async fn test_read_returns_false_on_failure() {
-    with_test_db(|url| Box::pin(async move {
-    let db = common::make_db_from_url(&url).await.expect("test db");
-    let id = "read-type-test";
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = common::make_db_from_url(&url).await.expect("test db");
+            let id = "read-type-test";
 
-    // Auto-create returns '' (string), not false.
-    let result = sessions::read(db.pool(), None, id).await;
-    assert!(
-        result.is_some(),
-        "read() should return a string (even if empty)"
-    );
-        Ok(())
-    })).await.unwrap();
+            // Auto-create returns '' (string), not false.
+            let result = sessions::read(db.pool(), None, id).await;
+            assert!(
+                result.is_some(),
+                "read() should return a string (even if empty)"
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // ── destroy() ───────────────────────────────────────────────────────────────
@@ -292,42 +326,50 @@ async fn test_read_returns_false_on_failure() {
 // PHP: test_destroy_removes_session_from_database
 #[tokio::test]
 async fn test_destroy_removes_session_from_database() {
-    with_test_db(|url| Box::pin(async move {
-    let db = common::make_db_from_url(&url).await.expect("test db");
-    let id = "destroy-test";
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = common::make_db_from_url(&url).await.expect("test db");
+            let id = "destroy-test";
 
-    assert!(sessions::write(db.pool(), None, id, "to-be-destroyed").await);
-    assert!(
-        sessions::exists(db.pool(), id).await,
-        "Session should exist before destroy"
-    );
+            assert!(sessions::write(db.pool(), None, id, "to-be-destroyed").await);
+            assert!(
+                sessions::exists(db.pool(), id).await,
+                "Session should exist before destroy"
+            );
 
-    assert!(
-        sessions::destroy(db.pool(), id).await,
-        "destroy() should return true on success"
-    );
-    assert!(
-        !sessions::exists(db.pool(), id).await,
-        "Session should not exist after destroy"
-    );
-        Ok(())
-    })).await.unwrap();
+            assert!(
+                sessions::destroy(db.pool(), id).await,
+                "destroy() should return true on success"
+            );
+            assert!(
+                !sessions::exists(db.pool(), id).await,
+                "Session should not exist after destroy"
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // PHP: test_destroy_nonexistent_session_returns_true
 #[tokio::test]
 async fn test_destroy_nonexistent_session_returns_true() {
-    with_test_db(|url| Box::pin(async move {
-    let db = common::make_db_from_url(&url).await.expect("test db");
-    let id = "destroy-missing";
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = common::make_db_from_url(&url).await.expect("test db");
+            let id = "destroy-missing";
 
-    // destroy() uses DELETE which returns true even if 0 rows affected
-    assert!(
-        sessions::destroy(db.pool(), id).await,
-        "destroy() should return true even for non-existent sessions"
-    );
-        Ok(())
-    })).await.unwrap();
+            // destroy() uses DELETE which returns true even if 0 rows affected
+            assert!(
+                sessions::destroy(db.pool(), id).await,
+                "destroy() should return true even for non-existent sessions"
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // ── Full lifecycle ──────────────────────────────────────────────────────────
@@ -335,39 +377,43 @@ async fn test_destroy_nonexistent_session_returns_true() {
 // PHP: test_full_session_lifecycle
 #[tokio::test]
 async fn test_full_session_lifecycle() {
-    with_test_db(|url| Box::pin(async move {
-    let db = common::make_db_from_url(&url).await.expect("test db");
-    let id = "lifecycle";
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = common::make_db_from_url(&url).await.expect("test db");
+            let id = "lifecycle";
 
-    // 1. New session does not exist
-    assert!(!sessions::exists(db.pool(), id).await);
+            // 1. New session does not exist
+            assert!(!sessions::exists(db.pool(), id).await);
 
-    // 2. read() auto-creates an empty session
-    assert_eq!(
-        sessions::read(db.pool(), None, id).await.as_deref(),
-        Some("")
-    );
-    assert!(sessions::exists(db.pool(), id).await);
+            // 2. read() auto-creates an empty session
+            assert_eq!(
+                sessions::read(db.pool(), None, id).await.as_deref(),
+                Some("")
+            );
+            assert!(sessions::exists(db.pool(), id).await);
 
-    // 3. write() stores data
-    assert!(sessions::write(db.pool(), None, id, "step-3-data").await);
-    assert_eq!(
-        sessions::read(db.pool(), None, id).await.as_deref(),
-        Some("step-3-data")
-    );
+            // 3. write() stores data
+            assert!(sessions::write(db.pool(), None, id, "step-3-data").await);
+            assert_eq!(
+                sessions::read(db.pool(), None, id).await.as_deref(),
+                Some("step-3-data")
+            );
 
-    // 4. write() updates existing data
-    assert!(sessions::write(db.pool(), None, id, "step-4-data").await);
-    assert_eq!(
-        sessions::read(db.pool(), None, id).await.as_deref(),
-        Some("step-4-data")
-    );
+            // 4. write() updates existing data
+            assert!(sessions::write(db.pool(), None, id, "step-4-data").await);
+            assert_eq!(
+                sessions::read(db.pool(), None, id).await.as_deref(),
+                Some("step-4-data")
+            );
 
-    // 5. destroy() removes the session
-    assert!(sessions::destroy(db.pool(), id).await);
-    assert!(!sessions::exists(db.pool(), id).await);
-        Ok(())
-    })).await.unwrap();
+            // 5. destroy() removes the session
+            assert!(sessions::destroy(db.pool(), id).await);
+            assert!(!sessions::exists(db.pool(), id).await);
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // ── Encryption ──────────────────────────────────────────────────────────────
@@ -375,225 +421,261 @@ async fn test_full_session_lifecycle() {
 // PHP: test_write_stores_encrypted_data_when_key_configured
 #[tokio::test]
 async fn test_write_stores_encrypted_data_when_key_configured() {
-    with_test_db(|url| Box::pin(async move {
-    let db = common::make_db_from_url(&url).await.expect("test db");
-    let key = random_key();
-    let id = "encrypt-write";
-    let data = "sensitive session data";
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = common::make_db_from_url(&url).await.expect("test db");
+            let key = random_key();
+            let id = "encrypt-write";
+            let data = "sensitive session data";
 
-    assert!(sessions::write(db.pool(), Some(&key), id, data).await);
+            assert!(sessions::write(db.pool(), Some(&key), id, data).await);
 
-    let stored_b64 = get_stored_data(&db, id)
-        .await
-        .expect("Session row should exist in database");
-    let raw_stored = un_b64(&stored_b64);
+            let stored_b64 = get_stored_data(&db, id)
+                .await
+                .expect("Session row should exist in database");
+            let raw_stored = un_b64(&stored_b64);
 
-    // With encryption, data is: serialize(Crypt::encrypt_string($data))
-    // which produces a serialized PHP array — not the plaintext base64
-    assert_ne!(
-        b64(data),
-        stored_b64,
-        "Stored data should NOT be the plaintext base64 encoding"
-    );
+            // With encryption, data is: serialize(Crypt::encrypt_string($data))
+            // which produces a serialized PHP array — not the plaintext base64
+            assert_ne!(
+                b64(data),
+                stored_b64,
+                "Stored data should NOT be the plaintext base64 encoding"
+            );
 
-    // The raw stored data should be a serialized PHP structure
-    let unserialized = ttrss::core::phpser::deserialize(&raw_stored)
-        .expect("stored data should be a serialized PHP array (encrypted object)");
-    assert!(
-        unserialized.as_array().is_some(),
-        "Stored data should be a serialized PHP array (encrypted object)"
-    );
-    assert!(unserialized.get("algo").is_some());
-    assert!(unserialized.get("nonce").is_some());
-    assert!(unserialized.get("payload").is_some());
-        Ok(())
-    })).await.unwrap();
+            // The raw stored data should be a serialized PHP structure
+            let unserialized = ttrss::core::phpser::deserialize(&raw_stored)
+                .expect("stored data should be a serialized PHP array (encrypted object)");
+            assert!(
+                unserialized.as_array().is_some(),
+                "Stored data should be a serialized PHP array (encrypted object)"
+            );
+            assert!(unserialized.get("algo").is_some());
+            assert!(unserialized.get("nonce").is_some());
+            assert!(unserialized.get("payload").is_some());
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // PHP: test_write_stores_plaintext_when_encryption_disabled
 #[tokio::test]
 async fn test_write_stores_plaintext_when_encryption_disabled() {
-    with_test_db(|url| Box::pin(async move {
-    let db = common::make_db_from_url(&url).await.expect("test db");
-    // Encryption is disabled by default (PHP setUp)
-    let id = "plaintext-write";
-    let data = "not sensitive data";
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = common::make_db_from_url(&url).await.expect("test db");
+            // Encryption is disabled by default (PHP setUp)
+            let id = "plaintext-write";
+            let data = "not sensitive data";
 
-    assert!(sessions::write(db.pool(), None, id, data).await);
+            assert!(sessions::write(db.pool(), None, id, data).await);
 
-    let stored_b64 = get_stored_data(&db, id).await.expect("row exists");
-    assert_eq!(
-        b64(data),
-        stored_b64,
-        "Stored data should be the plaintext base64 encoding when encryption is off"
-    );
-        Ok(())
-    })).await.unwrap();
+            let stored_b64 = get_stored_data(&db, id).await.expect("row exists");
+            assert_eq!(
+                b64(data),
+                stored_b64,
+                "Stored data should be the plaintext base64 encoding when encryption is off"
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // PHP: test_read_roundtrip_with_encryption_enabled
 #[tokio::test]
 async fn test_read_roundtrip_with_encryption_enabled() {
-    with_test_db(|url| Box::pin(async move {
-    let db = common::make_db_from_url(&url).await.expect("test db");
-    let key = random_key();
-    let id = "encrypt-roundtrip";
-    let data = "secret session payload";
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = common::make_db_from_url(&url).await.expect("test db");
+            let key = random_key();
+            let id = "encrypt-roundtrip";
+            let data = "secret session payload";
 
-    assert!(sessions::write(db.pool(), Some(&key), id, data).await);
-    let result = sessions::read(db.pool(), Some(&key), id).await;
+            assert!(sessions::write(db.pool(), Some(&key), id, data).await);
+            let result = sessions::read(db.pool(), Some(&key), id).await;
 
-    assert_eq!(
-        result.as_deref(),
-        Some(data),
-        "Encrypted data should roundtrip correctly"
-    );
-        Ok(())
-    })).await.unwrap();
+            assert_eq!(
+                result.as_deref(),
+                Some(data),
+                "Encrypted data should roundtrip correctly"
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // PHP: test_read_roundtrip_with_encryption_disabled
 #[tokio::test]
 async fn test_read_roundtrip_with_encryption_disabled() {
-    with_test_db(|url| Box::pin(async move {
-    let db = common::make_db_from_url(&url).await.expect("test db");
-    // Encryption is disabled by default (PHP setUp)
-    let id = "plaintext-roundtrip";
-    let data = "open session data";
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = common::make_db_from_url(&url).await.expect("test db");
+            // Encryption is disabled by default (PHP setUp)
+            let id = "plaintext-roundtrip";
+            let data = "open session data";
 
-    assert!(sessions::write(db.pool(), None, id, data).await);
-    let result = sessions::read(db.pool(), None, id).await;
+            assert!(sessions::write(db.pool(), None, id, data).await);
+            let result = sessions::read(db.pool(), None, id).await;
 
-    assert_eq!(
-        result.as_deref(),
-        Some(data),
-        "Plaintext data should roundtrip correctly"
-    );
-        Ok(())
-    })).await.unwrap();
+            assert_eq!(
+                result.as_deref(),
+                Some(data),
+                "Plaintext data should roundtrip correctly"
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // PHP: test_read_with_encryption_handles_empty_data
 #[tokio::test]
 async fn test_read_with_encryption_handles_empty_data() {
-    with_test_db(|url| Box::pin(async move {
-    let db = common::make_db_from_url(&url).await.expect("test db");
-    let key = random_key();
-    let id = "encrypt-empty";
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = common::make_db_from_url(&url).await.expect("test db");
+            let key = random_key();
+            let id = "encrypt-empty";
 
-    // write empty string
-    assert!(sessions::write(db.pool(), Some(&key), id, "").await);
-    let result = sessions::read(db.pool(), Some(&key), id).await;
+            // write empty string
+            assert!(sessions::write(db.pool(), Some(&key), id, "").await);
+            let result = sessions::read(db.pool(), Some(&key), id).await;
 
-    assert_eq!(
-        result.as_deref(),
-        Some(""),
-        "Empty string should roundtrip with encryption"
-    );
-        Ok(())
-    })).await.unwrap();
+            assert_eq!(
+                result.as_deref(),
+                Some(""),
+                "Empty string should roundtrip with encryption"
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // PHP: test_read_with_encryption_handles_unicode
 #[tokio::test]
 async fn test_read_with_encryption_handles_unicode() {
-    with_test_db(|url| Box::pin(async move {
-    let db = common::make_db_from_url(&url).await.expect("test db");
-    let key = random_key();
-    let id = "encrypt-unicode";
-    let data = "秘密情報 🔐 安全なセッション";
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = common::make_db_from_url(&url).await.expect("test db");
+            let key = random_key();
+            let id = "encrypt-unicode";
+            let data = "秘密情報 🔐 安全なセッション";
 
-    assert!(sessions::write(db.pool(), Some(&key), id, data).await);
-    let result = sessions::read(db.pool(), Some(&key), id).await;
+            assert!(sessions::write(db.pool(), Some(&key), id, data).await);
+            let result = sessions::read(db.pool(), Some(&key), id).await;
 
-    assert_eq!(
-        result.as_deref(),
-        Some(data),
-        "Unicode data should roundtrip with encryption"
-    );
-        Ok(())
-    })).await.unwrap();
+            assert_eq!(
+                result.as_deref(),
+                Some(data),
+                "Unicode data should roundtrip with encryption"
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // PHP: test_read_with_encryption_handles_large_payload
 #[tokio::test]
 async fn test_read_with_encryption_handles_large_payload() {
-    with_test_db(|url| Box::pin(async move {
-    let db = common::make_db_from_url(&url).await.expect("test db");
-    let key = random_key();
-    let id = "encrypt-large";
-    let data = "S".repeat(50_000); // 50 KB
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = common::make_db_from_url(&url).await.expect("test db");
+            let key = random_key();
+            let id = "encrypt-large";
+            let data = "S".repeat(50_000); // 50 KB
 
-    assert!(sessions::write(db.pool(), Some(&key), id, &data).await);
-    let result = sessions::read(db.pool(), Some(&key), id).await;
+            assert!(sessions::write(db.pool(), Some(&key), id, &data).await);
+            let result = sessions::read(db.pool(), Some(&key), id).await;
 
-    assert_eq!(
-        result.as_deref(),
-        Some(data.as_str()),
-        "Large payload should roundtrip with encryption"
-    );
-        Ok(())
-    })).await.unwrap();
+            assert_eq!(
+                result.as_deref(),
+                Some(data.as_str()),
+                "Large payload should roundtrip with encryption"
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // PHP: test_different_encryption_keys_produce_different_storage
 #[tokio::test]
 async fn test_different_encryption_keys_produce_different_storage() {
-    with_test_db(|url| Box::pin(async move {
-    let db = common::make_db_from_url(&url).await.expect("test db");
-    let id = "key-diff";
-    let data = "same plaintext";
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = common::make_db_from_url(&url).await.expect("test db");
+            let id = "key-diff";
+            let data = "same plaintext";
 
-    // Write with key1
-    let key1 = random_key();
-    assert!(sessions::write(db.pool(), Some(&key1), id, data).await);
-    let stored1 = get_stored_data(&db, id).await.expect("row exists");
+            // Write with key1
+            let key1 = random_key();
+            assert!(sessions::write(db.pool(), Some(&key1), id, data).await);
+            let stored1 = get_stored_data(&db, id).await.expect("row exists");
 
-    // Destroy and re-write with key2
-    assert!(sessions::destroy(db.pool(), id).await);
+            // Destroy and re-write with key2
+            assert!(sessions::destroy(db.pool(), id).await);
 
-    let key2 = random_key();
-    assert!(sessions::write(db.pool(), Some(&key2), id, data).await);
-    let stored2 = get_stored_data(&db, id).await.expect("row exists");
+            let key2 = random_key();
+            assert!(sessions::write(db.pool(), Some(&key2), id, data).await);
+            let stored2 = get_stored_data(&db, id).await.expect("row exists");
 
-    assert_ne!(
-        stored1, stored2,
-        "Different keys should produce different stored data"
-    );
+            assert_ne!(
+                stored1, stored2,
+                "Different keys should produce different stored data"
+            );
 
-    // But both should decrypt correctly
-    assert!(sessions::destroy(db.pool(), id).await); // clean up the key2 entry
-    assert!(sessions::write(db.pool(), Some(&key1), id, data).await); // re-write with key1
-    let result = sessions::read(db.pool(), Some(&key1), id).await;
-    assert_eq!(result.as_deref(), Some(data));
-        Ok(())
-    })).await.unwrap();
+            // But both should decrypt correctly
+            assert!(sessions::destroy(db.pool(), id).await); // clean up the key2 entry
+            assert!(sessions::write(db.pool(), Some(&key1), id, data).await); // re-write with key1
+            let result = sessions::read(db.pool(), Some(&key1), id).await;
+            assert_eq!(result.as_deref(), Some(data));
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // PHP: test_encrypt_then_decrypt_with_key_removed_fails_gracefully
 #[tokio::test]
 async fn test_encrypt_then_decrypt_with_key_removed_fails_gracefully() {
-    with_test_db(|url| Box::pin(async move {
-    let db = common::make_db_from_url(&url).await.expect("test db");
-    let key = random_key();
-    let id = "encrypt-stale";
-    let data = "encrypted before key removal";
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = common::make_db_from_url(&url).await.expect("test db");
+            let key = random_key();
+            let id = "encrypt-stale";
+            let data = "encrypted before key removal";
 
-    // Write with encryption enabled
-    assert!(sessions::write(db.pool(), Some(&key), id, data).await);
+            // Write with encryption enabled
+            assert!(sessions::write(db.pool(), Some(&key), id, data).await);
 
-    // Now remove the encryption key (PHP: Config::set(ENCRYPTION_KEY, ''))
-    // Reading without the key: read() falls back to returning the raw
-    // base64-decoded data (which is the serialized encrypted blob).
-    let result = sessions::read(db.pool(), None, id).await;
+            // Now remove the encryption key (PHP: Config::set(ENCRYPTION_KEY, ''))
+            // Reading without the key: read() falls back to returning the raw
+            // base64-decoded data (which is the serialized encrypted blob).
+            let result = sessions::read(db.pool(), None, id).await;
 
-    // The result should NOT be the original plaintext — it's the fallback path
-    assert_ne!(result.as_deref(), Some(data));
+            // The result should NOT be the original plaintext — it's the fallback path
+            assert_ne!(result.as_deref(), Some(data));
 
-    // The data should still exist in the DB
-    assert!(sessions::exists(db.pool(), id).await);
-        Ok(())
-    })).await.unwrap();
+            // The data should still exist in the DB
+            assert!(sessions::exists(db.pool(), id).await);
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // ── validate_session() ──────────────────────────────────────────────────────
@@ -607,156 +689,188 @@ fn app_state(db: &ttrss::core::db::Db) -> ttrss::AppState {
 // PHP: test_validate_session_returns_true_in_single_user_mode
 #[tokio::test]
 async fn test_validate_session_returns_true_in_single_user_mode() {
-    with_test_db(|url| Box::pin(async move {
-    let db = common::make_db_from_url(&url).await.expect("test db");
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = common::make_db_from_url(&url).await.expect("test db");
 
-    // Session state doesn't matter in single-user mode
-    let mut s = guest_session();
+            // Session state doesn't matter in single-user mode
+            let mut s = guest_session();
 
-    assert!(
-        sessions::validate_session(&app_state(&db), true, &mut s,).await,
-        "Should always return true when SINGLE_USER_MODE is enabled"
-    );
-        Ok(())
-    })).await.unwrap();
+            assert!(
+                sessions::validate_session(&app_state(&db), true, &mut s,).await,
+                "Should always return true when SINGLE_USER_MODE is enabled"
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // PHP: test_validate_session_returns_true_for_guest
 #[tokio::test]
 async fn test_validate_session_returns_true_for_guest() {
-    with_test_db(|url| Box::pin(async move {
-    let db = common::make_db_from_url(&url).await.expect("test db");
-    let mut s = guest_session();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = common::make_db_from_url(&url).await.expect("test db");
+            let mut s = guest_session();
 
-    assert!(
-        sessions::validate_session(&app_state(&db), false, &mut s,).await,
-        "Guest sessions (no uid) should validate successfully"
-    );
-        Ok(())
-    })).await.unwrap();
+            assert!(
+                sessions::validate_session(&app_state(&db), false, &mut s,).await,
+                "Guest sessions (no uid) should validate successfully"
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // PHP: test_validate_session_returns_true_for_valid_admin
 #[tokio::test]
 async fn test_validate_session_returns_true_for_valid_admin() {
-    with_test_db(|url| Box::pin(async move {
-    let db = common::make_db_from_url(&url).await.expect("test db");
-    let mut s = valid_admin_session();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = common::make_db_from_url(&url).await.expect("test db");
+            let mut s = valid_admin_session();
 
-    assert!(
-        sessions::validate_session(&app_state(&db), false, &mut s,).await,
-        "Admin session with correct pwd_hash should validate"
-    );
-        Ok(())
-    })).await.unwrap();
+            assert!(
+                sessions::validate_session(&app_state(&db), false, &mut s,).await,
+                "Admin session with correct pwd_hash should validate"
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // PHP: test_validate_session_fails_when_password_changed
 #[tokio::test]
 async fn test_validate_session_fails_when_password_changed() {
-    with_test_db(|url| Box::pin(async move {
-    let db = common::make_db_from_url(&url).await.expect("test db");
-    let mut s = valid_admin_session();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = common::make_db_from_url(&url).await.expect("test db");
+            let mut s = valid_admin_session();
 
-    // Corrupt the pwd_hash in the session
-    s.set(
-        "pwd_hash",
-        Value::Bytes(b"SHA1:wronghashvalue000000000000000000000000000000".to_vec()),
-    );
+            // Corrupt the pwd_hash in the session
+            s.set(
+                "pwd_hash",
+                Value::Bytes(b"SHA1:wronghashvalue000000000000000000000000000000".to_vec()),
+            );
 
-    let result = sessions::validate_session(&app_state(&db), false, &mut s,).await;
+            let result = sessions::validate_session(&app_state(&db), false, &mut s).await;
 
-    assert!(!result, "Should fail when pwd_hash does not match DB");
-    let msg = s
-        .get_str("login_error_msg")
-        .expect("Should set login_error_msg on password mismatch");
-    assert!(
-        msg.contains("password changed"),
-        "Error message should mention password change"
-    );
-        Ok(())
-    })).await.unwrap();
+            assert!(!result, "Should fail when pwd_hash does not match DB");
+            let msg = s
+                .get_str("login_error_msg")
+                .expect("Should set login_error_msg on password mismatch");
+            assert!(
+                msg.contains("password changed"),
+                "Error message should mention password change"
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // PHP: test_validate_session_fails_when_user_not_found
 #[tokio::test]
 async fn test_validate_session_fails_when_user_not_found() {
-    with_test_db(|url| Box::pin(async move {
-    let db = common::make_db_from_url(&url).await.expect("test db");
-    let mut s = non_existent_user_session();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = common::make_db_from_url(&url).await.expect("test db");
+            let mut s = non_existent_user_session();
 
-    let result = sessions::validate_session(&app_state(&db), false, &mut s,).await;
+            let result = sessions::validate_session(&app_state(&db), false, &mut s).await;
 
-    assert!(!result, "Should fail when user ID does not exist in DB");
-    let msg = s
-        .get_str("login_error_msg")
-        .expect("Should set login_error_msg when user not found");
-    assert!(
-        msg.contains("not found"),
-        "Error message should mention user not found"
-    );
-        Ok(())
-    })).await.unwrap();
+            assert!(!result, "Should fail when user ID does not exist in DB");
+            let msg = s
+                .get_str("login_error_msg")
+                .expect("Should set login_error_msg when user not found");
+            assert!(
+                msg.contains("not found"),
+                "Error message should mention user not found"
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // PHP: test_validate_session_fails_when_account_disabled
 #[tokio::test]
 async fn test_validate_session_fails_when_account_disabled() {
-    with_test_db(|url| Box::pin(async move {
-    let db = common::make_db_from_url(&url).await.expect("test db");
-    let mut s = disabled_user_session(&db).await;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = common::make_db_from_url(&url).await.expect("test db");
+            let mut s = disabled_user_session(&db).await;
 
-    let result = sessions::validate_session(&app_state(&db), false, &mut s,).await;
+            let result = sessions::validate_session(&app_state(&db), false, &mut s).await;
 
-    assert!(!result, "Should fail when account is disabled");
-    let msg = s
-        .get_str("login_error_msg")
-        .expect("Should set login_error_msg for disabled account");
-    assert!(
-        msg.contains("disabled"),
-        "Error message should mention account is disabled"
-    );
-        Ok(())
-    })).await.unwrap();
+            assert!(!result, "Should fail when account is disabled");
+            let msg = s
+                .get_str("login_error_msg")
+                .expect("Should set login_error_msg for disabled account");
+            assert!(
+                msg.contains("disabled"),
+                "Error message should mention account is disabled"
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // PHP: test_validate_session_with_empty_pwd_hash_in_session
 #[tokio::test]
 async fn test_validate_session_with_empty_pwd_hash_in_session() {
-    with_test_db(|url| Box::pin(async move {
-    let db = common::make_db_from_url(&url).await.expect("test db");
-    let mut s = valid_admin_session();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = common::make_db_from_url(&url).await.expect("test db");
+            let mut s = valid_admin_session();
 
-    // Set pwd_hash to empty string (but uid is valid)
-    s.set("pwd_hash", Value::Bytes(Vec::new()));
+            // Set pwd_hash to empty string (but uid is valid)
+            s.set("pwd_hash", Value::Bytes(Vec::new()));
 
-    let result = sessions::validate_session(&app_state(&db), false, &mut s,).await;
+            let result = sessions::validate_session(&app_state(&db), false, &mut s).await;
 
-    assert!(
-        !result,
-        "Should fail when pwd_hash in session is empty but user exists in DB"
-    );
-        Ok(())
-    })).await.unwrap();
+            assert!(
+                !result,
+                "Should fail when pwd_hash in session is empty but user exists in DB"
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // PHP: test_validate_session_with_uid_zero
 #[tokio::test]
 async fn test_validate_session_with_uid_zero() {
-    with_test_db(|url| Box::pin(async move {
-    let db = common::make_db_from_url(&url).await.expect("test db");
-    let mut s = Session::new();
-    // uid=0 is falsy in PHP, so it should be treated as a guest
-    s.set("uid", Value::Int(0));
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = common::make_db_from_url(&url).await.expect("test db");
+            let mut s = Session::new();
+            // uid=0 is falsy in PHP, so it should be treated as a guest
+            s.set("uid", Value::Int(0));
 
-    let result = sessions::validate_session(&app_state(&db), false, &mut s,).await;
+            let result = sessions::validate_session(&app_state(&db), false, &mut s).await;
 
-    assert!(
-        result,
-        "uid=0 (falsy) should be treated as guest and validate successfully"
-    );
-        Ok(())
-    })).await.unwrap();
+            assert!(
+                result,
+                "uid=0 (falsy) should be treated as guest and validate successfully"
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // ── Session-id regeneration (deferred from row 8) ───────────────────────────
@@ -766,30 +880,41 @@ async fn test_validate_session_with_uid_zero() {
 // successful login — PHP `session_regenerate_id(true)`)
 #[tokio::test]
 async fn test_authenticate_regenerates_session_id() {
-    with_test_db(|url| Box::pin(async move {
-    let db = setup_with_testuser(&url).await;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = setup_with_testuser(&url).await;
 
-    let before = core_session::new_session_id();
-    let auth::AuthOutcome::Success {
-        id,
-        login,
-        access_level,
-        pwd_hash,
-    } = auth::authenticate(db.pool(), "testuser", "testpass123", None).await
-    else {
-        panic!("expected success");
-    };
+            let before = core_session::new_session_id();
+            let auth::AuthOutcome::Success {
+                id,
+                login,
+                access_level,
+                pwd_hash,
+            } = auth::authenticate(db.pool(), "testuser", "testpass123", None).await
+            else {
+                panic!("expected success");
+            };
 
-    let (after, sess) =
-        auth::build_login_session(id, &login, access_level, &pwd_hash, false, false, "auth_internal");
+            let (after, sess) = auth::build_login_session(
+                id,
+                &login,
+                access_level,
+                &pwd_hash,
+                false,
+                false,
+                "auth_internal",
+            );
 
-    assert_ne!(
-        after, before,
-        "session id should change after a successful login"
-    );
-    // PHP session.sid_length=32, sid_bits_per_character=4 (hex)
-    assert_eq!(after.len(), 32);
-    assert_eq!(sess.uid(), Some(id as i64));
-        Ok(())
-    })).await.unwrap();
+            assert_ne!(
+                after, before,
+                "session id should change after a successful login"
+            );
+            // PHP session.sid_length=32, sid_bits_per_character=4 (hex)
+            assert_eq!(after.len(), 32);
+            assert_eq!(sess.uid(), Some(id as i64));
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }

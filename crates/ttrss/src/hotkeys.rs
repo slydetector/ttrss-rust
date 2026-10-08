@@ -3,9 +3,9 @@
 //! `hotkeys_map()` feeds the init-params `hotkeys` value, `hotkey_help()`
 //! renders the help panel.
 
+use crate::i18n::__;
 use crate::util::htmlspecialchars as html_escape;
 use serde_json::{Map, Value};
-use crate::i18n::__;
 
 /// `RPC::get_hotkeys_map()` entries — `sequence => action` in PHP declaration
 /// order (drives both the init-params `hotkeys` map and the help-dialog list).
@@ -78,27 +78,28 @@ const HOTKEYS: &[(&str, &str)] = &[
 /// M7.22 item 2: the `HOOK_HOTKEY_MAP` chain (PHP `RPC.php:629`) runs over
 /// the base map **before** the prefixes are computed, so plugins can add or
 /// redefine keys (hotkeys_swap_jk, hotkeys_noscroll).
-pub async fn hotkeys_map(host: &mut crate::pluginhost::host::HostCtx) -> (Vec<String>, Map<String, Value>) {
+pub async fn hotkeys_map(
+    host: &mut crate::pluginhost::host::HostCtx,
+) -> (Vec<String>, Map<String, Value>) {
     let mut map: Map<String, Value> = Map::new();
     for (seq, action) in HOTKEYS {
         map.insert((*seq).to_string(), Value::from((*action).to_string()));
     }
     let mut map_val = Value::Object(map);
-    host
-        .chain_hooks_callback(
-            crate::pluginhost::HOOK_HOTKEY_MAP,
-            &mut map_val,
-            |plugin, host, hk| {
-                Box::pin(async move {
-                    let result = plugin.hook_hotkey_map(host, hk).await;
-                    // The PHP callback rebinds `$hotkeys = $result`.
-                    *hk = result.clone();
-                    result
-                })
-            },
-            |_, _| false,
-        )
-        .await;
+    host.chain_hooks_callback(
+        crate::pluginhost::HOOK_HOTKEY_MAP,
+        &mut map_val,
+        |plugin, host, hk| {
+            Box::pin(async move {
+                let result = plugin.hook_hotkey_map(host, hk).await;
+                // The PHP callback rebinds `$hotkeys = $result`.
+                *hk = result.clone();
+                result
+            })
+        },
+        |_, _| false,
+    )
+    .await;
     let map = map_val.as_object().cloned().unwrap_or_default();
 
     // Prefixes: the base sequences in table order (a plugin redefining a base
@@ -106,9 +107,11 @@ pub async fn hotkeys_map(host: &mut crate::pluginhost::host::HostCtx) -> (Vec<St
     let mut prefixes: Vec<String> = Vec::new();
     let add_prefix = |seq: &str, prefixes: &mut Vec<String>| {
         if let Some(first) = seq.split(' ').next()
-            && seq.contains(' ') && !prefixes.iter().any(|p| p == first) {
-                prefixes.push(first.to_string());
-            }
+            && seq.contains(' ')
+            && !prefixes.iter().any(|p| p == first)
+        {
+            prefixes.push(first.to_string());
+        }
     };
     for (seq, _) in HOTKEYS {
         if map.contains_key(*seq) {
@@ -277,8 +280,7 @@ pub async fn hotkey_help(host: &mut crate::pluginhost::host::HostCtx) -> String 
         }
     }
 
-    let mut info: serde_json::Map<String, serde_json::Value> =
-        serde_json::Map::new();
+    let mut info: serde_json::Map<String, serde_json::Value> = serde_json::Map::new();
     for &(section, actions) in HOTKEY_INFO {
         let mut a = serde_json::Map::new();
         for &(action, desc) in actions {
@@ -336,24 +338,34 @@ pub async fn hotkey_help(host: &mut crate::pluginhost::host::HostCtx) -> String 
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
     use crate::pluginhost::host::HostCtx;
     use serde_json::json;
+    use std::sync::Arc;
 
     /// M7.22 item 2: the HOOK_HOTKEY_MAP chain seam — the base map +
     /// hotkeys_swap_jk / hotkeys_noscroll, and the prefix order (base-table
     /// order preserved).
     #[tokio::test]
     async fn hotkeys_map_runs_hook_chain() {
-        let host =
-            Arc::new(crate::pluginhost::PluginHost::startup(&crate::pluginhost::all_plugins()));
+        let host = Arc::new(crate::pluginhost::PluginHost::startup(
+            &crate::pluginhost::all_plugins(),
+        ));
         let pool = sqlx::postgres::PgPoolOptions::new()
             .connect_lazy("postgres://ttrss:ttrss@localhost/ttrss_test")
             .unwrap();
         let test_cfg = crate::core::config::Config::for_test();
 
         // No plugins: base map, prefix order from the table (c, a, f, g).
-        let mut ctx = HostCtx::for_user(Arc::clone(&host), pool.clone(), test_cfg.clone(), Some(1), None, 0, &[], &[]);
+        let mut ctx = HostCtx::for_user(
+            Arc::clone(&host),
+            pool.clone(),
+            test_cfg.clone(),
+            Some(1),
+            None,
+            0,
+            &[],
+            &[],
+        );
         let (prefixes, map) = crate::hotkeys::hotkeys_map(&mut ctx).await;
         assert_eq!(prefixes, vec!["c", "a", "f", "g"]);
         assert_eq!(map["s"], json!("toggle_mark"));

@@ -13,13 +13,13 @@ use axum::http::StatusCode;
 use base64::Engine as _;
 use kuchikiki::parse_html;
 use kuchikiki::traits::TendrilSink;
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
+use test_db::template::with_test_db;
+use ttrss::AppState;
 use ttrss::core::config::Config;
 use ttrss::core::phpser::Value as PValue;
 use ttrss::core::session::{self, Session};
 use ttrss::session::Sess;
-use ttrss::AppState;
-use test_db::template::with_test_db;
 
 /// A test-only config (the handlers only need `db` + `feed_icon_dir`).
 fn test_config() -> Config {
@@ -32,7 +32,7 @@ fn test_config() -> Config {
         cache_dir: std::path::PathBuf::from("no-such-test-icon-dir"),
         http_429_throttle_interval: 3600,
         daemon_sleep_interval: 60,
-    ..Default::default()
+        ..Default::default()
     }
 }
 
@@ -180,12 +180,17 @@ async fn test_editfeed_basic() {
 /// `editfeed` returns `null` for an unknown / non-owned feed.
 #[tokio::test]
 async fn test_editfeed_unknown_feed() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup(&url).await;
-    let result = ttrss::feeds::editfeed(&state, &sess, &request(&[("id", json!(9999))])).await;
-    assert!(result.is_null(), "expected null, got {result}");
-        Ok(())
-    })).await.unwrap();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            let result =
+                ttrss::feeds::editfeed(&state, &sess, &request(&[("id", json!(9999))])).await;
+            assert!(result.is_null(), "expected null, got {result}");
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 /// Nested categories are indented by level in the category `<select>`.
@@ -236,24 +241,28 @@ fn test_decrypt_feed_pass_roundtrip() {
 /// `get_icon` maps virtual feed ids to Material icon names.
 #[tokio::test]
 async fn test_get_icon_virtual() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, _sess) = setup(&url).await;
-    use ttrss::feeds::get_icon;
-    assert_eq!(get_icon(&state, 0), "archive");
-    assert_eq!(get_icon(&state, -1), "star");
-    assert_eq!(get_icon(&state, -2), "rss_feed");
-    assert_eq!(get_icon(&state, -3), "whatshot");
-    assert_eq!(get_icon(&state, -4), "inbox");
-    assert_eq!(get_icon(&state, -6), "restore");
-    // Label ids (below LABEL_BASE_INDEX) map to the generic label icon.
-    assert_eq!(
-        get_icon(&state, ttrss::labels::LABEL_BASE_INDEX - 5),
-        "label"
-    );
-    // A real feed with no icon file maps to the empty string.
-    assert_eq!(get_icon(&state, 1), "");
-        Ok(())
-    })).await.unwrap();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, _sess) = setup(&url).await;
+            use ttrss::feeds::get_icon;
+            assert_eq!(get_icon(&state, 0), "archive");
+            assert_eq!(get_icon(&state, -1), "star");
+            assert_eq!(get_icon(&state, -2), "rss_feed");
+            assert_eq!(get_icon(&state, -3), "whatshot");
+            assert_eq!(get_icon(&state, -4), "inbox");
+            assert_eq!(get_icon(&state, -6), "restore");
+            // Label ids (below LABEL_BASE_INDEX) map to the generic label icon.
+            assert_eq!(
+                get_icon(&state, ttrss::labels::LABEL_BASE_INDEX - 5),
+                "label"
+            );
+            // A real feed with no icon file maps to the empty string.
+            assert_eq!(get_icon(&state, 1), "");
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // --- editfeeds (batch-edit dialog) structural tests -----------------------
@@ -270,227 +279,252 @@ fn parse_doc(html: &str) -> kuchikiki::NodeRef {
 
 #[tokio::test]
 async fn test_editfeeds_overview() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup(&url).await;
-    let html = ttrss::feeds::editfeeds(&state, &sess, &request(&[("ids", json!("1,2"))])).await;
-    let doc = parse_doc(&html);
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            let html =
+                ttrss::feeds::editfeeds(&state, &sess, &request(&[("ids", json!("1,2"))])).await;
+            let doc = parse_doc(&html);
 
-    // The three hidden fields (the form's identity).
-    for (name, value) in [
-        ("ids", "1,2"),
-        ("op", "Pref_Feeds"),
-        ("method", "batchEditSave"),
-    ] {
-        let els = doc
-            .select(&format!("input[name={name}]"))
-            .unwrap()
-            .collect::<Vec<_>>();
-        assert_eq!(els.len(), 1, "exactly one hidden field {name}");
-        assert_eq!(
-            els[0].attributes.borrow().get("value"),
-            Some(value),
-            "value of {name}"
-        );
-    }
+            // The three hidden fields (the form's identity).
+            for (name, value) in [
+                ("ids", "1,2"),
+                ("op", "Pref_Feeds"),
+                ("method", "batchEditSave"),
+            ] {
+                let els = doc
+                    .select(&format!("input[name={name}]"))
+                    .unwrap()
+                    .collect::<Vec<_>>();
+                assert_eq!(els.len(), 1, "exactly one hidden field {name}");
+                assert_eq!(
+                    els[0].attributes.borrow().get("value"),
+                    Some(value),
+                    "value of {name}"
+                );
+            }
 
-    // The tab container and the three tabs in order.
-    assert_eq!(
-        doc.select("div[dojoType='dijit.layout.TabContainer']")
-            .unwrap()
-            .count(),
-        1,
-        "one tab container"
-    );
-    let tabs: Vec<String> = doc
-        .select("div[dojoType='dijit.layout.ContentPane']")
-        .unwrap()
-        .map(|t| t.attributes.borrow().get("title").unwrap_or("").to_string())
-        .collect();
-    assert_eq!(
-        tabs,
-        vec![
-            "General".to_string(),
-            "Authentication".to_string(),
-            "Options".to_string(),
-        ]
-    );
-        Ok(())
-    })).await.unwrap();
+            // The tab container and the three tabs in order.
+            assert_eq!(
+                doc.select("div[dojoType='dijit.layout.TabContainer']")
+                    .unwrap()
+                    .count(),
+                1,
+                "one tab container"
+            );
+            let tabs: Vec<String> = doc
+                .select("div[dojoType='dijit.layout.ContentPane']")
+                .unwrap()
+                .map(|t| t.attributes.borrow().get("title").unwrap_or("").to_string())
+                .collect();
+            assert_eq!(
+                tabs,
+                vec![
+                    "General".to_string(),
+                    "Authentication".to_string(),
+                    "Options".to_string(),
+                ]
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
 async fn test_editfeeds_general_tab() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup(&url).await;
-    let html = ttrss::feeds::editfeeds(&state, &sess, &request(&[("ids", json!("1,2"))])).await;
-    let doc = parse_doc(&html);
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            let html =
+                ttrss::feeds::editfeeds(&state, &sess, &request(&[("ids", json!("1,2"))])).await;
+            let doc = parse_doc(&html);
 
-    // The General tab's four selects, each paired with a "Check to enable
-    // field" toggle.
-    for name in [
-        "cat_id",
-        "feed_language",
-        "update_interval",
-        "purge_interval",
-    ] {
-        let sel = doc
-            .select(&format!("select[name={name}]"))
-            .unwrap()
-            .collect::<Vec<_>>();
-        assert_eq!(sel.len(), 1, "exactly one select {name}");
+            // The General tab's four selects, each paired with a "Check to enable
+            // field" toggle.
+            for name in [
+                "cat_id",
+                "feed_language",
+                "update_interval",
+                "purge_interval",
+            ] {
+                let sel = doc
+                    .select(&format!("select[name={name}]"))
+                    .unwrap()
+                    .collect::<Vec<_>>();
+                assert_eq!(sel.len(), 1, "exactly one select {name}");
 
-        let toggle = doc
-            .select(&format!("input[data-control-for={name}]"))
-            .unwrap()
-            .collect::<Vec<_>>();
-        assert_eq!(toggle.len(), 1, "exactly one toggle for {name}");
-        let attrs = toggle[0].attributes.borrow();
-        assert_eq!(
-            attrs.get("onchange"),
-            Some("App.dialogOf(this).toggleField(this)")
-        );
-        assert_eq!(attrs.get("title"), Some("Check to enable field"));
-    }
+                let toggle = doc
+                    .select(&format!("input[data-control-for={name}]"))
+                    .unwrap()
+                    .collect::<Vec<_>>();
+                assert_eq!(toggle.len(), 1, "exactly one toggle for {name}");
+                let attrs = toggle[0].attributes.borrow();
+                assert_eq!(
+                    attrs.get("onchange"),
+                    Some("App.dialogOf(this).toggleField(this)")
+                );
+                assert_eq!(attrs.get("title"), Some("Check to enable field"));
+            }
 
-    // The update-interval select carries the default-annotation on key 0.
-    let update_options: Vec<String> = doc
-        .select("select[name=update_interval] option")
-        .unwrap()
-        .map(|o| {
-            let v = o.attributes.borrow().get("value").unwrap_or("").to_string();
-            format!("{v}={}", o.text_contents())
+            // The update-interval select carries the default-annotation on key 0.
+            let update_options: Vec<String> = doc
+                .select("select[name=update_interval] option")
+                .unwrap()
+                .map(|o| {
+                    let v = o.attributes.borrow().get("value").unwrap_or("").to_string();
+                    format!("{v}={}", o.text_contents())
+                })
+                .collect();
+            assert!(
+                update_options.contains(&"0=Default interval (30 minutes)".to_string()),
+                "{update_options:?}"
+            );
+            assert!(
+                update_options.contains(&"-1=Disable updates".to_string()),
+                "{update_options:?}"
+            );
+            Ok(())
         })
-        .collect();
-    assert!(
-        update_options.contains(&"0=Default interval (30 minutes)".to_string()),
-        "{update_options:?}"
-    );
-    assert!(
-        update_options.contains(&"-1=Disable updates".to_string()),
-        "{update_options:?}"
-    );
-        Ok(())
-    })).await.unwrap();
+    })
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
 async fn test_editfeeds_auth_tab() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup(&url).await;
-    let html = ttrss::feeds::editfeeds(&state, &sess, &request(&[("ids", json!("1,2"))])).await;
-    let doc = parse_doc(&html);
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            let html =
+                ttrss::feeds::editfeeds(&state, &sess, &request(&[("ids", json!("1,2"))])).await;
+            let doc = parse_doc(&html);
 
-    // The Authentication tab's login + password inputs (disabled, autocomplete).
-    let login = doc
-        .select("input[name=auth_login]")
-        .unwrap()
-        .collect::<Vec<_>>();
-    assert_eq!(login.len(), 1);
-    let la = login[0].attributes.borrow();
-    assert_eq!(la.get("disabled"), Some("1"));
-    assert_eq!(la.get("autocomplete"), Some("new-password"));
-    let pass = doc
-        .select("input[name=auth_pass]")
-        .unwrap()
-        .collect::<Vec<_>>();
-    assert_eq!(pass.len(), 1);
-    let pa = pass[0].attributes.borrow();
-    assert_eq!(pa.get("type"), Some("password"));
-    assert_eq!(pa.get("disabled"), Some("1"));
-    assert_eq!(pa.get("autocomplete"), Some("new-password"));
+            // The Authentication tab's login + password inputs (disabled, autocomplete).
+            let login = doc
+                .select("input[name=auth_login]")
+                .unwrap()
+                .collect::<Vec<_>>();
+            assert_eq!(login.len(), 1);
+            let la = login[0].attributes.borrow();
+            assert_eq!(la.get("disabled"), Some("1"));
+            assert_eq!(la.get("autocomplete"), Some("new-password"));
+            let pass = doc
+                .select("input[name=auth_pass]")
+                .unwrap()
+                .collect::<Vec<_>>();
+            assert_eq!(pass.len(), 1);
+            let pa = pass[0].attributes.borrow();
+            assert_eq!(pa.get("type"), Some("password"));
+            assert_eq!(pa.get("disabled"), Some("1"));
+            assert_eq!(pa.get("autocomplete"), Some("new-password"));
 
-    // Each is paired with a toggle.
-    for name in ["auth_login", "auth_pass"] {
-        let toggle = doc
-            .select(&format!("input[data-control-for={name}]"))
-            .unwrap()
-            .collect::<Vec<_>>();
-        assert_eq!(toggle.len(), 1, "exactly one toggle for {name}");
-    }
-        Ok(())
-    })).await.unwrap();
+            // Each is paired with a toggle.
+            for name in ["auth_login", "auth_pass"] {
+                let toggle = doc
+                    .select(&format!("input[data-control-for={name}]"))
+                    .unwrap()
+                    .collect::<Vec<_>>();
+                assert_eq!(toggle.len(), 1, "exactly one toggle for {name}");
+            }
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
 async fn test_editfeeds_options_tab() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup(&url).await;
-    let html = ttrss::feeds::editfeeds(&state, &sess, &request(&[("ids", json!("1,2"))])).await;
-    let doc = parse_doc(&html);
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            let html =
+                ttrss::feeds::editfeeds(&state, &sess, &request(&[("ids", json!("1,2"))])).await;
+            let doc = parse_doc(&html);
 
-    // The five boolean options, each a disabled checkbox + caption + toggle.
-    let expected = [
-        ("include_in_digest", "Include in email digest"),
-        (
-            "always_display_enclosures",
-            "Always display image attachments",
-        ),
-        ("hide_images", "Do not embed media"),
-        ("cache_images", "Cache media"),
-        ("mark_unread_on_update", "Mark updated articles as unread"),
-    ];
-    for (name, caption) in expected {
-        let cb = doc
-            .select(&format!("input[name={name}]"))
-            .unwrap()
-            .collect::<Vec<_>>();
-        assert_eq!(cb.len(), 1, "exactly one checkbox {name}");
-        assert_eq!(cb[0].attributes.borrow().get("disabled"), Some("1"));
-        assert!(html.contains(caption), "caption {caption} present");
-        let toggle = doc
-            .select(&format!("input[data-control-for={name}]"))
-            .unwrap()
-            .collect::<Vec<_>>();
-        assert_eq!(toggle.len(), 1, "exactly one toggle for {name}");
-    }
+            // The five boolean options, each a disabled checkbox + caption + toggle.
+            let expected = [
+                ("include_in_digest", "Include in email digest"),
+                (
+                    "always_display_enclosures",
+                    "Always display image attachments",
+                ),
+                ("hide_images", "Do not embed media"),
+                ("cache_images", "Cache media"),
+                ("mark_unread_on_update", "Mark updated articles as unread"),
+            ];
+            for (name, caption) in expected {
+                let cb = doc
+                    .select(&format!("input[name={name}]"))
+                    .unwrap()
+                    .collect::<Vec<_>>();
+                assert_eq!(cb.len(), 1, "exactly one checkbox {name}");
+                assert_eq!(cb[0].attributes.borrow().get("disabled"), Some("1"));
+                assert!(html.contains(caption), "caption {caption} present");
+                let toggle = doc
+                    .select(&format!("input[data-control-for={name}]"))
+                    .unwrap()
+                    .collect::<Vec<_>>();
+                assert_eq!(toggle.len(), 1, "exactly one toggle for {name}");
+            }
 
-    // The footer has the Save (submit) button.
-    assert_eq!(
-        doc.select("button[type=submit]").unwrap().count(),
-        1,
-        "one submit button"
-    );
-        Ok(())
-    })).await.unwrap();
+            // The footer has the Save (submit) button.
+            assert_eq!(
+                doc.select("button[type=submit]").unwrap().count(),
+                1,
+                "one submit button"
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
 async fn test_editfeeds_category_options() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup(&url).await;
-    let html = ttrss::feeds::editfeeds(&state, &sess, &request(&[("ids", json!("1,2"))])).await;
-    let doc = parse_doc(&html);
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            let html =
+                ttrss::feeds::editfeeds(&state, &sess, &request(&[("ids", json!("1,2"))])).await;
+            let doc = parse_doc(&html);
 
-    let options: Vec<(String, bool, bool)> = doc
-        .select("select[name=cat_id] option")
-        .unwrap()
-        .map(|o| {
-            let a = o.attributes.borrow();
-            (
-                o.text_contents(),
-                a.get("disabled").is_some(),
-                a.get("selected").is_some(),
-            )
+            let options: Vec<(String, bool, bool)> = doc
+                .select("select[name=cat_id] option")
+                .unwrap()
+                .map(|o| {
+                    let a = o.attributes.borrow();
+                    (
+                        o.text_contents(),
+                        a.get("disabled").is_some(),
+                        a.get("selected").is_some(),
+                    )
+                })
+                .collect();
+
+            // The two fixture categories (top-level, no indent).
+            let texts: Vec<&str> = options.iter().map(|(t, _, _)| t.as_str()).collect();
+            assert!(texts.contains(&"Technology"), "{texts:?}");
+            assert!(texts.contains(&"Science & Nature"), "{texts:?}");
+            // The separator (15 U+2015) is a disabled option.
+            let sep = "\u{2015}".repeat(15);
+            assert!(
+                options.iter().any(|(t, d, _)| t == &sep && *d),
+                "separator disabled: {options:?}"
+            );
+            // "Uncategorized" is selected (default_id is None).
+            assert!(
+                options.iter().any(|(t, _, s)| t == "Uncategorized" && *s),
+                "Uncategorized selected: {options:?}"
+            );
+            Ok(())
         })
-        .collect();
-
-    // The two fixture categories (top-level, no indent).
-    let texts: Vec<&str> = options.iter().map(|(t, _, _)| t.as_str()).collect();
-    assert!(texts.contains(&"Technology"), "{texts:?}");
-    assert!(texts.contains(&"Science & Nature"), "{texts:?}");
-    // The separator (15 U+2015) is a disabled option.
-    let sep = "\u{2015}".repeat(15);
-    assert!(
-        options.iter().any(|(t, d, _)| t == &sep && *d),
-        "separator disabled: {options:?}"
-    );
-    // "Uncategorized" is selected (default_id is None).
-    assert!(
-        options.iter().any(|(t, _, s)| t == "Uncategorized" && *s),
-        "Uncategorized selected: {options:?}"
-    );
-        Ok(())
-    })).await.unwrap();
+    })
+    .await
+    .unwrap();
 }
 
 /// `Feeds::subscribeToFeed` — the "Add a feed" dialog data: the category
@@ -500,48 +534,52 @@ async fn test_editfeeds_category_options() {
 /// only the data (not the object key order) matters.
 #[tokio::test]
 async fn test_subscribe_to_feed() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup(&url).await;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
 
-    let result = ttrss::feeds::subscribe_to_feed(&state, &sess).await;
+            let result = ttrss::feeds::subscribe_to_feed(&state, &sess).await;
 
-    // The category `<select>` — named "cat", listing the user's categories and
-    // an "Uncategorized" option (selected, since default_id is None).
-    let cat_select = result["cat_select"]
-        .as_str()
-        .expect("cat_select is a string");
-    assert!(cat_select.contains("<select name=\"cat\""), "{cat_select}");
-    assert!(
-        cat_select.contains("value='1'>Technology</option>"),
-        "{cat_select}"
-    );
-    assert!(
-        cat_select.contains("value='2'>Science &amp; Nature</option>"),
-        "{cat_select}"
-    );
-    assert!(
-        cat_select.contains("value=\"0\">Uncategorized</option>"),
-        "{cat_select}"
-    );
+            // The category `<select>` — named "cat", listing the user's categories and
+            // an "Uncategorized" option (selected, since default_id is None).
+            let cat_select = result["cat_select"]
+                .as_str()
+                .expect("cat_select is a string");
+            assert!(cat_select.contains("<select name=\"cat\""), "{cat_select}");
+            assert!(
+                cat_select.contains("value='1'>Technology</option>"),
+                "{cat_select}"
+            );
+            assert!(
+                cat_select.contains("value='2'>Science &amp; Nature</option>"),
+                "{cat_select}"
+            );
+            assert!(
+                cat_select.contains("value=\"0\">Uncategorized</option>"),
+                "{cat_select}"
+            );
 
-    // The update-interval options — a JSON object (key => label), with the
-    // "Default interval" entry annotated with the DEFAULT_UPDATE_INTERVAL label
-    // (no pref set in the fixtures → the default 30 → "30 minutes").
-    let update = &result["intervals"]["update"];
-    assert!(
-        update.is_object(),
-        "intervals.update is an object: {update}"
-    );
-    assert_eq!(
-        update["0"].as_str().unwrap(),
-        "Default interval (30 minutes)"
-    );
-    assert_eq!(update["-1"].as_str().unwrap(), "Disable updates");
-    assert_eq!(update["15"].as_str().unwrap(), "15 minutes");
-    assert_eq!(update["60"].as_str().unwrap(), "Hourly");
-    assert_eq!(update["10080"].as_str().unwrap(), "Weekly");
-        Ok(())
-    })).await.unwrap();
+            // The update-interval options — a JSON object (key => label), with the
+            // "Default interval" entry annotated with the DEFAULT_UPDATE_INTERVAL label
+            // (no pref set in the fixtures → the default 30 → "30 minutes").
+            let update = &result["intervals"]["update"];
+            assert!(
+                update.is_object(),
+                "intervals.update is an object: {update}"
+            );
+            assert_eq!(
+                update["0"].as_str().unwrap(),
+                "Default interval (30 minutes)"
+            );
+            assert_eq!(update["-1"].as_str().unwrap(), "Disable updates");
+            assert_eq!(update["15"].as_str().unwrap(), "15 minutes");
+            assert_eq!(update["60"].as_str().unwrap(), "Hourly");
+            assert_eq!(update["10080"].as_str().unwrap(), "Weekly");
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 /// `Feeds::opensite` — 302-redirect to a feed's site URL (validated), or 404 if

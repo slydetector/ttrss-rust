@@ -9,22 +9,22 @@
 
 mod common;
 
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 use sqlx::AssertSqlSafe;
+use test_db::template::with_test_db;
+use ttrss::AppState;
 use ttrss::core::config::Config;
 use ttrss::core::db::Db;
 use ttrss::core::phpser::Value as PValue;
 use ttrss::core::session::Session;
 use ttrss::session::Sess;
-use ttrss::AppState;
-use test_db::template::with_test_db;
 
-fn test_config() -> Config { common::test_config() }
+fn test_config() -> Config {
+    common::test_config()
+}
 
 /// Fresh fixtures + a session carrying `uid = 1`.
-async fn setup(
-    url: &str,
-) -> (AppState, Sess) {
+async fn setup(url: &str) -> (AppState, Sess) {
     let db: Db = common::make_db_from_url(url).await.expect("test db");
     let state = AppState::new(test_config(), db);
     let mut data = Session::new();
@@ -110,11 +110,7 @@ fn items_for<'a>(result: &'a Value, title_substring: &str) -> Option<Vec<&'a Val
         .iter()
         .filter(|it| plain(it["title"].as_str().unwrap_or("")).contains(title_substring))
         .collect();
-    if found.is_empty() {
-        None
-    } else {
-        Some(found)
-    }
+    if found.is_empty() { None } else { Some(found) }
 }
 
 /// The handler's scope query, as a row count (the seed fixtures add their
@@ -143,378 +139,423 @@ async fn do_test(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> V
 
 #[tokio::test]
 async fn test_test_filter_do_title_match() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup(&url).await;
-    let db = &state.db;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            let db = &state.db;
 
-    add_entry(
-        db,
-        101,
-        "A needle article",
-        "<p>content a</p>",
-        "alice",
-        "",
-        1,
-    )
-    .await;
-    add_entry(db, 102, "Another one", "<p>content b</p>", "bob", "", 2).await;
+            add_entry(
+                db,
+                101,
+                "A needle article",
+                "<p>content a</p>",
+                "alice",
+                "",
+                1,
+            )
+            .await;
+            add_entry(db, 102, "Another one", "<p>content b</p>", "bob", "", 2).await;
 
-    // Title rule, all feeds (`feed_id: 0`).
-    let result = do_test(
-        &state,
-        &sess,
-        &request(&[
-            ("offset", json!("0")),
-            ("limit", json!("100")),
-            (
-                "rule",
-                rule_param(&[json!({"reg_exp": "needle", "filter_type": 1, "feed_id": ["0"]})]),
-            ),
-        ]),
-    )
-    .await;
+            // Title rule, all feeds (`feed_id: 0`).
+            let result = do_test(
+                &state,
+                &sess,
+                &request(&[
+                    ("offset", json!("0")),
+                    ("limit", json!("100")),
+                    (
+                        "rule",
+                        rule_param(&[
+                            json!({"reg_exp": "needle", "filter_type": 1, "feed_id": ["0"]}),
+                        ]),
+                    ),
+                ]),
+            )
+            .await;
 
-    assert_eq!(
-        result["pre_filtering_count"],
-        count_entries(db, "true").await
-    );
-    let items = items_for(&result, "needle").expect("matching item");
-    assert_eq!(items.len(), 1);
-    let it = &items[0];
-    // The title is highlighted (case preserved, `<span class="highlight">`)
-    // and wrapped in the outer `<span>` from the DOM round-trip.
-    assert_eq!(
-        it["title"],
-        "<span>A <span class=\"highlight\">needle</span> article</span>"
-    );
-    // A title rule's preview is `&mdash;`.
-    assert_eq!(it["content_preview"], "&mdash;");
-    assert_eq!(it["feed_title"], "Hacker News");
-    assert_eq!(it["date"], "2026-09-01 10:00");
-    // The plain (non-HTML) rule name. PHP's `testFilterDo` always sets
-    // `$rule['inverse'] ??= false` before naming the rule, so the name
-    // carries the `(inverse)` suffix even when inverse is off.
-    assert_eq!(it["rules"].as_array().unwrap().len(), 1);
-    assert_eq!(
-        it["rules"][0].as_str().unwrap().trim(),
-        "needle on Title in All feeds (inverse)"
-    );
-        Ok(())
-    })).await.unwrap();
+            assert_eq!(
+                result["pre_filtering_count"],
+                count_entries(db, "true").await
+            );
+            let items = items_for(&result, "needle").expect("matching item");
+            assert_eq!(items.len(), 1);
+            let it = &items[0];
+            // The title is highlighted (case preserved, `<span class="highlight">`)
+            // and wrapped in the outer `<span>` from the DOM round-trip.
+            assert_eq!(
+                it["title"],
+                "<span>A <span class=\"highlight\">needle</span> article</span>"
+            );
+            // A title rule's preview is `&mdash;`.
+            assert_eq!(it["content_preview"], "&mdash;");
+            assert_eq!(it["feed_title"], "Hacker News");
+            assert_eq!(it["date"], "2026-09-01 10:00");
+            // The plain (non-HTML) rule name. PHP's `testFilterDo` always sets
+            // `$rule['inverse'] ??= false` before naming the rule, so the name
+            // carries the `(inverse)` suffix even when inverse is off.
+            assert_eq!(it["rules"].as_array().unwrap().len(), 1);
+            assert_eq!(
+                it["rules"][0].as_str().unwrap().trim(),
+                "needle on Title in All feeds (inverse)"
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
 async fn test_test_filter_do_feed_scope() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup(&url).await;
-    let db = &state.db;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            let db = &state.db;
 
-    // Feed 1 (cat 1) and feed 4 (cat 2).
-    add_entry(db, 101, "feed one article", "<p>x</p>", "", "", 1).await;
-    add_entry(db, 102, "feed four article", "<p>x</p>", "", "", 4).await;
+            // Feed 1 (cat 1) and feed 4 (cat 2).
+            add_entry(db, 101, "feed one article", "<p>x</p>", "", "", 1).await;
+            add_entry(db, 102, "feed four article", "<p>x</p>", "", "", 4).await;
 
-    // `feed_id: ["1"]` scopes the query to feed 1 only.
-    let result = do_test(
-        &state,
-        &sess,
-        &request(&[
-            ("limit", json!("100")),
-            (
-                "rule",
-                rule_param(&[json!({"reg_exp": "article", "filter_type": 1, "feed_id": ["1"]})]),
-            ),
-        ]),
-    )
-    .await;
+            // `feed_id: ["1"]` scopes the query to feed 1 only.
+            let result = do_test(
+                &state,
+                &sess,
+                &request(&[
+                    ("limit", json!("100")),
+                    (
+                        "rule",
+                        rule_param(&[
+                            json!({"reg_exp": "article", "filter_type": 1, "feed_id": ["1"]}),
+                        ]),
+                    ),
+                ]),
+            )
+            .await;
 
-    assert_eq!(
-        result["pre_filtering_count"],
-        count_entries(db, "ue.feed_id = 1").await
-    );
-    assert!(
-        items_for(&result, "feed one article").is_some(),
-        "got {result}"
-    );
-    assert!(
-        items_for(&result, "feed four article").is_none(),
-        "got {result}"
-    );
-    assert_eq!(
-        plain(
-            items_for(&result, "feed one article").unwrap()[0]["rules"][0]
-                .as_str()
-                .unwrap()
-        )
-        .trim(),
-        "article on Title in Hacker News (inverse)"
-    );
-        Ok(())
-    })).await.unwrap();
+            assert_eq!(
+                result["pre_filtering_count"],
+                count_entries(db, "ue.feed_id = 1").await
+            );
+            assert!(
+                items_for(&result, "feed one article").is_some(),
+                "got {result}"
+            );
+            assert!(
+                items_for(&result, "feed four article").is_none(),
+                "got {result}"
+            );
+            assert_eq!(
+                plain(
+                    items_for(&result, "feed one article").unwrap()[0]["rules"][0]
+                        .as_str()
+                        .unwrap()
+                )
+                .trim(),
+                "article on Title in Hacker News (inverse)"
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
 async fn test_test_filter_do_category_scope() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup(&url).await;
-    let db = &state.db;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            let db = &state.db;
 
-    add_entry(db, 101, "cat one feed two", "<p>x</p>", "", "", 2).await;
-    add_entry(db, 102, "cat two feed four", "<p>x</p>", "", "", 4).await;
+            add_entry(db, 101, "cat one feed two", "<p>x</p>", "", "", 2).await;
+            add_entry(db, 102, "cat two feed four", "<p>x</p>", "", "", 4).await;
 
-    // `feed_id: ["CAT:1"]` → feeds in category 1 (feeds 1–3), not feed 4.
-    let result = do_test(
-        &state,
-        &sess,
-        &request(&[
-            ("limit", json!("100")),
-            (
-                "rule",
-                rule_param(&[json!({"reg_exp": "feed", "filter_type": 1, "feed_id": ["CAT:1"]})]),
-            ),
-        ]),
-    )
-    .await;
+            // `feed_id: ["CAT:1"]` → feeds in category 1 (feeds 1–3), not feed 4.
+            let result = do_test(
+                &state,
+                &sess,
+                &request(&[
+                    ("limit", json!("100")),
+                    (
+                        "rule",
+                        rule_param(&[
+                            json!({"reg_exp": "feed", "filter_type": 1, "feed_id": ["CAT:1"]}),
+                        ]),
+                    ),
+                ]),
+            )
+            .await;
 
-    assert_eq!(
-        result["pre_filtering_count"],
-        count_entries(db, "fc.id = 1").await
-    );
-    assert!(
-        items_for(&result, "cat one feed two").is_some(),
-        "got {result}"
-    );
-    assert!(
-        items_for(&result, "cat two feed four").is_none(),
-        "got {result}"
-    );
-        Ok(())
-    })).await.unwrap();
+            assert_eq!(
+                result["pre_filtering_count"],
+                count_entries(db, "fc.id = 1").await
+            );
+            assert!(
+                items_for(&result, "cat one feed two").is_some(),
+                "got {result}"
+            );
+            assert!(
+                items_for(&result, "cat two feed four").is_none(),
+                "got {result}"
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
 async fn test_test_filter_do_uncategorized_scope() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup(&url).await;
-    let db = &state.db;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            let db = &state.db;
 
-    // A feed without a category (the fixture feeds all have one).
-    sqlx::query(
-        "INSERT INTO ttrss_feeds (id, owner_uid, title, feed_url) \
+            // A feed without a category (the fixture feeds all have one).
+            sqlx::query(
+                "INSERT INTO ttrss_feeds (id, owner_uid, title, feed_url) \
          VALUES (5, 1, 'Uncat Test', 'https://example.com/uncat.xml')",
-    )
-    .execute(db.pool())
+            )
+            .execute(db.pool())
+            .await
+            .expect("setup: uncat feed");
+            add_entry(db, 101, "no category entry", "<p>x</p>", "", "", 5).await;
+            add_entry(db, 102, "with category entry", "<p>x</p>", "", "", 1).await;
+
+            // `feed_id: ["CAT:0"]` → `cat_id IS NULL` only.
+            let result = do_test(
+                &state,
+                &sess,
+                &request(&[
+                    ("limit", json!("100")),
+                    (
+                        "rule",
+                        rule_param(&[
+                            json!({"reg_exp": "entry", "filter_type": 1, "feed_id": ["CAT:0"]}),
+                        ]),
+                    ),
+                ]),
+            )
+            .await;
+
+            assert_eq!(
+                result["pre_filtering_count"],
+                count_entries(db, "fc.id IS NULL").await
+            );
+            assert!(
+                items_for(&result, "no category entry").is_some(),
+                "got {result}"
+            );
+            assert!(
+                items_for(&result, "with category entry").is_none(),
+                "got {result}"
+            );
+            Ok(())
+        })
+    })
     .await
-    .expect("setup: uncat feed");
-    add_entry(db, 101, "no category entry", "<p>x</p>", "", "", 5).await;
-    add_entry(db, 102, "with category entry", "<p>x</p>", "", "", 1).await;
-
-    // `feed_id: ["CAT:0"]` → `cat_id IS NULL` only.
-    let result = do_test(
-        &state,
-        &sess,
-        &request(&[
-            ("limit", json!("100")),
-            (
-                "rule",
-                rule_param(&[json!({"reg_exp": "entry", "filter_type": 1, "feed_id": ["CAT:0"]})]),
-            ),
-        ]),
-    )
-    .await;
-
-    assert_eq!(
-        result["pre_filtering_count"],
-        count_entries(db, "fc.id IS NULL").await
-    );
-    assert!(
-        items_for(&result, "no category entry").is_some(),
-        "got {result}"
-    );
-    assert!(
-        items_for(&result, "with category entry").is_none(),
-        "got {result}"
-    );
-        Ok(())
-    })).await.unwrap();
+    .unwrap();
 }
 
 #[tokio::test]
 async fn test_test_filter_do_content_preview() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup(&url).await;
-    let db = &state.db;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            let db = &state.db;
 
-    add_entry(
-        db,
-        101,
-        "Content article",
-        "<p>prefix text and the secret word and suffix</p>",
-        "",
-        "",
-        1,
-    )
-    .await;
+            add_entry(
+                db,
+                101,
+                "Content article",
+                "<p>prefix text and the secret word and suffix</p>",
+                "",
+                "",
+                1,
+            )
+            .await;
 
-    let result = do_test(
-        &state,
-        &sess,
-        &request(&[
-            ("limit", json!("100")),
-            (
-                "rule",
-                rule_param(&[json!({"reg_exp": "secret", "filter_type": 2, "feed_id": ["0"]})]),
-            ),
-        ]),
-    )
-    .await;
+            let result = do_test(
+                &state,
+                &sess,
+                &request(&[
+                    ("limit", json!("100")),
+                    (
+                        "rule",
+                        rule_param(&[
+                            json!({"reg_exp": "secret", "filter_type": 2, "feed_id": ["0"]}),
+                        ]),
+                    ),
+                ]),
+            )
+            .await;
 
-    let it = &items_for(&result, "Content article").expect("item")[0];
-    // The match is not at offset 0 → `&hellip;` prefix + the content from
-    // the match, truncated to 200 chars, with the match highlighted (and
-    // the DOM round-trip's outer `<span>`).
-    let preview = it["content_preview"].as_str().unwrap();
-    assert_eq!(
-        plain(preview),
-        "&hellip;secret word and suffix",
-        "preview: {preview}"
-    );
-    assert!(
-        preview.contains("<span class=\"highlight\">secret</span>"),
-        "preview: {preview}"
-    );
-    // The title is not highlighted for a content rule (no DOM round-trip).
-    assert_eq!(it["title"], "Content article");
-        Ok(())
-    })).await.unwrap();
+            let it = &items_for(&result, "Content article").expect("item")[0];
+            // The match is not at offset 0 → `&hellip;` prefix + the content from
+            // the match, truncated to 200 chars, with the match highlighted (and
+            // the DOM round-trip's outer `<span>`).
+            let preview = it["content_preview"].as_str().unwrap();
+            assert_eq!(
+                plain(preview),
+                "&hellip;secret word and suffix",
+                "preview: {preview}"
+            );
+            assert!(
+                preview.contains("<span class=\"highlight\">secret</span>"),
+                "preview: {preview}"
+            );
+            // The title is not highlighted for a content rule (no DOM round-trip).
+            assert_eq!(it["title"], "Content article");
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
 async fn test_test_filter_do_content_preview_strips_tags() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup(&url).await;
-    let db = &state.db;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            let db = &state.db;
 
-    // The rule matches only inside a tag attribute (the href); the
-    // tag-stripped preview text does not contain it.
-    add_entry(
-        db,
-        101,
-        "Linked article",
-        "<p>notes at <a href=\"http://example.com/x\">the site</a></p>",
-        "",
-        "",
-        1,
-    )
-    .await;
+            // The rule matches only inside a tag attribute (the href); the
+            // tag-stripped preview text does not contain it.
+            add_entry(
+                db,
+                101,
+                "Linked article",
+                "<p>notes at <a href=\"http://example.com/x\">the site</a></p>",
+                "",
+                "",
+                1,
+            )
+            .await;
 
-    let result = do_test(
-        &state,
-        &sess,
-        &request(&[
-            ("limit", json!("100")),
-            (
-                "rule",
-                rule_param(&[json!({"reg_exp": "http", "filter_type": 2, "feed_id": ["0"]})]),
-            ),
-        ]),
-    )
-    .await;
+            let result = do_test(
+                &state,
+                &sess,
+                &request(&[
+                    ("limit", json!("100")),
+                    (
+                        "rule",
+                        rule_param(&[
+                            json!({"reg_exp": "http", "filter_type": 2, "feed_id": ["0"]}),
+                        ]),
+                    ),
+                ]),
+            )
+            .await;
 
-    let it = &items_for(&result, "Linked article").expect("item")[0];
-    // `mb_strpos` misses in the tag-stripped text → the preview starts at
-    // the beginning (no `&hellip;` prefix), nothing is highlighted, and the
-    // DOM round-trip still wraps the result in `<span>`.
-    let preview = it["content_preview"].as_str().unwrap();
-    assert_eq!(plain(preview), "notes at the site", "preview: {preview}");
-    assert!(!preview.contains("highlight"), "preview: {preview}");
-    assert!(preview.starts_with("<span>"), "preview: {preview}");
-        Ok(())
-    })).await.unwrap();
+            let it = &items_for(&result, "Linked article").expect("item")[0];
+            // `mb_strpos` misses in the tag-stripped text → the preview starts at
+            // the beginning (no `&hellip;` prefix), nothing is highlighted, and the
+            // DOM round-trip still wraps the result in `<span>`.
+            let preview = it["content_preview"].as_str().unwrap();
+            assert_eq!(plain(preview), "notes at the site", "preview: {preview}");
+            assert!(!preview.contains("highlight"), "preview: {preview}");
+            assert!(preview.starts_with("<span>"), "preview: {preview}");
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 #[tokio::test]
 async fn test_test_filter_do_match_any_vs_all() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup(&url).await;
-    let db = &state.db;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            let db = &state.db;
 
-    // Title matches `aaa`; author does NOT match `bob`.
-    add_entry(db, 101, "aaa title", "<p>x</p>", "alice", "", 1).await;
+            // Title matches `aaa`; author does NOT match `bob`.
+            add_entry(db, 101, "aaa title", "<p>x</p>", "alice", "", 1).await;
 
-    let rules = rule_param(&[
-        json!({"reg_exp": "aaa", "filter_type": 1, "feed_id": ["0"]}),
-        json!({"reg_exp": "bob", "filter_type": 6, "feed_id": ["0"]}),
-    ]);
+            let rules = rule_param(&[
+                json!({"reg_exp": "aaa", "filter_type": 1, "feed_id": ["0"]}),
+                json!({"reg_exp": "bob", "filter_type": 6, "feed_id": ["0"]}),
+            ]);
 
-    // match_any_rule: one rule matching is enough.
-    let result = do_test(
-        &state,
-        &sess,
-        &request(&[
-            ("limit", json!("100")),
-            ("match_any_rule", json!("on")),
-            ("rule", rules.clone()),
-        ]),
-    )
-    .await;
-    assert!(items_for(&result, "aaa title").is_some(), "got {result}");
+            // match_any_rule: one rule matching is enough.
+            let result = do_test(
+                &state,
+                &sess,
+                &request(&[
+                    ("limit", json!("100")),
+                    ("match_any_rule", json!("on")),
+                    ("rule", rules.clone()),
+                ]),
+            )
+            .await;
+            assert!(items_for(&result, "aaa title").is_some(), "got {result}");
 
-    // match-all (default): both must match → no item.
-    let result = do_test(
-        &state,
-        &sess,
-        &request(&[("limit", json!("100")), ("rule", rules)]),
-    )
-    .await;
-    assert!(items_for(&result, "aaa title").is_none(), "got {result}");
-        Ok(())
-    })).await.unwrap();
+            // match-all (default): both must match → no item.
+            let result = do_test(
+                &state,
+                &sess,
+                &request(&[("limit", json!("100")), ("rule", rules)]),
+            )
+            .await;
+            assert!(items_for(&result, "aaa title").is_none(), "got {result}");
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
 async fn test_test_filter_do_inverse_all_match_empty_items() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup(&url).await;
-    let db = &state.db;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            let db = &state.db;
 
-    add_entry(db, 101, "boring title", "<p>x</p>", "", "", 1).await;
-    add_entry(db, 102, "exciting title", "<p>x</p>", "", "", 2).await;
+            add_entry(db, 101, "boring title", "<p>x</p>", "", "", 1).await;
+            add_entry(db, 102, "exciting title", "<p>x</p>", "", "", 2).await;
 
-    // `inverse` of a rule matching EVERY entry (`.*)` → everything excluded
-    // → empty items (and no fatal — no matched entry builds an item).
-    let result = do_test(
-        &state,
-        &sess,
-        &request(&[
-            ("limit", json!("100")),
-            ("inverse", json!("on")),
-            (
-                "rule",
-                rule_param(&[json!({"reg_exp": ".*", "filter_type": 1, "feed_id": ["0"]})]),
-            ),
-        ]),
-    )
-    .await;
-    assert_eq!(
-        result["pre_filtering_count"],
-        count_entries(db, "true").await
-    );
-    assert_eq!(result["items"].as_array().unwrap().len(), 0);
-        Ok(())
-    })).await.unwrap();
+            // `inverse` of a rule matching EVERY entry (`.*)` → everything excluded
+            // → empty items (and no fatal — no matched entry builds an item).
+            let result = do_test(
+                &state,
+                &sess,
+                &request(&[
+                    ("limit", json!("100")),
+                    ("inverse", json!("on")),
+                    (
+                        "rule",
+                        rule_param(&[json!({"reg_exp": ".*", "filter_type": 1, "feed_id": ["0"]})]),
+                    ),
+                ]),
+            )
+            .await;
+            assert_eq!(
+                result["pre_filtering_count"],
+                count_entries(db, "true").await
+            );
+            assert_eq!(result["items"].as_array().unwrap().len(), 0);
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
 async fn test_test_filter_do_inverse_no_match_fatal() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup(&url).await;
-    let db = &state.db;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            let db = &state.db;
 
-    add_entry(db, 101, "boring title", "<p>x</p>", "", "", 1).await;
+            add_entry(db, 101, "boring title", "<p>x</p>", "", "", 1).await;
 
-    // `inverse` of a rule matching nothing → every entry "matches" with an
-    // empty highlight word → the PHP max-execution-time fatal (the handler
-    // reports the 500-empty-body case).
-    let err = ttrss::filters::test_filter_do(
+            // `inverse` of a rule matching nothing → every entry "matches" with an
+            // empty highlight word → the PHP max-execution-time fatal (the handler
+            // reports the 500-empty-body case).
+            let err = ttrss::filters::test_filter_do(
         &state,
         &sess,
         &request(&[
@@ -529,140 +570,163 @@ async fn test_test_filter_do_inverse_no_match_fatal() {
         ]),
     )
     .await;
-    assert!(err.is_err(), "expected the PHP-fatal Err");
-        Ok(())
-    })).await.unwrap();
+            assert!(err.is_err(), "expected the PHP-fatal Err");
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
 async fn test_test_filter_do_tag_rule() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup(&url).await;
-    let db = &state.db;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            let db = &state.db;
 
-    add_entry(db, 101, "Tagged article", "<p>x</p>", "", "news,rust", 1).await;
-    add_entry(db, 102, "Untagged article", "<p>x</p>", "", "", 2).await;
+            add_entry(db, 101, "Tagged article", "<p>x</p>", "", "news,rust", 1).await;
+            add_entry(db, 102, "Untagged article", "<p>x</p>", "", "", 2).await;
 
-    let result = do_test(
-        &state,
-        &sess,
-        &request(&[
-            ("limit", json!("100")),
-            (
-                "rule",
-                rule_param(&[json!({"reg_exp": "rust", "filter_type": 7, "feed_id": ["0"]})]),
-            ),
-        ]),
-    )
-    .await;
+            let result = do_test(
+                &state,
+                &sess,
+                &request(&[
+                    ("limit", json!("100")),
+                    (
+                        "rule",
+                        rule_param(&[
+                            json!({"reg_exp": "rust", "filter_type": 7, "feed_id": ["0"]}),
+                        ]),
+                    ),
+                ]),
+            )
+            .await;
 
-    let it = &items_for(&result, "Tagged article").expect("item")[0];
-    // The tag preview: the material-icon span + the tag list (with the
-    // matched tag highlighted; the DOM round-trip adds an outer `<span>`).
-    let preview = it["content_preview"].as_str().unwrap();
-    assert!(
-        preview.contains("<i class=\"material-icons\">label_outline</i>"),
-        "preview: {preview}"
-    );
-    assert!(plain(preview).contains("news, rust"), "preview: {preview}");
-    assert!(
-        preview.contains("<span class=\"highlight\">rust</span>"),
-        "preview: {preview}"
-    );
-    assert!(items_for(&result, "Untagged article").is_none());
-        Ok(())
-    })).await.unwrap();
+            let it = &items_for(&result, "Tagged article").expect("item")[0];
+            // The tag preview: the material-icon span + the tag list (with the
+            // matched tag highlighted; the DOM round-trip adds an outer `<span>`).
+            let preview = it["content_preview"].as_str().unwrap();
+            assert!(
+                preview.contains("<i class=\"material-icons\">label_outline</i>"),
+                "preview: {preview}"
+            );
+            assert!(plain(preview).contains("news, rust"), "preview: {preview}");
+            assert!(
+                preview.contains("<span class=\"highlight\">rust</span>"),
+                "preview: {preview}"
+            );
+            assert!(items_for(&result, "Untagged article").is_none());
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
 async fn test_test_filter_do_limit_offset() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup(&url).await;
-    let db = &state.db;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            let db = &state.db;
 
-    for (id, i) in (0..5).enumerate() {
-        add_entry(
-            db,
-            100 + id as i32,
-            &format!("page entry {i}"),
-            "<p>x</p>",
-            "",
-            "",
-            1,
-        )
-        .await;
-    }
+            for (id, i) in (0..5).enumerate() {
+                add_entry(
+                    db,
+                    100 + id as i32,
+                    &format!("page entry {i}"),
+                    "<p>x</p>",
+                    "",
+                    "",
+                    1,
+                )
+                .await;
+            }
 
-    // `pre_filtering_count` is the page size (entries fetched); the test
-    // entries sort above the seed entries (newer), so the page is filled
-    // by matches.
-    let result = do_test(
-        &state,
-        &sess,
-        &request(&[
-            ("offset", json!("2")),
-            ("limit", json!("2")),
-            (
-                "rule",
-                rule_param(&[json!({"reg_exp": "entry", "filter_type": 1, "feed_id": ["0"]})]),
-            ),
-        ]),
-    )
-    .await;
-    assert_eq!(result["pre_filtering_count"], 2, "got {result}");
-    assert_eq!(result["items"].as_array().unwrap().len(), 2);
-        Ok(())
-    })).await.unwrap();
+            // `pre_filtering_count` is the page size (entries fetched); the test
+            // entries sort above the seed entries (newer), so the page is filled
+            // by matches.
+            let result = do_test(
+                &state,
+                &sess,
+                &request(&[
+                    ("offset", json!("2")),
+                    ("limit", json!("2")),
+                    (
+                        "rule",
+                        rule_param(&[
+                            json!({"reg_exp": "entry", "filter_type": 1, "feed_id": ["0"]}),
+                        ]),
+                    ),
+                ]),
+            )
+            .await;
+            assert_eq!(result["pre_filtering_count"], 2, "got {result}");
+            assert_eq!(result["items"].as_array().unwrap().len(), 2);
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
 async fn test_test_filter_do_no_rules_no_match() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup(&url).await;
-    let db = &state.db;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            let db = &state.db;
 
-    add_entry(db, 101, "Any article", "<p>x</p>", "", "", 1).await;
+            add_entry(db, 101, "Any article", "<p>x</p>", "", "", 1).await;
 
-    // No `rule` params at all: the fake filter has no rules → nothing
-    // matches (and no scope restriction).
-    let result = do_test(&state, &sess, &request(&[("limit", json!("100"))])).await;
-    assert_eq!(
-        result["pre_filtering_count"],
-        count_entries(db, "true").await
-    );
-    assert_eq!(result["items"].as_array().unwrap().len(), 0);
-        Ok(())
-    })).await.unwrap();
+            // No `rule` params at all: the fake filter has no rules → nothing
+            // matches (and no scope restriction).
+            let result = do_test(&state, &sess, &request(&[("limit", json!("100"))])).await;
+            assert_eq!(
+                result["pre_filtering_count"],
+                count_entries(db, "true").await
+            );
+            assert_eq!(result["items"].as_array().unwrap().len(), 0);
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
 async fn test_test_filter_do_invalid_rule_json_skipped() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup(&url).await;
-    let db = &state.db;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            let db = &state.db;
 
-    add_entry(db, 101, "needle article", "<p>x</p>", "", "", 1).await;
+            add_entry(db, 101, "needle article", "<p>x</p>", "", "", 1).await;
 
-    // The first `rule[]` value is malformed JSON (PHP's catch → continue);
-    // the second is a valid matching rule.
-    let mut rule_param =
-        rule_param(&[json!({"reg_exp": "needle", "filter_type": 1, "feed_id": ["0"]})]);
-    if let Some(arr) = rule_param.as_array_mut() {
-        arr.insert(0, Value::String("not json".to_string()));
-    }
+            // The first `rule[]` value is malformed JSON (PHP's catch → continue);
+            // the second is a valid matching rule.
+            let mut rule_param =
+                rule_param(&[json!({"reg_exp": "needle", "filter_type": 1, "feed_id": ["0"]})]);
+            if let Some(arr) = rule_param.as_array_mut() {
+                arr.insert(0, Value::String("not json".to_string()));
+            }
 
-    let result = do_test(
-        &state,
-        &sess,
-        &request(&[("limit", json!("100")), ("rule", rule_param)]),
-    )
-    .await;
-    assert!(
-        items_for(&result, "needle article").is_some(),
-        "got {result}"
-    );
-        Ok(())
-    })).await.unwrap();
+            let result = do_test(
+                &state,
+                &sess,
+                &request(&[("limit", json!("100")), ("rule", rule_param)]),
+            )
+            .await;
+            assert!(
+                items_for(&result, "needle article").is_some(),
+                "got {result}"
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 /// Regression for the PHP `$_REQUEST` `[]` normalization: the filter forms

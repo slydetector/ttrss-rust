@@ -232,4 +232,3 @@ pub fn pluginhandler_tags(plugin_class: &str, method: &str) -> String {
     ]
     .concat()
 }
-

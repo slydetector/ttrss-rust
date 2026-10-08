@@ -16,11 +16,11 @@
 //! plugin's. With no whitelisting plugin active, every iframe is removed —
 //! matching a reference install without `af_youtube_embed`.
 
-use crate::pluginhost::host::{HostCtx, PluginHost};
-use async_trait::async_trait;
-use crate::pluginhost::plugin::{About, Plugin};
 use crate::pluginhost::HOOK_IFRAME_WHITELISTED;
 use crate::pluginhost::HOOK_SANITIZE;
+use crate::pluginhost::host::{HostCtx, PluginHost};
+use crate::pluginhost::plugin::{About, Plugin};
+use async_trait::async_trait;
 
 /// PHP's `class No_Iframes extends Plugin`.
 #[derive(Clone, Copy)]
@@ -110,7 +110,11 @@ impl Plugin for NoIframes {
                     while end < after.len() && after.as_bytes()[end] != b'>' {
                         end += 1;
                     }
-                    rest = if end < after.len() { &after[end + 1..] } else { "" };
+                    rest = if end < after.len() {
+                        &after[end + 1..]
+                    } else {
+                        ""
+                    };
                 } else {
                     rest = after;
                 }
@@ -134,28 +138,35 @@ fn tag_attr(tag: &str, name: &str) -> String {
     let v = &tag[i + needle.len()..];
     let v = v.trim_start();
     if let Some(c) = v.chars().next()
-        && (c == '"' || c == '\'') {
-            let q = c;
-            let body = &v[1..];
-            let Some(end) = body.find(q) else {
-                return body.to_string();
-            };
-            return body[..end].to_string();
-        }
-    v.split([' ', '\t', '\n', '\r', '>']).next().unwrap_or("").to_string()
+        && (c == '"' || c == '\'')
+    {
+        let q = c;
+        let body = &v[1..];
+        let Some(end) = body.find(q) else {
+            return body.to_string();
+        };
+        return body[..end].to_string();
+    }
+    v.split([' ', '\t', '\n', '\r', '>'])
+        .next()
+        .unwrap_or("")
+        .to_string()
 }
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
     use super::*;
+    use std::sync::Arc;
 
     #[test]
     fn metadata() {
         let p = NoIframes;
         assert_eq!(p.name(), "no_iframes");
         assert_eq!(p.class_name(), "No_Iframes");
-        assert_eq!(p.about().description, "Remove embedded iframes (unless whitelisted)");
+        assert_eq!(
+            p.about().description,
+            "Remove embedded iframes (unless whitelisted)"
+        );
         assert_eq!(p.about().author, "fox");
         assert!(!p.about().system);
         assert_eq!(p.api_version(), 2);
@@ -163,12 +174,18 @@ mod tests {
 
     #[test]
     fn attr_extraction() {
-        assert_eq!(tag_attr(r#"<iframe src="https://x/y" wmode="opaque">"#, "src"), "https://x/y");
+        assert_eq!(
+            tag_attr(r#"<iframe src="https://x/y" wmode="opaque">"#, "src"),
+            "https://x/y"
+        );
         assert_eq!(tag_attr(r#"<iframe src='a b' >"#, "src"), "a b");
         assert_eq!(tag_attr(r#"<iframe wmode="opaque" src=v>#"#, "src"), "v");
         assert_eq!(tag_attr(r#"<iframe wmode="opaque">"#, "src"), "");
         assert_eq!(tag_attr(r#"<iframe>"#, "src"), "");
-        assert_eq!(tag_attr(r#"<iframe data-x="1" src="https://h/p?a=b" >"#, "src"), "https://h/p?a=b");
+        assert_eq!(
+            tag_attr(r#"<iframe data-x="1" src="https://h/p?a=b" >"#, "src"),
+            "https://h/p?a=b"
+        );
     }
 
     /// The removal walk: non-whitelisted iframes are dropped (with their
@@ -176,13 +193,23 @@ mod tests {
     /// empty here (no whitelisting plugin registered), so every iframe goes.
     #[tokio::test]
     async fn removes_all_iframes_without_whitelist() {
-        let host = Arc::new(PluginHost::startup(&[|| Box::new(NoIframes) as Box<dyn Plugin>]));
+        let host = Arc::new(PluginHost::startup(&[|| {
+            Box::new(NoIframes) as Box<dyn Plugin>
+        }]));
         let pool = sqlx::postgres::PgPoolOptions::new()
             .connect_lazy("postgres://ttrss:ttrss@localhost/ttrss_test")
             .unwrap();
         let test_cfg = crate::core::config::Config::for_test();
-        let mut ctx =
-        HostCtx::for_user(Arc::clone(&host), pool.clone(), test_cfg.clone(), Some(1), None, 0, &[], &["no_iframes"]);
+        let mut ctx = HostCtx::for_user(
+            Arc::clone(&host),
+            pool.clone(),
+            test_cfg.clone(),
+            Some(1),
+            None,
+            0,
+            &[],
+            &["no_iframes"],
+        );
         let host = ctx.host_arc();
 
         let plugin = host.get_plugin("no_iframes").expect("active");
@@ -217,13 +244,8 @@ mod tests {
             fn init(&self, host: &mut PluginHost) {
                 host.add_hook_default(HOOK_IFRAME_WHITELISTED);
             }
-            async fn hook_iframe_whitelisted(
-                &self,
-                _host: &mut HostCtx,
-                url: &str,
-            ) -> bool {
-                
- url.contains("youtube") 
+            async fn hook_iframe_whitelisted(&self, _host: &mut HostCtx, url: &str) -> bool {
+                url.contains("youtube")
             }
         }
 
@@ -235,8 +257,16 @@ mod tests {
             .connect_lazy("postgres://ttrss:ttrss@localhost/ttrss_test")
             .unwrap();
         let test_cfg = crate::core::config::Config::for_test();
-        let mut ctx =
-        HostCtx::for_user(Arc::clone(&host), pool.clone(), test_cfg.clone(), Some(1), None, 0, &[], &["no_iframes", "yt_wl"]);
+        let mut ctx = HostCtx::for_user(
+            Arc::clone(&host),
+            pool.clone(),
+            test_cfg.clone(),
+            Some(1),
+            None,
+            0,
+            &[],
+            &["no_iframes", "yt_wl"],
+        );
         let host = ctx.host_arc();
 
         let plugin = host.get_plugin("no_iframes").expect("active");

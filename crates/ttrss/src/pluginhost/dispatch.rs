@@ -22,15 +22,15 @@
 //! request parameter map in as `invoke_method`'s `params` (the M7.1
 //! contract: "the request/CLI argument map").
 
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 
 use std::sync::Arc;
 
 use super::host::{HostCtx, PluginHost};
-use sqlx::PgPool;
 use super::plugin::{MethodOutput, PluginError};
-use crate::session::Sess;
 use crate::AppState;
+use crate::session::Sess;
+use sqlx::PgPool;
 
 /// PHP's `basename($path)` (no suffix argument).
 fn basename(p: &str) -> String {
@@ -92,8 +92,9 @@ pub async fn session_ctx(state: &AppState, sess: &Sess) -> HostCtx {
         .filter(|s| !s.is_empty())
         .collect();
     let pref_rows = crate::prefs::load_rows(&state.db, uid_i64, profile).await;
-    let enabled =
-        crate::prefs::resolve(crate::prefs::_ENABLED_PLUGINS, &pref_rows, profile).as_str().to_string();
+    let enabled = crate::prefs::resolve(crate::prefs::_ENABLED_PLUGINS, &pref_rows, profile)
+        .as_str()
+        .to_string();
     let user: Vec<String> = enabled
         .split(',')
         .map(|s| s.trim().to_lowercase())
@@ -127,8 +128,9 @@ pub async fn owner_ctx(state: &AppState, owner_uid: i32) -> HostCtx {
         .filter(|s| !s.is_empty())
         .collect();
     let pref_rows = crate::prefs::load_rows(&state.db, owner_uid as i64, None).await;
-    let enabled =
-        crate::prefs::resolve(crate::prefs::_ENABLED_PLUGINS, &pref_rows, None).as_str().to_string();
+    let enabled = crate::prefs::resolve(crate::prefs::_ENABLED_PLUGINS, &pref_rows, None)
+        .as_str()
+        .to_string();
     let user: Vec<String> = enabled
         .split(',')
         .map(|s| s.trim().to_lowercase())
@@ -164,8 +166,9 @@ pub(crate) async fn owner_ctx_from(
     owner_uid: i32,
 ) -> HostCtx {
     let pref_rows = crate::prefs::load_rows_pool(&pool, owner_uid as i64, None).await;
-    let enabled =
-        crate::prefs::resolve(crate::prefs::_ENABLED_PLUGINS, &pref_rows, None).as_str().to_string();
+    let enabled = crate::prefs::resolve(crate::prefs::_ENABLED_PLUGINS, &pref_rows, None)
+        .as_str()
+        .to_string();
     let user: Vec<String> = enabled
         .split(',')
         .map(|s| s.trim().to_lowercase())
@@ -190,7 +193,8 @@ pub async fn pluginhandler(
     method: &str,
     extra: &Map<String, Value>,
 ) -> Result<MethodOutput, PluginError> {
-    let plugin_name = crate::util::clean_str(extra.get("plugin").and_then(|v| v.as_str()).unwrap_or(""));
+    let plugin_name =
+        crate::util::clean_str(extra.get("plugin").and_then(|v| v.as_str()).unwrap_or(""));
     // PHP's per-request host is loaded (the system + owner's active set)
     // before `catchall` runs — a plugin not active for this user is an
     // unknown plugin.
@@ -206,7 +210,11 @@ pub async fn pluginhandler(
         return Ok(MethodOutput::Json(err("E_UNAUTHORIZED")));
     }
     plugin
-        .invoke_method(&mut ctx, method, &request_map("PluginHandler", method, csrf, extra))
+        .invoke_method(
+            &mut ctx,
+            method,
+            &request_map("PluginHandler", method, csrf, extra),
+        )
         .await
 }
 
@@ -225,16 +233,15 @@ pub(crate) async fn prefs_chain<'a>(
     // be valid for any `'x`, which a borrowed `&str` capture can't satisfy.
     let id = id.to_string();
     let mut ctx = session_ctx(state, sess).await;
-    ctx
-        .run_hooks(hook, |plugin, host| {
-            let id = id.clone();
-            if hook == crate::pluginhost::HOOK_PREFS_TAB {
-                Box::pin(async move { plugin.hook_prefs_tab(host, &id).await })
-            } else {
-                Box::pin(async move { plugin.hook_prefs_tab_section(host, &id).await })
-            }
-        })
-        .await;
+    ctx.run_hooks(hook, |plugin, host| {
+        let id = id.clone();
+        if hook == crate::pluginhost::HOOK_PREFS_TAB {
+            Box::pin(async move { plugin.hook_prefs_tab(host, &id).await })
+        } else {
+            Box::pin(async move { plugin.hook_prefs_tab_section(host, &id).await })
+        }
+    })
+    .await;
     std::mem::take(&mut ctx.output)
 }
 

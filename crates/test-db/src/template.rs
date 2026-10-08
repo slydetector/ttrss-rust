@@ -116,13 +116,12 @@ async fn check_or_build_template(conn: &mut PgConnection, url: &str) -> Result<(
     let expected_hash = fixture_hash();
 
     // Check if the template DB exists.
-    let exists: Option<bool> = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1)",
-    )
-    .bind(TEMPLATE_DB)
-    .fetch_one(&mut *conn)
-    .await
-    .context("check template existence")?;
+    let exists: Option<bool> =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1)")
+            .bind(TEMPLATE_DB)
+            .fetch_one(&mut *conn)
+            .await
+            .context("check template existence")?;
 
     if !exists.unwrap_or(false) {
         build_template(conn, &expected_hash, url).await?;
@@ -134,12 +133,10 @@ async fn check_or_build_template(conn: &mut PgConnection, url: &str) -> Result<(
     let tpl_url = with_db(url, TEMPLATE_DB);
     let stored_hash = match connect(&tpl_url).await {
         Ok(mut tpl_conn) => {
-            let h: Option<String> = sqlx::query_scalar(
-                "SELECT hash FROM _ttrss_tpl_meta LIMIT 1",
-            )
-            .fetch_optional(&mut tpl_conn)
-            .await
-            .unwrap_or(None);
+            let h: Option<String> = sqlx::query_scalar("SELECT hash FROM _ttrss_tpl_meta LIMIT 1")
+                .fetch_optional(&mut tpl_conn)
+                .await
+                .unwrap_or(None);
             let _ = tpl_conn.close().await;
             h
         }
@@ -250,12 +247,10 @@ where
         )))
         .execute(&mut conn)
         .await;
-        sqlx::query(AssertSqlSafe(format!(
-            "DROP DATABASE IF EXISTS {db_name}"
-        )))
-        .execute(&mut conn)
-        .await
-        .context("DROP DATABASE test")?;
+        sqlx::query(AssertSqlSafe(format!("DROP DATABASE IF EXISTS {db_name}")))
+            .execute(&mut conn)
+            .await
+            .context("DROP DATABASE test")?;
     } else {
         eprintln!("[test-db] TTRSS_KEEP_TEST_DB set; keeping {db_name}");
     }
@@ -282,9 +277,7 @@ async fn connect(url: &str) -> Result<PgConnection> {
 
 /// Create a pooled connection with standard test settings.
 pub async fn make_pool(url: &str) -> PgPool {
-    let opts = parse_pg_opts(url)
-        .unwrap()
-        .statement_cache_capacity(0);
+    let opts = parse_pg_opts(url).unwrap().statement_cache_capacity(0);
     PgPoolOptions::new()
         .max_connections(5)
         .acquire_timeout(Duration::from_secs(60))

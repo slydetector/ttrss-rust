@@ -14,13 +14,13 @@ mod common;
 use axum::body::Body;
 use axum::http::{Method, Request, StatusCode};
 use serde_json::Value;
+use test_db::template::with_test_db;
+use tower::ServiceExt;
+use ttrss::AppState;
 use ttrss::core::config::Config;
 use ttrss::core::db::Db;
 use ttrss::core::phpser::Value as PValue;
 use ttrss::core::session::Session;
-use ttrss::AppState;
-use test_db::template::with_test_db;
-use tower::ServiceExt;
 
 /// A test-only config. `docroot` must point at the frozen `tt-rss` tree so
 /// `AppState` can load the real gettext catalogs.
@@ -91,48 +91,71 @@ fn translations(v: &Value) -> &serde_json::Map<String, Value> {
 /// of a known string) even with no `Accept-Language` header.
 #[tokio::test]
 async fn test_init_translations_follow_user_language_pref() {
-    with_test_db(|url| Box::pin(async move {
-    let state = setup(&url).await;
-    sqlx::query(
-        "INSERT INTO ttrss_user_prefs2 (owner_uid, pref_name, profile, value)
+    with_test_db(|url| {
+        Box::pin(async move {
+            let state = setup(&url).await;
+            sqlx::query(
+                "INSERT INTO ttrss_user_prefs2 (owner_uid, pref_name, profile, value)
          VALUES (1, 'USER_LANGUAGE', NULL, 'de_DE')",
-    )
-    .execute(state.db.pool())
-    .await
-    .expect("set USER_LANGUAGE");
+            )
+            .execute(state.db.pool())
+            .await
+            .expect("set USER_LANGUAGE");
 
-    let content = init_rpc(&state, None).await;
-    let map = translations(&content);
-    assert!(!map.is_empty(), "German pref must populate the translations map");
-    let has_german = map.values().any(|v| v.as_str() == Some("Ladevorgang, bitte warten..."));
-    assert!(has_german, "map should carry the German 'Loading, please wait...': {map:?}");
-        Ok(())
-    })).await.unwrap();
+            let content = init_rpc(&state, None).await;
+            let map = translations(&content);
+            assert!(
+                !map.is_empty(),
+                "German pref must populate the translations map"
+            );
+            let has_german = map
+                .values()
+                .any(|v| v.as_str() == Some("Ladevorgang, bitte warten..."));
+            assert!(
+                has_german,
+                "map should carry the German 'Loading, please wait...': {map:?}"
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 /// No pref, no header → English → the object is present but empty.
 #[tokio::test]
 async fn test_init_translations_empty_for_english() {
-    with_test_db(|url| Box::pin(async move {
-    let state = setup(&url).await;
-    let content = init_rpc(&state, None).await;
-    assert!(
-        translations(&content).is_empty(),
-        "English must give an empty map"
-    );
-        Ok(())
-    })).await.unwrap();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let state = setup(&url).await;
+            let content = init_rpc(&state, None).await;
+            assert!(
+                translations(&content).is_empty(),
+                "English must give an empty map"
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 /// No pref → the `Accept-Language` header is the fallback.
 #[tokio::test]
 async fn test_init_translations_fall_back_to_accept_language() {
-    with_test_db(|url| Box::pin(async move {
-    let state = setup(&url).await;
-    let content = init_rpc(&state, Some("de-DE")).await;
-    assert!(!translations(&content).is_empty(), "de-DE header must populate the map");
-        Ok(())
-    })).await.unwrap();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let state = setup(&url).await;
+            let content = init_rpc(&state, Some("de-DE")).await;
+            assert!(
+                !translations(&content).is_empty(),
+                "de-DE header must populate the map"
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 /// GET the `view` RPC (Feeds/view) with the given `feed`, using the same
@@ -179,21 +202,25 @@ async fn view_rpc(state: &AppState, feed: &str) -> String {
 /// path is wired to it — the linchpin M10.6's multi-locale e2e builds on).
 #[tokio::test]
 async fn test_view_feed_not_found_translated() {
-    with_test_db(|url| Box::pin(async move {
-    let state = setup(&url).await;
-    sqlx::query(
-        "INSERT INTO ttrss_user_prefs2 (owner_uid, pref_name, profile, value)
+    with_test_db(|url| {
+        Box::pin(async move {
+            let state = setup(&url).await;
+            sqlx::query(
+                "INSERT INTO ttrss_user_prefs2 (owner_uid, pref_name, profile, value)
          VALUES (1, 'USER_LANGUAGE', NULL, 'de_DE')",
-    )
-    .execute(state.db.pool())
-    .await
-    .expect("set USER_LANGUAGE");
+            )
+            .execute(state.db.pool())
+            .await
+            .expect("set USER_LANGUAGE");
 
-    let body = view_rpc(&state, "999999").await;
-    assert!(
-        body.contains("Feed nicht gefunden."),
-        "de_DE user must get the German 'Feed not found.'; got: {body}"
-    );
-        Ok(())
-    })).await.unwrap();
+            let body = view_rpc(&state, "999999").await;
+            assert!(
+                body.contains("Feed nicht gefunden."),
+                "de_DE user must get the German 'Feed not found.'; got: {body}"
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }

@@ -24,8 +24,7 @@ pub fn totp_at(secret: &str, t_secs: u64) -> String {
     let mut buf = [0u8; 8];
     buf.copy_from_slice(&counter.to_be_bytes());
 
-    let mut mac = Hmac::<Sha1>::new_from_slice(key)
-        .expect("HMAC can take key of any size");
+    let mut mac = Hmac::<Sha1>::new_from_slice(key).expect("HMAC can take key of any size");
     mac.update(&buf);
     let digest = mac.finalize().into_bytes();
 

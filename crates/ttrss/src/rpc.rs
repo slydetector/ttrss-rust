@@ -9,15 +9,16 @@
 
 use crate::core::phpser;
 use crate::core::user;
-use axum::body::{to_bytes, Body};
+use axum::body::{Body, to_bytes};
 use axum::extract::{FromRequest, Multipart, Request, State};
-use axum::http::{header, StatusCode};
+use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use chrono::{Datelike, Timelike};
 use serde::Deserialize;
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 use sqlx::Row;
 
+use crate::AppState;
 use crate::article;
 use crate::feeds;
 use crate::filters;
@@ -31,7 +32,6 @@ use crate::settings;
 use crate::system;
 use crate::users;
 use crate::util;
-use crate::AppState;
 
 /// Form/query params for `backend.php` (all arrive via `$_REQUEST`).
 #[derive(Deserialize, Default)]
@@ -132,54 +132,62 @@ pub async fn handler(
     if matches!(op.as_str(), "rss" | "getProfiles" | "share") {
         return (
             StatusCode::FOUND,
-            [(
-                header::LOCATION,
-                format!("public.php?{}", sess.self_url()),
-            )],
+            [(header::LOCATION, format!("public.php?{}", sess.self_url()))],
         )
             .into_response();
     }
 
-    let (body, content_type) =
-        match dispatch(&state, &sess, &op, &method, &csrf, &extra, file.as_deref(), accept_language.as_deref()).await {
-            DispatchOutput::Json(v) => (v.to_string(), "application/json; charset=utf-8"),
-            DispatchOutput::Html(h) => (h, "application/json; charset=utf-8"),
-            DispatchOutput::TextHtml(h) => (h, "text/html;charset=UTF-8"),
-            DispatchOutput::Raw(status, location, body) => {
-                let mut res = Response::builder()
-                    .status(status)
-                    .header(header::CONTENT_TYPE, "application/json; charset=utf-8")
-                    .body(Body::from(body))
-                    .expect("valid response");
-                if let Some(loc) = location {
-                    // A 302 without a parseable `Location` would be malformed; the
-                    // validated URL is always parseable, but fall back rather than panic.
-                    let hv = loc
-                        .parse()
-                        .unwrap_or_else(|_| axum::http::HeaderValue::from_static("/"));
-                    res.headers_mut().insert(header::LOCATION, hv);
-                }
-                if sess.had_cookie() {
-                    super::nocache_headers(res.headers_mut());
-                }
-                return res;
+    let (body, content_type) = match dispatch(
+        &state,
+        &sess,
+        &op,
+        &method,
+        &csrf,
+        &extra,
+        file.as_deref(),
+        accept_language.as_deref(),
+    )
+    .await
+    {
+        DispatchOutput::Json(v) => (v.to_string(), "application/json; charset=utf-8"),
+        DispatchOutput::Html(h) => (h, "application/json; charset=utf-8"),
+        DispatchOutput::TextHtml(h) => (h, "text/html;charset=UTF-8"),
+        DispatchOutput::Raw(status, location, body) => {
+            let mut res = Response::builder()
+                .status(status)
+                .header(header::CONTENT_TYPE, "application/json; charset=utf-8")
+                .body(Body::from(body))
+                .expect("valid response");
+            if let Some(loc) = location {
+                // A 302 without a parseable `Location` would be malformed; the
+                // validated URL is always parseable, but fall back rather than panic.
+                let hv = loc
+                    .parse()
+                    .unwrap_or_else(|_| axum::http::HeaderValue::from_static("/"));
+                res.headers_mut().insert(header::LOCATION, hv);
             }
-            DispatchOutput::Download(status, ct, disposition, body) => {
-                let mut res = Response::builder()
-                    .status(status)
-                    .header(header::CONTENT_TYPE, ct)
-                    .body(Body::from(body))
-                    .expect("valid response");
-                if let Some(d) = disposition
-                    && let Ok(hv) = d.parse() {
-                        res.headers_mut().insert(header::CONTENT_DISPOSITION, hv);
-                    }
-                if sess.had_cookie() {
-                    super::nocache_headers(res.headers_mut());
-                }
-                return res;
+            if sess.had_cookie() {
+                super::nocache_headers(res.headers_mut());
             }
-        };
+            return res;
+        }
+        DispatchOutput::Download(status, ct, disposition, body) => {
+            let mut res = Response::builder()
+                .status(status)
+                .header(header::CONTENT_TYPE, ct)
+                .body(Body::from(body))
+                .expect("valid response");
+            if let Some(d) = disposition
+                && let Ok(hv) = d.parse()
+            {
+                res.headers_mut().insert(header::CONTENT_DISPOSITION, hv);
+            }
+            if sess.had_cookie() {
+                super::nocache_headers(res.headers_mut());
+            }
+            return res;
+        }
+    };
 
     let mut res = Response::builder()
         .status(StatusCode::OK)
@@ -847,10 +855,7 @@ async fn sanity_check(
             "server_scheme".into(),
             Value::from(server_scheme.clone().unwrap_or_default()),
         );
-        params.insert(
-            "self_url_path".into(),
-            Value::from(sess.self_url()),
-        );
+        params.insert("self_url_path".into(), Value::from(sess.self_url()));
     }
 
     // `RPC::init` → `translations` (PHP `RPC.php:198`): the full original→translated
@@ -860,13 +865,14 @@ async fn sanity_check(
     let rows = crate::prefs::load_rows_cached(&state.prefs_cache, &state.db, uid, profile).await;
     let user_lang_pref = crate::prefs::resolve("USER_LANGUAGE", &rows, profile);
     let user_lang = user_lang_pref.as_str();
-    let locale =
-        crate::i18n::resolve_request_locale(&state.i18n, accept_language, Some(user_lang));
+    let locale = crate::i18n::resolve_request_locale(&state.i18n, accept_language, Some(user_lang));
     let translations = match &locale {
         Some(loc) => {
             let map = state.i18n.translations_map(loc).unwrap_or_default();
-            let obj: Map<String, Value> =
-                map.into_iter().map(|(k, v)| (k, Value::String(v))).collect();
+            let obj: Map<String, Value> = map
+                .into_iter()
+                .map(|(k, v)| (k, Value::String(v)))
+                .collect();
             Value::Object(obj)
         }
         None => Value::Object(Map::new()),

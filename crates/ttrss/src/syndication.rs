@@ -20,25 +20,25 @@
 //! it from the docroot git metadata).
 
 use axum::body::Body;
-use axum::http::{header, StatusCode};
+use axum::http::{StatusCode, header};
 use axum::response::Response;
 use chrono::{NaiveDateTime, SecondsFormat, Utc};
 use minijinja::Environment;
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 use sqlx::Row;
 
 use crate::article;
 use crate::feeds::{FEED_PUBLISHED, FEED_STARRED};
 use crate::headlines::{
-    get_headlines_query, order_to_override_query, HeadlinesParams, I_CONTENT, I_DATE_ENTERED,
-    I_LINK, I_NOTE, I_SITE_URL, I_TAG_CACHE, I_TITLE, I_UPDATED, I_VF_CONTENT, I_VF_TITLE,
-    PLUGIN_FEED_BASE_INDEX,
+    HeadlinesParams, I_CONTENT, I_DATE_ENTERED, I_LINK, I_NOTE, I_SITE_URL, I_TAG_CACHE, I_TITLE,
+    I_UPDATED, I_VF_CONTENT, I_VF_TITLE, PLUGIN_FEED_BASE_INDEX, get_headlines_query,
+    order_to_override_query,
 };
 use crate::labels::LABEL_BASE_INDEX;
 use crate::prefs;
 use crate::sanitizer;
 use crate::util::{self, htmlspecialchars, strip_tags, truncate_string};
-use crate::{diskcache, nocache_headers, AppState};
+use crate::{AppState, diskcache, nocache_headers};
 
 /// `Config::get_version()` — TODO(port): derive from the docroot git
 /// metadata (PHP `Config::get_version()`), like the frozen reference
@@ -122,8 +122,7 @@ async fn generate_feed(
     let mut pctx = crate::pluginhost::dispatch::owner_ctx(state, owner_uid as i32).await;
 
     // `[$override_order, $skip_first_id_check] = Feeds::_order_to_override_query($order)`
-    let (override_order, skip_first_id_check) =
-        order_to_override_query(&mut pctx, req.order).await;
+    let (override_order, skip_first_id_check) = order_to_override_query(&mut pctx, req.order).await;
 
     // Virtual-feed default ordering (PHP loose `$feed == <int>` compare).
     let override_order = if override_order.is_empty() {
@@ -250,11 +249,8 @@ async fn generate_feed(
         // `content_preview` + `tags` are set; each hook's result replaces
         // the row and the rest of the export continues on the replaced row.
         {
-            let mut row_val = crate::headlines::row_to_plugin_value(
-                r,
-                &excerpt,
-                Some(tags.as_slice()),
-            );
+            let mut row_val =
+                crate::headlines::row_to_plugin_value(r, &excerpt, Some(tags.as_slice()));
             if !pctx
                 .hook_order(crate::pluginhost::HOOK_QUERY_HEADLINES)
                 .is_empty()
@@ -265,9 +261,7 @@ async fn generate_feed(
                     |plugin, host, row| {
                         Box::pin(async move {
                             let mut local = row.clone();
-                            let res = plugin
-                                .hook_query_headlines(host, &mut local, 250)
-                                .await;
+                            let res = plugin.hook_query_headlines(host, &mut local, 250).await;
                             *row = res.clone();
                             res
                         })
@@ -302,7 +296,10 @@ async fn generate_feed(
             }
 
             let h_str = |name: &str| {
-                row_val.get(name).and_then(serde_json::Value::as_str).map(String::from)
+                row_val
+                    .get(name)
+                    .and_then(serde_json::Value::as_str)
+                    .map(String::from)
             };
             title = h_str("title").unwrap_or(title);
             link = h_str("link").unwrap_or(link);

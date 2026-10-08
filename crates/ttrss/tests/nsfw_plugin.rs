@@ -10,10 +10,11 @@
 
 mod common;
 
-use test_db::template::with_test_db;
 use std::sync::Arc;
+use test_db::template::with_test_db;
 
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
+use ttrss::AppState;
 use ttrss::core::config::Config;
 use ttrss::core::db::Db;
 use ttrss::core::phpser::Value as PValue;
@@ -22,7 +23,6 @@ use ttrss::pluginhost::dispatch::pluginhandler;
 use ttrss::pluginhost::host::HostCtx;
 use ttrss::pluginhost::plugin::MethodOutput;
 use ttrss::session::Sess;
-use ttrss::AppState;
 
 fn test_config() -> Config {
     Config {
@@ -36,7 +36,7 @@ fn test_config() -> Config {
         http_429_throttle_interval: 3600,
         daemon_sleep_interval: 60,
         schedule_log_daemon_update_login_limit_users: String::from("@hourly"),
-    ..Default::default()
+        ..Default::default()
     }
 }
 
@@ -81,7 +81,16 @@ fn code(v: &MethodOutput) -> &str {
 
 /// A dispatch-equivalent context (nsfw active for owner 1).
 fn ctx(state: &AppState) -> HostCtx {
-    HostCtx::for_user(Arc::clone(&state.plugins), state.db.pool().clone(), state.config.clone(), Some(1), None, 0, &[], &["nsfw"])
+    HostCtx::for_user(
+        Arc::clone(&state.plugins),
+        state.db.pool().clone(),
+        state.config.clone(),
+        Some(1),
+        None,
+        0,
+        &[],
+        &["nsfw"],
+    )
 }
 
 /// The stored `tags` value (raw plugin-storage read).
@@ -98,26 +107,30 @@ async fn stored_tags(ctx: &mut HostCtx) -> String {
 
 #[tokio::test]
 async fn test_save_roundtrip() {
-    with_test_db(|url| Box::pin(async move {
-    let state = setup(&url).await;
-    let sess = session();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let state = setup(&url).await;
+            let sess = session();
 
-    let v = pluginhandler(
-        &state,
-        &sess,
-        "tok",
-        "save",
-        &params(&[("plugin", "nsfw"), ("tags", "  a, B ,a ")]),
-    )
+            let v = pluginhandler(
+                &state,
+                &sess,
+                "tok",
+                "save",
+                &params(&[("plugin", "nsfw"), ("tags", "  a, B ,a ")]),
+            )
+            .await
+            .unwrap();
+            assert_eq!(raw(&v), "Configuration saved.");
+
+            // `save` normalizes (trim, lowercase, de-dup, sort) and stores.
+            let mut c = ctx(&state);
+            assert_eq!(stored_tags(&mut c).await, "a, b");
+            Ok(())
+        })
+    })
     .await
     .unwrap();
-    assert_eq!(raw(&v), "Configuration saved.");
-
-    // `save` normalizes (trim, lowercase, de-dup, sort) and stores.
-    let mut c = ctx(&state);
-    assert_eq!(stored_tags(&mut c).await, "a, b");
-        Ok(())
-    })).await.unwrap();
 }
 
 #[tokio::test]
@@ -201,121 +214,159 @@ async fn test_render_api_fallback() {
 
 #[tokio::test]
 async fn test_image_hook() {
-    with_test_db(|url| Box::pin(async move {
-    let state = setup(&url).await;
-    {
-        let mut c = ctx(&state);
-        let host = c.host_arc();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let state = setup(&url).await;
+            {
+                let mut c = ctx(&state);
+                let host = c.host_arc();
 
-        let plugin = host.get_plugin("nsfw").expect("nsfw active");
-        c.storage_set(plugin, "tags", PValue::Bytes(b"nsfw".to_vec()))
-            .await
-            .unwrap();
-    }
+                let plugin = host.get_plugin("nsfw").expect("nsfw active");
+                c.storage_set(plugin, "tags", PValue::Bytes(b"nsfw".to_vec()))
+                    .await
+                    .unwrap();
+            }
 
-    let plugin = state.plugins.get_plugin("nsfw").expect("nsfw registered");
-    // PHP: `Config::get_self_url() . "/plugins/nsfw/nsfw.png"` — the base carries
-    // no trailing slash.
-    let mut c = ctx(&state).with_self_url("http://127.0.0.1:8280/tt-rss");
+            let plugin = state.plugins.get_plugin("nsfw").expect("nsfw registered");
+            // PHP: `Config::get_self_url() . "/plugins/nsfw/nsfw.png"` — the base carries
+            // no trailing slash.
+            let mut c = ctx(&state).with_self_url("http://127.0.0.1:8280/tt-rss");
 
-    let matching = json!({ "tags": ["nsfw"] });
-    let v = plugin
-        .hook_article_image(&mut c, &json!([]), "<img src='real.png'>", "http://site/", &matching)
-        .await;
-    assert_eq!(
-        v,
-        json!(["http://127.0.0.1:8280/tt-rss/plugins/nsfw/nsfw.png", "", "nsfw"])
-    );
+            let matching = json!({ "tags": ["nsfw"] });
+            let v = plugin
+                .hook_article_image(
+                    &mut c,
+                    &json!([]),
+                    "<img src='real.png'>",
+                    "http://site/",
+                    &matching,
+                )
+                .await;
+            assert_eq!(
+                v,
+                json!([
+                    "http://127.0.0.1:8280/tt-rss/plugins/nsfw/nsfw.png",
+                    "",
+                    "nsfw"
+                ])
+            );
 
-    let non_matching = json!({ "tags": ["other"] });
-    let v = plugin
-        .hook_article_image(&mut c, &json!([]), "<img src='real.png'>", "http://site/", &non_matching)
-        .await;
-    assert_eq!(v, json!(["", "", "<img src='real.png'>"]));
-        Ok(())
-    })).await.unwrap();
+            let non_matching = json!({ "tags": ["other"] });
+            let v = plugin
+                .hook_article_image(
+                    &mut c,
+                    &json!([]),
+                    "<img src='real.png'>",
+                    "http://site/",
+                    &non_matching,
+                )
+                .await;
+            assert_eq!(v, json!(["", "", "<img src='real.png'>"]));
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
 async fn test_prefs_tab() {
-    with_test_db(|url| Box::pin(async move {
-    let state = setup(&url).await;
-    {
-        let mut c = ctx(&state);
-        let host = c.host_arc();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let state = setup(&url).await;
+            {
+                let mut c = ctx(&state);
+                let host = c.host_arc();
 
-        let plugin = host.get_plugin("nsfw").expect("nsfw active");
-        c.storage_set(plugin, "tags", PValue::Bytes(b"a, b".to_vec()))
-            .await
-            .unwrap();
-    }
+                let plugin = host.get_plugin("nsfw").expect("nsfw active");
+                c.storage_set(plugin, "tags", PValue::Bytes(b"a, b".to_vec()))
+                    .await
+                    .unwrap();
+            }
 
-    let plugin = state.plugins.get_plugin("nsfw").expect("nsfw registered");
-    let mut c = ctx(&state);
+            let plugin = state.plugins.get_plugin("nsfw").expect("nsfw registered");
+            let mut c = ctx(&state);
 
-    // A different tab name prints nothing.
-    plugin.hook_prefs_tab(&mut c, "otherTab").await;
-    assert_eq!(c.output, "");
+            // A different tab name prints nothing.
+            plugin.hook_prefs_tab(&mut c, "otherTab").await;
+            assert_eq!(c.output, "");
 
-    plugin.hook_prefs_tab(&mut c, "prefPrefs").await;
-    let html = &c.output;
-    // The pane.
-    assert!(html.contains("dojoType=\"dijit.layout.AccordionPane\""), "{html}");
-    assert!(html.contains(">extension</i> NSFW Plugin"), "{html}");
-    // The form the pane posts to (the `save` method, plugin `nsfw`).
-    assert!(html.contains("name=\"plugin\""), "{html}");
-    assert!(html.contains("value=\"nsfw\""), "{html}");
-    assert!(html.contains("name=\"method\""), "{html}");
-    assert!(html.contains("value=\"save\""), "{html}");
-    // The caption + the stored tags in the textarea.
-    assert!(html.contains("Tags to consider NSFW (comma-separated):"), "{html}");
-    assert!(html.contains("name='tags'>a, b</textarea>"), "{html}");
-    // The Save button.
-    assert!(html.contains(">Save</button>"), "{html}");
-        Ok(())
-    })).await.unwrap();
+            plugin.hook_prefs_tab(&mut c, "prefPrefs").await;
+            let html = &c.output;
+            // The pane.
+            assert!(
+                html.contains("dojoType=\"dijit.layout.AccordionPane\""),
+                "{html}"
+            );
+            assert!(html.contains(">extension</i> NSFW Plugin"), "{html}");
+            // The form the pane posts to (the `save` method, plugin `nsfw`).
+            assert!(html.contains("name=\"plugin\""), "{html}");
+            assert!(html.contains("value=\"nsfw\""), "{html}");
+            assert!(html.contains("name=\"method\""), "{html}");
+            assert!(html.contains("value=\"save\""), "{html}");
+            // The caption + the stored tags in the textarea.
+            assert!(
+                html.contains("Tags to consider NSFW (comma-separated):"),
+                "{html}"
+            );
+            assert!(html.contains("name='tags'>a, b</textarea>"), "{html}");
+            // The Save button.
+            assert!(html.contains(">Save</button>"), "{html}");
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
 async fn test_csrf_gate() {
-    with_test_db(|url| Box::pin(async move {
-    let state = setup(&url).await;
-    let sess = session();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let state = setup(&url).await;
+            let sess = session();
 
-    // `save` is not `csrf_ignore`d.
-    let v = pluginhandler(
-        &state,
-        &sess,
-        "WRONG",
-        "save",
-        &params(&[("plugin", "nsfw"), ("tags", "x")]),
-    )
+            // `save` is not `csrf_ignore`d.
+            let v = pluginhandler(
+                &state,
+                &sess,
+                "WRONG",
+                "save",
+                &params(&[("plugin", "nsfw"), ("tags", "x")]),
+            )
+            .await
+            .unwrap();
+            assert_eq!(code(&v), "E_UNAUTHORIZED");
+            Ok(())
+        })
+    })
     .await
     .unwrap();
-    assert_eq!(code(&v), "E_UNAUTHORIZED");
-        Ok(())
-    })).await.unwrap();
 }
 
 #[tokio::test]
 async fn test_disabled_plugin_unknown() {
-    with_test_db(|url| Box::pin(async move {
-    // A registered but system-disabled plugin is an unknown plugin on the
-    // protected path (M7.3's active-aware `get_plugin`).
-    let state = setup(&url).await;
-    let sess = session();
-    let v = pluginhandler(
-        &state,
-        &sess,
-        "tok",
-        "save",
-        &params(&[("plugin", "note"), ("tags", "x")]),
-    )
+    with_test_db(|url| {
+        Box::pin(async move {
+            // A registered but system-disabled plugin is an unknown plugin on the
+            // protected path (M7.3's active-aware `get_plugin`).
+            let state = setup(&url).await;
+            let sess = session();
+            let v = pluginhandler(
+                &state,
+                &sess,
+                "tok",
+                "save",
+                &params(&[("plugin", "note"), ("tags", "x")]),
+            )
+            .await
+            .unwrap();
+            assert_eq!(code(&v), "E_UNKNOWN_PLUGIN");
+            Ok(())
+        })
+    })
     .await
     .unwrap();
-    assert_eq!(code(&v), "E_UNKNOWN_PLUGIN");
-        Ok(())
-    })).await.unwrap();
 }
 
 // M7.22 item 4 — HOOK_ARTICLE_IMAGE runs inside `article::get_image` (PHP
@@ -323,36 +374,46 @@ async fn test_disabled_plugin_unknown() {
 // representative image; a non-matching one falls through to the DOM parse.
 #[tokio::test]
 async fn test_get_image_runs_article_image_chain() {
-    with_test_db(|url| Box::pin(async move {
-    let state = setup(&url).await;
-    {
-        let mut c = ctx(&state);
-        let host = c.host_arc();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let state = setup(&url).await;
+            {
+                let mut c = ctx(&state);
+                let host = c.host_arc();
 
-        let plugin = host.get_plugin("nsfw").expect("nsfw active");
-        c.storage_set(plugin, "tags", PValue::Bytes(b"nsfw".to_vec()))
-            .await
-            .unwrap();
-    }
-    let content = "<img src='https://example.com/real.png'>";
-    let matching = json!({ "id": 1, "tags": ["nsfw"] });
-    let mut c = ctx(&state).with_self_url("http://127.0.0.1:8280/tt-rss");
-    let (image, stream, kind) =
-        ttrss::article::get_image(&mut c, &[], content, "https://example.com", &matching).await;
-    assert_eq!(
-        image,
-        "http://127.0.0.1:8280/tt-rss/plugins/nsfw/nsfw.png",
-        "chain should short-circuit the DOM parse"
-    );
-    assert_eq!(stream, "");
-    assert_eq!(kind, 0, "plugin-provided image keeps kind 0 (PHP)");
+                let plugin = host.get_plugin("nsfw").expect("nsfw active");
+                c.storage_set(plugin, "tags", PValue::Bytes(b"nsfw".to_vec()))
+                    .await
+                    .unwrap();
+            }
+            let content = "<img src='https://example.com/real.png'>";
+            let matching = json!({ "id": 1, "tags": ["nsfw"] });
+            let mut c = ctx(&state).with_self_url("http://127.0.0.1:8280/tt-rss");
+            let (image, stream, kind) =
+                ttrss::article::get_image(&mut c, &[], content, "https://example.com", &matching)
+                    .await;
+            assert_eq!(
+                image, "http://127.0.0.1:8280/tt-rss/plugins/nsfw/nsfw.png",
+                "chain should short-circuit the DOM parse"
+            );
+            assert_eq!(stream, "");
+            assert_eq!(kind, 0, "plugin-provided image keeps kind 0 (PHP)");
 
-    let non_matching = json!({ "id": 1, "tags": ["other"] });
-    let (image, _stream, _kind) =
-        ttrss::article::get_image(&mut c, &[], content, "https://example.com", &non_matching).await;
-    assert!(image.contains("example.com/real.png"), "image was: {image}");
-        Ok(())
-    })).await.unwrap();
+            let non_matching = json!({ "id": 1, "tags": ["other"] });
+            let (image, _stream, _kind) = ttrss::article::get_image(
+                &mut c,
+                &[],
+                content,
+                "https://example.com",
+                &non_matching,
+            )
+            .await;
+            assert!(image.contains("example.com/real.png"), "image was: {image}");
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // M7.22 item 3 (seam) — the `HOOK_RENDER_ARTICLE` family runs through the

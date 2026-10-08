@@ -448,7 +448,9 @@ fn test_strips_allow_attribute() {
 
 #[test]
 fn test_strips_srcdoc_attribute() {
-    let result = san("<iframe src=\"url\" srcdoc=\"&lt;script&gt;parent.eval(&quot;alert('XSS | '+document.cookie)&quot;)&lt;/script&gt;\"></iframe>");
+    let result = san(
+        "<iframe src=\"url\" srcdoc=\"&lt;script&gt;parent.eval(&quot;alert('XSS | '+document.cookie)&quot;)&lt;/script&gt;\"></iframe>",
+    );
     assert!(!result.contains("srcdoc="));
 }
 
@@ -592,7 +594,8 @@ async fn test_iframe_whitelisted_returns_false_with_no_src() {
         .connect_lazy("postgres://ttrss:ttrss@localhost/ttrss_test")
         .unwrap();
     let test_cfg = crate::core::config::Config::for_test();
-    let mut ctx = crate::pluginhost::host::HostCtx::empty(Arc::clone(&host), pool.clone(), test_cfg.clone());
+    let mut ctx =
+        crate::pluginhost::host::HostCtx::empty(Arc::clone(&host), pool.clone(), test_cfg.clone());
     assert!(!iframe_whitelisted(&mut ctx, "").await);
 }
 
@@ -608,7 +611,8 @@ async fn test_iframe_whitelisted_runs_hooks() {
         .connect_lazy("postgres://ttrss:ttrss@localhost/ttrss_test")
         .unwrap();
     let test_cfg = crate::core::config::Config::for_test();
-    let mut ctx = crate::pluginhost::host::HostCtx::empty(Arc::clone(&host), pool.clone(), test_cfg.clone());
+    let mut ctx =
+        crate::pluginhost::host::HostCtx::empty(Arc::clone(&host), pool.clone(), test_cfg.clone());
     assert!(!iframe_whitelisted(&mut ctx, "http://example.com").await);
 }
 

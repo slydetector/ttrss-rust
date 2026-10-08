@@ -14,8 +14,8 @@
 //! M7.8's own bar is that `get_js` returns the reference bytes verbatim.
 
 use crate::pluginhost::host::PluginHost;
-use async_trait::async_trait;
 use crate::pluginhost::plugin::{About, Plugin};
+use async_trait::async_trait;
 
 /// PHP's `class Af_Zz_VidMute extends Plugin`.
 #[derive(Clone, Copy)]
@@ -45,8 +45,7 @@ impl Plugin for AfZzVidMute {
 
 /// `tt-rss/plugins/af_zz_vidmute/init.js` (byte-identical; the reference
 /// `get_js` is a `file_get_contents` of this file).
-const INIT_JS: &str =
-    include_str!("../../../../tt-rss/plugins/af_zz_vidmute/init.js");
+const INIT_JS: &str = include_str!("../../../../tt-rss/plugins/af_zz_vidmute/init.js");
 
 #[cfg(test)]
 mod tests {

@@ -22,7 +22,9 @@
 
 mod common;
 
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
+use test_db::template::with_test_db;
+use ttrss::AppState;
 use ttrss::core::config::Config;
 use ttrss::core::db::Db;
 use ttrss::core::phpser::Value as PValue;
@@ -30,13 +32,13 @@ use ttrss::core::session::Session;
 use ttrss::headlines::view;
 use ttrss::labels::label_to_feed_id;
 use ttrss::session::Sess;
-use ttrss::AppState;
-use test_db::template::with_test_db;
 
 const SESSION_UID: i64 = 1;
 
 /// A test-only config (the handler only needs `db`).
-fn test_config() -> Config { common::test_config() }
+fn test_config() -> Config {
+    common::test_config()
+}
 
 /// Fresh fixtures + a session carrying `uid = 1` (owner of the fixture rows).
 async fn setup(url: &str) -> (AppState, Sess) {
@@ -65,54 +67,58 @@ async fn label_cache(pool: &sqlx::Pool<sqlx::Postgres>, article_id: i64) -> Opti
 
 #[tokio::test]
 async fn test_view_populates_label_cache() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup(&url).await;
-    let p = state.db.pool();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            let p = state.db.pool();
 
-    // Link label 1 to article 1 (in feed 1) so article 1 has `num_labels = 1`
-    // while its `label_cache` is still empty (as the seed leaves it).
-    sqlx::query("INSERT INTO ttrss_user_labels2 (label_id, article_id) VALUES (1, 1)")
-        .execute(p)
-        .await
-        .unwrap();
+            // Link label 1 to article 1 (in feed 1) so article 1 has `num_labels = 1`
+            // while its `label_cache` is still empty (as the seed leaves it).
+            sqlx::query("INSERT INTO ttrss_user_labels2 (label_id, article_id) VALUES (1, 1)")
+                .execute(p)
+                .await
+                .unwrap();
 
-    // Precondition: the seed leaves the cache empty.
-    assert_eq!(
-        label_cache(p, 1).await.as_deref(),
-        Some(""),
-        "article 1 starts with an empty label_cache"
-    );
+            // Precondition: the seed leaves the cache empty.
+            assert_eq!(
+                label_cache(p, 1).await.as_deref(),
+                Some(""),
+                "article 1 starts with an empty label_cache"
+            );
 
-    let expected_feed_id = label_to_feed_id(1);
+            let expected_feed_id = label_to_feed_id(1);
 
-    // Render feed 1 (which contains article 1) via the SPA `view` handler.
-    let extra: Map<String, Value> = Map::from_iter(vec![("feed".to_string(), json!("1"))]);
-    let reply = view(&state, &sess, &extra).await;
+            // Render feed 1 (which contains article 1) via the SPA `view` handler.
+            let extra: Map<String, Value> = Map::from_iter(vec![("feed".to_string(), json!("1"))]);
+            let reply = view(&state, &sess, &extra).await;
 
-    // The article's labels are present in the response…
-    let labels = reply
-        .get("headlines")
-        .and_then(|h| h.get("content"))
-        .and_then(|c| c.as_array())
-        .and_then(|arts| arts.iter().find(|a| a.get("id") == Some(&json!(1))))
-        .and_then(|a| a.get("labels"))
-        .and_then(|l| l.as_array())
-        .expect("article 1 in the view has a labels array");
-    assert!(
-        labels.iter().any(|l| l[0] == json!(expected_feed_id)),
-        "labels array contains the virtual feed id for label 1: {labels:?}"
-    );
+            // The article's labels are present in the response…
+            let labels = reply
+                .get("headlines")
+                .and_then(|h| h.get("content"))
+                .and_then(|c| c.as_array())
+                .and_then(|arts| arts.iter().find(|a| a.get("id") == Some(&json!(1))))
+                .and_then(|a| a.get("labels"))
+                .and_then(|l| l.as_array())
+                .expect("article 1 in the view has a labels array");
+            assert!(
+                labels.iter().any(|l| l[0] == json!(expected_feed_id)),
+                "labels array contains the virtual feed id for label 1: {labels:?}"
+            );
 
-    // …AND the hard path wrote the cache back (the `_get_labels` side effect).
-    let cached = label_cache(p, 1).await.unwrap_or_default();
-    assert!(
-        !cached.is_empty(),
-        "label_cache is populated after view: {cached:?}"
-    );
-    assert!(
-        cached.contains(&expected_feed_id.to_string()),
-        "cache records label 1's virtual feed id: {cached:?}"
-    );
-        Ok(())
-    })).await.unwrap();
+            // …AND the hard path wrote the cache back (the `_get_labels` side effect).
+            let cached = label_cache(p, 1).await.unwrap_or_default();
+            assert!(
+                !cached.is_empty(),
+                "label_cache is populated after view: {cached:?}"
+            );
+            assert!(
+                cached.contains(&expected_feed_id.to_string()),
+                "cache records label 1's virtual feed id: {cached:?}"
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }

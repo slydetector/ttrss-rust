@@ -21,15 +21,15 @@ mod common;
 
 use axum::body::Body;
 use axum::http::{Method, Request, StatusCode};
+use test_db::template::with_test_db;
+use tower::ServiceExt;
+use ttrss::AppState;
 use ttrss::core::config::Config;
 use ttrss::core::db::Db;
 use ttrss::core::phpser::Value as PValue;
 use ttrss::core::session::Session;
-use ttrss::i18n::{ngettext, translate, I18nCache};
+use ttrss::i18n::{I18nCache, ngettext, translate};
 use ttrss::pref_ui::get_translations;
-use ttrss::AppState;
-use test_db::template::with_test_db;
-use tower::ServiceExt;
 
 /// The 5 locales under test — each has all three sample strings in its
 /// catalog (verified against `tt-rss/locale/*/LC_MESSAGES/messages.mo`).
@@ -39,7 +39,9 @@ const API_STR: &str = "Feed not found.";
 const PLUGIN_STR: &str = "Toggle sidebar";
 
 fn tt_rss_dir() -> std::path::PathBuf {
-    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..").join("tt-rss")
+    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .join("tt-rss")
 }
 
 /// A test config. `docroot` points at the frozen `tt-rss` tree so the real
@@ -158,44 +160,50 @@ async fn view_not_found(state: &AppState) -> String {
 /// change in the DB only takes effect on a fresh cache.
 #[tokio::test]
 async fn test_cross_locale_shell() {
-    with_test_db(|url| Box::pin(async move {
-        for locale in LOCALES {
-            let state = setup(&url, "auth_internal").await;
-            save_admin_session(&state).await;
-            set_user_language(&state, locale).await;
-            let want = expected(locale, SHELL_STR);
-            let html = shell_page(&state).await;
-            assert!(
-                html.contains("<!-- order 0, default -->"),
-                "must be the shell, not the login page"
-            );
-            assert!(
-                html.contains(&want),
-                "[{locale}] shell must carry the translated {SHELL_STR:?} = {want:?}"
-            );
-        }
-        Ok(())
-    })).await
+    with_test_db(|url| {
+        Box::pin(async move {
+            for locale in LOCALES {
+                let state = setup(&url, "auth_internal").await;
+                save_admin_session(&state).await;
+                set_user_language(&state, locale).await;
+                let want = expected(locale, SHELL_STR);
+                let html = shell_page(&state).await;
+                assert!(
+                    html.contains("<!-- order 0, default -->"),
+                    "must be the shell, not the login page"
+                );
+                assert!(
+                    html.contains(&want),
+                    "[{locale}] shell must carry the translated {SHELL_STR:?} = {want:?}"
+                );
+            }
+            Ok(())
+        })
+    })
+    .await
     .unwrap();
 }
 
 /// The API `view` "not found" error carries the request's locale (5 locales).
 #[tokio::test]
 async fn test_cross_locale_api_view() {
-    with_test_db(|url| Box::pin(async move {
-        for locale in LOCALES {
-            let state = setup(&url, "auth_internal").await;
-            save_admin_session(&state).await;
-            set_user_language(&state, locale).await;
-            let want = expected(locale, API_STR);
-            let body = view_not_found(&state).await;
-            assert!(
-                body.contains(&want),
-                "[{locale}] view must carry the translated {API_STR:?} = {want:?}"
-            );
-        }
-        Ok(())
-    })).await
+    with_test_db(|url| {
+        Box::pin(async move {
+            for locale in LOCALES {
+                let state = setup(&url, "auth_internal").await;
+                save_admin_session(&state).await;
+                set_user_language(&state, locale).await;
+                let want = expected(locale, API_STR);
+                let body = view_not_found(&state).await;
+                assert!(
+                    body.contains(&want),
+                    "[{locale}] view must carry the translated {API_STR:?} = {want:?}"
+                );
+            }
+            Ok(())
+        })
+    })
+    .await
     .unwrap();
 }
 
@@ -203,20 +211,23 @@ async fn test_cross_locale_api_view() {
 /// `toggle_sidebar` button is enabled and rendered in the shell.
 #[tokio::test]
 async fn test_cross_locale_plugin() {
-    with_test_db(|url| Box::pin(async move {
-        for locale in LOCALES {
-            let state = setup(&url, "auth_internal,toggle_sidebar").await;
-            save_admin_session(&state).await;
-            set_user_language(&state, locale).await;
-            let want = expected(locale, PLUGIN_STR);
-            let html = shell_page(&state).await;
-            assert!(
-                html.contains(&want),
-                "[{locale}] shell must carry the plugin's translated {PLUGIN_STR:?} = {want:?}"
-            );
-        }
-        Ok(())
-    })).await
+    with_test_db(|url| {
+        Box::pin(async move {
+            for locale in LOCALES {
+                let state = setup(&url, "auth_internal,toggle_sidebar").await;
+                save_admin_session(&state).await;
+                set_user_language(&state, locale).await;
+                let want = expected(locale, PLUGIN_STR);
+                let html = shell_page(&state).await;
+                assert!(
+                    html.contains(&want),
+                    "[{locale}] shell must carry the plugin's translated {PLUGIN_STR:?} = {want:?}"
+                );
+            }
+            Ok(())
+        })
+    })
+    .await
     .unwrap();
 }
 
@@ -225,17 +236,20 @@ async fn test_cross_locale_plugin() {
 /// the shell stays English.
 #[tokio::test]
 async fn test_unavailable_locale_falls_back_english() {
-    with_test_db(|url| Box::pin(async move {
-        let state = setup(&url, "auth_internal").await;
-        save_admin_session(&state).await;
-        set_user_language(&state, "zz_ZZ").await;
-        let html = shell_page(&state).await;
-        assert!(
-            html.contains(SHELL_STR),
-            "unavailable locale must fall back to the English original"
-        );
-        Ok(())
-    })).await
+    with_test_db(|url| {
+        Box::pin(async move {
+            let state = setup(&url, "auth_internal").await;
+            save_admin_session(&state).await;
+            set_user_language(&state, "zz_ZZ").await;
+            let html = shell_page(&state).await;
+            assert!(
+                html.contains(SHELL_STR),
+                "unavailable locale must fall back to the English original"
+            );
+            Ok(())
+        })
+    })
+    .await
     .unwrap();
 }
 
@@ -253,7 +267,10 @@ fn test_missing_string_falls_back_original() {
     );
     let present = "Save"; // present in the eo catalog
     let eo_save = expected("eo", present);
-    assert_ne!(eo_save, present, "the eo catalog must actually translate 'Save'");
+    assert_ne!(
+        eo_save, present,
+        "the eo catalog must actually translate 'Save'"
+    );
     assert_eq!(translate(Some("eo"), &cat, present), eo_save);
 }
 
@@ -303,7 +320,10 @@ fn test_plural_forms() {
     );
     // No locale → the plain English forms by count.
     assert_eq!(ngettext(None, &cat, "(%d day)", "(%d days)", 1), "(%d day)");
-    assert_eq!(ngettext(None, &cat, "(%d day)", "(%d days)", 5), "(%d days)");
+    assert_eq!(
+        ngettext(None, &cat, "(%d day)", "(%d days)", 5),
+        "(%d days)"
+    );
 }
 
 /// The `get_translations()` dropdown keys match the PHP's (the
@@ -313,13 +333,13 @@ fn test_get_translations_matches_php() {
     let keys: Vec<&str> = get_translations().iter().map(|(k, _)| *k).collect();
     // The PHP's keys (include/functions.php `get_translations()`), in order.
     let php_keys = [
-        "auto", "ar_SA", "be", "bg_BG", "da_DA", "ca_CA", "cs_CZ", "en_US",
-        "el_GR", "es", "de_DE", "fa", "fr_FR", "gl", "hu_HU", "it_IT",
-        "ja_JP", "lv_LV", "nb_NO", "nl_NL", "pl_PL", "ru_RU", "pt_BR",
-        "pt_PT", "zh_CN", "zh_TW", "uk_UA", "sv_SE", "fi_FI", "ta", "tr_TR",
+        "auto", "ar_SA", "be", "bg_BG", "da_DA", "ca_CA", "cs_CZ", "en_US", "el_GR", "es", "de_DE",
+        "fa", "fr_FR", "gl", "hu_HU", "it_IT", "ja_JP", "lv_LV", "nb_NO", "nl_NL", "pl_PL",
+        "ru_RU", "pt_BR", "pt_PT", "zh_CN", "zh_TW", "uk_UA", "sv_SE", "fi_FI", "ta", "tr_TR",
     ];
     assert_eq!(
-        keys, php_keys.to_vec(),
+        keys,
+        php_keys.to_vec(),
         "the get_translations() keys must match the PHP's, in order"
     );
 }

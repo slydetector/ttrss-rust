@@ -1,14 +1,15 @@
 //! `Pref_System` backend read handlers.
 
-use serde_json::{json, Map, Value};
-use sqlx::Row;
+use serde_json::{Map, Value, json};
 use sqlx::AssertSqlSafe;
+use sqlx::Row;
 
-use crate::session::Sess;use crate::i18n::{__, t_sprintf};
+use crate::i18n::{__, t_sprintf};
+use crate::session::Sess;
 
-use crate::time::{make_local_datetime, TzCtx};
-use crate::util::{clean_int, htmlspecialchars};
 use crate::AppState;
+use crate::time::{TzCtx, make_local_datetime};
+use crate::util::{clean_int, htmlspecialchars};
 
 /// `Pref_System::getscheduledtasks` — an HTML table of the scheduled tasks.
 /// (The PHP `echo`s raw markup but keeps the JSON content-type, so this is a
@@ -220,11 +221,7 @@ async fn log_viewer(state: &AppState, sess: &Sess, page: i64, severity: i64) -> 
 /// server-info panes. The event-log pane assumes `LOG_DESTINATION == sql` (the
 /// default, like `recent_log_events`); the `getphpinfo` pane surfaces
 /// Rust/server diagnostics instead of `phpinfo()`.
-pub async fn index(
-    state: &AppState,
-    sess: &Sess,
-    extra: &Map<String, Value>,
-) -> String {
+pub async fn index(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> String {
     let severity = clean_int(extra.get("severity"));
     let severity = if severity == 0 { 512 } else { severity }; // default E_USER_WARNING
     let page = clean_int(extra.get("page"));
@@ -330,13 +327,15 @@ pub async fn index(
 
     // M7.22 item 7 — the `Pref_System::index` plugin chain (PHP site after
     // the PHP Information pane, before the container closes).
-    out.push_str(&crate::pluginhost::dispatch::prefs_chain(
-        state,
-        sess,
-        crate::pluginhost::HOOK_PREFS_TAB,
-        "prefSystem",
-            )
-    .await);
+    out.push_str(
+        &crate::pluginhost::dispatch::prefs_chain(
+            state,
+            sess,
+            crate::pluginhost::HOOK_PREFS_TAB,
+            "prefSystem",
+        )
+        .await,
+    );
 
     out.push_str("</div>");
     out

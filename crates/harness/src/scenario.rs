@@ -41,7 +41,7 @@
 //!   get `sid` injected from the `api_sid` variable (if set and not already
 //!   present in the body).
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use serde::Deserialize;
 use std::collections::BTreeMap;
 
@@ -109,8 +109,9 @@ impl SaveSpec {
         if let Some(name) = spec.strip_prefix("header:") {
             Ok(Self::Header(name.trim().to_string()))
         } else if let Some(pattern) = spec.strip_prefix("regex:") {
-            Ok(Self::Regex(regex::Regex::new(pattern)
-                .map_err(|e| anyhow!("bad regex {pattern:?}: {e}"))?))
+            Ok(Self::Regex(
+                regex::Regex::new(pattern).map_err(|e| anyhow!("bad regex {pattern:?}: {e}"))?,
+            ))
         } else if let Some(path) = spec.strip_prefix("json:") {
             let parts: Vec<String> = path
                 .trim_start_matches('$')

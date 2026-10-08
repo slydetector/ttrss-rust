@@ -20,10 +20,10 @@
 
 mod common;
 
+use test_db::template::with_test_db;
 use ttrss::auth::{self, AuthOutcome};
 use ttrss::core::db::Db;
 use ttrss::core::user;
-use test_db::template::with_test_db;
 
 /// `UserHelperTest::setUp` on top of the harness-injected pool: a `testuser`
 /// with the known SSHA-512 password `testpass123` (fresh salt, as in PHP).
@@ -69,43 +69,52 @@ fn expect_failure(outcome: AuthOutcome) -> String {
 // PHP: test_correct_credentials_returns_true_and_sets_session
 #[tokio::test]
 async fn test_correct_credentials_returns_true_and_sets_session() {
-    with_test_db(|url| Box::pin(async move {
-    let (db, uid) = setup(&url).await;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (db, uid) = setup(&url).await;
 
-    let (id, login, access_level) =
-        expect_success(auth::authenticate(db.pool(), "testuser", "testpass123", None).await);
+            let (id, login, access_level) = expect_success(
+                auth::authenticate(db.pool(), "testuser", "testpass123", None).await,
+            );
 
-    // PHP asserts $_SESSION['uid'], $_SESSION['name'], and
-    // $_SESSION['access_level'] == UserHelper::ACCESS_LEVEL_USER (0).
-    assert_eq!(id, uid);
-    assert_eq!(login, "testuser");
-    assert_eq!(access_level, 0);
-    // NOTE: PHP also asserts $_SESSION['auth_module'] == 'auth_internal'; the
-    // Rust handler layer (main.rs login_flow) sets that session key from the
-    // same Success value — asserted at the handler/session layer (parity row
-    // 9, SessionsIntegrationTest).
-        Ok(())
-    })).await.unwrap();
+            // PHP asserts $_SESSION['uid'], $_SESSION['name'], and
+            // $_SESSION['access_level'] == UserHelper::ACCESS_LEVEL_USER (0).
+            assert_eq!(id, uid);
+            assert_eq!(login, "testuser");
+            assert_eq!(access_level, 0);
+            // NOTE: PHP also asserts $_SESSION['auth_module'] == 'auth_internal'; the
+            // Rust handler layer (main.rs login_flow) sets that session key from the
+            // same Success value — asserted at the handler/session layer (parity row
+            // 9, SessionsIntegrationTest).
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // PHP: test_admin_credentials_work
 #[tokio::test]
 async fn test_admin_credentials_work() {
-    with_test_db(|url| Box::pin(async move {
-    let (db, _) = setup(&url).await;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (db, _) = setup(&url).await;
 
-    let (id, _login, access_level) =
-        expect_success(auth::authenticate(db.pool(), "admin", "password", None).await);
+            let (id, _login, access_level) =
+                expect_success(auth::authenticate(db.pool(), "admin", "password", None).await);
 
-    // PHP asserts uid == 1 and access_level == UserHelper::ACCESS_LEVEL_ADMIN.
-    assert_eq!(id, 1);
-    assert_eq!(access_level, 10);
-    // NOTE: the `admin` row comes from `schema.sql` itself (password
-    // 'password', SHA1 hash, access_level 10). PHP's check_password upgrades
-    // the stored hash to SSHA-512 on success; the Rust port does the same in
-    // `auth::authenticate` (the session receives the upgraded hash).
-        Ok(())
-    })).await.unwrap();
+            // PHP asserts uid == 1 and access_level == UserHelper::ACCESS_LEVEL_ADMIN.
+            assert_eq!(id, 1);
+            assert_eq!(access_level, 10);
+            // NOTE: the `admin` row comes from `schema.sql` itself (password
+            // 'password', SHA1 hash, access_level 10). PHP's check_password upgrades
+            // the stored hash to SSHA-512 on success; the Rust port does the same in
+            // `auth::authenticate` (the session receives the upgraded hash).
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // PHP: test_authenticate_regenerates_session_id
@@ -116,22 +125,26 @@ async fn test_admin_credentials_work() {
 // PHP: test_authenticate_updates_last_login
 #[tokio::test]
 async fn test_authenticate_updates_last_login() {
-    with_test_db(|url| Box::pin(async move {
-    let (db, _) = setup(&url).await;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (db, _) = setup(&url).await;
 
-    // PHP: usleep(100_000) before authenticating.
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-    expect_success(auth::authenticate(db.pool(), "testuser", "testpass123", None).await);
+            // PHP: usleep(100_000) before authenticating.
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            expect_success(auth::authenticate(db.pool(), "testuser", "testpass123", None).await);
 
-    let last_login: Option<chrono::NaiveDateTime> =
-        sqlx::query_scalar("SELECT last_login FROM ttrss_users WHERE login = 'testuser'")
-            .fetch_one(db.pool())
-            .await
-            .expect("query last_login");
+            let last_login: Option<chrono::NaiveDateTime> =
+                sqlx::query_scalar("SELECT last_login FROM ttrss_users WHERE login = 'testuser'")
+                    .fetch_one(db.pool())
+                    .await
+                    .expect("query last_login");
 
-    assert!(last_login.is_some());
-        Ok(())
-    })).await.unwrap();
+            assert!(last_login.is_some());
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // ── Failures ─────────────────────────────────────────────────────────────────
@@ -139,37 +152,52 @@ async fn test_authenticate_updates_last_login() {
 // PHP: test_wrong_password_returns_false
 #[tokio::test]
 async fn test_wrong_password_returns_false() {
-    with_test_db(|url| Box::pin(async move {
-    let (db, _) = setup(&url).await;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (db, _) = setup(&url).await;
 
-    let _msg = expect_failure(auth::authenticate(db.pool(), "testuser", "wrong", None).await);
-        Ok(())
-    })).await.unwrap();
+            let _msg =
+                expect_failure(auth::authenticate(db.pool(), "testuser", "wrong", None).await);
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // PHP: test_nonexistent_user_returns_false
 #[tokio::test]
 async fn test_nonexistent_user_returns_false() {
-    with_test_db(|url| Box::pin(async move {
-    let (db, _) = setup(&url).await;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (db, _) = setup(&url).await;
 
-    let _msg = expect_failure(auth::authenticate(db.pool(), "ghost", "anything", None).await);
-        Ok(())
-    })).await.unwrap();
+            let _msg =
+                expect_failure(auth::authenticate(db.pool(), "ghost", "anything", None).await);
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // PHP: test_login_is_case_insensitive
 #[tokio::test]
 async fn test_login_is_case_insensitive() {
-    with_test_db(|url| Box::pin(async move {
-    let (db, uid) = setup(&url).await;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (db, uid) = setup(&url).await;
 
-    let (id, _login, _access_level) =
-        expect_success(auth::authenticate(db.pool(), "TESTUSER", "testpass123", None).await);
+            let (id, _login, _access_level) = expect_success(
+                auth::authenticate(db.pool(), "TESTUSER", "testpass123", None).await,
+            );
 
-    assert_eq!(id, uid);
-        Ok(())
-    })).await.unwrap();
+            assert_eq!(id, uid);
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // ── Disabled user ────────────────────────────────────────────────────────────
@@ -177,22 +205,27 @@ async fn test_login_is_case_insensitive() {
 // PHP: test_disabled_user_cannot_authenticate
 #[tokio::test]
 async fn test_disabled_user_cannot_authenticate() {
-    with_test_db(|url| Box::pin(async move {
-    let (db, _) = setup(&url).await;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (db, _) = setup(&url).await;
 
-    // PHP inserts: hash_password('nope', 'saltxx', HASH_ALGO_SSHA512),
-    // access_level -2 (ACCESS_LEVEL_DISABLED).
-    let hash = user::hash_password("nope", "saltxx", user::ALGO_SSHA512).unwrap();
-    sqlx::query(
-        "INSERT INTO ttrss_users (login, pwd_hash, salt, access_level)
+            // PHP inserts: hash_password('nope', 'saltxx', HASH_ALGO_SSHA512),
+            // access_level -2 (ACCESS_LEVEL_DISABLED).
+            let hash = user::hash_password("nope", "saltxx", user::ALGO_SSHA512).unwrap();
+            sqlx::query(
+                "INSERT INTO ttrss_users (login, pwd_hash, salt, access_level)
          VALUES ('disabled', $1, 'saltxx', -2)",
-    )
-    .bind(&hash)
-    .execute(db.pool())
-    .await
-    .expect("insert disabled user");
+            )
+            .bind(&hash)
+            .execute(db.pool())
+            .await
+            .expect("insert disabled user");
 
-    let _msg = expect_failure(auth::authenticate(db.pool(), "disabled", "nope", None).await);
-        Ok(())
-    })).await.unwrap();
+            let _msg =
+                expect_failure(auth::authenticate(db.pool(), "disabled", "nope", None).await);
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }

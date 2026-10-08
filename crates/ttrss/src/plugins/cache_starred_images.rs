@@ -21,8 +21,8 @@
 //! - The PHP reads the schedules from `Config::get(SCHEDULE_*)` (overridable); the port
 //!   pins them to the defaults (`@hourly` / `@daily`).
 
-use std::path::PathBuf;
 use async_trait::async_trait;
+use std::path::PathBuf;
 
 use serde_json::Value;
 
@@ -32,8 +32,8 @@ use crate::pluginhost::host::{HostCtx, PluginHost};
 use crate::pluginhost::plugin::{About, BoxFuture, Plugin};
 use crate::pluginhost::{HOOK_ENCLOSURE_ENTRY, HOOK_SANITIZE};
 use crate::rss_utils::decode_srcset;
-use crate::util::sha1_hex;
 use crate::urlhelper::{self, FetchOptions};
+use crate::util::sha1_hex;
 
 use kuchikiki::traits::TendrilSink;
 
@@ -117,13 +117,14 @@ impl Plugin for CacheStarredImages {
     ) -> Value {
         let mut out = entry.clone();
         if id != 0
-            && let Some(url) = out.get("content_url").and_then(|v| v.as_str()) {
-                let cache = DiskCache::new(&host.cache_dir, CACHE_NAME, &host.self_url);
-                let local = format!("{}-{}", id, sha1_hex(url));
-                if cache.exists(&local) {
-                    out["content_url"] = Value::String(cache.get_url(&local));
-                }
+            && let Some(url) = out.get("content_url").and_then(|v| v.as_str())
+        {
+            let cache = DiskCache::new(&host.cache_dir, CACHE_NAME, &host.self_url);
+            let local = format!("{}-{}", id, sha1_hex(url));
+            if cache.exists(&local) {
+                out["content_url"] = Value::String(cache.get_url(&local));
             }
+        }
         out
     }
 }
@@ -141,8 +142,7 @@ fn run_cache_starred_images(
         let Some(owner_uid) = owner_uid else { return };
         let cache_dir = config.cache_dir.clone();
         let cache = DiskCache::new(&cache_dir, CACHE_NAME, &config.self_url);
-        let cache_status =
-            DiskCache::new(&cache_dir, CACHE_STATUS_NAME, &config.self_url);
+        let cache_status = DiskCache::new(&cache_dir, CACHE_STATUS_NAME, &config.self_url);
 
         // PHP's scan: starred, has a site_url, this owner, not yet marked cached.
         let rows: Vec<(String, String, i32, i32, Option<String>)> = sqlx::query_as(
@@ -162,8 +162,16 @@ fn run_cache_starred_images(
             if site_url.is_empty() {
                 continue;
             }
-            if cache_article_images(&pool, &cache, &cache_status, &content, &site_url, id, &config)
-                .await
+            if cache_article_images(
+                &pool,
+                &cache,
+                &cache_status,
+                &content,
+                &site_url,
+                id,
+                &config,
+            )
+            .await
             {
                 let new_data = format!(
                     "{}{}:{}",
@@ -202,9 +210,10 @@ fn run_expire_caches(
                 for entry in entries.flatten() {
                     let name = entry.file_name().to_string_lossy().to_string();
                     if let Some((aid, _)) = name.split_once('-')
-                        && let Ok(aid) = aid.parse::<i64>() {
-                            files.push((aid, entry.path()));
-                        }
+                        && let Ok(aid) = aid.parse::<i64>()
+                    {
+                        files.push((aid, entry.path()));
+                    }
                 }
             }
         }
@@ -257,12 +266,13 @@ async fn cache_article_images(
     // Load the attempt count from the status file (default 0).
     let mut attempt: i64 = 0;
     if cache_status.exists(&status_filename)
-        && let Some(s) = cache_status.get(&status_filename) {
-            attempt = serde_json::from_str::<Value>(&s)
-                .ok()
-                .and_then(|v| v.get("attempt").and_then(|a| a.as_i64()))
-                .unwrap_or(0);
-        }
+        && let Some(s) = cache_status.get(&status_filename)
+    {
+        attempt = serde_json::from_str::<Value>(&s)
+            .ok()
+            .and_then(|v| v.get("attempt").and_then(|a| a.as_i64()))
+            .unwrap_or(0);
+    }
     attempt += 1;
 
     // PHP: `if ($status["attempt"] > $this->max_cache_attempts) return false;`
@@ -281,8 +291,14 @@ async fn cache_article_images(
     let mut success = false;
     for url in extract_media_urls(content, site_url) {
         has_media = true;
-        if cache_url(cache, pool, article_id, &url, config.max_cache_file_size as u64)
-            .await
+        if cache_url(
+            cache,
+            pool,
+            article_id,
+            &url,
+            config.max_cache_file_size as u64,
+        )
+        .await
         {
             success = true;
         }
@@ -300,11 +316,17 @@ async fn cache_article_images(
     for url in encs {
         has_media = true;
         if let Some(rewritten) = urlhelper::rewrite_relative(site_url, &url)
-            && cache_url(cache, pool, article_id, &rewritten, config.max_cache_file_size as u64)
-                .await
-            {
-                success = true;
-            }
+            && cache_url(
+                cache,
+                pool,
+                article_id,
+                &rewritten,
+                config.max_cache_file_size as u64,
+            )
+            .await
+        {
+            success = true;
+        }
     }
 
     // PHP: `return $success || !$has_media;`
@@ -379,7 +401,12 @@ fn extract_media_urls(content: &str, site_url: &str) -> Vec<String> {
 /// The `hook_sanitize` body — rewrite `<img>`/`<source>`/`<video>` `src` to the local
 /// cache URL (dropping `srcset`) when a cached copy exists. Re-serializes the `<body>`
 /// contents (the `diskcache::rewrite_urls` pattern).
-fn rewrite_sanitized_media(html: &str, site_url: &str, article_id: i32, cache: &DiskCache) -> String {
+fn rewrite_sanitized_media(
+    html: &str,
+    site_url: &str,
+    article_id: i32,
+    cache: &DiskCache,
+) -> String {
     let doc = kuchikiki::parse_html().one(html);
     let mut changed = false;
     for node in doc.descendants() {
@@ -396,7 +423,9 @@ fn rewrite_sanitized_media(html: &str, site_url: &str, article_id: i32, cache: &
         if let Some(abs) = urlhelper::rewrite_relative(site_url, &src) {
             let local = format!("{}-{}", article_id, sha1_hex(&abs));
             if cache.exists(&local) {
-                el.attributes.borrow_mut().insert("src", cache.get_url(&local));
+                el.attributes
+                    .borrow_mut()
+                    .insert("src", cache.get_url(&local));
                 el.attributes.borrow_mut().remove("srcset");
                 changed = true;
             }

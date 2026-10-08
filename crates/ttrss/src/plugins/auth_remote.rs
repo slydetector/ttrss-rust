@@ -22,11 +22,11 @@
 //!   `AUTH_REMOTE_POST_LOGOUT_URL` is set: returns `[url]`, the logout
 //!   handler's redirect target (validated; empty → the default index).
 
-use crate::core::user::{get_salt, hash_password, ALGO_SSHA512};
-use async_trait::async_trait;
+use crate::core::user::{ALGO_SSHA512, get_salt, hash_password};
 use crate::pluginhost::host::{HostCtx, PluginHost};
 use crate::pluginhost::plugin::{About, Plugin};
 use crate::pluginhost::{HOOK_AUTH_USER, HOOK_POST_LOGOUT};
+use async_trait::async_trait;
 use serde_json::Value;
 use sqlx::Row;
 
@@ -141,12 +141,7 @@ impl Plugin for AuthRemote {
 
     /// `Auth_Remote::hook_post_logout($login, $user_id)` — `[0]` is the
     /// configured redirect URL.
-    async fn hook_post_logout(
-        &self,
-        host: &mut HostCtx,
-        _login: &str,
-        _user_id: i32,
-    ) -> Value {
+    async fn hook_post_logout(&self, host: &mut HostCtx, _login: &str, _user_id: i32) -> Value {
         let url = host.cfg.auth_remote_post_logout_url.clone();
         Value::Array(vec![Value::String(url)])
     }
@@ -173,18 +168,17 @@ async fn auto_create_user(host: &mut HostCtx, login: &str, password: &str) -> Op
                 password.to_string()
             };
             let hash = hash_password(&pwd, &salt, ALGO_SSHA512)?;
-            let id: Option<i32> =
-                sqlx::query_scalar(
-                    "INSERT INTO ttrss_users (salt, login, pwd_hash, access_level, created) \
+            let id: Option<i32> = sqlx::query_scalar(
+                "INSERT INTO ttrss_users (salt, login, pwd_hash, access_level, created) \
                      VALUES ($1, $2, $3, 0, NOW()) RETURNING id",
-                )
-                .bind(&salt)
-                .bind(login)
-                .bind(hash)
-                .fetch_optional(host.pool())
-                .await
-                .ok()
-                .flatten();
+            )
+            .bind(&salt)
+            .bind(login)
+            .bind(hash)
+            .fetch_optional(host.pool())
+            .await
+            .ok()
+            .flatten();
             if id.is_some() {
                 return id;
             }

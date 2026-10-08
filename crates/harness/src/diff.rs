@@ -114,7 +114,10 @@ pub fn diff(a: &Path, b: &Path, max_details: usize, allow_mismatches: usize) -> 
     let total = fa.len().max(fb.len());
     println!(
         "[diff] {total} exchange(s): {} match, {} mismatch, {} only-A, {} only-B",
-        total.saturating_sub(mismatches).saturating_sub(only_a.len()).saturating_sub(only_b.len()),
+        total
+            .saturating_sub(mismatches)
+            .saturating_sub(only_a.len())
+            .saturating_sub(only_b.len()),
         mismatches,
         only_a.len(),
         only_b.len()
@@ -202,14 +205,15 @@ fn compare_exchanges(ea: &Exchange, eb: &Exchange) -> Vec<String> {
                     )
                 };
                 if na != nb
-                    && let Some(off) = first_diff_offset(&na, &nb) {
-                        details.push(format!(
-                            "{label} body differs @{}: {:?} vs {:?}",
-                            off,
-                            ctx(&na, off),
-                            ctx(&nb, off)
-                        ));
-                    }
+                    && let Some(off) = first_diff_offset(&na, &nb)
+                {
+                    details.push(format!(
+                        "{label} body differs @{}: {:?} vs {:?}",
+                        off,
+                        ctx(&na, off),
+                        ctx(&nb, off)
+                    ));
+                }
             }
         }
         ("binary", "binary") => {
@@ -244,9 +248,10 @@ fn is_json(s: &str) -> bool {
 
 fn parse_or_raw(s: &str) -> serde_json::Value {
     if is_json(s)
-        && let Ok(v) = serde_json::from_str(s) {
-            return v;
-        }
+        && let Ok(v) = serde_json::from_str(s)
+    {
+        return v;
+    }
     serde_json::Value::String(s.to_string())
 }
 
@@ -276,9 +281,7 @@ fn diff_json(a: &serde_json::Value, b: &serde_json::Value, path: &str, out: &mut
         // through html5ever while PHP uses libxml, so byte spelling (boolean
         // attributes, entity form, inter-tag whitespace) legitimately differs
         // while the structure matches. (Mirrors the top-level HTML body path.)
-        (String(x), String(y))
-            if html::is_html_fragment(x) && html::is_html_fragment(y) =>
-        {
+        (String(x), String(y)) if html::is_html_fragment(x) && html::is_html_fragment(y) => {
             if html::canonical_html(x) != html::canonical_html(y) {
                 out.push(format!(
                     "{path}: html differs: {} vs {}",
@@ -328,7 +331,10 @@ fn ctx(s: &str, off: usize) -> String {
         return "<empty>".to_string();
     }
     let upto = off.max(20).min(s.len());
-    let start = s[..upto].rfind(char::is_whitespace).map(|i| i + 1).unwrap_or(0);
+    let start = s[..upto]
+        .rfind(char::is_whitespace)
+        .map(|i| i + 1)
+        .unwrap_or(0);
     let end = (start + 60).min(s.len());
     format!("…{}…", s[start..end].replace('\n', "\\n"))
 }
@@ -367,8 +373,14 @@ mod tests {
 
     #[test]
     fn volatile_values_ignored() {
-        let a = exchange(200, "{\"csrf_token\":\"aaa\",\"session_id\":\"bbb\",\"n\":5}");
-        let b = exchange(200, "{\"csrf_token\":\"ccc\",\"session_id\":\"ddd\",\"n\":5}");
+        let a = exchange(
+            200,
+            "{\"csrf_token\":\"aaa\",\"session_id\":\"bbb\",\"n\":5}",
+        );
+        let b = exchange(
+            200,
+            "{\"csrf_token\":\"ccc\",\"session_id\":\"ddd\",\"n\":5}",
+        );
         assert!(compare_exchanges(&a, &b).is_empty());
     }
 
@@ -385,12 +397,14 @@ mod tests {
         let mut a = exchange(200, "{}");
         a.headers = vec![(
             "set-cookie".into(),
-            "ttrss_sid=4bc3e91e9f36e52e87be607fad96d384; expires=Fri, 04 Sep 2026 21:59:39 GMT".into(),
+            "ttrss_sid=4bc3e91e9f36e52e87be607fad96d384; expires=Fri, 04 Sep 2026 21:59:39 GMT"
+                .into(),
         )];
         let mut b = a.clone();
         b.headers = vec![(
             "set-cookie".into(),
-            "ttrss_sid=c950b757057d8622ce8160c9317ed271; expires=Fri, 04 Sep 2026 22:02:31 GMT".into(),
+            "ttrss_sid=c950b757057d8622ce8160c9317ed271; expires=Fri, 04 Sep 2026 22:02:31 GMT"
+                .into(),
         )];
         assert!(compare_exchanges(&a, &b).is_empty());
     }

@@ -9,7 +9,7 @@
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use url::Url;
 
 /// `Config::SCHEMA_VERSION` — the latest known DB schema version.
@@ -283,8 +283,8 @@ impl Config {
             auth_auto_create: sql_bool_to_bool(
                 &std::env::var("TTRSS_AUTH_AUTO_CREATE").unwrap_or_else(|_| "true".into()),
             ),
-            auth_remote_post_logout_url:
-                std::env::var("TTRSS_AUTH_REMOTE_POST_LOGOUT_URL").unwrap_or_default(),
+            auth_remote_post_logout_url: std::env::var("TTRSS_AUTH_REMOTE_POST_LOGOUT_URL")
+                .unwrap_or_default(),
             plugins: std::env::var("TTRSS_PLUGINS").unwrap_or_else(|_| DEFAULT_PLUGINS.to_string()),
             listen: env("TTRSS_LISTEN_PORT", "127.0.0.1:8280")?,
             docroot: std::env::var("TTRSS_DOCROOT")
@@ -307,10 +307,8 @@ impl Config {
             cache_max_days: env("TTRSS_CACHE_MAX_DAYS", "7")?,
             schedule_purge_orphans: std::env::var("TTRSS_SCHEDULE_PURGE_ORPHANS")
                 .unwrap_or_else(|_| "@daily".into()),
-            schedule_disk_cache_expire_all: std::env::var(
-                "TTRSS_SCHEDULE_DISK_CACHE_EXPIRE_ALL",
-            )
-            .unwrap_or_else(|_| "@daily".into()),
+            schedule_disk_cache_expire_all: std::env::var("TTRSS_SCHEDULE_DISK_CACHE_EXPIRE_ALL")
+                .unwrap_or_else(|_| "@daily".into()),
             schedule_disable_failed_feeds: std::env::var("TTRSS_SCHEDULE_DISABLE_FAILED_FEEDS")
                 .unwrap_or_else(|_| "@daily".into()),
             schedule_cleanup_feed_icons: std::env::var("TTRSS_SCHEDULE_CLEANUP_FEED_ICONS")
@@ -321,10 +319,8 @@ impl Config {
             .unwrap_or_else(|_| "@daily".into()),
             schedule_expire_error_log: std::env::var("TTRSS_SCHEDULE_EXPIRE_ERROR_LOG")
                 .unwrap_or_else(|_| "@hourly".into()),
-            schedule_send_headlines_digests: std::env::var(
-                "TTRSS_SCHEDULE_SEND_HEADLINES_DIGESTS",
-            )
-            .unwrap_or_else(|_| "@hourly".into()),
+            schedule_send_headlines_digests: std::env::var("TTRSS_SCHEDULE_SEND_HEADLINES_DIGESTS")
+                .unwrap_or_else(|_| "@hourly".into()),
         })
     }
 
@@ -430,9 +426,8 @@ fn strip_self_url_path(path: &str) -> String {
     static API_PHP: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
         regex::Regex::new(r"(\/api\/{1,})?(\w+\.php)?(\?.*$)?$").unwrap()
     });
-    static PLUGINS: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
-        regex::Regex::new(r"(\/plugins(\.local)?)\/.{1,}$").unwrap()
-    });
+    static PLUGINS: std::sync::LazyLock<regex::Regex> =
+        std::sync::LazyLock::new(|| regex::Regex::new(r"(\/plugins(\.local)?)\/.{1,}$").unwrap());
     let p = API_PHP.replace(path, "");
     let p = PLUGINS.replace(&p, "");
     p.trim_end_matches('/').to_string()
@@ -459,11 +454,7 @@ pub fn bool_to_sql_bool(s: bool) -> i32 {
 
 /// PHP `checkbox_to_sql_bool()` (`include/functions.php`): `"on"` → `1`, else `0`.
 pub fn checkbox_to_sql_bool(val: &str) -> i32 {
-    if val == "on" {
-        1
-    } else {
-        0
-    }
+    if val == "on" { 1 } else { 0 }
 }
 
 /// Percent-encode a connection-string component (userinfo / dbname).
@@ -544,8 +535,8 @@ mod tests {
         assert!(!sql_bool_to_bool("0"));
         assert!(!sql_bool_to_bool(""));
         assert!(!sql_bool_to_bool("0.0")); // numeric string == 0 is falsy
-                                           // test_sql_bool_to_bool_uppercase_truthy — only exact lowercase
-                                           // "f"/"false" are special.
+        // test_sql_bool_to_bool_uppercase_truthy — only exact lowercase
+        // "f"/"false" are special.
         assert!(sql_bool_to_bool("F"));
         assert!(sql_bool_to_bool("False"));
     }

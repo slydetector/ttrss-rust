@@ -30,7 +30,6 @@
 //! id nests the value under an **int-keyed** slot (`storage[class][profile]
 //! [name]`); a falsy one delegates to the plain `set`/`get`.
 
-
 use sqlx::Error as SqlxError;
 use sqlx::Row;
 
@@ -85,7 +84,10 @@ fn profile_map_put(v: &mut Value, profile: i64, key: &str, val: Value) {
             }
         }
         None => {
-            items.push((Key::Int(profile), Value::Array(vec![(Key::Bytes(key.into()), val)])));
+            items.push((
+                Key::Int(profile),
+                Value::Array(vec![(Key::Bytes(key.into()), val)]),
+            ));
         }
     }
 }
@@ -116,18 +118,18 @@ impl HostCtx {
     async fn storage_load(&mut self) -> Result<(), SqlxError> {
         if !self.data_loaded {
             if let Some(uid) = self.owner_uid.filter(|u| *u != 0) {
-                let rows = sqlx::query("SELECT name, content FROM ttrss_plugin_storage \
-                     WHERE owner_uid = $1")
-                    .bind(uid)
-                    .fetch_all(self.pool())
-                    .await?;
+                let rows = sqlx::query(
+                    "SELECT name, content FROM ttrss_plugin_storage \
+                     WHERE owner_uid = $1",
+                )
+                .bind(uid)
+                .fetch_all(self.pool())
+                .await?;
                 for row in rows {
                     let name: String = row.try_get("name").unwrap();
                     let content: String = row.try_get("content").unwrap();
                     let v = phpser::deserialize(content.as_bytes())
-                        .map_err(|e| {
-                            SqlxError::Protocol(format!("plugin storage: {e}"))
-                        })?;
+                        .map_err(|e| SqlxError::Protocol(format!("plugin storage: {e}")))?;
                     self.storage.insert(name, v);
                 }
             }
@@ -149,34 +151,38 @@ impl HostCtx {
         // PHP stores the raw `serialize()` bytes in a `text` column under a
         // UTF-8 client encoding — the form is always valid UTF-8 (see the
         // module docs).
-        let content = std::str::from_utf8(&content).map_err(|e| {
-            SqlxError::Protocol(format!("plugin storage: non-UTF-8 form: {e}"))
-        })?;
+        let content = std::str::from_utf8(&content)
+            .map_err(|e| SqlxError::Protocol(format!("plugin storage: non-UTF-8 form: {e}")))?;
 
         let mut tx = self.pool().begin().await?;
-        let exists: Option<i32> =
-            sqlx::query_scalar("SELECT id FROM ttrss_plugin_storage WHERE owner_uid = $1 \
-                                AND name = $2")
-                .bind(uid)
-                .bind(class)
-                .fetch_optional(&mut *tx)
-                .await?;
+        let exists: Option<i32> = sqlx::query_scalar(
+            "SELECT id FROM ttrss_plugin_storage WHERE owner_uid = $1 \
+                                AND name = $2",
+        )
+        .bind(uid)
+        .bind(class)
+        .fetch_optional(&mut *tx)
+        .await?;
         if exists.is_some() {
-            sqlx::query("UPDATE ttrss_plugin_storage SET content = $1 \
-                         WHERE owner_uid = $2 AND name = $3")
-                .bind(content)
-                .bind(uid)
-                .bind(class)
-                .execute(&mut *tx)
-                .await?;
+            sqlx::query(
+                "UPDATE ttrss_plugin_storage SET content = $1 \
+                         WHERE owner_uid = $2 AND name = $3",
+            )
+            .bind(content)
+            .bind(uid)
+            .bind(class)
+            .execute(&mut *tx)
+            .await?;
         } else {
-            sqlx::query("INSERT INTO ttrss_plugin_storage (name, owner_uid, content) \
-                         VALUES ($1, $2, $3)")
-                .bind(class)
-                .bind(uid)
-                .bind(content)
-                .execute(&mut *tx)
-                .await?;
+            sqlx::query(
+                "INSERT INTO ttrss_plugin_storage (name, owner_uid, content) \
+                         VALUES ($1, $2, $3)",
+            )
+            .bind(class)
+            .bind(uid)
+            .bind(content)
+            .execute(&mut *tx)
+            .await?;
         }
         tx.commit().await?;
         Ok(())
@@ -272,7 +278,12 @@ impl HostCtx {
         self.storage
             .entry(idx.to_string())
             .or_insert_with(|| Value::Array(Vec::new()));
-        profile_map_put(self.storage.get_mut(idx).unwrap(), profile as i64, name, value);
+        profile_map_put(
+            self.storage.get_mut(idx).unwrap(),
+            profile as i64,
+            name,
+            value,
+        );
         self.storage_save(idx).await
     }
 

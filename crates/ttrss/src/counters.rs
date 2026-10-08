@@ -8,21 +8,21 @@
 //! and the same row order as the PHP oracle.
 
 use crate::core::db::Db;
-use serde_json::{json, Map, Value};
-use sqlx::Row;
+use serde_json::{Map, Value, json};
 use sqlx::AssertSqlSafe;
+use sqlx::Row;
 
+use crate::AppState;
 use crate::cats::CAT_LABELS;
 use crate::feeds::{
     FEED_ALL, FEED_ARCHIVED, FEED_FRESH, FEED_PUBLISHED, FEED_RECENTLY_READ, FEED_STARRED,
 };
 use crate::headlines::PLUGIN_FEED_BASE_INDEX;
-use crate::labels::{feed_to_label_id, label_to_feed_id, LABEL_BASE_INDEX};
+use crate::labels::{LABEL_BASE_INDEX, feed_to_label_id, label_to_feed_id};
 use crate::prefs;
 use crate::session::Sess;
 use crate::time::TzCtx;
 use crate::util::{php_int_cast, scalar_str, truncate_string};
-use crate::AppState;
 
 /// `RPC::getAllCounters`.
 pub async fn get_all_counters(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Value {
@@ -693,9 +693,11 @@ pub async fn get_counters(
     }
     // tags: `$feed != "0" && $n_feed == 0`
     if let FeedOrTag::Tag(s) = feed
-        && s != "0" && n_feed == 0 {
-            return tag_counters(pool, owner, unread_only, s).await;
-        }
+        && s != "0"
+        && n_feed == 0
+    {
+        return tag_counters(pool, owner, unread_only, s).await;
+    }
     let fresh_max_age = if n_feed == FEED_FRESH {
         let rows = prefs::load_rows(db, owner, None).await;
         prefs::resolve(prefs::FRESH_ARTICLE_MAX_AGE, &rows, None).as_int()
@@ -896,10 +898,9 @@ async fn cats_of(pool: &sqlx::PgPool, uid: i64, feeds: &[i64], with_parents: boo
     if let Some(r) = rows.first() {
         let cat_id = r.get::<Option<i32>, _>(0).unwrap_or(0) as i64;
         rv.push(cat_id);
-        if with_parents
-            && let Some(parent) = r.get::<Option<i32>, _>(1) {
-                rv.extend(parent_cats(pool, uid, parent as i64).await);
-            }
+        if with_parents && let Some(parent) = r.get::<Option<i32>, _>(1) {
+            rv.extend(parent_cats(pool, uid, parent as i64).await);
+        }
     }
     // `array_unique` — dedup preserving first-seen order.
     let mut seen = std::collections::BTreeSet::new();

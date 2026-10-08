@@ -10,13 +10,13 @@ mod common;
 
 use axum::body::Body;
 use axum::http::{Method, Request, StatusCode};
+use test_db::template::with_test_db;
+use tower::ServiceExt;
+use ttrss::AppState;
 use ttrss::core::config::Config;
 use ttrss::core::db::Db;
 use ttrss::core::phpser::Value as PValue;
 use ttrss::core::session::Session;
-use ttrss::AppState;
-use test_db::template::with_test_db;
-use tower::ServiceExt;
 
 /// A test-only config. `docroot` must point at the frozen `tt-rss` tree so
 /// `AppState` can load the real gettext catalogs.
@@ -66,39 +66,53 @@ async fn shell_page(state: &AppState, accept_language: Option<&str>) -> String {
 /// header: the shell renders the translated strings.
 #[tokio::test]
 async fn test_shell_uses_user_language_pref() {
-    with_test_db(|url| Box::pin(async move {
-    let state = setup(&url).await;
-    sqlx::query(
-        "INSERT INTO ttrss_user_prefs2 (owner_uid, pref_name, profile, value)
+    with_test_db(|url| {
+        Box::pin(async move {
+            let state = setup(&url).await;
+            sqlx::query(
+                "INSERT INTO ttrss_user_prefs2 (owner_uid, pref_name, profile, value)
          VALUES (1, 'USER_LANGUAGE', NULL, 'de_DE')",
-    )
-    .execute(state.db.pool())
-    .await
-    .expect("set USER_LANGUAGE");
+            )
+            .execute(state.db.pool())
+            .await
+            .expect("set USER_LANGUAGE");
 
-    let html = shell_page(&state, None).await;
-    assert!(html.contains("<!-- order 0, default -->"), "must be the shell, not the login page");
-    assert!(
-        html.contains("Ladevorgang, bitte warten..."),
-        "German pref must translate the shell strings"
-    );
-    assert!(
-        !html.contains("Loading, please wait..."),
-        "English string must be gone when the German pref is set"
-    );
-        Ok(())
-    })).await.unwrap();
+            let html = shell_page(&state, None).await;
+            assert!(
+                html.contains("<!-- order 0, default -->"),
+                "must be the shell, not the login page"
+            );
+            assert!(
+                html.contains("Ladevorgang, bitte warten..."),
+                "German pref must translate the shell strings"
+            );
+            assert!(
+                !html.contains("Loading, please wait..."),
+                "English string must be gone when the German pref is set"
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 /// Without the pref, the shell stays English (the `Accept-Language`
 /// fallback with no header → default locale).
 #[tokio::test]
 async fn test_shell_stays_english_without_pref() {
-    with_test_db(|url| Box::pin(async move {
-    let state = setup(&url).await;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let state = setup(&url).await;
 
-    let html = shell_page(&state, None).await;
-    assert!(html.contains("Loading, please wait..."), "English shell expected");
-        Ok(())
-    })).await.unwrap();
+            let html = shell_page(&state, None).await;
+            assert!(
+                html.contains("Loading, please wait..."),
+                "English shell expected"
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }

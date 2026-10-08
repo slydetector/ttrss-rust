@@ -13,6 +13,8 @@ mod common;
 use std::path::PathBuf;
 
 use serde_json::Value;
+use test_db::template::with_test_db;
+use ttrss::AppState;
 use ttrss::core::config::Config;
 use ttrss::core::db::Db;
 use ttrss::core::phpser::Value as PValue;
@@ -20,8 +22,6 @@ use ttrss::core::session::Session;
 use ttrss::diskcache::DiskCache;
 use ttrss::session::Sess;
 use ttrss::util::sha1_hex;
-use ttrss::AppState;
-use test_db::template::with_test_db;
 
 fn test_config(plugins: &str, icons_dir: PathBuf) -> Config {
     let mut cfg = Config::for_test();
@@ -34,8 +34,7 @@ fn test_config(plugins: &str, icons_dir: PathBuf) -> Config {
 /// The view flow's plugin cache roots at `config.cache_dir` (the parent of the
 /// icons dir) — so the test's DiskCache files must live under that root exactly.
 fn cache_dirs() -> (PathBuf, PathBuf) {
-    let base =
-        std::env::temp_dir().join(format!("ttrss-enc-chains-{}", std::process::id()));
+    let base = std::env::temp_dir().join(format!("ttrss-enc-chains-{}", std::process::id()));
     let icons = base.join("icons");
     let _ = std::fs::remove_dir_all(&base);
     std::fs::create_dir_all(&icons).unwrap();
@@ -50,10 +49,7 @@ fn sess() -> Sess {
         "pwd_hash",
         PValue::Bytes(b"SHA1:5baa61e4c9b93f3f0682250b6cf8331b7ee68fd8".to_vec()),
     );
-    d.set(
-        "auth_module",
-        PValue::Bytes(b"auth_internal".to_vec()),
-    );
+    d.set("auth_module", PValue::Bytes(b"auth_internal".to_vec()));
     d.set("name", PValue::Bytes(b"admin".to_vec()));
     d.set("csrf_token", PValue::Bytes(b"tok".to_vec()));
     let s = Sess::new("enc-chains".into());
@@ -73,10 +69,15 @@ async fn view_feed(state: &AppState, feed: &str) -> Value {
             "op=Feeds&method=view&feed={feed}&csrf_token=tok"
         )))
         .unwrap();
-    let res =
-        ttrss::rpc::handler(axum::extract::State(state.clone()), axum::extract::Extension(sess()), req).await;
-    let bytes =
-        axum::body::to_bytes(res.into_body(), 10 * 1024 * 1024).await.expect("body");
+    let res = ttrss::rpc::handler(
+        axum::extract::State(state.clone()),
+        axum::extract::Extension(sess()),
+        req,
+    )
+    .await;
+    let bytes = axum::body::to_bytes(res.into_body(), 10 * 1024 * 1024)
+        .await
+        .expect("body");
     serde_json::from_slice(&bytes).expect("json")
 }
 
@@ -140,42 +141,47 @@ async fn test_view_render_enclosure_chain_youtube() {
 // through no chain at all).
 #[tokio::test]
 async fn test_view_enclosure_entry_chain_local_cache() {
-    with_test_db(|url| Box::pin(async move {
-    let (base, icons) = cache_dirs();
-    let db: Db = common::make_db_from_url(&url).await.expect("test db");
-    let state = AppState::new(test_config("cache_starred_images", icons), db);
-    {
-        // Article 1's seeded enclosure (img.youtube.com/.../hqdefault.jpg)
-        // gets a cached copy the way the plugin's task would: the article
-        // id + the sha1 of the content_url.
-        let cache = DiskCache::new(&base, "starred-images", "http://127.0.0.1:8280/tt-rss/");
-        let url = "https://img.youtube.com/vi/dQw4w9WgXcQ/hqdefault.jpg";
-        let name = format!("1-{}", sha1_hex(url));
-        cache.put(&name, b"fake-bytes");
-        assert!(cache.exists(&name), "cache file seeded");
-    }
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (base, icons) = cache_dirs();
+            let db: Db = common::make_db_from_url(&url).await.expect("test db");
+            let state = AppState::new(test_config("cache_starred_images", icons), db);
+            {
+                // Article 1's seeded enclosure (img.youtube.com/.../hqdefault.jpg)
+                // gets a cached copy the way the plugin's task would: the article
+                // id + the sha1 of the content_url.
+                let cache =
+                    DiskCache::new(&base, "starred-images", "http://127.0.0.1:8280/tt-rss/");
+                let url = "https://img.youtube.com/vi/dQw4w9WgXcQ/hqdefault.jpg";
+                let name = format!("1-{}", sha1_hex(url));
+                cache.put(&name, b"fake-bytes");
+                assert!(cache.exists(&name), "cache file seeded");
+            }
 
-    let v = view_feed(&state, "1").await;
-    let entries = v
-        .pointer("/headlines/content/0/enclosures/entries")
-        .and_then(|e| e.as_array())
-        .cloned()
-        .unwrap_or_default();
-    let urls: Vec<&str> = entries
-        .iter()
-        .filter_map(|e| e.get("content_url").and_then(Value::as_str))
-        .collect();
-    assert_eq!(urls.len(), 2, "article 1 has 2 seeded enclosures: {urls:?}");
-    assert!(
-        urls.iter().any(|u| u.contains("starred-images/1-")),
-        "expected a local cache URL in the entry list: {urls:?}"
-    );
-    // The other entry (the mp4, uncached) keeps its remote URL.
-    assert!(
-        urls.contains(&"https://example.com/video.mp4"),
-        "uncached entry must stay remote: {urls:?}"
-    );
-    let _ = std::fs::remove_dir_all(&base);
-        Ok(())
-    })).await.unwrap();
+            let v = view_feed(&state, "1").await;
+            let entries = v
+                .pointer("/headlines/content/0/enclosures/entries")
+                .and_then(|e| e.as_array())
+                .cloned()
+                .unwrap_or_default();
+            let urls: Vec<&str> = entries
+                .iter()
+                .filter_map(|e| e.get("content_url").and_then(Value::as_str))
+                .collect();
+            assert_eq!(urls.len(), 2, "article 1 has 2 seeded enclosures: {urls:?}");
+            assert!(
+                urls.iter().any(|u| u.contains("starred-images/1-")),
+                "expected a local cache URL in the entry list: {urls:?}"
+            );
+            // The other entry (the mp4, uncached) keeps its remote URL.
+            assert!(
+                urls.contains(&"https://example.com/video.mp4"),
+                "uncached entry must stay remote: {urls:?}"
+            );
+            let _ = std::fs::remove_dir_all(&base);
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }

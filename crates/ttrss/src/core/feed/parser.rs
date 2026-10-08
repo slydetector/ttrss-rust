@@ -14,7 +14,7 @@ use std::sync::Arc;
 use roxmltree::{Document, Node};
 
 use super::{
-    FeedItem, FeedKind, FEED_ATOM, FEED_RDF, FEED_RSS, FEED_UNKNOWN, NS_ATOM, NS_ATOM03, NS_RDF,
+    FEED_ATOM, FEED_RDF, FEED_RSS, FEED_UNKNOWN, FeedItem, FeedKind, NS_ATOM, NS_ATOM03, NS_RDF,
     NS_RSS10,
 };
 use crate::util::{clean_str, php_trim};
@@ -196,9 +196,10 @@ impl<'input> FeedParser<'input> {
                     .find(|l| l.attribute("rel") == Some("alternate"))
             });
         if let Some(href) = link.and_then(|l| l.attribute("href"))
-            && !href.is_empty() {
-                self.link = Some(href.to_string());
-            }
+            && !href.is_empty()
+        {
+            self.link = Some(href.to_string());
+        }
         // items: //atom:entry, falling back to //atom03:entry
         let mut entries: Vec<Node> = d
             .descendants()
@@ -260,9 +261,10 @@ impl<'input> FeedParser<'input> {
         }
         // link: //rssfake:channel/rssfake:link -> nodeValue
         if let Some(l) = child_of_ns(d, NS_RSS10, "channel", "link")
-            && let Some(text) = l.text() {
-                self.link = Some(text.to_string());
-            }
+            && let Some(text) = l.text()
+        {
+            self.link = Some(text.to_string());
+        }
         // items: //rssfake:item
         for n in d.descendants() {
             if n.is_element()
@@ -313,9 +315,10 @@ fn feed_child<'a, 'input>(
                 c.is_element()
                     && c.tag_name().namespace() == Some(feed_ns)
                     && c.tag_name().name() == field
-            }) {
-                return Some(c);
-            }
+            })
+        {
+            return Some(c);
+        }
     }
     None
 }
@@ -351,13 +354,14 @@ fn child_of<'a, 'input>(
     child: &str,
 ) -> Option<Node<'a, 'input>> {
     for p in doc.descendants() {
-        if p.is_element() && p.tag_name().name() == parent
+        if p.is_element()
+            && p.tag_name().name() == parent
             && let Some(c) = p
                 .children()
                 .find(|c| c.is_element() && c.tag_name().name() == child)
-            {
-                return Some(c);
-            }
+        {
+            return Some(c);
+        }
     }
     None
 }
@@ -371,14 +375,17 @@ fn child_of_ns<'a, 'input>(
     child: &str,
 ) -> Option<Node<'a, 'input>> {
     for p in doc.descendants() {
-        if p.is_element() && p.tag_name().namespace() == Some(ns) && p.tag_name().name() == parent
+        if p.is_element()
+            && p.tag_name().namespace() == Some(ns)
+            && p.tag_name().name() == parent
             && let Some(c) = p.children().find(|c| {
                 c.is_element()
                     && c.tag_name().namespace() == Some(ns)
                     && c.tag_name().name() == child
-            }) {
-                return Some(c);
-            }
+            })
+        {
+            return Some(c);
+        }
     }
     None
 }

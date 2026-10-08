@@ -14,15 +14,15 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use serde_json::Value;
+use test_db::template::with_test_db;
 use ttrss::core::db::Db;
 use ttrss::pluginhost::host::HostCtx;
 use ttrss::pluginhost::{
-    About, Plugin, PluginHost, HOOK_ARTICLES_MARK_TOGGLED, HOOK_ARTICLES_PUBLISH_TOGGLED,
-    HOOK_ENCLOSURE_IMPORTED, HOOK_FEED_FETCHED, HOOK_FEED_PARSED, HOOK_FILTER_TRIGGERED,
-    HOOK_HOUSE_KEEPING, HOOK_UPDATE_TASK,
+    About, HOOK_ARTICLES_MARK_TOGGLED, HOOK_ARTICLES_PUBLISH_TOGGLED, HOOK_ENCLOSURE_IMPORTED,
+    HOOK_FEED_FETCHED, HOOK_FEED_PARSED, HOOK_FILTER_TRIGGERED, HOOK_HOUSE_KEEPING,
+    HOOK_UPDATE_TASK, Plugin, PluginHost,
 };
-use ttrss::updates::{fetch_one_feed, run_house_keeping_hook, FeedRow, FeedUpdateFlags};
-use test_db::template::with_test_db;
+use ttrss::updates::{FeedRow, FeedUpdateFlags, fetch_one_feed, run_house_keeping_hook};
 
 /// A feed with one article (guid `pipe-1`) and one enclosure.
 const PIPE_FEED: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
@@ -86,10 +86,18 @@ impl Plugin for PipeStub {
         _feed: i32,
     ) -> String {
         self.record("feed_fetched");
-        feed_data.replace("<title>Pipe Article</title>", "<title>HOOKED Article</title>")
+        feed_data.replace(
+            "<title>Pipe Article</title>",
+            "<title>HOOKED Article</title>",
+        )
     }
 
-    async fn hook_feed_parsed(&self, _host: &mut HostCtx, _parser: &ttrss::core::feed::FeedParser<'_>, feed_id: i32) {
+    async fn hook_feed_parsed(
+        &self,
+        _host: &mut HostCtx,
+        _parser: &ttrss::core::feed::FeedParser<'_>,
+        feed_id: i32,
+    ) {
         self.record(format!("feed_parsed:{feed_id}"));
     }
 
@@ -172,12 +180,14 @@ async fn insert_match_filter(pool: &sqlx::PgPool, title_re: &str, action_id: i32
             .fetch_one(pool)
             .await
             .unwrap();
-    sqlx::query("INSERT INTO ttrss_filters2_rules (filter_id, reg_exp, filter_type) VALUES ($1, $2, 1)")
-        .bind(id)
-        .bind(title_re)
-        .execute(pool)
-        .await
-        .unwrap();
+    sqlx::query(
+        "INSERT INTO ttrss_filters2_rules (filter_id, reg_exp, filter_type) VALUES ($1, $2, 1)",
+    )
+    .bind(id)
+    .bind(title_re)
+    .execute(pool)
+    .await
+    .unwrap();
     sqlx::query("INSERT INTO ttrss_filters2_actions (filter_id, action_id, action_param) VALUES ($1, $2, '')")
         .bind(id)
         .bind(action_id)
@@ -189,43 +199,54 @@ async fn insert_match_filter(pool: &sqlx::PgPool, title_re: &str, action_id: i32
 
 #[tokio::test]
 async fn test_feed_fetched_and_parsed_dispatched() {
-    with_test_db(|url| Box::pin(async move {
-    let db: Db = common::make_db_from_url(&url).await.expect("test db");
-    let pool = db.pool();
-    let calls = Arc::new(Mutex::new(Vec::new()));
-    let host = setup_host(calls.clone());
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db: Db = common::make_db_from_url(&url).await.expect("test db");
+            let pool = db.pool();
+            let calls = Arc::new(Mutex::new(Vec::new()));
+            let host = setup_host(calls.clone());
 
-    // Point the seed's feed 1 at the mock server.
-    let server = common::MockServer::new(vec![common::Canned {
-        status: 200,
-        reason: "OK",
-        headers: vec![("Content-Type", "application/rss+xml; charset=utf-8".to_string())],
-        body: PIPE_FEED.as_bytes().to_vec(),
-    }]);
-    sqlx::query("UPDATE ttrss_feeds SET feed_url = $1 WHERE id = 1")
-        .bind(server.url("/feed.xml"))
-        .execute(pool)
-        .await
-        .unwrap();
+            // Point the seed's feed 1 at the mock server.
+            let server = common::MockServer::new(vec![common::Canned {
+                status: 200,
+                reason: "OK",
+                headers: vec![(
+                    "Content-Type",
+                    "application/rss+xml; charset=utf-8".to_string(),
+                )],
+                body: PIPE_FEED.as_bytes().to_vec(),
+            }]);
+            sqlx::query("UPDATE ttrss_feeds SET feed_url = $1 WHERE id = 1")
+                .bind(server.url("/feed.xml"))
+                .execute(pool)
+                .await
+                .unwrap();
 
-    let mut cfg = common::test_config();
-    cfg.plugins = "pipe_stub".to_string();
-    let outcome = fetch_one_feed(pool, &cfg, host, 1, &FeedUpdateFlags::default(), None).await.unwrap();
-    assert!(outcome.success, "fetch ok: {:?}", outcome.error);
-    assert_eq!(outcome.new_articles, 1);
+            let mut cfg = common::test_config();
+            cfg.plugins = "pipe_stub".to_string();
+            let outcome = fetch_one_feed(pool, &cfg, host, 1, &FeedUpdateFlags::default(), None)
+                .await
+                .unwrap();
+            assert!(outcome.success, "fetch ok: {:?}", outcome.error);
+            assert_eq!(outcome.new_articles, 1);
 
-    // The stub's title rewrite flowed into the parsed article.
-    let title: String = sqlx::query_scalar("SELECT title FROM ttrss_entries WHERE title = 'HOOKED Article'")
-        .fetch_one(pool)
-        .await
-        .unwrap();
-    assert_eq!(title, "HOOKED Article");
+            // The stub's title rewrite flowed into the parsed article.
+            let title: String = sqlx::query_scalar(
+                "SELECT title FROM ttrss_entries WHERE title = 'HOOKED Article'",
+            )
+            .fetch_one(pool)
+            .await
+            .unwrap();
+            assert_eq!(title, "HOOKED Article");
 
-    let calls = calls.lock().unwrap().join("\n");
-    assert!(calls.contains("feed_fetched"), "calls: {calls}");
-    assert!(calls.contains("feed_parsed:1"), "calls: {calls}");
-        Ok(())
-    })).await.unwrap();
+            let calls = calls.lock().unwrap().join("\n");
+            assert!(calls.contains("feed_fetched"), "calls: {calls}");
+            assert!(calls.contains("feed_parsed:1"), "calls: {calls}");
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
@@ -268,131 +289,159 @@ async fn test_enclosure_imported_rewrites() {
 
 #[tokio::test]
 async fn test_filter_triggered_and_mark_toggled() {
-    with_test_db(|url| Box::pin(async move {
-    let db: Db = common::make_db_from_url(&url).await.expect("test db");
-    let pool = db.pool();
-    let calls = Arc::new(Mutex::new(Vec::new()));
-    let host = setup_host(calls.clone());
-    let mut cfg = common::test_config();
-    cfg.plugins = "pipe_stub".to_string();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db: Db = common::make_db_from_url(&url).await.expect("test db");
+            let pool = db.pool();
+            let calls = Arc::new(Mutex::new(Vec::new()));
+            let host = setup_host(calls.clone());
+            let mut cfg = common::test_config();
+            cfg.plugins = "pipe_stub".to_string();
 
-    // A filter matching the article title, with the `mark` action.
-    insert_match_filter(pool, "Pipe Article", 3).await;
+            // A filter matching the article title, with the `mark` action.
+            insert_match_filter(pool, "Pipe Article", 3).await;
 
-    let result = ttrss::updates::process_feed(
-        pool, &cfg, host, &pipe_feed_row(), PIPE_FEED, &FeedUpdateFlags::default(), None,
-    )
-    .await
-    .unwrap();
-    assert_eq!(result.new_articles, 1);
+            let result = ttrss::updates::process_feed(
+                pool,
+                &cfg,
+                host,
+                &pipe_feed_row(),
+                PIPE_FEED,
+                &FeedUpdateFlags::default(),
+                None,
+            )
+            .await
+            .unwrap();
+            assert_eq!(result.new_articles, 1);
 
-    let ref_id: i32 =
-        sqlx::query_scalar("SELECT id FROM ttrss_entries WHERE title = 'Pipe Article'")
+            let ref_id: i32 =
+                sqlx::query_scalar("SELECT id FROM ttrss_entries WHERE title = 'Pipe Article'")
+                    .fetch_one(pool)
+                    .await
+                    .unwrap();
+            let marked: bool = sqlx::query_scalar(
+                "SELECT marked FROM ttrss_user_entries WHERE ref_id = $1 AND owner_uid = 1",
+            )
+            .bind(ref_id)
             .fetch_one(pool)
             .await
             .unwrap();
-    let marked: bool = sqlx::query_scalar(
-        "SELECT marked FROM ttrss_user_entries WHERE ref_id = $1 AND owner_uid = 1",
-    )
-    .bind(ref_id)
-    .fetch_one(pool)
+            assert!(marked, "the mark action created a marked entry");
+
+            let calls = calls.lock().unwrap().join("\n");
+            assert!(
+                calls.contains("filter_triggered:matched=1"),
+                "calls: {calls}"
+            );
+            assert!(
+                calls.contains(&format!("articles_mark_toggled:[{ref_id}]")),
+                "calls: {calls}"
+            );
+            Ok(())
+        })
+    })
     .await
     .unwrap();
-    assert!(marked, "the mark action created a marked entry");
-
-    let calls = calls.lock().unwrap().join("\n");
-    assert!(
-        calls.contains("filter_triggered:matched=1"),
-        "calls: {calls}"
-    );
-    assert!(
-        calls.contains(&format!("articles_mark_toggled:[{ref_id}]")),
-        "calls: {calls}"
-    );
-        Ok(())
-    })).await.unwrap();
 }
 
 #[tokio::test]
 async fn test_publish_toggled() {
-    with_test_db(|url| Box::pin(async move {
-    let db: Db = common::make_db_from_url(&url).await.expect("test db");
-    let pool = db.pool();
-    let calls = Arc::new(Mutex::new(Vec::new()));
-    let host = setup_host(calls.clone());
-    let mut cfg = common::test_config();
-    cfg.plugins = "pipe_stub".to_string();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db: Db = common::make_db_from_url(&url).await.expect("test db");
+            let pool = db.pool();
+            let calls = Arc::new(Mutex::new(Vec::new()));
+            let host = setup_host(calls.clone());
+            let mut cfg = common::test_config();
+            cfg.plugins = "pipe_stub".to_string();
 
-    insert_match_filter(pool, "Pipe Article", 5).await; // publish
+            insert_match_filter(pool, "Pipe Article", 5).await; // publish
 
-    let result = ttrss::updates::process_feed(
-        pool, &cfg, host, &pipe_feed_row(), PIPE_FEED, &FeedUpdateFlags::default(), None,
-    )
-    .await
-    .unwrap();
-    assert_eq!(result.new_articles, 1);
+            let result = ttrss::updates::process_feed(
+                pool,
+                &cfg,
+                host,
+                &pipe_feed_row(),
+                PIPE_FEED,
+                &FeedUpdateFlags::default(),
+                None,
+            )
+            .await
+            .unwrap();
+            assert_eq!(result.new_articles, 1);
 
-    let ref_id: i32 =
-        sqlx::query_scalar("SELECT id FROM ttrss_entries WHERE title = 'Pipe Article'")
+            let ref_id: i32 =
+                sqlx::query_scalar("SELECT id FROM ttrss_entries WHERE title = 'Pipe Article'")
+                    .fetch_one(pool)
+                    .await
+                    .unwrap();
+            let published: bool = sqlx::query_scalar(
+                "SELECT published FROM ttrss_user_entries WHERE ref_id = $1 AND owner_uid = 1",
+            )
+            .bind(ref_id)
             .fetch_one(pool)
             .await
             .unwrap();
-    let published: bool = sqlx::query_scalar(
-        "SELECT published FROM ttrss_user_entries WHERE ref_id = $1 AND owner_uid = 1",
-    )
-    .bind(ref_id)
-    .fetch_one(pool)
+            assert!(published);
+
+            let calls = calls.lock().unwrap().join("\n");
+            assert!(
+                calls.contains(&format!("articles_publish_toggled:[{ref_id}]")),
+                "calls: {calls}"
+            );
+            Ok(())
+        })
+    })
     .await
     .unwrap();
-    assert!(published);
-
-    let calls = calls.lock().unwrap().join("\n");
-    assert!(
-        calls.contains(&format!("articles_publish_toggled:[{ref_id}]")),
-        "calls: {calls}"
-    );
-        Ok(())
-    })).await.unwrap();
 }
 
 #[tokio::test]
 async fn test_house_keeping_dispatched() {
-    with_test_db(|url| Box::pin(async move {
-    let db: Db = common::make_db_from_url(&url).await.expect("test db");
-    let pool = db.pool();
-    let calls = Arc::new(Mutex::new(Vec::new()));
-    let host = setup_host(calls.clone());
-    let mut cfg = common::test_config();
-    cfg.plugins = "pipe_stub".to_string();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db: Db = common::make_db_from_url(&url).await.expect("test db");
+            let pool = db.pool();
+            let calls = Arc::new(Mutex::new(Vec::new()));
+            let host = setup_host(calls.clone());
+            let mut cfg = common::test_config();
+            cfg.plugins = "pipe_stub".to_string();
 
-    // Global daemon host (owner 0).
-    run_house_keeping_hook(pool, &cfg, &host, 0).await;
-    // Per-batch-owner host (owner 1 — the seed user).
-    run_house_keeping_hook(pool, &cfg, &host, 1).await;
+            // Global daemon host (owner 0).
+            run_house_keeping_hook(pool, &cfg, &host, 0).await;
+            // Per-batch-owner host (owner 1 — the seed user).
+            run_house_keeping_hook(pool, &cfg, &host, 1).await;
 
-    let calls = calls.lock().unwrap();
-    assert_eq!(calls.len(), 2);
-    assert!(calls.iter().all(|c| c == "house_keeping"));
-        Ok(())
-    })).await.unwrap();
+            let calls = calls.lock().unwrap();
+            assert_eq!(calls.len(), 2);
+            assert!(calls.iter().all(|c| c == "house_keeping"));
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
 async fn test_update_task_dispatched() {
-    with_test_db(|url| Box::pin(async move {
-    let db: Db = common::make_db_from_url(&url).await.expect("test db");
-    let pool = db.pool();
-    let calls = Arc::new(Mutex::new(Vec::new()));
-    let host = setup_host(calls.clone());
-    let mut cfg = common::test_config();
-    cfg.plugins = "pipe_stub".to_string();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db: Db = common::make_db_from_url(&url).await.expect("test db");
+            let pool = db.pool();
+            let calls = Arc::new(Mutex::new(Vec::new()));
+            let host = setup_host(calls.clone());
+            let mut cfg = common::test_config();
+            cfg.plugins = "pipe_stub".to_string();
 
-    ttrss::updates::run_update_task_hook(pool, &cfg, &host).await;
+            ttrss::updates::run_update_task_hook(pool, &cfg, &host).await;
 
-    assert_eq!(
-        calls.lock().unwrap().join("\n"),
-        "update_task:{\"daemon-loop\":true}"
-    );
-        Ok(())
-    })).await.unwrap();
+            assert_eq!(
+                calls.lock().unwrap().join("\n"),
+                "update_task:{\"daemon-loop\":true}"
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }

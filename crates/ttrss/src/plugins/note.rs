@@ -16,17 +16,17 @@
 //! is the DOM-normalized oracle output); M7.21 makes hook-driven rendering
 //! data-driven.
 
-use serde_json::{json, Value};
 use async_trait::async_trait;
+use serde_json::{Value, json};
 
 use sqlx::Row;
 
 use crate::controls::{cancel_dialog_tag, hidden_tag, pluginhandler_tags, submit_tag};
+use crate::i18n::__;
+use crate::pluginhost::HOOK_ARTICLE_BUTTON;
 use crate::pluginhost::host::{HostCtx, PluginHost};
 use crate::pluginhost::plugin::{About, MethodOutput, Plugin, PluginError};
-use crate::pluginhost::HOOK_ARTICLE_BUTTON;
 use crate::util::clean_str;
-use crate::i18n::{__};
 
 /// PHP's `class Note extends Plugin`.
 pub struct Note;
@@ -61,11 +61,7 @@ impl Plugin for Note {
     /// indent between `onclick` and `style`; the DOM round-trip normalizes
     /// it, so the port emits the single-line form — same attributes, order,
     /// and visible text.)
-    async fn hook_article_button(
-        &self,
-        _host: &mut HostCtx,
-        line: &Value,
-    ) -> String {
+    async fn hook_article_button(&self, _host: &mut HostCtx, line: &Value) -> String {
         let id = line["id"].as_i64().unwrap_or(0);
         let edit_note_title = __("Edit article note");
         format!(
@@ -97,10 +93,7 @@ impl Plugin for Note {
 /// `Note::edit` — the dialog body. The textarea only when the article has a
 /// `ttrss_user_entries` row (the row appears when the article is first
 /// read); `$_SESSION['uid']` scopes the read.
-async fn edit(
-    host: &mut HostCtx,
-    params: &Value,
-) -> Result<String, PluginError> {
+async fn edit(host: &mut HostCtx, params: &Value) -> Result<String, PluginError> {
     let id = clean_str(params.get("id").and_then(|v| v.as_str()).unwrap_or(""));
     let owner = host.owner_uid.unwrap_or(0);
 
@@ -147,19 +140,19 @@ async fn edit(
 /// PHP). Echoes `json_encode([id, note])` — PHP's insertion order, id then
 /// note (serde_json's BTreeMap happens to sort them the same).
 async fn set_note(host: &mut HostCtx, params: &Value) -> Result<Value, PluginError> {
-    let id = php_int_cast(&clean_str(params.get("id").and_then(|v| v.as_str()).unwrap_or("")));
+    let id = php_int_cast(&clean_str(
+        params.get("id").and_then(|v| v.as_str()).unwrap_or(""),
+    ));
     let note = clean_str(params.get("note").and_then(|v| v.as_str()).unwrap_or(""));
     let owner = host.owner_uid.unwrap_or(0);
 
-    sqlx::query(
-        "UPDATE ttrss_user_entries SET note = $1 WHERE ref_id = $2 AND owner_uid = $3",
-    )
-    .bind(&note)
-    .bind(id)
-    .bind(owner)
-    .execute(host.pool())
-    .await
-    .map_err(|e| PluginError::Other(e.to_string()))?;
+    sqlx::query("UPDATE ttrss_user_entries SET note = $1 WHERE ref_id = $2 AND owner_uid = $3")
+        .bind(&note)
+        .bind(id)
+        .bind(owner)
+        .execute(host.pool())
+        .await
+        .map_err(|e| PluginError::Other(e.to_string()))?;
 
     Ok(json!({ "id": id, "note": note }))
 }
@@ -175,7 +168,9 @@ fn php_int_cast(s: &str) -> i32 {
     while end < b.len() && b[end].is_ascii_digit() {
         end += 1;
     }
-    s.get(..end).and_then(|p| p.parse::<i32>().ok()).unwrap_or(0)
+    s.get(..end)
+        .and_then(|p| p.parse::<i32>().ok())
+        .unwrap_or(0)
 }
 
 #[cfg(test)]

@@ -53,20 +53,25 @@ pub async fn get_favicon_urls(site_url: &str) -> Vec<String> {
     if let Ok(sel) = doc.select("head > link[rel]") {
         for el in sel {
             let attrs = el.attributes.borrow();
-            let rel = attrs.get("rel").map(|r| r.to_lowercase()).unwrap_or_default();
+            let rel = attrs
+                .get("rel")
+                .map(|r| r.to_lowercase())
+                .unwrap_or_default();
             if (rel == "shortcut icon" || rel == "icon" || rel == "alternate icon")
                 && let Some(href) = attrs.get("href")
-                    && let Some(abs) = urlhelper::rewrite_relative(&base, href) {
-                        urls.push(abs);
-                    }
+                && let Some(abs) = urlhelper::rewrite_relative(&base, href)
+            {
+                urls.push(abs);
+            }
         }
     }
 
     // Fallback: `<base>/favicon.ico`.
     if urls.is_empty()
-        && let Some(fallback) = urlhelper::rewrite_relative(&base, "/favicon.ico") {
-            urls.push(fallback);
-        }
+        && let Some(fallback) = urlhelper::rewrite_relative(&base, "/favicon.ico")
+    {
+        urls.push(fallback);
+    }
 
     urls
 }
@@ -139,8 +144,7 @@ pub fn calculate_avg_color(icon_path: &Path) -> Option<String> {
     // scans x-outer / y-inner; the order of first sight is the tie-breaker
     // (PHP `arsort` is stable over that insertion order), so it must be
     // preserved — a `HashMap`'s RandomState iteration would not.
-    let mut counts: std::collections::HashMap<[u8; 3], usize> =
-        std::collections::HashMap::new(); // key → index into `order`
+    let mut counts: std::collections::HashMap<[u8; 3], usize> = std::collections::HashMap::new(); // key → index into `order`
     let mut order: Vec<([u8; 3], u32)> = Vec::new();
     for x in (0..w).step_by(4) {
         for y in (0..h).step_by(4) {
@@ -171,11 +175,7 @@ pub fn calculate_avg_color(icon_path: &Path) -> Option<String> {
     // For each color in the palette, convert to HSV and check the threshold.
     for [r, g, b] in &palette {
         let (hue, s, v) = rgb_to_hsv(*r, *g, *b);
-        if s > 0.25
-            && v > 0.25
-            && !(hue < 0.01 && s < 0.01)
-            && !(hue < 0.01 && v > 0.99)
-        {
+        if s > 0.25 && v > 0.25 && !(hue < 0.01 && s < 0.01) && !(hue < 0.01 && v > 0.99) {
             return Some(format!("#{r:02x}{g:02x}{b:02x}"));
         }
     }
@@ -280,11 +280,15 @@ mod tests {
         let mut img = image::RgbaImage::new(16, 16);
         for x in 0..16u32 {
             for y in 0..16u32 {
-                img.put_pixel(x, y, if x < 8 {
-                    image::Rgba([0, 0, 255, 255])
-                } else {
-                    image::Rgba([0, 255, 0, 255])
-                });
+                img.put_pixel(
+                    x,
+                    y,
+                    if x < 8 {
+                        image::Rgba([0, 0, 255, 255])
+                    } else {
+                        image::Rgba([0, 255, 0, 255])
+                    },
+                );
             }
         }
         let mut buf = Vec::new();

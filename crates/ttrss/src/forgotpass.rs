@@ -17,16 +17,16 @@
 use crate::core::config::Config;
 use crate::core::phpser::Value;
 use axum::body::Body;
-use axum::http::{header, StatusCode};
+use axum::http::{StatusCode, header};
 use axum::response::Response;
 use sqlx::PgPool;
 
+use crate::AppState;
+use crate::i18n::__;
 use crate::render;
 use crate::session;
 use crate::users;
 use crate::util;
-use crate::AppState;
-use crate::i18n::__;
 
 /// The public `op=forgotpass` HTML shell.
 const TEMPLATE: &str = include_str!("../templates/forgotpass.html.tpl");
@@ -52,11 +52,7 @@ pub struct Params<'a> {
 }
 
 /// `Handler_Public::forgotpass`: render the password-recovery page (or 403).
-pub async fn forgotpass(
-    state: &AppState,
-    sess: &session::Sess,
-    p: &Params<'_>,
-) -> Response {
+pub async fn forgotpass(state: &AppState, sess: &session::Sess, p: &Params<'_>) -> Response {
     // `Config::get(Config::DISABLE_LOGIN_FORM) || !str_contains(Config::PLUGINS, "auth_internal")`.
     if state.config.disable_login_form || !state.config.plugins.contains("auth_internal") {
         return Response::builder()
@@ -167,12 +163,7 @@ fn initial_form(sess: &session::Sess) -> String {
 
 /// The `method=do` POST: validate the CSRF token + arithmetic CAPTCHA + fields,
 /// look up the user, then store a fresh `resetpass_token` (and "email" the link).
-async fn do_reset(
-    sess: &session::Sess,
-    pool: &PgPool,
-    p: &Params<'_>,
-    now: i64,
-) -> String {
+async fn do_reset(sess: &session::Sess, pool: &PgPool, p: &Params<'_>, now: i64) -> String {
     let self_url = sess.self_url();
     let data = sess.data();
     let session_csrf = data.csrf_token().unwrap_or("");
@@ -193,7 +184,9 @@ async fn do_reset(
     if !(csrf_ok && test_ok && fields_ok) {
         return format!(
             "{}{}",
-            error_html(&__("Some of the required form parameters are missing or incorrect.")),
+            error_html(&__(
+                "Some of the required form parameters are missing or incorrect."
+            )),
             go_back_form("alt-primary")
         );
     }
@@ -294,9 +287,7 @@ fn render_shell(config: &Config, content: &str) -> String {
     let theme_light = render::theme_path(doc, &config.data_dir, "light.css", "themes/light.css");
     let theme_dark = render::theme_path(doc, &config.data_dir, "night.css", "themes/night.css");
     let mut env = minijinja::Environment::new();
-    env.add_function("__", |msg: String| -> String {
-        __(&msg)
-    });
+    env.add_function("__", |msg: String| -> String { __(&msg) });
     let template = env
         .template_from_named_str("forgotpass.html.tpl", TEMPLATE)
         .unwrap();
@@ -352,7 +343,10 @@ mod tests {
     #[test]
     fn sha1_hex_matches_php() {
         // PHP: sha1("") = da39a3ee5e6b4b0d3255bfef95601890afd80709.
-        assert_eq!(util::sha1_hex(b""), "da39a3ee5e6b4b0d3255bfef95601890afd80709");
+        assert_eq!(
+            util::sha1_hex(b""),
+            "da39a3ee5e6b4b0d3255bfef95601890afd80709"
+        );
     }
 
     #[test]

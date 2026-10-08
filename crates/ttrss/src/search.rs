@@ -15,11 +15,11 @@
 //! headline dry-run, or a runtime error in `_catchup`).
 
 use regex::Regex;
-use std::sync::LazyLock;
 use sqlx::AssertSqlSafe;
+use std::sync::LazyLock;
 
 use crate::core::db::Db;
-use crate::i18n::{t_sprintf};
+use crate::i18n::t_sprintf;
 
 use crate::labels;
 use crate::prefs;
@@ -311,11 +311,7 @@ pub(crate) fn preprocess(search: &str) -> String {
 /// ttrss_user_entries WHERE id = ref_id limit 1`. Returns the (possibly
 /// replaced) query part plus the "Incorrect search syntax" message when the
 /// fragment is not executable.
-pub async fn dry_run(
-    pool: &sqlx::PgPool,
-    query_part: &str,
-    words: &[String],
-) -> (String, String) {
+pub async fn dry_run(pool: &sqlx::PgPool, query_part: &str, words: &[String]) -> (String, String) {
     let sql = format!(
         "select {query_part}
 \t\t\t\tFROM ttrss_entries, ttrss_user_entries WHERE id = ref_id limit 1"
@@ -324,9 +320,7 @@ pub async fn dry_run(
         Ok(_) => (query_part.to_string(), String::new()),
         Err(_) => (
             "false".to_string(),
-            t_sprintf("Incorrect search syntax: %s.", &[
-                &words.join(" "),
-            ]),
+            t_sprintf("Incorrect search syntax: %s.", &[&words.join(" ")]),
         ),
     }
 }

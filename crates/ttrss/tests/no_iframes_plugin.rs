@@ -12,17 +12,17 @@
 
 mod common;
 
-use test_db::template::with_test_db;
 use std::sync::Arc;
+use test_db::template::with_test_db;
 
+use ttrss::AppState;
 use ttrss::core::config::Config;
 use ttrss::core::db::Db;
-use ttrss::core::session::Session;
 use ttrss::core::phpser::Value as PValue;
+use ttrss::core::session::Session;
 use ttrss::pluginhost::host::HostCtx;
 use ttrss::sanitizer;
 use ttrss::session::Sess;
-use ttrss::AppState;
 
 fn test_config() -> Config {
     Config {
@@ -36,7 +36,7 @@ fn test_config() -> Config {
         http_429_throttle_interval: 3600,
         daemon_sleep_interval: 60,
         schedule_log_daemon_update_login_limit_users: String::from("@hourly"),
-    ..Default::default()
+        ..Default::default()
     }
 }
 
@@ -62,14 +62,17 @@ fn session() -> Sess {
 /// (and sandboxes) iframes — `iframe` only enters the allowed-elements set
 /// then — so removing them is exclusively the plugin's job (with
 /// `has_sandbox = false` the core strips them and the plugin is moot).
-async fn pipeline(
-    state: &AppState,
-    system: &[&str],
-    user: &[&str],
-    input: &str,
-) -> String {
-    let mut c =
-        HostCtx::for_user(Arc::clone(&state.plugins), state.db.pool().clone(), state.config.clone(), Some(1), None, 0, system, user);
+async fn pipeline(state: &AppState, system: &[&str], user: &[&str], input: &str) -> String {
+    let mut c = HostCtx::for_user(
+        Arc::clone(&state.plugins),
+        state.db.pool().clone(),
+        state.config.clone(),
+        Some(1),
+        None,
+        0,
+        system,
+        user,
+    );
     sanitizer::sanitize(
         input,
         false,
@@ -111,37 +114,54 @@ async fn test_pipeline_removes_iframes() {
 
 #[tokio::test]
 async fn test_pipeline_noop_when_inactive() {
-    with_test_db(|url| Box::pin(async move {
-    let state = setup(&url).await;
-    let _sess = session();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let state = setup(&url).await;
+            let _sess = session();
 
-    // Registered (it is in the registry) but not active for this owner:
-    // the hook stage has an empty order and the iframe survives the core
-    // pass — sandboxed, as `process_iframes` leaves it.
-    let out = pipeline(&state, &[], &[], "<p>a</p><iframe src=\"https://evil.example/x\"></iframe><p>b</p>").await;
-    assert!(out.contains("<iframe"), "iframe was removed without the plugin: {out}");
-    assert!(out.contains("allow-scripts"), "core sandbox missing: {out}");
-    assert!(out.contains("a"), "{out}");
-        Ok(())
-    })).await.unwrap();
+            // Registered (it is in the registry) but not active for this owner:
+            // the hook stage has an empty order and the iframe survives the core
+            // pass — sandboxed, as `process_iframes` leaves it.
+            let out = pipeline(
+                &state,
+                &[],
+                &[],
+                "<p>a</p><iframe src=\"https://evil.example/x\"></iframe><p>b</p>",
+            )
+            .await;
+            assert!(
+                out.contains("<iframe"),
+                "iframe was removed without the plugin: {out}"
+            );
+            assert!(out.contains("allow-scripts"), "core sandbox missing: {out}");
+            assert!(out.contains("a"), "{out}");
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
 async fn test_user_enabled() {
-    with_test_db(|url| Box::pin(async move {
-    let state = setup(&url).await;
-    let _sess = session();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let state = setup(&url).await;
+            let _sess = session();
 
-    // no_iframes is not a system plugin: the user-enabled list activates it
-    // (the `_ENABLED_PLUGINS` shape the dispatch ctxs use).
-    let out = pipeline(
-        &state,
-        &[],
-        &["no_iframes"],
-        "<p>a</p><iframe src=\"https://evil.example/x\"></iframe>",
-    )
-    .await;
-    assert!(!out.contains("<iframe"), "iframes survived: {out}");
-        Ok(())
-    })).await.unwrap();
+            // no_iframes is not a system plugin: the user-enabled list activates it
+            // (the `_ENABLED_PLUGINS` shape the dispatch ctxs use).
+            let out = pipeline(
+                &state,
+                &[],
+                &["no_iframes"],
+                "<p>a</p><iframe src=\"https://evil.example/x\"></iframe>",
+            )
+            .await;
+            assert!(!out.contains("<iframe"), "iframes survived: {out}");
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }

@@ -13,7 +13,7 @@
 //! This module parses/renders both layers and offers a typed [`Session`] view.
 
 use crate::core::phpser::{self, Key, Value};
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use base64::Engine as _;
 
 const DELIMITER: u8 = b'|';

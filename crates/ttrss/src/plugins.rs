@@ -8,31 +8,31 @@
 //! `has_data` from the (empty) plugin config store.
 
 pub mod af_comics;
-pub mod auth_internal;
-pub mod auth_remote;
 pub mod af_psql_trgm;
 pub mod af_youtube_embed;
 pub mod af_zz_vidmute;
+pub mod auth_internal;
+pub mod auth_remote;
 pub mod auto_assign_labels;
 pub mod bookmarklets;
 pub mod cache_starred_images;
+pub mod hotkeys_force_top;
+pub mod hotkeys_noscroll;
+pub mod hotkeys_swap_jk;
 pub mod no_iframes;
 pub mod note;
 pub mod nsfw;
 pub mod share;
-pub mod hotkeys_force_top;
-pub mod hotkeys_noscroll;
-pub mod hotkeys_swap_jk;
-pub mod toggle_sidebar;
 pub mod shorten_expanded;
+pub mod toggle_sidebar;
 pub mod tweak_article_header;
 
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 
+use crate::AppState;
 use crate::core::user::ACCESS_LEVEL_ADMIN;
 use crate::prefs;
 use crate::session::Sess;
-use crate::AppState;
 
 /// Static `about()` metadata for the bundled plugins, in the order the
 /// `PluginHost` loads them (before the final name-sort). Fields:
@@ -314,8 +314,15 @@ pub async fn set_plugins(state: &AppState, sess: &Sess, extra: &Map<String, Valu
         .collect::<Vec<_>>()
         .join(",");
 
-    let _ =
-        prefs::set(&state.db, prefs::_ENABLED_PLUGINS, &value, uid, profile, true).await;
+    let _ = prefs::set(
+        &state.db,
+        prefs::_ENABLED_PLUGINS,
+        &value,
+        uid,
+        profile,
+        true,
+    )
+    .await;
 
     // Mirror PHP `Prefs::set`'s in-memory cache update (see settings save-config).
     crate::prefs::invalidate(&state.prefs_cache, uid, profile);

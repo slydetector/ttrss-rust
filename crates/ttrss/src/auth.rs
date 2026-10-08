@@ -14,7 +14,8 @@
 //!     it is stored in an older one (`Auth_Internal::check_password`), and
 //!   * stamps `ttrss_users.last_login = NOW()`.
 
-use crate::core::config::SCHEMA_VERSION;use crate::i18n::{__};
+use crate::core::config::SCHEMA_VERSION;
+use crate::i18n::__;
 
 use crate::core::db::Db;
 use crate::core::phpser::Value;
@@ -58,7 +59,12 @@ pub enum AuthOutcome {
     Failure { message: String },
 }
 
-pub async fn authenticate(pool: &sqlx::PgPool, login: &str, password: &str, otp: Option<i64>) -> AuthOutcome {
+pub async fn authenticate(
+    pool: &sqlx::PgPool,
+    login: &str,
+    password: &str,
+    otp: Option<i64>,
+) -> AuthOutcome {
     // `UserHelper::find_user_by_login`: LOWER(login) = LOWER(?).
     let row = sqlx::query(
         "SELECT id, login, access_level, pwd_hash, salt, otp_enabled, otp_secret, last_auth_attempt
@@ -104,12 +110,13 @@ pub async fn authenticate(pool: &sqlx::PgPool, login: &str, password: &str, otp:
         }
     } else {
         if let Some(laa) = user.last_auth_attempt
-            && now_unix() - laa.and_utc().timestamp() < AUTH_MIN_INTERVAL {
-                let _ = stamp_last_attempt(pool, user.id).await;
-                return AuthOutcome::Failure {
-                    message: __(ERR_THROTTLED),
-                };
-            }
+            && now_unix() - laa.and_utc().timestamp() < AUTH_MIN_INTERVAL
+        {
+            let _ = stamp_last_attempt(pool, user.id).await;
+            return AuthOutcome::Failure {
+                message: __(ERR_THROTTLED),
+            };
+        }
         if user::verify_password(&user.pwd_hash, password, &user.salt) {
             success(pool, &user, password).await
         } else {
@@ -191,15 +198,15 @@ pub async fn check_password(pool: &sqlx::PgPool, uid: i32, password: &str) -> bo
     }
     if let Some((algo, _)) = pwd_hash.split_once(':')
         && algo != crate::core::user::ALGO_SSHA512
-            && let Some(new_hash) =
-                crate::core::user::hash_password(password, &salt, crate::core::user::ALGO_SSHA512)
-            {
-                let _ = sqlx::query("UPDATE ttrss_users SET pwd_hash = $1 WHERE id = $2")
-                    .bind(&new_hash)
-                    .bind(uid)
-                    .execute(pool)
-                    .await;
-            }
+        && let Some(new_hash) =
+            crate::core::user::hash_password(password, &salt, crate::core::user::ALGO_SSHA512)
+    {
+        let _ = sqlx::query("UPDATE ttrss_users SET pwd_hash = $1 WHERE id = $2")
+            .bind(&new_hash)
+            .bind(uid)
+            .execute(pool)
+            .await;
+    }
     true
 }
 

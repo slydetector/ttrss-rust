@@ -9,22 +9,22 @@
 
 mod common;
 
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
+use test_db::template::with_test_db;
+use ttrss::AppState;
 use ttrss::core::config::Config;
 use ttrss::core::db::Db;
 use ttrss::core::phpser::Value as PValue;
 use ttrss::core::session::Session;
 use ttrss::session::Sess;
-use ttrss::AppState;
-use test_db::template::with_test_db;
 
 /// A test-only config (the handlers only need `db`).
-fn test_config() -> Config { common::test_config() }
+fn test_config() -> Config {
+    common::test_config()
+}
 
 /// Fresh fixtures + a session carrying `uid = 1`.
-async fn setup(
-    url: &str,
-) -> (AppState, Sess) {
+async fn setup(url: &str) -> (AppState, Sess) {
     let db: Db = common::make_db_from_url(url).await.expect("test db");
     let state = AppState::new(test_config(), db);
     let mut data = Session::new();
@@ -145,23 +145,27 @@ async fn filter_count(db: &Db) -> i64 {
 /// `Pref_Filters::filtersortreset` — every filter's order is reset to 0.
 #[tokio::test]
 async fn test_filtersortreset() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup(&url).await;
-    let db = &state.db;
-    let id = insert_filter(db, "F1").await;
-    sqlx::query("UPDATE ttrss_filters2 SET order_id = 5 WHERE id = $1")
-        .bind(id)
-        .execute(db.pool())
-        .await
-        .unwrap();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            let db = &state.db;
+            let id = insert_filter(db, "F1").await;
+            sqlx::query("UPDATE ttrss_filters2 SET order_id = 5 WHERE id = $1")
+                .bind(id)
+                .execute(db.pool())
+                .await
+                .unwrap();
 
-    ttrss::filters::filtersortreset(&state, &sess)
-        .await
-        .expect("reset");
-    let row = filter_row(db, id).await.expect("filter");
-    assert_eq!(row["order_id"], 0);
-        Ok(())
-    })).await.unwrap();
+            ttrss::filters::filtersortreset(&state, &sess)
+                .await
+                .expect("reset");
+            let row = filter_row(db, id).await.expect("filter");
+            assert_eq!(row["order_id"], 0);
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // ---------------------------------------------------------------------------
@@ -172,36 +176,40 @@ async fn test_filtersortreset() {
 /// the `payload` JSON.
 #[tokio::test]
 async fn test_savefilterorder() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup(&url).await;
-    let db = &state.db;
-    let a = insert_filter(db, "A").await;
-    let b = insert_filter(db, "B").await;
-    let c = insert_filter(db, "C").await;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            let db = &state.db;
+            let a = insert_filter(db, "A").await;
+            let b = insert_filter(db, "B").await;
+            let c = insert_filter(db, "C").await;
 
-    // Reorder: B, C, A (and an out-of-owner entry that must be ignored).
-    let payload = json!({
-        "items": [{
-            "items": [
-                { "_reference": format!("FILTER:{b}") },
-                { "_reference": format!("FILTER:{c}") },
-                { "_reference": format!("FILTER:{a}") },
-            ]
-        }]
-    });
-    ttrss::filters::savefilterorder(
-        &state,
-        &sess,
-        &request(&[("payload", json!(payload.to_string()))]),
-    )
+            // Reorder: B, C, A (and an out-of-owner entry that must be ignored).
+            let payload = json!({
+                "items": [{
+                    "items": [
+                        { "_reference": format!("FILTER:{b}") },
+                        { "_reference": format!("FILTER:{c}") },
+                        { "_reference": format!("FILTER:{a}") },
+                    ]
+                }]
+            });
+            ttrss::filters::savefilterorder(
+                &state,
+                &sess,
+                &request(&[("payload", json!(payload.to_string()))]),
+            )
+            .await
+            .expect("save order");
+
+            assert_eq!(filter_row(db, b).await.unwrap()["order_id"], 0);
+            assert_eq!(filter_row(db, c).await.unwrap()["order_id"], 1);
+            assert_eq!(filter_row(db, a).await.unwrap()["order_id"], 2);
+            Ok(())
+        })
+    })
     .await
-    .expect("save order");
-
-    assert_eq!(filter_row(db, b).await.unwrap()["order_id"], 0);
-    assert_eq!(filter_row(db, c).await.unwrap()["order_id"], 1);
-    assert_eq!(filter_row(db, a).await.unwrap()["order_id"], 2);
-        Ok(())
-    })).await.unwrap();
+    .unwrap();
 }
 
 // ---------------------------------------------------------------------------
@@ -253,12 +261,13 @@ async fn test_remove_filters() {
 /// is untouched.
 #[tokio::test]
 async fn test_edit_save() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup(&url).await;
-    let db = &state.db;
-    let id = insert_filter(db, "  Old Title ").await;
-    // A pre-existing rule that must be replaced.
-    sqlx::query(
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            let db = &state.db;
+            let id = insert_filter(db, "  Old Title ").await;
+            // A pre-existing rule that must be replaced.
+            sqlx::query(
         "INSERT INTO ttrss_filters2_rules (filter_id, reg_exp, filter_type) VALUES ($1, 'old', 1)",
     )
     .bind(id)
@@ -266,56 +275,59 @@ async fn test_edit_save() {
     .await
     .unwrap();
 
-    let rule_payload =
-        rule_param(&[json!({"reg_exp": "  new  ", "filter_type": 1, "inverse": true})]);
-    let req = request(&[
-        ("id", json!(id.to_string())),
-        ("title", json!(" New <b>Title</b> ")),
-        ("enabled", json!("off")),
-        ("match_any_rule", json!("on")),
-        ("inverse", json!("on")),
-        ("rule", rule_payload),
-    ]);
-    ttrss::filters::edit_save(&state, &sess, &req)
-        .await
-        .expect("save");
+            let rule_payload =
+                rule_param(&[json!({"reg_exp": "  new  ", "filter_type": 1, "inverse": true})]);
+            let req = request(&[
+                ("id", json!(id.to_string())),
+                ("title", json!(" New <b>Title</b> ")),
+                ("enabled", json!("off")),
+                ("match_any_rule", json!("on")),
+                ("inverse", json!("on")),
+                ("rule", rule_payload),
+            ]);
+            ttrss::filters::edit_save(&state, &sess, &req)
+                .await
+                .expect("save");
 
-    let row = filter_row(db, id).await.expect("filter");
-    // trim (not clean): whitespace trimmed, tags preserved.
-    assert_eq!(row["title"], "New <b>Title</b>");
-    assert_eq!(row["enabled"], false);
-    assert_eq!(row["match_any_rule"], true);
-    assert_eq!(row["inverse"], true);
-    // The rule was replaced (trim of reg_exp, inverse set).
-    let rs = rules(db, id).await;
-    assert_eq!(rs.len(), 1);
-    assert_eq!(rs[0]["reg_exp"], "new");
-    assert_eq!(rs[0]["inverse"], true);
+            let row = filter_row(db, id).await.expect("filter");
+            // trim (not clean): whitespace trimmed, tags preserved.
+            assert_eq!(row["title"], "New <b>Title</b>");
+            assert_eq!(row["enabled"], false);
+            assert_eq!(row["match_any_rule"], true);
+            assert_eq!(row["inverse"], true);
+            // The rule was replaced (trim of reg_exp, inverse set).
+            let rs = rules(db, id).await;
+            assert_eq!(rs.len(), 1);
+            assert_eq!(rs[0]["reg_exp"], "new");
+            assert_eq!(rs[0]["inverse"], true);
 
-    // A foreign owner's filter is not modified.
-    let other_uid: i32 = sqlx::query_scalar(
-        "INSERT INTO ttrss_users (login, pwd_hash) VALUES ('other', 'x') RETURNING id",
-    )
-    .fetch_one(db.pool())
+            // A foreign owner's filter is not modified.
+            let other_uid: i32 = sqlx::query_scalar(
+                "INSERT INTO ttrss_users (login, pwd_hash) VALUES ('other', 'x') RETURNING id",
+            )
+            .fetch_one(db.pool())
+            .await
+            .unwrap();
+            let other: i32 = sqlx::query_scalar(
+                "INSERT INTO ttrss_filters2 (owner_uid, title) VALUES ($1, 'Other') RETURNING id",
+            )
+            .bind(other_uid)
+            .fetch_one(db.pool())
+            .await
+            .unwrap();
+            ttrss::filters::edit_save(
+                &state,
+                &sess,
+                &request(&[("id", json!(other.to_string())), ("title", json!("Hacked"))]),
+            )
+            .await
+            .expect("save other");
+            assert_eq!(filter_row(db, other).await.unwrap()["title"], "Other");
+            Ok(())
+        })
+    })
     .await
     .unwrap();
-    let other: i32 = sqlx::query_scalar(
-        "INSERT INTO ttrss_filters2 (owner_uid, title) VALUES ($1, 'Other') RETURNING id",
-    )
-    .bind(other_uid)
-    .fetch_one(db.pool())
-    .await
-    .unwrap();
-    ttrss::filters::edit_save(
-        &state,
-        &sess,
-        &request(&[("id", json!(other.to_string())), ("title", json!("Hacked"))]),
-    )
-    .await
-    .expect("save other");
-    assert_eq!(filter_row(db, other).await.unwrap()["title"], "Other");
-        Ok(())
-    })).await.unwrap();
 }
 
 // ---------------------------------------------------------------------------
@@ -326,105 +338,118 @@ async fn test_edit_save() {
 /// with the posted rules.
 #[tokio::test]
 async fn test_add_filter() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup(&url).await;
-    let db = &state.db;
-    let before = filter_count(db).await;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            let db = &state.db;
+            let before = filter_count(db).await;
 
-    let req = request(&[
-        ("title", json!("My Filter")),
-        ("enabled", json!("on")),
-        ("match_any_rule", json!("on")),
-        ("inverse", json!("")),
-        (
-            "rule",
-            rule_param(&[json!({"reg_exp": "hello", "filter_type": 2})]),
-        ),
-        (
-            "action",
-            rule_param(&[json!({"action_id": 2, "action_param": ""})]),
-        ),
-    ]);
-    ttrss::filters::add_filter(&state, &sess, &req)
-        .await
-        .expect("add");
+            let req = request(&[
+                ("title", json!("My Filter")),
+                ("enabled", json!("on")),
+                ("match_any_rule", json!("on")),
+                ("inverse", json!("")),
+                (
+                    "rule",
+                    rule_param(&[json!({"reg_exp": "hello", "filter_type": 2})]),
+                ),
+                (
+                    "action",
+                    rule_param(&[json!({"action_id": 2, "action_param": ""})]),
+                ),
+            ]);
+            ttrss::filters::add_filter(&state, &sess, &req)
+                .await
+                .expect("add");
 
-    assert_eq!(filter_count(db).await, before + 1);
-    let id: i32 = sqlx::query_scalar("SELECT id FROM ttrss_filters2 WHERE title = 'My Filter'")
-        .fetch_one(db.pool())
-        .await
-        .unwrap();
-    let row = filter_row(db, id).await.unwrap();
-    assert_eq!(row["enabled"], true);
-    assert_eq!(row["match_any_rule"], true);
-    assert_eq!(row["inverse"], false);
-    let rs = rules(db, id).await;
-    assert_eq!(rs.len(), 1);
-    assert_eq!(rs[0]["reg_exp"], "hello");
-    assert_eq!(rs[0]["filter_type"], 2);
-    let acts = actions(db, id).await;
-    assert_eq!(acts.len(), 1);
-    assert_eq!(acts[0]["action_id"], 2);
-        Ok(())
-    })).await.unwrap();
+            assert_eq!(filter_count(db).await, before + 1);
+            let id: i32 =
+                sqlx::query_scalar("SELECT id FROM ttrss_filters2 WHERE title = 'My Filter'")
+                    .fetch_one(db.pool())
+                    .await
+                    .unwrap();
+            let row = filter_row(db, id).await.unwrap();
+            assert_eq!(row["enabled"], true);
+            assert_eq!(row["match_any_rule"], true);
+            assert_eq!(row["inverse"], false);
+            let rs = rules(db, id).await;
+            assert_eq!(rs.len(), 1);
+            assert_eq!(rs[0]["reg_exp"], "hello");
+            assert_eq!(rs[0]["filter_type"], 2);
+            let acts = actions(db, id).await;
+            assert_eq!(acts.len(), 1);
+            assert_eq!(acts[0]["action_id"], 2);
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 /// `Pref_Filters::add` — a score action's `+N` param is stored as the integer.
 #[tokio::test]
 async fn test_add_filter_score_action() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup(&url).await;
-    let db = &state.db;
-    let req = request(&[
-        ("title", json!("Score")),
-        (
-            "action",
-            rule_param(&[json!({"action_id": 6, "action_param": "+5"})]),
-        ),
-    ]);
-    ttrss::filters::add_filter(&state, &sess, &req)
-        .await
-        .expect("add");
-    let id: i32 = sqlx::query_scalar("SELECT id FROM ttrss_filters2 WHERE title = 'Score'")
-        .fetch_one(db.pool())
-        .await
-        .unwrap();
-    let acts = actions(db, id).await;
-    assert_eq!(acts.len(), 1);
-    assert_eq!(acts[0]["action_id"], 6);
-    assert_eq!(acts[0]["action_param"], "5");
-        Ok(())
-    })).await.unwrap();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            let db = &state.db;
+            let req = request(&[
+                ("title", json!("Score")),
+                (
+                    "action",
+                    rule_param(&[json!({"action_id": 6, "action_param": "+5"})]),
+                ),
+            ]);
+            ttrss::filters::add_filter(&state, &sess, &req)
+                .await
+                .expect("add");
+            let id: i32 = sqlx::query_scalar("SELECT id FROM ttrss_filters2 WHERE title = 'Score'")
+                .fetch_one(db.pool())
+                .await
+                .unwrap();
+            let acts = actions(db, id).await;
+            assert_eq!(acts.len(), 1);
+            assert_eq!(acts[0]["action_id"], 6);
+            assert_eq!(acts[0]["action_param"], "5");
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 /// `Pref_Filters::add` — a tag action's param is normalized (lowercased,
 /// de-duplicated, sorted).
 #[tokio::test]
 async fn test_add_filter_tag_action() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup(&url).await;
-    let db = &state.db;
-    let req = request(&[
-        ("title", json!("Tags")),
-        (
-            "action",
-            rule_param(&[json!({"action_id": 4, "action_param": "World, Hello, world"})]),
-        ),
-    ]);
-    ttrss::filters::add_filter(&state, &sess, &req)
-        .await
-        .expect("add");
-    let id: i32 = sqlx::query_scalar("SELECT id FROM ttrss_filters2 WHERE title = 'Tags'")
-        .fetch_one(db.pool())
-        .await
-        .unwrap();
-    let acts = actions(db, id).await;
-    assert_eq!(acts.len(), 1);
-    assert_eq!(acts[0]["action_id"], 4);
-    // normalize_categories: lowercase, dedupe, sort -> "hello, world".
-    assert_eq!(acts[0]["action_param"], "hello, world");
-        Ok(())
-    })).await.unwrap();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            let db = &state.db;
+            let req = request(&[
+                ("title", json!("Tags")),
+                (
+                    "action",
+                    rule_param(&[json!({"action_id": 4, "action_param": "World, Hello, world"})]),
+                ),
+            ]);
+            ttrss::filters::add_filter(&state, &sess, &req)
+                .await
+                .expect("add");
+            let id: i32 = sqlx::query_scalar("SELECT id FROM ttrss_filters2 WHERE title = 'Tags'")
+                .fetch_one(db.pool())
+                .await
+                .unwrap();
+            let acts = actions(db, id).await;
+            assert_eq!(acts.len(), 1);
+            assert_eq!(acts[0]["action_id"], 4);
+            // normalize_categories: lowercase, dedupe, sort -> "hello, world".
+            assert_eq!(acts[0]["action_param"], "hello, world");
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // ---------------------------------------------------------------------------

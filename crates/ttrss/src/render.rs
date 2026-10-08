@@ -103,9 +103,7 @@ pub struct OtpForm {
 pub fn render_otp_challenge(config: &Config, return_url: &str, form: &OtpForm) -> String {
     let scripts_ts = scripts_timestamp(config.docroot.as_path());
     let mut env = minijinja::Environment::new();
-    env.add_function("__", |msg: String| -> String {
-        __(&msg)
-    });
+    env.add_function("__", |msg: String| -> String { __(&msg) });
     let template = env
         .template_from_named_str("otp_challenge.html.tpl", OTP_TEMPLATE)
         .unwrap();
@@ -163,9 +161,7 @@ pub fn render_shell(
     hide_logout: bool,
 ) -> String {
     let mut env = minijinja::Environment::new();
-    env.add_function("__", |msg: String| -> String {
-        __(&msg)
-    });
+    env.add_function("__", |msg: String| -> String { __(&msg) });
     env.add_filter("tojson", |v: minijinja::Value| -> minijinja::Value {
         let s = v.to_string();
         minijinja::Value::from(serde_json::to_string(&s).unwrap())
@@ -232,11 +228,12 @@ pub fn render_login_page(config: &Config, additional_buttons: &str, self_url: &s
     let return_url = urlencode(&format!("{}/", self_url));
     let lifetime = 86400; // SESSION_COOKIE_LIFETIME default
     let mut env = minijinja::Environment::new();
-    env.add_function("__", |msg: String| -> String {
-        __(&msg)
-    });
+    env.add_function("__", |msg: String| -> String { __(&msg) });
     let template = env
-        .template_from_named_str("login.html.tpl", include_str!("../templates/login.html.tpl"))
+        .template_from_named_str(
+            "login.html.tpl",
+            include_str!("../templates/login.html.tpl"),
+        )
         .unwrap();
     template
         .render(minijinja::context! {
@@ -366,18 +363,26 @@ mod tests {
     #[test]
     fn shell_and_prefs_emit_user_stylesheet() {
         let css = ".content img { max-width: 100%; max-height: 80vh; }";
-        let block =
-            format!("<style type='text/css' id='user_css_style'>{}</style>", css);
+        let block = format!("<style type='text/css' id='user_css_style'>{}</style>", css);
 
         // Non-empty custom CSS → the inline `<style>` block appears in both the
         // shell and the prefs page (PHP `UserHelper::print_user_stylesheet`).
         let shell = render_shell("tok", 123, "", &block, "", "", "", "", "", "", false);
-        assert!(shell.contains(&block), "shell missing the user stylesheet block");
+        assert!(
+            shell.contains(&block),
+            "shell missing the user stylesheet block"
+        );
         let prefs = render_prefs_page("tok", 123, 3, "", &block, "", "", "");
-        assert!(prefs.contains(&block), "prefs missing the user stylesheet block");
+        assert!(
+            prefs.contains(&block),
+            "prefs missing the user stylesheet block"
+        );
 
         // Empty → no `user_css_style` block is emitted.
-        assert!(!render_shell("tok", 123, "", "", "", "", "", "", "", "", false).contains("user_css_style"));
+        assert!(
+            !render_shell("tok", 123, "", "", "", "", "", "", "", "", false)
+                .contains("user_css_style")
+        );
         assert!(!render_prefs_page("tok", 123, 3, "", "", "", "", "").contains("user_css_style"));
     }
 
@@ -392,7 +397,10 @@ mod tests {
         assert!(shell.contains(js), "shell missing plugin JS");
         // Empty assets → no plugin CSS/JS in the shell.
         let shell_empty = render_shell("tok", 123, "", "", "", "", "", "", "", "", false);
-        assert!(!shell_empty.contains("Plugins."), "empty shell should have no plugin JS");
+        assert!(
+            !shell_empty.contains("Plugins."),
+            "empty shell should have no plugin JS"
+        );
     }
 
     /// `HOOK_MAIN_TOOLBAR_BUTTON` output lands between the order-0 and order-5
@@ -402,16 +410,24 @@ mod tests {
     fn shell_renders_main_toolbar_buttons_between_markers() {
         let marker_before = "<!-- order 0, default -->";
         let marker_after = "<!-- order 5: alert icons -->";
-        let button = "<button id=\"sidebar-toggle-button\" class=\"toggle-sidebar-label\"></button>";
+        let button =
+            "<button id=\"sidebar-toggle-button\" class=\"toggle-sidebar-label\"></button>";
         let shell = render_shell("tok", 123, "", "", "", "", button, "", "", "", false);
         let before = shell.find(marker_before).expect("order-0 marker present");
         let at = shell.find(button).expect("toolbar button row present");
         let after = shell.find(marker_after).expect("order-5 marker present");
-        assert!(before < at && at < after, "button row must sit between the toolbar markers");
+        assert!(
+            before < at && at < after,
+            "button row must sit between the toolbar markers"
+        );
         // Empty row → nothing between the markers.
         let shell_empty = render_shell("tok", 123, "", "", "", "", "", "", "", "", false);
-        let b = shell_empty.find(marker_before).expect("order-0 marker present");
-        let a = shell_empty.find(marker_after).expect("order-5 marker present");
+        let b = shell_empty
+            .find(marker_before)
+            .expect("order-0 marker present");
+        let a = shell_empty
+            .find(marker_after)
+            .expect("order-5 marker present");
         assert!(
             shell_empty[b + marker_before.len()..a].trim().is_empty(),
             "empty row leaves nothing but whitespace between the markers"
@@ -428,46 +444,86 @@ mod tests {
         let prefs_js = "<script type=\"text/javascript\">\n\t\ttry {\n\t\t\t\tdocument.getElementById('share-clear-keys').onclick = SharePlugin.clearKeys;\n\t\t} catch (e) {\n\t\t\t\t\tconsole.warn('failed to initialize plugin JS: share', e);\n\t\t}\n\t</script>";
         let prefs_css = "#share-plugin { background: #eee; }";
         let prefs = render_prefs_page("tok", 123, 3, "", "", prefs_js, prefs_css, "");
-        assert!(prefs.contains("clearKeys"), "prefs page missing the share prefs JS");
-        assert!(!prefs.contains("shareArticle"), "prefs page must not receive the shell JS");
-        assert!(prefs.contains(prefs_css), "prefs page missing the prefs CSS");
+        assert!(
+            prefs.contains("clearKeys"),
+            "prefs page missing the share prefs JS"
+        );
+        assert!(
+            !prefs.contains("shareArticle"),
+            "prefs page must not receive the shell JS"
+        );
+        assert!(
+            prefs.contains(prefs_css),
+            "prefs page missing the prefs CSS"
+        );
         // Empty → no `<script>` block and an empty `<style>` slot.
         let empty = render_prefs_page("tok", 123, 3, "", "", "", "", "");
-        assert!(!empty.contains("failed to initialize plugin JS"), "no plugin JS expected");
+        assert!(
+            !empty.contains("failed to initialize plugin JS"),
+            "no plugin JS expected"
+        );
     }
 
     #[tokio::test]
     async fn shell_translates_strings_for_non_english_locale() {
-        let i18n = std::sync::Arc::new(crate::i18n::I18nCache::new(std::path::PathBuf::from("../../tt-rss/locale")));
+        let i18n = std::sync::Arc::new(crate::i18n::I18nCache::new(std::path::PathBuf::from(
+            "../../tt-rss/locale",
+        )));
         // English (no scope): the original string is present.
         let en = render_shell("tok", 123, "", "", "", "", "", "", "", "", false);
-        assert!(en.contains("Loading, please wait..."), "English shell should have the original string");
+        assert!(
+            en.contains("Loading, please wait..."),
+            "English shell should have the original string"
+        );
         // German (scoped): the string should be translated.
         let de = crate::i18n::I18N
             .scope(
-                crate::i18n::I18nCtx { locale: Some("de_DE".to_string()), cache: i18n },
+                crate::i18n::I18nCtx {
+                    locale: Some("de_DE".to_string()),
+                    cache: i18n,
+                },
                 async { render_shell("tok", 123, "", "", "", "", "", "", "", "", false) },
             )
             .await;
-        assert!(!de.contains("Loading, please wait..."), "German shell should not have the English string");
-        assert!(de.contains("Ladevorgang, bitte warten..."), "German shell should contain the translated string");
+        assert!(
+            !de.contains("Loading, please wait..."),
+            "German shell should not have the English string"
+        );
+        assert!(
+            de.contains("Ladevorgang, bitte warten..."),
+            "German shell should contain the translated string"
+        );
     }
 
     #[tokio::test]
     async fn login_page_translates_for_non_english_locale() {
-        let i18n = std::sync::Arc::new(crate::i18n::I18nCache::new(std::path::PathBuf::from("../../tt-rss/locale")));
+        let i18n = std::sync::Arc::new(crate::i18n::I18nCache::new(std::path::PathBuf::from(
+            "../../tt-rss/locale",
+        )));
         // English (no scope): the original string is present.
         let en = render_login_page(&test_config(), "", &test_config().self_url);
-        assert!(en.contains("Log in"), "English login should have the original string");
+        assert!(
+            en.contains("Log in"),
+            "English login should have the original string"
+        );
         // German (scoped): the string should be translated.
         let de = crate::i18n::I18N
             .scope(
-                crate::i18n::I18nCtx { locale: Some("de_DE".to_string()), cache: i18n },
+                crate::i18n::I18nCtx {
+                    locale: Some("de_DE".to_string()),
+                    cache: i18n,
+                },
                 async { render_login_page(&test_config(), "", &test_config().self_url) },
             )
             .await;
-        assert!(!de.contains(">Log in<"), "German login should not have the English button text");
-        assert!(de.contains(">Anmelden<"), "German login should contain the translated button text");
+        assert!(
+            !de.contains(">Log in<"),
+            "German login should not have the English button text"
+        );
+        assert!(
+            de.contains(">Anmelden<"),
+            "German login should contain the translated button text"
+        );
     }
 
     #[test]

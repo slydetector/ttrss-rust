@@ -15,27 +15,27 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use axum::http::StatusCode;
 use base64::Engine as _;
-use kuchikiki::traits::TendrilSink;
 use kuchikiki::parse_html;
+use kuchikiki::traits::TendrilSink;
 use minijinja::Environment;
 use serde::Serialize;
-use serde_json::{json, Map, Value};
-use sqlx::Row;
+use serde_json::{Map, Value, json};
 use sqlx::AssertSqlSafe;
+use sqlx::Row;
 
 use crate::cats::{CAT_LABELS, CAT_SPECIAL};
 use crate::controls;
-use crate::i18n::{__, t_sprintf, t_nsprintf};
+use crate::i18n::{__, t_nsprintf, t_sprintf};
 use crate::util;
 
+use crate::AppState;
 use crate::labels::LABEL_BASE_INDEX;
+use crate::pluginhost::{
+    HOOK_PRE_SUBSCRIBE, HOOK_PREFS_EDIT_FEED, HOOK_PREFS_SAVE_FEED, HOOK_SUBSCRIBE_FEED, PluginHost,
+};
 use crate::prefs;
 use crate::session::Sess;
 use crate::time::TzCtx;
-use crate::AppState;
-use crate::pluginhost::{
-    PluginHost, HOOK_PREFS_EDIT_FEED, HOOK_PREFS_SAVE_FEED, HOOK_PRE_SUBSCRIBE, HOOK_SUBSCRIBE_FEED,
-};
 
 // `Feeds::*` virtual-feed pseudo-ids (functions.php).
 pub(crate) const FEED_ARCHIVED: i64 = 0;
@@ -325,11 +325,7 @@ pub async fn getfeedtree(state: &AppState, sess: &Sess, extra: &Map<String, Valu
 /// `Pref_Feeds::index` — the feeds settings tab: a `TabContainer` with the
 /// "My feeds" toolbar/tree, "OPML" import/export, and "Sharing" panes
 /// (`index_feeds` / `index_opml` / `index_shared`).
-pub async fn index(
-    state: &AppState,
-    sess: &Sess,
-    extra: &Map<String, Value>,
-) -> String {
+pub async fn index(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> String {
     let uid = sess.data().uid().unwrap_or(0);
     let profile = sess.data().profile().map(|p| p as i32);
     let rows = prefs::load_rows(&state.db, uid, profile).await;
@@ -432,7 +428,10 @@ pub async fn index(
     };
     ctx.insert("pref_feeds_opml".into(), Value::String(opml_section));
     ctx.insert("pref_feeds_shared".into(), Value::String(shared_section));
-    ctx.insert("pref_feeds_plugins_pane".into(), Value::String(plugins_pane));
+    ctx.insert(
+        "pref_feeds_plugins_pane".into(),
+        Value::String(plugins_pane),
+    );
 
     feeds_index_env()
         .get_template("feeds_index")
@@ -586,12 +585,13 @@ pub async fn purge_feed(
         purge_interval
     };
 
-    let owner_uid: Option<i32> = sqlx::query_scalar("SELECT owner_uid FROM ttrss_feeds WHERE id = $1")
-        .bind(feed_id)
-        .fetch_optional(pool)
-        .await
-        .ok()
-        .flatten();
+    let owner_uid: Option<i32> =
+        sqlx::query_scalar("SELECT owner_uid FROM ttrss_feeds WHERE id = $1")
+            .bind(feed_id)
+            .fetch_optional(pool)
+            .await
+            .ok()
+            .flatten();
     let owner_uid = owner_uid?;
 
     let (purge_unread, purge_interval) = if cfg.force_article_purge != 0 {
@@ -621,13 +621,21 @@ pub async fn purge_feed(
         return None;
     }
 
-    let extra = if purge_unread { "" } else { "unread = false AND " };
+    let extra = if purge_unread {
+        ""
+    } else {
+        "unread = false AND "
+    };
     let sql = format!(
         "DELETE FROM ttrss_user_entries USING ttrss_entries WHERE ttrss_entries.id = ref_id \
          AND marked = false AND feed_id = $1 AND {extra} \
          ttrss_entries.date_updated < NOW() - INTERVAL '{purge_interval} days'"
     );
-    let res = sqlx::query(AssertSqlSafe(sql)).bind(feed_id).execute(pool).await.ok()?;
+    let res = sqlx::query(AssertSqlSafe(sql))
+        .bind(feed_id)
+        .execute(pool)
+        .await
+        .ok()?;
     Some(res.rows_affected() as i64)
 }
 
@@ -777,7 +785,10 @@ pub async fn catchup_scope(
             _ => None,
         };
         if let Some(q) = query {
-            let _ = sqlx::query(AssertSqlSafe(q)).bind(owner_uid).execute(pool).await;
+            let _ = sqlx::query(AssertSqlSafe(q))
+                .bind(owner_uid)
+                .execute(pool)
+                .await;
         }
     } else if feed_id < LABEL_BASE_INDEX {
         // label
@@ -879,9 +890,10 @@ pub async fn opensite(
             .flatten();
 
     if let Some(url) = site_url
-        && let Some(valid) = crate::urlhelper::validate(&url, false) {
-            return (StatusCode::FOUND, Some(valid), String::new());
-        }
+        && let Some(valid) = crate::urlhelper::validate(&url, false)
+    {
+        return (StatusCode::FOUND, Some(valid), String::new());
+    }
 
     (
         StatusCode::NOT_FOUND,
@@ -1026,12 +1038,15 @@ pub fn get_feeds_from_html(url: &str, content: &str) -> Vec<(String, String)> {
         if href.is_empty() {
             continue;
         }
-        let is_alt_feed =
-            rel == "alternate" && (type_.contains("rss") || type_.contains("atom"));
+        let is_alt_feed = rel == "alternate" && (type_.contains("rss") || type_.contains("atom"));
         if !is_alt_feed && rel != "feed" {
             continue;
         }
-        let title = if title.trim().is_empty() { type_ } else { title };
+        let title = if title.trim().is_empty() {
+            type_
+        } else {
+            title
+        };
         let Some(feed_url) = crate::urlhelper::rewrite_relative(&base_url, &href) else {
             continue;
         };
@@ -1249,13 +1264,31 @@ pub async fn add(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> V
     let cat = util::clean_int(extra.get("cat")) as i32;
     let need_auth = extra.get("need_auth").is_some();
     let get_opt = |k: &str| util::clean_str(extra.get(k).and_then(|v| v.as_str()).unwrap_or(""));
-    let login = if need_auth { get_opt("login") } else { String::new() };
-    let pass = if need_auth { get_opt("pass") } else { String::new() };
+    let login = if need_auth {
+        get_opt("login")
+    } else {
+        String::new()
+    };
+    let pass = if need_auth {
+        get_opt("pass")
+    } else {
+        String::new()
+    };
     let update_interval = util::clean_int(extra.get("update_interval")) as i32;
 
-    let rc =
-        subscribe(&state.config, pool, &state.plugins, uid, access_level, &feed, cat, &login, &pass, update_interval)
-            .await;
+    let rc = subscribe(
+        &state.config,
+        pool,
+        &state.plugins,
+        uid,
+        access_level,
+        &feed,
+        cat,
+        &login,
+        &pass,
+        update_interval,
+    )
+    .await;
     json!({ "result": rc })
 }
 /// `Feeds::updatedebugger` — the standalone feed-update debug page
@@ -1424,11 +1457,19 @@ pub async fn updatedebugger(
         .replace("@LOG@", &render_debug_log(&log, xdebug))
         .replace(
             "@SEL_VERBOSE@",
-            if xdebug == 1 { "selected=\"selected\"" } else { "" },
+            if xdebug == 1 {
+                "selected=\"selected\""
+            } else {
+                ""
+            },
         )
         .replace(
             "@SEL_EXTENDED@",
-            if xdebug == 2 { "selected=\"selected\"" } else { "" },
+            if xdebug == 2 {
+                "selected=\"selected\""
+            } else {
+                ""
+            },
         )
         .replace(
             "@CHECKED_REFETCH@",
@@ -1452,9 +1493,7 @@ pub async fn updatedebugger(
 /// ≤ the selected one are shown (`Debug::$loglevel` gate); the XML dump is
 /// gated by its own `dump_feed_xml` flag, not the level.
 fn render_debug_log(log: &crate::updates::FeedDebugLog, xdebug: i64) -> String {
-    use crate::updates::{
-        DebugEntry, DEBUG_SEPARATOR,
-    };
+    use crate::updates::{DEBUG_SEPARATOR, DebugEntry};
     let ts = format!(
         "{}/{}",
         chrono::Local::now().format("%H:%M:%S"),
@@ -1465,10 +1504,7 @@ fn render_debug_log(log: &crate::updates::FeedDebugLog, xdebug: i64) -> String {
     for entry in &log.entries {
         match entry {
             DebugEntry::Xml(xml) => {
-                out.push_str(&format!(
-                    "<code class='feed-xml'>{}</code>\n",
-                    esc(xml)
-                ));
+                out.push_str(&format!("<code class='feed-xml'>{}</code>\n", esc(xml)));
             }
             DebugEntry::Log { level, message } => {
                 // The PHP gate: `self::$loglevel < $level` → skip.
@@ -1796,9 +1832,10 @@ async fn editsaveops(
     // Encrypt the password up front (PHP: before the single/batch branch).
     if let Some(key) = &state.config.encryption_key
         && !auth_pass.is_empty()
-            && let Ok(env) = crate::core::session::encrypt_envelope(auth_pass.as_bytes(), key) {
-                auth_pass = base64::engine::general_purpose::STANDARD.encode(env);
-            }
+        && let Ok(env) = crate::core::session::encrypt_envelope(auth_pass.as_bytes(), key)
+    {
+        auth_pass = base64::engine::general_purpose::STANDARD.encode(env);
+    }
 
     let touched: i64;
     if !batch {
@@ -1851,11 +1888,16 @@ async fn editsaveops(
         // `&[], &[]`, iterating zero plugins.
         {
             let mut host_ctx = crate::pluginhost::dispatch::session_ctx(state, sess).await;
-            host_ctx.run_hooks(HOOK_PREFS_SAVE_FEED, |plugin, host| {
-                let extra = extra.clone();
-                Box::pin(async move { plugin.hook_prefs_save_feed(host, feed_id, &Value::Object(extra)).await; })
-            })
-            .await;
+            host_ctx
+                .run_hooks(HOOK_PREFS_SAVE_FEED, |plugin, host| {
+                    let extra = extra.clone();
+                    Box::pin(async move {
+                        plugin
+                            .hook_prefs_save_feed(host, feed_id, &Value::Object(extra))
+                            .await;
+                    })
+                })
+                .await;
         }
         touched
     } else {
@@ -2058,11 +2100,15 @@ pub async fn remove_feed(state: &AppState, id: i64, uid: i64) {
         let feed_id = id;
         let owner_uid = uid;
         if pctx
-            .run_hooks_until(crate::pluginhost::HOOK_UNSUBSCRIBE_FEED, |&b: &bool| b, |plugin, host| {
-                Box::pin(async move {
-                    plugin.hook_unsubscribe_feed(host, feed_id, owner_uid).await
-                })
-            })
+            .run_hooks_until(
+                crate::pluginhost::HOOK_UNSUBSCRIBE_FEED,
+                |&b: &bool| b,
+                |plugin, host| {
+                    Box::pin(
+                        async move { plugin.hook_unsubscribe_feed(host, feed_id, owner_uid).await },
+                    )
+                },
+            )
             .await
         {
             return;
@@ -2655,10 +2701,11 @@ pub async fn upload_icon(
 pub fn decrypt_feed_pass(auth_pass: &str, key: Option<&[u8; 32]>) -> String {
     if !auth_pass.is_empty()
         && let Some(k) = key
-            && let Ok(decoded) = base64::engine::general_purpose::STANDARD.decode(auth_pass)
-                && let Ok(pt) = crate::core::session::decrypt_envelope(&decoded, k) {
-                    return String::from_utf8_lossy(&pt).to_string();
-                }
+        && let Ok(decoded) = base64::engine::general_purpose::STANDARD.decode(auth_pass)
+        && let Ok(pt) = crate::core::session::decrypt_envelope(&decoded, k)
+    {
+        return String::from_utf8_lossy(&pt).to_string();
+    }
     auth_pass.to_string()
 }
 
@@ -2836,11 +2883,7 @@ struct FeedFullRow {
 /// row (with a computed `icon` + decrypted `auth_pass`), the category `<select>`,
 /// the update/purge interval options, the user's access level, and the language
 /// list. `plugin_data` is empty (no plugins are ported).
-pub async fn editfeed(
-    state: &AppState,
-    sess: &Sess,
-    extra: &Map<String, Value>,
-) -> Value {
+pub async fn editfeed(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Value {
     let uid = sess.data().uid().unwrap_or(0);
     let profile = sess.data().profile().map(|p| p as i32);
     let feed_id = util::clean_int(extra.get("id"));
@@ -2894,7 +2937,12 @@ pub async fn editfeed(
         }
         let default_purge = prefs::resolve(prefs::PURGE_OLD_DAYS, &pref_rows, None).as_int();
         let suffix = if default_purge > 0 {
-            t_nsprintf("(%d day)", "(%d days)", default_purge, &[&default_purge.to_string()])
+            t_nsprintf(
+                "(%d day)",
+                "(%d days)",
+                default_purge,
+                &[&default_purge.to_string()],
+            )
         } else {
             format!("({})", __("Disabled"))
         };
@@ -2933,10 +2981,13 @@ pub async fn editfeed(
     // *active* plugin set (`session_ctx`) — this chain was once built with
     // `&[], &[]`, iterating zero plugins.
     let mut host_ctx = crate::pluginhost::dispatch::session_ctx(state, sess).await;
-    host_ctx.run_hooks(HOOK_PREFS_EDIT_FEED, |plugin, host| {
-        Box::pin(async move { plugin.hook_prefs_edit_feed(host, feed_id as i32).await; })
-    })
-    .await;
+    host_ctx
+        .run_hooks(HOOK_PREFS_EDIT_FEED, |plugin, host| {
+            Box::pin(async move {
+                plugin.hook_prefs_edit_feed(host, feed_id as i32).await;
+            })
+        })
+        .await;
     let plugin_data = host_ctx.output.trim().to_string();
 
     json!({
@@ -3013,7 +3064,10 @@ pub async fn editfeeds(state: &AppState, sess: &Sess, extra: &Map<String, Value>
         format!(" ({})", __("Disabled"))
     };
     let purge: Vec<(String, String)> = vec![
-        ("0".to_string(), format!("{}{}", __("Use default"), purge_default)),
+        (
+            "0".to_string(),
+            format!("{}{}", __("Use default"), purge_default),
+        ),
         ("-1".to_string(), __("Never purge")),
         ("7".to_string(), __("1 week old")),
         ("14".to_string(), __("2 weeks old")),
@@ -3209,7 +3263,7 @@ fn editfeeds_env() -> &'static Environment<'static> {
 #[cfg(test)]
 mod debugger_tests {
     use crate::updates::{
-        DebugEntry, DEBUG_LEVEL_EXTENDED, DEBUG_LEVEL_NORMAL, DEBUG_LEVEL_VERBOSE, DEBUG_SEPARATOR,
+        DEBUG_LEVEL_EXTENDED, DEBUG_LEVEL_NORMAL, DEBUG_LEVEL_VERBOSE, DEBUG_SEPARATOR, DebugEntry,
         FeedDebugLog,
     };
 
@@ -3226,9 +3280,18 @@ mod debugger_tests {
     #[test]
     fn level_gating_hides_higher_levels() {
         let log = log_with(vec![
-            DebugEntry::Log { level: DEBUG_LEVEL_NORMAL, message: "normal".into() },
-            DebugEntry::Log { level: DEBUG_LEVEL_VERBOSE, message: "verbose".into() },
-            DebugEntry::Log { level: DEBUG_LEVEL_EXTENDED, message: "extended".into() },
+            DebugEntry::Log {
+                level: DEBUG_LEVEL_NORMAL,
+                message: "normal".into(),
+            },
+            DebugEntry::Log {
+                level: DEBUG_LEVEL_VERBOSE,
+                message: "verbose".into(),
+            },
+            DebugEntry::Log {
+                level: DEBUG_LEVEL_EXTENDED,
+                message: "extended".into(),
+            },
         ]);
         // xdebug=1 (LOG_VERBOSE): normal + verbose shown, extended hidden.
         let out = super::render_debug_log(&log, 1);
@@ -3254,7 +3317,9 @@ mod debugger_tests {
 
     #[test]
     fn xml_dump_is_escaped_and_classed() {
-        let log = log_with(vec![DebugEntry::Xml("<feed><title>a &amp; b</title></feed>".into())]);
+        let log = log_with(vec![DebugEntry::Xml(
+            "<feed><title>a &amp; b</title></feed>".into(),
+        )]);
         let out = super::render_debug_log(&log, 0);
         assert!(out.starts_with("<code class='feed-xml'>"));
         assert!(out.contains("&lt;feed&gt;"));

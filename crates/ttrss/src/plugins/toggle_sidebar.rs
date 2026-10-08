@@ -8,11 +8,11 @@
 //! which calls `Feeds.toggle()` (toggles the feed tree panel) and flips
 //! the button icon between `chevron_left` and `chevron_right`.
 
-use crate::pluginhost::host::{HostCtx, PluginHost};
-use async_trait::async_trait;
-use crate::pluginhost::plugin::{About, Plugin};
+use crate::i18n::__;
 use crate::pluginhost::HOOK_MAIN_TOOLBAR_BUTTON;
-use crate::i18n::{__};
+use crate::pluginhost::host::{HostCtx, PluginHost};
+use crate::pluginhost::plugin::{About, Plugin};
+use async_trait::async_trait;
 
 /// The `toggle_sidebar` plugin.
 #[derive(Clone, Copy)]
@@ -52,10 +52,7 @@ Plugins.Toggle_Sidebar = {
         .to_string()
     }
 
-    async fn hook_main_toolbar_button(
-        &self,
-        host: &mut HostCtx,
-    ) -> () {
+    async fn hook_main_toolbar_button(&self, host: &mut HostCtx) -> () {
         let toggle_title = __("Toggle sidebar");
         host.output.push_str(&format!(
             "<button dojoType=\"dijit.form.Button\" \

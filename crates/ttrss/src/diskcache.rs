@@ -7,7 +7,7 @@
 //! are extensionless (`feed-icons/1`).
 
 use axum::body::Body;
-use axum::http::{header, HeaderMap, StatusCode};
+use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::Response;
 use kuchikiki::parse_html;
 use kuchikiki::traits::TendrilSink;
@@ -95,7 +95,9 @@ pub fn send_file(path: &Path, req: &HeaderMap) -> Response {
     let etag = mtime.to_string();
 
     // `If-Modified-Since == $gmt_modified || If-None-Match == $file_mtime`.
-    let ims = req.get(header::IF_MODIFIED_SINCE).and_then(|v| v.to_str().ok());
+    let ims = req
+        .get(header::IF_MODIFIED_SINCE)
+        .and_then(|v| v.to_str().ok());
     let inm = req.get(header::IF_NONE_MATCH).and_then(|v| v.to_str().ok());
     if ims == Some(last_modified.as_str()) || inm == Some(etag.as_str()) {
         return Response::builder()
@@ -401,7 +403,13 @@ impl DiskCache {
     /// `DiskCache::download($url, $local_filename, $force)` — fetch `$url` and
     /// store it if absent (or `$force`d). `max_size` caps the download
     /// (`Config::MAX_CACHE_FILE_SIZE`).
-    pub async fn download(&self, url: &str, local_filename: &str, max_size: u64, force: bool) -> bool {
+    pub async fn download(
+        &self,
+        url: &str,
+        local_filename: &str,
+        max_size: u64,
+        force: bool,
+    ) -> bool {
         if self.exists(local_filename) && !force {
             return true;
         }
@@ -574,7 +582,10 @@ mod tests {
         let html = format!(r#"<img src="{url}" srcset="http://a.com/1x.jpg 1x">"#);
         let res = rewrite_urls(&html, &dir, "http://self");
         assert!(!res.contains("srcset"), "srcset dropped: {res}");
-        assert!(res.contains(&crate::util::sha1_hex(url)), "src rewritten: {res}");
+        assert!(
+            res.contains(&crate::util::sha1_hex(url)),
+            "src rewritten: {res}"
+        );
     }
     // -- DiskCache storage (M7.12) ------------------------------------------
 
@@ -627,7 +638,11 @@ mod tests {
         cache.put("abc", b"12345");
         assert_eq!(cache.get_size("abc"), 5);
         assert_eq!(cache.get_size("missing"), -1);
-        assert!(cache.get_mtime("abc") > 0, "mtime: {}", cache.get_mtime("abc"));
+        assert!(
+            cache.get_mtime("abc") > 0,
+            "mtime: {}",
+            cache.get_mtime("abc")
+        );
         assert_eq!(cache.get_mtime("missing"), -1);
     }
 
@@ -649,8 +664,10 @@ mod tests {
         cache.put("abc", b"cached");
         // An existing file short-circuits (no fetch) with `force = false`, even
         // for an unreachable URL (proving no network is attempted).
-        assert!(cache
-            .download("http://unreachable.invalid/x", "abc", 1024, false)
-            .await);
+        assert!(
+            cache
+                .download("http://unreachable.invalid/x", "abc", 1024, false)
+                .await
+        );
     }
 }

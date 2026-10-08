@@ -10,18 +10,18 @@ mod common;
 
 use std::sync::Arc;
 
-use serde_json::{json, Map, Value};
+use common::{Canned, MockServer};
+use serde_json::{Map, Value, json};
+use test_db::template::with_test_db;
+use ttrss::AppState;
 use ttrss::api::update_feed;
 use ttrss::core::config::Config;
-use ttrss::pluginhost::PluginHost;
 use ttrss::core::db::Db;
 use ttrss::core::phpser::Value as PValue;
 use ttrss::core::session::Session;
 use ttrss::feeds::subscribe;
+use ttrss::pluginhost::PluginHost;
 use ttrss::session::Sess;
-use ttrss::AppState;
-use common::{Canned, MockServer};
-use test_db::template::with_test_db;
 
 const MOCK_FEED: &str = include_str!("../../../tt-rss/tests_integration/feed.xml");
 
@@ -45,7 +45,7 @@ fn test_config() -> Config {
         feed_fetch_no_cache_timeout: 3,
         http_429_throttle_interval: 3600,
         daemon_sleep_interval: 60,
-    ..Default::default()
+        ..Default::default()
     }
 }
 
@@ -123,70 +123,75 @@ fn atom_mock() -> MockServer {
 // 1) and `update_basic_info` fills in the feed's title from the fetched feed.
 #[tokio::test]
 async fn test_subscribe_first_update() {
-    with_test_db(|url| Box::pin(async move {
-    let db = common::make_db_from_url(&url).await.expect("test db");
-    let cfg = test_config();
-    let mock = atom_mock();
-    let uid = create_user(&db, 300, 0).await;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = common::make_db_from_url(&url).await.expect("test db");
+            let cfg = test_config();
+            let mock = atom_mock();
+            let uid = create_user(&db, 300, 0).await;
 
-    let host = Arc::new(PluginHost::startup(&[]));
-    let rc = subscribe(
-        &cfg,
-        db.pool(),
-        &host,
-        uid as i64,
-        0,
-        &mock.url("/feed"),
-        0,
-        "",
-        "",
-        0,
-    )
-    .await;
-    assert_eq!(rc.get("code").and_then(|v| v.as_i64()), Some(1), "{rc}");
-    let feed_id = rc.get("feed_id").and_then(|v| v.as_i64()).unwrap();
+            let host = Arc::new(PluginHost::startup(&[]));
+            let rc = subscribe(
+                &cfg,
+                db.pool(),
+                &host,
+                uid as i64,
+                0,
+                &mock.url("/feed"),
+                0,
+                "",
+                "",
+                0,
+            )
+            .await;
+            assert_eq!(rc.get("code").and_then(|v| v.as_i64()), Some(1), "{rc}");
+            let feed_id = rc.get("feed_id").and_then(|v| v.as_i64()).unwrap();
 
-    // The immediate first update filled in the feed's title (from the feed).
-    assert_eq!(
-        feed_title(&db, feed_id as i32).await,
-        "Atom:base testfeed"
-    );
-        Ok(())
-    })).await.unwrap();
+            // The immediate first update filled in the feed's title (from the feed).
+            assert_eq!(feed_title(&db, feed_id as i32).await, "Atom:base testfeed");
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // `Feeds::_subscribe` for a feed the user already subscribes to: code 0 (no
 // duplicate insert), the existing feed's id.
 #[tokio::test]
 async fn test_subscribe_existing_feed() {
-    with_test_db(|url| Box::pin(async move {
-    let db = common::make_db_from_url(&url).await.expect("test db");
-    let cfg = test_config();
-    let mock = atom_mock();
-    let uid = create_user(&db, 301, 0).await;
-    let feed_id = create_feed(&db, 301, uid, &mock.url("/feed")).await;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = common::make_db_from_url(&url).await.expect("test db");
+            let cfg = test_config();
+            let mock = atom_mock();
+            let uid = create_user(&db, 301, 0).await;
+            let feed_id = create_feed(&db, 301, uid, &mock.url("/feed")).await;
 
-    let host = Arc::new(PluginHost::startup(&[]));
-    let rc = subscribe(
-        &cfg,
-        db.pool(),
-        &host,
-        uid as i64,
-        0,
-        &mock.url("/feed"),
-        0,
-        "",
-        "",
-        0,
-    )
-    .await;
-    assert_eq!(rc.get("code").and_then(|v| v.as_i64()), Some(0), "{rc}");
-    assert_eq!(
-        rc.get("feed_id").and_then(|v| v.as_i64()),
-        Some(feed_id as i64)
-    );
-        Ok(())
-    })).await.unwrap();
+            let host = Arc::new(PluginHost::startup(&[]));
+            let rc = subscribe(
+                &cfg,
+                db.pool(),
+                &host,
+                uid as i64,
+                0,
+                &mock.url("/feed"),
+                0,
+                "",
+                "",
+                0,
+            )
+            .await;
+            assert_eq!(rc.get("code").and_then(|v| v.as_i64()), Some(0), "{rc}");
+            assert_eq!(
+                rc.get("feed_id").and_then(|v| v.as_i64()),
+                Some(feed_id as i64)
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // `API::updateFeed` — the on-demand full update: the feed's articles are
@@ -194,48 +199,58 @@ async fn test_subscribe_existing_feed() {
 // the daemon loop's `Semaphore(N)`).
 #[tokio::test]
 async fn test_update_feed_on_demand() {
-    with_test_db(|url| Box::pin(async move {
-    let db = common::make_db_from_url(&url).await.expect("test db");
-    let mock = atom_mock();
-    let state = make_state(db.clone());
-    let uid = create_user(&db, 302, 0).await;
-    let feed_id = create_feed(&db, 302, uid, &mock.url("/feed")).await;
-    let sess = make_sess(uid as i64);
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = common::make_db_from_url(&url).await.expect("test db");
+            let mock = atom_mock();
+            let state = make_state(db.clone());
+            let uid = create_user(&db, 302, 0).await;
+            let feed_id = create_feed(&db, 302, uid, &mock.url("/feed")).await;
+            let sess = make_sess(uid as i64);
 
-    let body: Map<String, Value> = json!({ "feed_id": feed_id }).as_object().unwrap().clone();
-    let (status, _content) = update_feed(&state, &sess, &body).await;
-    assert_eq!(status, 0);
+            let body: Map<String, Value> =
+                json!({ "feed_id": feed_id }).as_object().unwrap().clone();
+            let (status, _content) = update_feed(&state, &sess, &body).await;
+            assert_eq!(status, 0);
 
-    // The on-demand update ingested the feed's article immediately.
-    assert_eq!(entry_count(&db, feed_id).await, 1);
-        Ok(())
-    })).await.unwrap();
+            // The on-demand update ingested the feed's article immediately.
+            assert_eq!(entry_count(&db, feed_id).await, 1);
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 // `API::updateFeed` dedup: a feed already in flight (claimed by the running
 // daemon loop within the last 10 minutes) is a no-op — no re-fetch, no articles.
 #[tokio::test]
 async fn test_update_feed_dedup_when_in_flight() {
-    with_test_db(|url| Box::pin(async move {
-    let db = common::make_db_from_url(&url).await.expect("test db");
-    let mock = atom_mock();
-    let state = make_state(db.clone());
-    let uid = create_user(&db, 303, 0).await;
-    let feed_id = create_feed(&db, 303, uid, &mock.url("/feed")).await;
-    // Mark the feed in-flight (the daemon loop just claimed it).
-    sqlx::query("UPDATE ttrss_feeds SET last_update_started = NOW() WHERE id = $1")
-        .bind(feed_id)
-        .execute(db.pool())
-        .await
-        .expect("mark in-flight");
-    let sess = make_sess(uid as i64);
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = common::make_db_from_url(&url).await.expect("test db");
+            let mock = atom_mock();
+            let state = make_state(db.clone());
+            let uid = create_user(&db, 303, 0).await;
+            let feed_id = create_feed(&db, 303, uid, &mock.url("/feed")).await;
+            // Mark the feed in-flight (the daemon loop just claimed it).
+            sqlx::query("UPDATE ttrss_feeds SET last_update_started = NOW() WHERE id = $1")
+                .bind(feed_id)
+                .execute(db.pool())
+                .await
+                .expect("mark in-flight");
+            let sess = make_sess(uid as i64);
 
-    let body: Map<String, Value> = json!({ "feed_id": feed_id }).as_object().unwrap().clone();
-    let (status, _content) = update_feed(&state, &sess, &body).await;
-    assert_eq!(status, 0);
+            let body: Map<String, Value> =
+                json!({ "feed_id": feed_id }).as_object().unwrap().clone();
+            let (status, _content) = update_feed(&state, &sess, &body).await;
+            assert_eq!(status, 0);
 
-    // The in-flight feed was skipped (no re-fetch, no articles ingested).
-    assert_eq!(entry_count(&db, feed_id).await, 0);
-        Ok(())
-    })).await.unwrap();
+            // The in-flight feed was skipped (no re-fetch, no articles ingested).
+            assert_eq!(entry_count(&db, feed_id).await, 0);
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }

@@ -1,7 +1,7 @@
 //! Port of `tt-rss/tests/FeedParserTest.php` — the pure (no-DB) feed-parser
 //! tests, mirrored 1:1 (same inputs, same expected values).
 
-use ttrss::core::feed::{FeedParser, FEED_ATOM, FEED_RDF, FEED_RSS};
+use ttrss::core::feed::{FEED_ATOM, FEED_RDF, FEED_RSS, FeedParser};
 
 // ===== RSS 2.0 Feed Tests (TestRss2Feed) =====
 

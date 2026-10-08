@@ -15,23 +15,23 @@
 
 mod common;
 
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
+use test_db::template::with_test_db;
+use ttrss::AppState;
 use ttrss::api;
 use ttrss::core::config::Config;
 use ttrss::core::db::Db;
 use ttrss::core::phpser::Value as PValue;
 use ttrss::core::session::Session;
 use ttrss::session::Sess;
-use ttrss::AppState;
-use test_db::template::with_test_db;
 
-fn test_config() -> Config { common::test_config() }
+fn test_config() -> Config {
+    common::test_config()
+}
 
 /// Fixtures + a session carrying `uid = 1` (owner of all fixture rows) + the
 /// per-user API gate enabled (the `before_and_dispatch` auth check).
-async fn setup(
-    url: &str,
-) -> (AppState, Sess) {
+async fn setup(url: &str) -> (AppState, Sess) {
     let db: Db = common::make_db_from_url(url).await.expect("test db");
     let state = AppState::new(test_config(), db);
     let mut data = Session::new();
@@ -53,12 +53,9 @@ fn request(pairs: &[(&str, Value)]) -> Map<String, Value> {
 }
 
 /// Dispatch `getfeeds` and return the content array.
-async fn get_feeds(
-    state: &AppState,
-    sess: &Sess,
-    pairs: &[(&str, Value)],
-) -> Value {
-    let (status, content) = api::before_and_dispatch(state, sess, "getfeeds", &request(pairs), None).await;
+async fn get_feeds(state: &AppState, sess: &Sess, pairs: &[(&str, Value)]) -> Value {
+    let (status, content) =
+        api::before_and_dispatch(state, sess, "getfeeds", &request(pairs), None).await;
     assert_eq!(status, 0, "getfeeds should succeed: {content}");
     content
 }
@@ -82,130 +79,151 @@ fn unread_of(content: &Value, id: i64) -> i64 {
         .expect("entry with unread")
 }
 
-
 #[tokio::test]
 async fn special_feeds_cat_minus_1() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup(&url).await;
-    let c = get_feeds(&state, &sess, &[("cat_id", json!(-1))]).await;
-    // Six special feeds, PHP's fixed order: Starred, Published, Fresh, All,
-    // Recently-read, Archived.
-    assert_eq!(ids(&c), vec![-1, -2, -3, -4, -6, 0]);
-    let titles: Vec<&str> = c
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|e| e["title"].as_str().unwrap())
-        .collect();
-    assert_eq!(
-        titles,
-        vec![
-            "Starred articles",
-            "Published articles",
-            "Fresh articles",
-            "All articles",
-            "Recently read",
-            "Archived articles"
-        ]
-    );
-    // Every entry is cat_id -1.
-    for e in c.as_array().unwrap() {
-        assert_eq!(e["cat_id"].as_i64(), Some(-1));
-    }
-    // "All articles" unread = total unread across all feeds (2+3+1+2 = 8).
-    assert_eq!(unread_of(&c, -4), 8);
-        Ok(())
-    })).await.unwrap();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            let c = get_feeds(&state, &sess, &[("cat_id", json!(-1))]).await;
+            // Six special feeds, PHP's fixed order: Starred, Published, Fresh, All,
+            // Recently-read, Archived.
+            assert_eq!(ids(&c), vec![-1, -2, -3, -4, -6, 0]);
+            let titles: Vec<&str> = c
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|e| e["title"].as_str().unwrap())
+                .collect();
+            assert_eq!(
+                titles,
+                vec![
+                    "Starred articles",
+                    "Published articles",
+                    "Fresh articles",
+                    "All articles",
+                    "Recently read",
+                    "Archived articles"
+                ]
+            );
+            // Every entry is cat_id -1.
+            for e in c.as_array().unwrap() {
+                assert_eq!(e["cat_id"].as_i64(), Some(-1));
+            }
+            // "All articles" unread = total unread across all feeds (2+3+1+2 = 8).
+            assert_eq!(unread_of(&c, -4), 8);
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
 async fn labels_cat_minus_2() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup(&url).await;
-    let c = get_feeds(&state, &sess, &[("cat_id", json!(-2))]).await;
-    // Both labels (0 unread each, but unread_only=false so they appear).
-    let titles: std::collections::BTreeSet<String> = c
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|e| e["title"].as_str().unwrap().to_string())
-        .collect();
-    assert_eq!(
-        titles,
-        ["test-label-1".to_string(), "test-label-2".to_string()].into_iter().collect()
-    );
-    for e in c.as_array().unwrap() {
-        assert_eq!(e["cat_id"].as_i64(), Some(-2));
-        assert_eq!(e["unread"].as_i64(), Some(0));
-    }
-        Ok(())
-    })).await.unwrap();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            let c = get_feeds(&state, &sess, &[("cat_id", json!(-2))]).await;
+            // Both labels (0 unread each, but unread_only=false so they appear).
+            let titles: std::collections::BTreeSet<String> = c
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|e| e["title"].as_str().unwrap().to_string())
+                .collect();
+            assert_eq!(
+                titles,
+                ["test-label-1".to_string(), "test-label-2".to_string()]
+                    .into_iter()
+                    .collect()
+            );
+            for e in c.as_array().unwrap() {
+                assert_eq!(e["cat_id"].as_i64(), Some(-2));
+                assert_eq!(e["unread"].as_i64(), Some(0));
+            }
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
 async fn all_except_virtual_cat_minus_3_full_shape() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup(&url).await;
-    let c = get_feeds(&state, &sess, &[("cat_id", json!(-3))]).await;
-    // All 4 real feeds, ordered by title (all order_id 0): Ars(3), HN(1),
-    // MIT(4), Register(2).
-    assert_eq!(ids(&c), vec![3, 1, 4, 2]);
-    // Per-feed unread.
-    assert_eq!(unread_of(&c, 1), 2);
-    assert_eq!(unread_of(&c, 2), 3);
-    assert_eq!(unread_of(&c, 3), 1);
-    assert_eq!(unread_of(&c, 4), 2);
-    // Exact PHP entry shape: every field present.
-    let want: [&str; 10] = [
-        "feed_url",
-        "title",
-        "id",
-        "unread",
-        "has_icon",
-        "cat_id",
-        "last_updated",
-        "order_id",
-        "last_error",
-        "update_interval",
-    ];
-    for e in c.as_array().unwrap() {
-        for k in want {
-            assert!(e.get(k).is_some(), "missing field {k}: {e}");
-        }
-        // has_icon is a bool (no icon files in the test dir → false).
-        assert_eq!(e["has_icon"].as_bool(), Some(false));
-    }
-    // cat_id echoes the feed's category.
-    assert_eq!(
-        c.as_array().unwrap()[0]["cat_id"].as_i64(),
-        Some(1) // Ars Technica is in cat 1
-    );
-        Ok(())
-    })).await.unwrap();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            let c = get_feeds(&state, &sess, &[("cat_id", json!(-3))]).await;
+            // All 4 real feeds, ordered by title (all order_id 0): Ars(3), HN(1),
+            // MIT(4), Register(2).
+            assert_eq!(ids(&c), vec![3, 1, 4, 2]);
+            // Per-feed unread.
+            assert_eq!(unread_of(&c, 1), 2);
+            assert_eq!(unread_of(&c, 2), 3);
+            assert_eq!(unread_of(&c, 3), 1);
+            assert_eq!(unread_of(&c, 4), 2);
+            // Exact PHP entry shape: every field present.
+            let want: [&str; 10] = [
+                "feed_url",
+                "title",
+                "id",
+                "unread",
+                "has_icon",
+                "cat_id",
+                "last_updated",
+                "order_id",
+                "last_error",
+                "update_interval",
+            ];
+            for e in c.as_array().unwrap() {
+                for k in want {
+                    assert!(e.get(k).is_some(), "missing field {k}: {e}");
+                }
+                // has_icon is a bool (no icon files in the test dir → false).
+                assert_eq!(e["has_icon"].as_bool(), Some(false));
+            }
+            // cat_id echoes the feed's category.
+            assert_eq!(
+                c.as_array().unwrap()[0]["cat_id"].as_i64(),
+                Some(1) // Ars Technica is in cat 1
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
 async fn real_cat_lists_only_that_cats_feeds() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup(&url).await;
-    // Cat 1 (Technology) has feeds 1,2,3 and no children.
-    let c = get_feeds(&state, &sess, &[("cat_id", json!(1))]).await;
-    let mut got = ids(&c);
-    got.sort();
-    assert_eq!(got, vec![1, 2, 3]);
-        Ok(())
-    })).await.unwrap();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            // Cat 1 (Technology) has feeds 1,2,3 and no children.
+            let c = get_feeds(&state, &sess, &[("cat_id", json!(1))]).await;
+            let mut got = ids(&c);
+            got.sort();
+            assert_eq!(got, vec![1, 2, 3]);
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
 async fn uncategorized_cat_0_is_empty() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup(&url).await;
-    // No uncategorized (cat_id NULL/0) feeds in the fixture → empty.
-    let c = get_feeds(&state, &sess, &[("cat_id", json!(0))]).await;
-    assert_eq!(c.as_array().unwrap().len(), 0);
-        Ok(())
-    })).await.unwrap();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            // No uncategorized (cat_id NULL/0) feeds in the fixture → empty.
+            let c = get_feeds(&state, &sess, &[("cat_id", json!(0))]).await;
+            assert_eq!(c.as_array().unwrap().len(), 0);
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
@@ -234,20 +252,29 @@ async fn unread_only_drops_zero_unread_feeds() {
 
 #[tokio::test]
 async fn limit_and_offset_paginate() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup(&url).await;
-    // Ordered by title: Ars(3), HN(1), MIT(4), Register(2).
-    let first = get_feeds(&state, &sess, &[("cat_id", json!(-3)), ("limit", json!(2))]).await;
-    assert_eq!(ids(&first), vec![3, 1]);
-    let second = get_feeds(
-        &state,
-        &sess,
-        &[("cat_id", json!(-3)), ("limit", json!(2)), ("offset", json!(2))],
-    )
-    .await;
-    assert_eq!(ids(&second), vec![4, 2]);
-        Ok(())
-    })).await.unwrap();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            // Ordered by title: Ars(3), HN(1), MIT(4), Register(2).
+            let first =
+                get_feeds(&state, &sess, &[("cat_id", json!(-3)), ("limit", json!(2))]).await;
+            assert_eq!(ids(&first), vec![3, 1]);
+            let second = get_feeds(
+                &state,
+                &sess,
+                &[
+                    ("cat_id", json!(-3)),
+                    ("limit", json!(2)),
+                    ("offset", json!(2)),
+                ],
+            )
+            .await;
+            assert_eq!(ids(&second), vec![4, 2]);
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 #[tokio::test]

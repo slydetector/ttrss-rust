@@ -20,18 +20,18 @@
 //! the article tags. Ported as-is (the reference relies on the article tags
 //! arriving space-trimmed; `save`'s normalization makes round-trips match).
 
-use serde_json::{json, Map, Value};
 use async_trait::async_trait;
+use serde_json::{Map, Value, json};
 
 use crate::controls::{pluginhandler_tags, submit_tag};
-use crate::i18n::{__};
+use crate::core::phpser::Value as PValue;
+use crate::i18n::__;
 use crate::pluginhost::host::{HostCtx, PluginHost};
 use crate::pluginhost::plugin::{About, MethodOutput, Plugin, PluginError};
 use crate::pluginhost::{
     HOOK_ARTICLE_IMAGE, HOOK_PREFS_TAB, HOOK_RENDER_ARTICLE, HOOK_RENDER_ARTICLE_API,
     HOOK_RENDER_ARTICLE_CDM,
 };
-use crate::core::phpser::Value as PValue;
 use crate::util::normalize_categories;
 
 /// PHP's `class NSFW extends Plugin`.
@@ -61,8 +61,7 @@ impl Plugin for NsFw {
     }
     fn get_css(&self) -> String {
         // PHP's literal (tab-indented, as in the reference).
-        "details.nsfw {\n\t\t\tcursor : pointer;\n\t\t\tuser-select : none;\n\t\t}"
-            .to_string()
+        "details.nsfw {\n\t\t\tcursor : pointer;\n\t\t\tuser-select : none;\n\t\t}".to_string()
     }
 
     /// PHP's `method_exists`/method dispatch is case-insensitive; the RPC
@@ -80,17 +79,16 @@ impl Plugin for NsFw {
         let this = *self;
         match method.to_ascii_lowercase().as_str() {
             "save" => {
-                let tags =
-                    normalize_categories(
-                        &params
-                            .get("tags")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("")
-                            .split(',')
-                            .map(|s| s.to_string())
-                            .collect::<Vec<_>>(),
-                    )
-                    .join(", ");
+                let tags = normalize_categories(
+                    &params
+                        .get("tags")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .split(',')
+                        .map(|s| s.to_string())
+                        .collect::<Vec<_>>(),
+                )
+                .join(", ");
                 host.storage_set(&this, "tags", PValue::Bytes(tags.into_bytes()))
                     .await
                     .map_err(|e| PluginError::Other(e.to_string()))?;
@@ -103,11 +101,7 @@ impl Plugin for NsFw {
 
     // -- HOOK_RENDER_ARTICLE / _CDM / _API -------------------------------
 
-    async fn hook_render_article(
-        &self,
-        host: &mut HostCtx,
-        article: &mut Value,
-    ) -> Value {
+    async fn hook_render_article(&self, host: &mut HostCtx, article: &mut Value) -> Value {
         let this = *self;
         match rewrite_contents(host, &this, article).await {
             Ok(v) => v,
@@ -120,11 +114,7 @@ impl Plugin for NsFw {
         }
     }
 
-    async fn hook_render_article_cdm(
-        &self,
-        host: &mut HostCtx,
-        article: &mut Value,
-    ) -> Value {
+    async fn hook_render_article_cdm(&self, host: &mut HostCtx, article: &mut Value) -> Value {
         let this = *self;
         match rewrite_contents(host, &this, article).await {
             Ok(v) => v,
@@ -140,11 +130,7 @@ impl Plugin for NsFw {
     /// PHP's `hook_render_article_api($row)`: `$article = $row['headline'] ??
     /// $row['article']` — the *article* (not the row) is rewritten and
     /// returned, as in the reference.
-    async fn hook_render_article_api(
-        &self,
-        host: &mut HostCtx,
-        params: &Value,
-    ) -> Value {
+    async fn hook_render_article_api(&self, host: &mut HostCtx, params: &Value) -> Value {
         let this = *self;
         let fallback = Value::Object(Map::new());
         let article = params
@@ -234,7 +220,11 @@ async fn rewrite_contents(
 ) -> Result<Value, PluginError> {
     let mut out = article.clone();
     if matches_tags(host, this, article).await? {
-        let content = article.get("content").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let content = article
+            .get("content")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
         let summary = __("Not safe for work (click to toggle)");
         out["content"] = Value::String(format!(
             "<details class='nsfw'><summary>{summary}</summary>{content}</details>"
@@ -256,9 +246,7 @@ async fn matches_tags(
         .and_then(|v| v.as_array())
         .map(|a| a.iter().filter_map(|t| t.as_str()).collect())
         .unwrap_or_default();
-    Ok(tags
-        .split(',')
-        .any(|t| article_tags.contains(&t)))
+    Ok(tags.split(',').any(|t| article_tags.contains(&t)))
 }
 
 /// The stored tag list (PHP `get($this, "tags")` — unset reads as `false`,
@@ -276,14 +264,18 @@ async fn stored_tags(host: &mut HostCtx, this: &NsFw) -> Result<String, PluginEr
 /// escaping to be valid HTML, so the port escapes: the prefs pane is the
 /// port's only rendering of this value).
 fn escape_html(s: &str) -> String {
-    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('\'', "&#039;").replace('"', "&quot;")
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('\'', "&#039;")
+        .replace('"', "&quot;")
 }
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
     use super::*;
     use crate::pluginhost::PluginHost;
+    use std::sync::Arc;
 
     #[test]
     fn css_is_the_php_literal() {
@@ -322,8 +314,16 @@ mod tests {
             .connect_lazy("postgres://ttrss:ttrss@localhost/ttrss_test")
             .unwrap();
         let test_cfg = crate::core::config::Config::for_test();
-        let ctx =
-        HostCtx::for_user(Arc::clone(&host), pool.clone(), test_cfg.clone(), Some(1), None, 0, &[], &["nsfw"]);
+        let ctx = HostCtx::for_user(
+            Arc::clone(&host),
+            pool.clone(),
+            test_cfg.clone(),
+            Some(1),
+            None,
+            0,
+            &[],
+            &["nsfw"],
+        );
         for h in [
             HOOK_RENDER_ARTICLE,
             HOOK_RENDER_ARTICLE_CDM,

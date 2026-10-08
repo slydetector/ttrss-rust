@@ -16,7 +16,7 @@
 //! HTML" actually means.
 
 use ego_tree::NodeRef;
-use scraper::{node::Node, Html};
+use scraper::{Html, node::Node};
 use std::sync::LazyLock;
 
 use crate::normalize;
@@ -218,9 +218,7 @@ mod tests {
     #[test]
     fn html_fragment_detection() {
         assert!(is_html_fragment("<p>text</p>"));
-        assert!(is_html_fragment(
-            "<i class=\"material-icons\">note</i>"
-        ));
+        assert!(is_html_fragment("<i class=\"material-icons\">note</i>"));
         // plain text / escaped text without tags is not an HTML fragment
         assert!(!is_html_fragment("&mdash; some plain text &hellip;"));
         assert!(!is_html_fragment("Grok exfiltrates user data"));
@@ -241,7 +239,10 @@ mod tests {
         assert_eq!(canonical_html(a), canonical_html(c));
         assert_ne!(canonical_html(a), canonical_html(b));
         // whitespace between tags is dropped
-        assert_eq!(canonical_html("<p>a</p> <p>b</p>"), canonical_html("<p>a</p><p>b</p>"));
+        assert_eq!(
+            canonical_html("<p>a</p> <p>b</p>"),
+            canonical_html("<p>a</p><p>b</p>")
+        );
     }
 
     #[test]

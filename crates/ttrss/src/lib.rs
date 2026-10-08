@@ -22,6 +22,7 @@ pub mod forgotpass;
 pub mod headlines;
 pub mod hotkeys;
 pub mod http;
+pub mod i18n;
 pub mod labels;
 pub mod mime;
 pub mod opml;
@@ -35,16 +36,15 @@ pub mod render;
 pub mod rpc;
 pub mod rss_utils;
 pub mod sanitizer;
-pub mod scheduler;
 #[cfg(test)]
 mod sanitizer_parity;
+pub mod scheduler;
 pub mod search;
 pub mod search_date;
 pub mod session;
 pub mod settings;
 pub mod syndication;
 pub mod system;
-pub mod i18n;
 pub mod time;
 pub mod updates;
 pub mod urlhelper;
@@ -57,8 +57,9 @@ use crate::core::db::Db;
 use crate::pluginhost::PluginHost;
 /// The per-process prefs cache (the PHP's `Prefs` singleton `$cache`): a
 /// `RwLock`-guarded map of one entry per (uid, profile) to its pref rows.
-pub(crate) type PrefsCache =
-    std::sync::RwLock<std::collections::HashMap<(i64, Option<i32>), Vec<(String, Option<i32>, String)>>>;
+pub(crate) type PrefsCache = std::sync::RwLock<
+    std::collections::HashMap<(i64, Option<i32>), Vec<(String, Option<i32>, String)>>,
+>;
 
 /// Shared server state (`AppState`): configuration + DB pool + the startup
 /// plugin registry (M7.1).

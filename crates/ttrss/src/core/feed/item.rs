@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use roxmltree::{Document, Node, NodeId};
 
-use super::{atom, rss, FeedKind, NS_ATOM, NS_DC, NS_MEDIA, NS_SLASH, NS_THREAD, NS_XML};
+use super::{FeedKind, NS_ATOM, NS_DC, NS_MEDIA, NS_SLASH, NS_THREAD, NS_XML, atom, rss};
 
 use crate::urlhelper::rewrite_relative;
 use crate::util::{clean_str, is_numeric, php_str_truthy};
@@ -178,10 +178,11 @@ impl<'input> FeedItem<'input> {
         for link in all_child_ns(node, NS_ATOM, "link") {
             if link.attribute("rel") == Some("replies")
                 && let Some(t) = link.attribute("type")
-                    && t.contains("text/html")
-                        && let Some(href) = link.attribute("href") {
-                            return clean_str(href);
-                        }
+                && t.contains("text/html")
+                && let Some(href) = link.attribute("href")
+            {
+                return clean_str(href);
+            }
         }
         String::new()
     }
@@ -204,14 +205,15 @@ impl<'input> FeedItem<'input> {
                     .attributes()
                     .find(|a| a.name() == "count" && a.namespace() == Some(NS_THREAD))
                     .map(|a| a.value().to_string())
-                {
-                    candidates.push((l.id(), v));
-                }
+            {
+                candidates.push((l.id(), v));
+            }
         }
         if let Some((_, value)) = candidates.iter().min_by_key(|(id, _)| id.get())
-            && is_numeric(value) {
-                return clean_str(value).parse::<i32>().unwrap_or(0);
-            }
+            && is_numeric(value)
+        {
+            return clean_str(value).parse::<i32>().unwrap_or(0);
+        }
         0
     }
 }
@@ -440,13 +442,14 @@ pub(super) fn rewrite_content_to_base(base: Option<&str>, content: &str) -> Stri
         }
         for a in n.attributes() {
             if (a.name() == "href" || a.name() == "src")
-                && let Some(new_val) = rewrite_relative(base, a.value()) {
-                    out = out.replacen(
-                        &format!("\"{}\"", a.value()),
-                        &format!("\"{}\"", new_val),
-                        1,
-                    );
-                }
+                && let Some(new_val) = rewrite_relative(base, a.value())
+            {
+                out = out.replacen(
+                    &format!("\"{}\"", a.value()),
+                    &format!("\"{}\"", new_val),
+                    1,
+                );
+            }
         }
     }
     out
@@ -464,9 +467,10 @@ pub(super) fn media_enclosures<'a, 'input>(node: Node<'a, 'input>) -> Vec<FeedEn
         if let Some(content) = first_child_ns(group, NS_MEDIA, "content") {
             let mut enc = media_content_enclosure(content);
             if enc.title.is_empty()
-                && let Some(desc) = first_child_ns(group, NS_MEDIA, "description") {
-                    enc.title = clean_str(&text_content(desc));
-                }
+                && let Some(desc) = first_child_ns(group, NS_MEDIA, "description")
+            {
+                enc.title = clean_str(&text_content(desc));
+            }
             encs.push(enc);
         }
     }

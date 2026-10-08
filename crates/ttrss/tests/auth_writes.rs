@@ -6,14 +6,14 @@
 //! `password`).
 mod common;
 
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
+use test_db::template::with_test_db;
+use ttrss::AppState;
 use ttrss::core::config::Config;
 use ttrss::core::phpser::Value as PValue;
 use ttrss::core::session::Session;
 use ttrss::core::user;
 use ttrss::session::Sess;
-use ttrss::AppState;
-use test_db::template::with_test_db;
 
 /// A test-only config (the handlers only need `db`).
 fn test_config() -> Config {
@@ -29,7 +29,7 @@ fn test_config() -> Config {
         docroot: std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../..")
             .join("tt-rss"),
-    ..Default::default()
+        ..Default::default()
     }
 }
 
@@ -59,259 +59,298 @@ fn form(pairs: &[(&str, &str)]) -> Map<String, Value> {
 
 #[tokio::test]
 async fn test_change_personal_data() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup(&url).await;
-    let db = state.db.pool();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            let db = state.db.pool();
 
-    let extra = form(&[("full_name", "Test User"), ("email", "test@example.com")]);
-    let out = ttrss::settings::change_personal_data(&state, &sess, &extra).await;
-    assert_eq!(out, "Your personal data has been saved.");
+            let extra = form(&[("full_name", "Test User"), ("email", "test@example.com")]);
+            let out = ttrss::settings::change_personal_data(&state, &sess, &extra).await;
+            assert_eq!(out, "Your personal data has been saved.");
 
-    let row: (String, String) =
-        sqlx::query_as("SELECT full_name, email FROM ttrss_users WHERE id = 1")
-            .fetch_one(db)
-            .await
-            .unwrap();
-    assert_eq!(row.0, "Test User");
-    assert_eq!(row.1, "test@example.com");
-        Ok(())
-    })).await.unwrap();
+            let row: (String, String) =
+                sqlx::query_as("SELECT full_name, email FROM ttrss_users WHERE id = 1")
+                    .fetch_one(db)
+                    .await
+                    .unwrap();
+            assert_eq!(row.0, "Test User");
+            assert_eq!(row.1, "test@example.com");
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
 async fn test_changepassword_success() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup(&url).await;
-    let db = state.db.pool();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            let db = state.db.pool();
 
-    let extra = form(&[
-        ("old_password", "password"),
-        ("new_password", "newpass"),
-        ("confirm_password", "newpass"),
-    ]);
-    let out = ttrss::settings::changepassword(&state, &sess, &extra).await;
-    assert!(out.contains("Password has been changed."), "got: {out}");
-    assert!(
-        out.contains("alert-info"),
-        "success should be a notice, got: {out}"
-    );
+            let extra = form(&[
+                ("old_password", "password"),
+                ("new_password", "newpass"),
+                ("confirm_password", "newpass"),
+            ]);
+            let out = ttrss::settings::changepassword(&state, &sess, &extra).await;
+            assert!(out.contains("Password has been changed."), "got: {out}");
+            assert!(
+                out.contains("alert-info"),
+                "success should be a notice, got: {out}"
+            );
 
-    // The stored hash now verifies the new password (with the fresh salt),
-    // and the session's cached `pwd_hash` was refreshed.
-    let (pwd_hash, salt): (String, String) =
-        sqlx::query_as("SELECT pwd_hash, salt FROM ttrss_users WHERE id = 1")
-            .fetch_one(db)
-            .await
-            .unwrap();
-    assert!(user::verify_password(&pwd_hash, "newpass", &salt));
-    assert!(!user::verify_password(&pwd_hash, "password", &salt));
-    assert_eq!(sess.data().pwd_hash(), Some(pwd_hash.as_str()));
-        Ok(())
-    })).await.unwrap();
+            // The stored hash now verifies the new password (with the fresh salt),
+            // and the session's cached `pwd_hash` was refreshed.
+            let (pwd_hash, salt): (String, String) =
+                sqlx::query_as("SELECT pwd_hash, salt FROM ttrss_users WHERE id = 1")
+                    .fetch_one(db)
+                    .await
+                    .unwrap();
+            assert!(user::verify_password(&pwd_hash, "newpass", &salt));
+            assert!(!user::verify_password(&pwd_hash, "password", &salt));
+            assert_eq!(sess.data().pwd_hash(), Some(pwd_hash.as_str()));
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
 async fn test_changepassword_validation_errors() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup(&url).await;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
 
-    // Each pair is (form fields, expected message substring). The baseline
-    // password is irrelevant — validation short-circuits before verification.
-    let cases: &[(&[(&str, &str)], &str)] = &[
-        (
-            &[
-                ("old_password", "a"),
-                ("new_password", "<b>x</b>"),
-                ("confirm_password", "<b>x</b>"),
-            ],
-            "New password contains disallowed characters.",
-        ),
-        (
-            &[
-                ("old_password", "abc"),
-                ("new_password", "abc"),
-                ("confirm_password", "abc"),
-            ],
-            "New password must be different from the old one.",
-        ),
-        (
-            &[
-                ("old_password", ""),
-                ("new_password", "xyz"),
-                ("confirm_password", "xyz"),
-            ],
-            "Old password cannot be blank.",
-        ),
-        (
-            &[
-                ("old_password", "abc"),
-                ("new_password", ""),
-                ("confirm_password", ""),
-            ],
-            "New password cannot be blank.",
-        ),
-        (
-            &[
-                ("old_password", "abc"),
-                ("new_password", "xyz"),
-                ("confirm_password", "other"),
-            ],
-            "Entered passwords do not match.",
-        ),
-    ];
-    for (fields, expect) in cases {
-        let out = ttrss::settings::changepassword(&state, &sess, &form(fields)).await;
-        assert!(out.contains(expect), "expected {expect:?} in: {out}");
-        assert!(
-            out.contains("alert-danger"),
-            "error should be alert-danger, got: {out}"
-        );
-        assert!(
-            out.starts_with("ERROR: "),
-            "should be prefixed with ERROR:, got: {out}"
-        );
-    }
-        Ok(())
-    })).await.unwrap();
+            // Each pair is (form fields, expected message substring). The baseline
+            // password is irrelevant — validation short-circuits before verification.
+            let cases: &[(&[(&str, &str)], &str)] = &[
+                (
+                    &[
+                        ("old_password", "a"),
+                        ("new_password", "<b>x</b>"),
+                        ("confirm_password", "<b>x</b>"),
+                    ],
+                    "New password contains disallowed characters.",
+                ),
+                (
+                    &[
+                        ("old_password", "abc"),
+                        ("new_password", "abc"),
+                        ("confirm_password", "abc"),
+                    ],
+                    "New password must be different from the old one.",
+                ),
+                (
+                    &[
+                        ("old_password", ""),
+                        ("new_password", "xyz"),
+                        ("confirm_password", "xyz"),
+                    ],
+                    "Old password cannot be blank.",
+                ),
+                (
+                    &[
+                        ("old_password", "abc"),
+                        ("new_password", ""),
+                        ("confirm_password", ""),
+                    ],
+                    "New password cannot be blank.",
+                ),
+                (
+                    &[
+                        ("old_password", "abc"),
+                        ("new_password", "xyz"),
+                        ("confirm_password", "other"),
+                    ],
+                    "Entered passwords do not match.",
+                ),
+            ];
+            for (fields, expect) in cases {
+                let out = ttrss::settings::changepassword(&state, &sess, &form(fields)).await;
+                assert!(out.contains(expect), "expected {expect:?} in: {out}");
+                assert!(
+                    out.contains("alert-danger"),
+                    "error should be alert-danger, got: {out}"
+                );
+                assert!(
+                    out.starts_with("ERROR: "),
+                    "should be prefixed with ERROR:, got: {out}"
+                );
+            }
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
 async fn test_changepassword_wrong_old_password() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup(&url).await;
-    let extra = form(&[
-        ("old_password", "not-the-password"),
-        ("new_password", "newpass"),
-        ("confirm_password", "newpass"),
-    ]);
-    let out = ttrss::settings::changepassword(&state, &sess, &extra).await;
-    assert!(out.contains("Old password is incorrect."), "got: {out}");
-        Ok(())
-    })).await.unwrap();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            let extra = form(&[
+                ("old_password", "not-the-password"),
+                ("new_password", "newpass"),
+                ("confirm_password", "newpass"),
+            ]);
+            let out = ttrss::settings::changepassword(&state, &sess, &extra).await;
+            assert!(out.contains("Old password is incorrect."), "got: {out}");
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
 async fn test_changepassword_forbidden() {
-    with_test_db(|url| Box::pin(async move {
-    let (mut state, sess) = setup(&url).await;
-    state.config.forbid_password_changes = true;
-    let extra = form(&[
-        ("old_password", "password"),
-        ("new_password", "newpass"),
-        ("confirm_password", "newpass"),
-    ]);
-    let out = ttrss::settings::changepassword(&state, &sess, &extra).await;
-    assert!(out.starts_with("ERROR: "), "got: {out}");
-    assert!(out.contains("Access forbidden."), "got: {out}");
-    assert!(out.contains("alert-danger"), "got: {out}");
-        Ok(())
-    })).await.unwrap();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (mut state, sess) = setup(&url).await;
+            state.config.forbid_password_changes = true;
+            let extra = form(&[
+                ("old_password", "password"),
+                ("new_password", "newpass"),
+                ("confirm_password", "newpass"),
+            ]);
+            let out = ttrss::settings::changepassword(&state, &sess, &extra).await;
+            assert!(out.starts_with("ERROR: "), "got: {out}");
+            assert!(out.contains("Access forbidden."), "got: {out}");
+            assert!(out.contains("alert-danger"), "got: {out}");
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
 async fn test_otp_enable() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup(&url).await;
-    let db = state.db.pool();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            let db = state.db.pool();
 
-    // A known secret so we can compute the current TOTP code.
-    let known_secret = "0123456789abcdef0123456789abcdef";
-    sqlx::query("UPDATE ttrss_users SET otp_secret = $1 WHERE id = 1")
-        .bind(known_secret)
-        .execute(db)
-        .await
-        .unwrap();
-    let code = user::totp_at(known_secret.as_bytes(), ttrss::util::now_unix() as u64);
+            // A known secret so we can compute the current TOTP code.
+            let known_secret = "0123456789abcdef0123456789abcdef";
+            sqlx::query("UPDATE ttrss_users SET otp_secret = $1 WHERE id = 1")
+                .bind(known_secret)
+                .execute(db)
+                .await
+                .unwrap();
+            let code = user::totp_at(known_secret.as_bytes(), ttrss::util::now_unix() as u64);
 
-    // Wrong password.
-    let out = ttrss::settings::otp_enable(
-        &state,
-        &sess,
-        &form(&[("password", "wrong"), ("otp", &code)]),
-    )
-    .await;
-    assert_eq!(out, "ERROR:Incorrect password");
+            // Wrong password.
+            let out = ttrss::settings::otp_enable(
+                &state,
+                &sess,
+                &form(&[("password", "wrong"), ("otp", &code)]),
+            )
+            .await;
+            assert_eq!(out, "ERROR:Incorrect password");
 
-    // Wrong OTP code.
-    let out = ttrss::settings::otp_enable(
-        &state,
-        &sess,
-        &form(&[("password", "password"), ("otp", "000000")]),
-    )
-    .await;
-    assert_eq!(out, "ERROR:Incorrect one time password");
+            // Wrong OTP code.
+            let out = ttrss::settings::otp_enable(
+                &state,
+                &sess,
+                &form(&[("password", "password"), ("otp", "000000")]),
+            )
+            .await;
+            assert_eq!(out, "ERROR:Incorrect one time password");
 
-    // Correct password + code → enabled.
-    let out = ttrss::settings::otp_enable(
-        &state,
-        &sess,
-        &form(&[("password", "password"), ("otp", &code)]),
-    )
-    .await;
-    assert_eq!(out, "OK");
-    let enabled: bool = sqlx::query_scalar("SELECT otp_enabled FROM ttrss_users WHERE id = 1")
-        .fetch_one(db)
-        .await
-        .unwrap();
-    assert!(enabled);
-        Ok(())
-    })).await.unwrap();
+            // Correct password + code → enabled.
+            let out = ttrss::settings::otp_enable(
+                &state,
+                &sess,
+                &form(&[("password", "password"), ("otp", &code)]),
+            )
+            .await;
+            assert_eq!(out, "OK");
+            let enabled: bool =
+                sqlx::query_scalar("SELECT otp_enabled FROM ttrss_users WHERE id = 1")
+                    .fetch_one(db)
+                    .await
+                    .unwrap();
+            assert!(enabled);
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
 async fn test_otp_disable() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup(&url).await;
-    let db = state.db.pool();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            let db = state.db.pool();
 
-    // Wrong password first.
-    let out = ttrss::settings::otp_disable(&state, &sess, &form(&[("password", "wrong")])).await;
-    assert_eq!(out, "ERROR: Incorrect password");
-    let still: bool = sqlx::query_scalar("SELECT otp_enabled FROM ttrss_users WHERE id = 1")
-        .fetch_one(db)
-        .await
-        .unwrap();
-    assert!(!still);
+            // Wrong password first.
+            let out =
+                ttrss::settings::otp_disable(&state, &sess, &form(&[("password", "wrong")])).await;
+            assert_eq!(out, "ERROR: Incorrect password");
+            let still: bool =
+                sqlx::query_scalar("SELECT otp_enabled FROM ttrss_users WHERE id = 1")
+                    .fetch_one(db)
+                    .await
+                    .unwrap();
+            assert!(!still);
 
-    // Enable, then disable with the correct password.
-    sqlx::query("UPDATE ttrss_users SET otp_enabled = true, otp_secret = 'deadbeef' WHERE id = 1")
-        .execute(db)
-        .await
-        .unwrap();
-    let out = ttrss::settings::otp_disable(&state, &sess, &form(&[("password", "password")])).await;
-    assert_eq!(out, "OK");
-    let (enabled, secret): (bool, Option<String>) =
-        sqlx::query_as("SELECT otp_enabled, otp_secret FROM ttrss_users WHERE id = 1")
-            .fetch_one(db)
+            // Enable, then disable with the correct password.
+            sqlx::query(
+                "UPDATE ttrss_users SET otp_enabled = true, otp_secret = 'deadbeef' WHERE id = 1",
+            )
+            .execute(db)
             .await
             .unwrap();
-    assert!(!enabled);
-    assert!(
-        secret.is_none(),
-        "secret should be cleared on disable (schema >= 143)"
-    );
-        Ok(())
-    })).await.unwrap();
+            let out =
+                ttrss::settings::otp_disable(&state, &sess, &form(&[("password", "password")]))
+                    .await;
+            assert_eq!(out, "OK");
+            let (enabled, secret): (bool, Option<String>) =
+                sqlx::query_as("SELECT otp_enabled, otp_secret FROM ttrss_users WHERE id = 1")
+                    .fetch_one(db)
+                    .await
+                    .unwrap();
+            assert!(!enabled);
+            assert!(
+                secret.is_none(),
+                "secret should be cleared on disable (schema >= 143)"
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
 async fn test_customize_css() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup(&url).await;
-    let db = state.db.pool();
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            let db = state.db.pool();
 
-    sqlx::query(
-        "INSERT INTO ttrss_user_prefs2 (owner_uid, pref_name, profile, value) \
+            sqlx::query(
+                "INSERT INTO ttrss_user_prefs2 (owner_uid, pref_name, profile, value) \
          VALUES (1, 'USER_STYLESHEET', NULL, $1)",
-    )
-    .bind("body { color: red; }<br/>/* second line */")
-    .execute(db)
+            )
+            .bind("body { color: red; }<br/>/* second line */")
+            .execute(db)
+            .await
+            .unwrap();
+
+            let out = ttrss::settings::customize_css(&state, &sess).await;
+            let expect = json!({ "value": "body { color: red; }\n/* second line */" });
+            assert_eq!(out, expect, "got: {out}");
+            Ok(())
+        })
+    })
     .await
     .unwrap();
-
-    let out = ttrss::settings::customize_css(&state, &sess).await;
-    let expect = json!({ "value": "body { color: red; }\n/* second line */" });
-    assert_eq!(out, expect, "got: {out}");
-        Ok(())
-    })).await.unwrap();
 }

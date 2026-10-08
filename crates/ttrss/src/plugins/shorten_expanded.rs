@@ -14,8 +14,8 @@
 //! M7.7's own bar is that these methods return the reference bytes verbatim.
 
 use crate::pluginhost::host::PluginHost;
-use async_trait::async_trait;
 use crate::pluginhost::plugin::{About, Plugin};
+use async_trait::async_trait;
 
 /// PHP's `class Shorten_Expanded extends Plugin`.
 #[derive(Clone, Copy)]
@@ -49,12 +49,10 @@ impl Plugin for ShortenExpanded {
 
 /// `tt-rss/plugins/shorten_expanded/init.css` (byte-identical; the reference
 /// `get_css` is a `file_get_contents` of this file).
-const INIT_CSS: &str =
-    include_str!("../../../../tt-rss/plugins/shorten_expanded/init.css");
+const INIT_CSS: &str = include_str!("../../../../tt-rss/plugins/shorten_expanded/init.css");
 /// `tt-rss/plugins/shorten_expanded/init.js` (byte-identical; the reference
 /// `get_js` is a `file_get_contents` of this file).
-const INIT_JS: &str =
-    include_str!("../../../../tt-rss/plugins/shorten_expanded/init.js");
+const INIT_JS: &str = include_str!("../../../../tt-rss/plugins/shorten_expanded/init.js");
 
 #[cfg(test)]
 mod tests {

@@ -11,14 +11,14 @@
 mod common;
 
 use serde_json::{Map, Value};
+use test_db::template::with_test_db;
+use ttrss::AppState;
 use ttrss::api;
 use ttrss::core::config::Config;
 use ttrss::core::db::Db;
 use ttrss::core::phpser::Value as PValue;
 use ttrss::core::session::Session;
 use ttrss::session::Sess;
-use ttrss::AppState;
-use test_db::template::with_test_db;
 
 /// A test-only config. `docroot` must point at the frozen `tt-rss` tree so
 /// `AppState` can load the real gettext catalogs (the translations map).
@@ -72,23 +72,27 @@ async fn getconfig(state: &AppState, sess: &Sess) -> Value {
 /// absence so a stray copy of that field can't reappear in the external API.
 #[tokio::test]
 async fn test_getconfig_shape_and_no_translations_field() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup(&url).await;
-    enable_api(&state.db).await;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            enable_api(&state.db).await;
 
-    let content = getconfig(&state, &sess).await;
+            let content = getconfig(&state, &sess).await;
 
-    // The four PHP `API::_get_config` fields.
-    assert_eq!(content["custom_sort_types"], Value::Array(vec![]));
-    assert_eq!(content["daemon_is_running"], Value::Bool(true));
-    assert!(content.get("icons_url").is_some(), "icons_url: {content}");
-    assert!(content.get("num_feeds").is_some(), "num_feeds: {content}");
+            // The four PHP `API::_get_config` fields.
+            assert_eq!(content["custom_sort_types"], Value::Array(vec![]));
+            assert_eq!(content["daemon_is_running"], Value::Bool(true));
+            assert!(content.get("icons_url").is_some(), "icons_url: {content}");
+            assert!(content.get("num_feeds").is_some(), "num_feeds: {content}");
 
-    // PHP sends no `translations` here.
-    assert!(
-        content.get("translations").is_none(),
-        "getconfig must not send translations (PHP parity): {content}"
-    );
-        Ok(())
-    })).await.unwrap();
+            // PHP sends no `translations` here.
+            assert!(
+                content.get("translations").is_none(),
+                "getconfig must not send translations (PHP parity): {content}"
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }

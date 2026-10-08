@@ -32,8 +32,8 @@
 //! a parent-class check so it is idempotent and never double-wraps.
 
 use crate::pluginhost::host::PluginHost;
-use async_trait::async_trait;
 use crate::pluginhost::plugin::{About, Plugin};
+use async_trait::async_trait;
 
 /// The `tweak_article_header` plugin.
 #[derive(Clone, Copy)]

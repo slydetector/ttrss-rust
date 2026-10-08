@@ -7,18 +7,18 @@
 //! their template tabs. PHP's rule that the newline immediately after `?>`
 //! is consumed is baked into the templates below.
 
-use sqlx::Row;
 use sqlx::AssertSqlSafe;
+use sqlx::Row;
 
+use crate::AppState;
 use crate::core::user;
+use crate::i18n::__;
 use crate::session::Sess;
-use crate::time::{make_local_datetime, TzCtx};
+use crate::time::{TzCtx, make_local_datetime};
 use crate::util::{
     checkbox, clean_int, clean_str, htmlspecialchars, make_password, param_int_array,
 };
-use crate::AppState;
-use serde_json::{json, Map, Value};
-use crate::i18n::__;
+use serde_json::{Map, Value, json};
 
 /// `UserHelper::ACCESS_LEVEL_*` → display name (the `$access_level_names` map
 /// built in `backend.php`).
@@ -145,14 +145,14 @@ pub async fn index(
         sess,
         crate::pluginhost::HOOK_PREFS_TAB_SECTION,
         "prefUsersToolbar",
-            )
+    )
     .await;
     let tabs = crate::pluginhost::dispatch::prefs_chain(
         state,
         sess,
         crate::pluginhost::HOOK_PREFS_TAB,
         "prefUsers",
-            )
+    )
     .await;
 
     let mut out = String::new();

@@ -1,20 +1,21 @@
 //! `Pref_Prefs` backend read handlers (the settings/preferences UI in
 //! `backend.php?op=Pref_Prefs`).
 
-use crate::core::phpser::Value as PValue;use crate::i18n::{__};
+use crate::core::phpser::Value as PValue;
+use crate::i18n::__;
 
 use minijinja::Environment;
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 use sqlx::Row;
 
+use crate::AppState;
 use crate::auth;
 use crate::controls;
 use crate::otp;
 use crate::prefs;
 use crate::session::Sess;
-use crate::time::{make_local_datetime, TzCtx};
+use crate::time::{TzCtx, make_local_datetime};
 use crate::util;
-use crate::AppState;
 
 /// `Pref_Prefs::getProfiles`: the "Default profile" entry plus the user's
 /// stored profiles (ordered by title), each with `active` (the session's

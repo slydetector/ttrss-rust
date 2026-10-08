@@ -9,19 +9,17 @@
 
 mod common;
 
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
+use test_db::template::with_test_db;
+use ttrss::AppState;
 use ttrss::api;
 use ttrss::core::db::Db;
 use ttrss::core::phpser::Value as PValue;
 use ttrss::core::session::Session;
 use ttrss::session::Sess;
-use ttrss::AppState;
-use test_db::template::with_test_db;
 
 /// Fixtures + a fresh session carrying `uid = 1` + the per-user API gate.
-async fn setup(
-    url: &str,
-) -> (AppState, Sess) {
+async fn setup(url: &str) -> (AppState, Sess) {
     let db: Db = common::make_db_from_url(url).await.expect("test db");
     let state = AppState::new(common::test_config(), db);
     let mut data = Session::new();
@@ -42,8 +40,7 @@ fn request(pairs: &[(&str, Value)]) -> Map<String, Value> {
     Map::from_iter(pairs.iter().map(|(k, v)| (k.to_string(), v.clone())))
 }
 
-const IFRAME_HTML: &str =
-    "<p>Watch this:</p><iframe src=\"http://example.com/embed\" width=\"560\" height=\"315\"></iframe>";
+const IFRAME_HTML: &str = "<p>Watch this:</p><iframe src=\"http://example.com/embed\" width=\"560\" height=\"315\"></iframe>";
 
 /// Feed 5 (in fixture cat 1) with one unread entry whose content carries a
 /// non-whitelisted iframe.
@@ -75,7 +72,11 @@ async fn add_iframe_entry(pool: &sqlx::PgPool) {
 }
 
 /// The article-50 `content` field of the `getheadlines` response.
-async fn headline_content(state: &AppState, sess: &Sess, pairs: &[(&str, Value)]) -> Option<String> {
+async fn headline_content(
+    state: &AppState,
+    sess: &Sess,
+    pairs: &[(&str, Value)],
+) -> Option<String> {
     let (status, content) =
         api::before_and_dispatch(state, sess, "getheadlines", &request(pairs), None).await;
     assert_eq!(status, 0);
@@ -90,8 +91,14 @@ async fn headline_content(state: &AppState, sess: &Sess, pairs: &[(&str, Value)]
 
 /// The article-50 `content` field of a `getarticle` response.
 async fn article_content(state: &AppState, sess: &Sess) -> Option<String> {
-    let (status, content) =
-        api::before_and_dispatch(state, sess, "getarticle", &request(&[("article_id", json!([50]))]), None).await;
+    let (status, content) = api::before_and_dispatch(
+        state,
+        sess,
+        "getarticle",
+        &request(&[("article_id", json!([50]))]),
+        None,
+    )
+    .await;
     assert_eq!(status, 0);
     content
         .as_array()
@@ -104,86 +111,107 @@ async fn article_content(state: &AppState, sess: &Sess) -> Option<String> {
 
 #[tokio::test]
 async fn test_headlines_strips_iframe_without_flag() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup(&url).await;
-    add_iframe_entry(state.db.pool()).await;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            add_iframe_entry(state.db.pool()).await;
 
-    let content = headline_content(
-        &state,
-        &sess,
-        &[("feed_id", json!("5")), ("show_content", json!(true))],
-    )
+            let content = headline_content(
+                &state,
+                &sess,
+                &[("feed_id", json!("5")), ("show_content", json!(true))],
+            )
+            .await
+            .expect("article 50 in headlines");
+            assert!(
+                !content.contains("iframe"),
+                "iframe must be stripped without has_sandbox: {content}"
+            );
+            assert!(
+                content.contains("Watch this:"),
+                "text content preserved: {content}"
+            );
+            Ok(())
+        })
+    })
     .await
-    .expect("article 50 in headlines");
-    assert!(
-        !content.contains("iframe"),
-        "iframe must be stripped without has_sandbox: {content}"
-    );
-    assert!(content.contains("Watch this:"), "text content preserved: {content}");
-        Ok(())
-    })).await.unwrap();
+    .unwrap();
 }
 
 #[tokio::test]
 async fn test_headlines_keeps_hardened_iframe_with_flag() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup(&url).await;
-    add_iframe_entry(state.db.pool()).await;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            add_iframe_entry(state.db.pool()).await;
 
-    let content = headline_content(
-        &state,
-        &sess,
-        &[
-            ("feed_id", json!("5")),
-            ("show_content", json!(true)),
-            ("has_sandbox", json!("true")),
-        ],
-    )
+            let content = headline_content(
+                &state,
+                &sess,
+                &[
+                    ("feed_id", json!("5")),
+                    ("show_content", json!(true)),
+                    ("has_sandbox", json!("true")),
+                ],
+            )
+            .await
+            .expect("article 50 in headlines");
+            // Non-whitelisted src: kept, responsive-wrapped, tightly sandboxed.
+            assert!(
+                content.contains("embed-responsive"),
+                "responsive wrapper: {content}"
+            );
+            assert!(
+                content.contains("sandbox=\"allow-scripts\""),
+                "sandbox attribute: {content}"
+            );
+            assert!(
+                content.contains("http://example.com/embed"),
+                "src preserved: {content}"
+            );
+            Ok(())
+        })
+    })
     .await
-    .expect("article 50 in headlines");
-    // Non-whitelisted src: kept, responsive-wrapped, tightly sandboxed.
-    assert!(content.contains("embed-responsive"), "responsive wrapper: {content}");
-    assert!(
-        content.contains("sandbox=\"allow-scripts\""),
-        "sandbox attribute: {content}"
-    );
-    assert!(content.contains("http://example.com/embed"), "src preserved: {content}");
-        Ok(())
-    })).await.unwrap();
+    .unwrap();
 }
 
 #[tokio::test]
 async fn test_getarticle_reads_the_session_flag() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup(&url).await;
-    add_iframe_entry(state.db.pool()).await;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            add_iframe_entry(state.db.pool()).await;
 
-    // A session that never called getHeadlines: flag unset → stripped.
-    let content = article_content(&state, &sess).await.expect("article 50");
-    assert!(!content.contains("iframe"), "stripped pre-flag: {content}");
+            // A session that never called getHeadlines: flag unset → stripped.
+            let content = article_content(&state, &sess).await.expect("article 50");
+            assert!(!content.contains("iframe"), "stripped pre-flag: {content}");
 
-    // The client's getHeadlines(has_sandbox=true) sets the session flag…
-    let content = headline_content(
-        &state,
-        &sess,
-        &[
-            ("feed_id", json!("5")),
-            ("show_content", json!(true)),
-            ("has_sandbox", json!("true")),
-        ],
-    )
+            // The client's getHeadlines(has_sandbox=true) sets the session flag…
+            let content = headline_content(
+                &state,
+                &sess,
+                &[
+                    ("feed_id", json!("5")),
+                    ("show_content", json!(true)),
+                    ("has_sandbox", json!("true")),
+                ],
+            )
+            .await
+            .expect("article 50 in headlines");
+            assert!(content.contains("iframe"), "kept in headlines: {content}");
+
+            // …and the same session's getArticle now keeps the embed too.
+            let content = article_content(&state, &sess).await.expect("article 50");
+            assert!(
+                content.contains("sandbox=\"allow-scripts\""),
+                "kept in getArticle via session flag: {content}"
+            );
+            Ok(())
+        })
+    })
     .await
-    .expect("article 50 in headlines");
-    assert!(content.contains("iframe"), "kept in headlines: {content}");
-
-    // …and the same session's getArticle now keeps the embed too.
-    let content = article_content(&state, &sess).await.expect("article 50");
-    assert!(
-        content.contains("sandbox=\"allow-scripts\""),
-        "kept in getArticle via session flag: {content}"
-    );
-        Ok(())
-    })).await.unwrap();
+    .unwrap();
 }
 
 /// The `score` field in the headlines JSON is a **string** (not a number).
@@ -200,31 +228,37 @@ async fn test_getarticle_reads_the_session_flag() {
 /// → `false` → no spurious RPC.
 #[tokio::test]
 async fn test_headlines_score_is_json_string() {
-    with_test_db(|url| Box::pin(async move {
-    let (state, sess) = setup(&url).await;
-    add_iframe_entry(state.db.pool()).await;
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            add_iframe_entry(state.db.pool()).await;
 
-    let (status, content) = api::before_and_dispatch(
-        &state, &sess, "getheadlines",
-        &request(&[("feed_id", json!("5"))]),
-        None,
-    )
-    .await;
-    assert_eq!(status, 0);
+            let (status, content) = api::before_and_dispatch(
+                &state,
+                &sess,
+                "getheadlines",
+                &request(&[("feed_id", json!("5"))]),
+                None,
+            )
+            .await;
+            assert_eq!(status, 0);
 
-    let lines = content.as_array().expect("array response");
-    let article = lines
-        .iter()
-        .find(|e| e.get("id").and_then(Value::as_i64) == Some(50))
-        .expect("article 50 present");
+            let lines = content.as_array().expect("array response");
+            let article = lines
+                .iter()
+                .find(|e| e.get("id").and_then(Value::as_i64) == Some(50))
+                .expect("article 50 present");
 
-    let score = article.get("score").expect("score field present");
-    // Must be a JSON string so the frontend strict comparison works.
-    assert!(
-        score.is_string(),
-        "score must be a JSON string (frontend getAttribute parity), got: {score:?}"
-    );
-    assert_eq!(score.as_str(), Some("0"), "default score is \"0\"");
-        Ok(())
-    })).await.unwrap();
+            let score = article.get("score").expect("score field present");
+            // Must be a JSON string so the frontend strict comparison works.
+            assert!(
+                score.is_string(),
+                "score must be a JSON string (frontend getAttribute parity), got: {score:?}"
+            );
+            assert_eq!(score.as_str(), Some("0"), "default score is \"0\"");
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }

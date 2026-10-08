@@ -509,7 +509,7 @@ mod tests {
         assert_eq!(p_opt("5:00:99"), None);
         assert_eq!(p_opt("2026-13-05"), None);
         assert_eq!(p_opt("2026.05.25"), None); // dot year-first unsupported
-                                               // time-only → today (24:00 → tomorrow)
+        // time-only → today (24:00 → tomorrow)
         assert_eq!(p("0:30"), d(2026, 9, 7));
         assert_eq!(p("13:45:30"), d(2026, 9, 7));
         assert_eq!(p("23:59:60"), d(2026, 9, 8));
@@ -538,7 +538,7 @@ mod tests {
         assert_eq!(p_opt("11-28-2026"), None);
         assert_eq!(p_opt("1-28-2026"), None);
         assert_eq!(p_opt("13-14-2026"), None); // both > 12
-                                               // day/month 0 roll back (PHP oracle)
+        // day/month 0 roll back (PHP oracle)
         assert_eq!(p("0-0-2026"), d(2025, 11, 30));
         assert_eq!(p("0-1-2026"), d(2025, 12, 31));
         // dot form: same rules (d-m-Y)

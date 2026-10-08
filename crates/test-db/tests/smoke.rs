@@ -22,11 +22,10 @@ async fn count(pool: &sqlx::PgPool, table: &str) -> i64 {
 ))]
 async fn fixture_set_matches_php_integration_fixture(pool: sqlx::PgPool) {
     // baseline
-    let version: i32 =
-        sqlx::query_scalar("SELECT schema_version FROM ttrss_version")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+    let version: i32 = sqlx::query_scalar("SELECT schema_version FROM ttrss_version")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     assert_eq!(version, 151);
 
     // The admin user is created by schema.sql itself: password 'password'
@@ -71,11 +70,10 @@ async fn fixture_db_is_fresh_and_writable(pool: sqlx::PgPool) {
     // The per-test database starts from exactly the fixture state (no
     // leakage from other tests): the seed has 4 feeds, nothing else.
     assert_eq!(count(&pool, "ttrss_feeds").await, 4);
-    let uid: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM ttrss_users WHERE login = 'smokemark'")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+    let uid: i64 = sqlx::query_scalar("SELECT count(*) FROM ttrss_users WHERE login = 'smokemark'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     assert_eq!(uid, 0);
 
     // …and is writable (the parity suites mutate state within a test).
