@@ -32,6 +32,7 @@ pub mod plugins;
 pub mod pref_timezones;
 pub mod pref_ui;
 pub mod prefs;
+pub mod privs;
 pub mod render;
 pub mod rpc;
 pub mod rss_utils;

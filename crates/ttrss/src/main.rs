@@ -29,6 +29,11 @@ async fn main() -> anyhow::Result<()> {
     ttrss::core::config::expand_file_secrets();
 
     let config = Config::from_env()?;
+    // Privilege drop (docs/19): as root, chown the data dir and drop to
+    // OWNER_UID (default 1000) before any I/O, so the DB pool, caches and
+    // the listener all run as the app user. A no-op when started non-root
+    // (dev, tests, `docker run --user`).
+    ttrss::privs::drop_privileges(&config.data_dir, config.owner_uid, config.owner_gid)?;
     let db = Db::connect(&config).await?;
     // Schema bootstrap/migration (docs/20): runs on every startup, before
     // the daemon and the listener — the server only opens for business on

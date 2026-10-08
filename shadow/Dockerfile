@@ -28,8 +28,16 @@ COPY --from=build /src/target/release/ttrss /usr/local/bin/ttrss
 COPY tt-rss /var/www/html/tt-rss
 # Server defaults; compose/env can override these. Cache lives under the
 # data dir by design (docs/19 volume model) — no TTRSS_CACHE_DIR override.
+#
+# 9000 = the reference's own app port (nginx -> app:9000); the process
+# drops root before binding, so only unprivileged ports are supported.
+# OWNER_UID/OWNER_GID = the reference image's `app` user defaults; the
+# entrypoint (as root) chowns the data dir, then the server runs as this
+# UID for its whole life (docs/19).
 ENV TTRSS_DOCROOT=/var/www/html/tt-rss \
-    TTRSS_LISTEN_PORT=0.0.0.0:80 \
-    TTRSS_DATA_DIR=/var/lib/tt-rss
-EXPOSE 80
+    TTRSS_LISTEN_PORT=0.0.0.0:9000 \
+    TTRSS_DATA_DIR=/var/lib/tt-rss \
+    OWNER_UID=1000 \
+    OWNER_GID=1000
+EXPOSE 9000
 ENTRYPOINT ["ttrss"]

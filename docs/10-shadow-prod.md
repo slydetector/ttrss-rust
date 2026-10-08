@@ -44,7 +44,7 @@ just:
 | service | image | role |
 |---------|-------|------|
 | `db` | `postgres:17-alpine` | the prod-data copy (host port `5433`) |
-| `rust` | built from `shadow/Dockerfile` | the port; serves the app on container `:80` → host `:8282` |
+| `rust` | built from `shadow/Dockerfile` | the port; serves the app on container `:9000` → host `:9000` |
 
 No nginx, no PHP-FPM, no updater — the server runs with `TTRSS_DAEMON=0`, so
 the prod snapshot stays frozen (no background feed updates during poking).
@@ -80,7 +80,7 @@ One entry point — **`make shadow`** — that runs, in order:
    prod (local 18.6 client) streamed directly into `pg_restore --no-owner -d
    shadow` (the empty DB) — no dump file is written.
 6. **Rust up.** `docker compose up -d rust` — connects to `db`, daemon off.
-7. **Health check + summary** (curl the shadow's `/tt-rss/healthz` on `8282`;
+7. **Health check + summary** (curl the shadow's `/tt-rss/healthz` on `9000`;
    print URL, stop command).
 
 ### Companion targets
@@ -96,7 +96,7 @@ One entry point — **`make shadow`** — that runs, in order:
 
 - **`shadow/.env`** (gitignored) holds the prod connection + options:
   `PROD_DB_HOST`, `PROD_DB_PORT`, `PROD_DB_USER`, `PROD_DB_NAME`, `PROD_DB_PASS`,
-  plus the host ports `SHADOW_PORT` (default `8282`) and `SHADOW_DB_PORT`
+  plus the host ports `SHADOW_PORT` (default `9000`) and `SHADOW_DB_PORT`
   (default `5433`), and options that reuse the app's own names:
   `TTRSS_DB_USER` / `TTRSS_DB_PASS` / `TTRSS_DB_NAME`, `TTRSS_SELF_URL_PATH`,
   `TTRSS_ENCRYPTION_KEY`, and `RUST_LOG`.
@@ -176,7 +176,7 @@ repo-root `.dockerignore`. `.gitignore` gains `shadow/.env` +
 
 ## Decisions (resolved)
 
-1. **Shadow HTTP port** — `8282` (dedicated; coexists with the demo on `8281`).
+1. **Shadow HTTP port** — `9000` (dedicated; coexists with the demo on `8281`).
 2. **Encryption key** — not needed (no authenticated feeds in prod); default
    key, `TTRSS_ENCRYPTION_KEY` available as an override.
 3. **Drift preflight** — **hard-fail** on a `ttrss_version.schema_version`

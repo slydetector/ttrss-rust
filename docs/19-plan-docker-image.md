@@ -68,13 +68,18 @@ one-liner that can be run outside the image; possible follow-up).
     already adjusted it per the official docs)
 - **Commands** — the default only (no `updater.sh`/`dcron.sh` shims; the
   daemon runs inside the server process)
-- **Port 80**; **volume** — one: the cache dir (`/cache`, pinned via
-  `TTRSS_CACHE_DIR=/cache` in the image) so feed icons and image caches
-  survive image updates.
-  The official's `app:/var/www/html` code+cache volume shrinks to this
-  (code is baked into our image); `config.d` drops (see deviations)
+- **Port 9000** — the reference's own *app* port (its web-nginx image
+  proxies `app:9000`); we break from serving it on the nginx side. Only
+  unprivileged ports (>= 1024) are supported (see privileges below).
+  **Volume** — one: the data dir (`/var/lib/tt-rss`, baked via
+  `TTRSS_DATA_DIR`) so caches and user-supplied data survive image updates.
+  The official's `app:/var/www/html` code+cache volume shrinks to this (code
+  is baked into our image); `config.d` drops (see deviations)
 - **Startup behavior** (from the official `startup.sh`, read line by line):
-  wait for DB → `create extension if not exists pg_trgm` → schema create/migrate
+  DB readiness (deviation: no `pg_isready` wait loop — the pool's connect
+  retries + a non-zero exit on timeout let the compose restart policy
+  re-drive startup; see gap analysis) → `create extension if not exists
+  pg_trgm` → schema create/migrate
   → admin-password policy (env value applied on **every** boot; else, if the
   password is still the stock `password`, generate a random 16-char password
   and print the star-banner to the logs) → auto-create the extra user → serve
@@ -85,7 +90,8 @@ one-liner that can be run outside the image; possible follow-up).
 **Already in place:**
 
 - `shadow/Dockerfile` — multi-stage `rust:1.98-trixie` → `debian:trixie-slim`,
-  docroot baked in, port 80. The new image extends it; nothing is thrown away.
+  docroot baked in, port 9000, in-process chown + privilege drop. The new
+  image extends it; nothing is thrown away.
 - The binary reads the official `TTRSS_*` env names; the in-process update
   daemon + cron housekeeping (`ttrss::updates::daemon_loop`, on by default)
   *is* the updater service's job; password-hash formats match
@@ -124,17 +130,49 @@ FROM debian:trixie-slim
   + ttrss binary
   + docroot baked at /var/www/html/tt-rss   (read-only code; the familiar
                                               official path; debug aid)
-  + postgresql-client (pg_isready for the entrypoint's DB wait) + ca-certificates
+  + ca-certificates
   + ENV TTRSS_DATA_DIR=/var/lib/tt-rss       (baked; the user never sees the knob)
+  + ENV TTRSS_LISTEN_PORT=0.0.0.0:9000
+  + ENV OWNER_UID=1000 OWNER_GID=1000        (the reference image's defaults)
   + /var/lib/tt-rss                          (the single `app` volume mount point)
-ENTRYPOINT:  shell script:
-  VAR__FILE secret expansion → pg_isready wait → chown $OWNER_UID:$OWNER_GID
-  → exec ttrss   (startup runs the bootstrap in-process — schema per
-                  docs/20, admin-password policy, access level, auto-user,
-                  post-init patches — all env-driven — then serves:
-                  server + daemon, 0.0.0.0:80)
-HEALTHCHECK: http://localhost:80<base>/index.php   (official parity)
+ENTRYPOINT: ["ttrss"]   (no shell — everything is in-process:
+  VAR__FILE secret expansion → chown data dir to OWNER_UID:OWNER_GID (root
+  only) → setgroups/setgid/setuid drop (irreversible) → schema bootstrap
+  (docs/20), admin-password policy, access level, auto-user, post-init
+  patches — all env-driven — then serve server + daemon on 0.0.0.0:9000,
+  entirely as OWNER_UID)
+HEALTHCHECK: http://localhost:9000<base>/index.php   (official parity)
 ```
+
+**Privileges (non-root steady state):** the process starts root only so it
+can chown the data volume; it then drops to `OWNER_UID`/`OWNER_GID`
+(default 1000 — the reference image's `app` user) via
+`setgroups`/`setgid`/`setuid` and never regains root (kernel-enforced).
+The drop happens before the tokio runtime exists, so every worker thread is
+born the app UID. Consequences and deviations from the reference:
+
+- **Port**: 9000 (the reference app image's own port), unprivileged only —
+  `TTRSS_LISTEN_PORT` < 1024 fails with a clear error (the reference's
+  nginx side served 80; we have no nginx, and no
+  `CAP_NET_BIND_SERVICE` opt-in, deliberately).
+- **Stronger than the reference**: its php-fpm *master* stays root
+  permanently; ours is root only for the chown.
+- **`OWNER_UID`/`OWNER_GID`**: unprefixed names on purpose (the reference's
+  `ENV OWNER_UID=1000`), so a user's UID tuning carries over. Set them to
+  the host user's UID to keep bind-mount ownership a no-op:
+  `docker run -e OWNER_UID=$(id -u)` / compose `OWNER_UID: ${OWNER_UID:-1000}`.
+  Ignored when the container starts non-root (`--user`), like the
+  reference. `OWNER_UID=0` opts back into all-root.
+- **chown is top-level only** (the reference does `chown -R` every boot):
+  the app writes everything below as the app user, so the recursive sweep
+  buys nothing under the fresh-volume contract.
+- **DB readiness**: no `pg_isready` loop (the reference waits forever — its
+  own `TODO` admits it should bail). The sqlx pool retries connects for its
+  30 s `acquire_timeout`, then the process exits non-zero; the compose
+  `restart: unless-stopped` re-drives startup. Same self-healing as the
+  infinite loop, plus a visible crash loop (with the pool's error) when the
+  DB never comes. Mid-run DB outages self-heal via the pool's background
+  reconnect without a restart — something a one-shot entrypoint can't do.
 
 **The single `app` volume** (the official docs' volume *name*, kept):
 everything the app writes or the user supplies lives under one mount —
@@ -154,9 +192,13 @@ Deliberately *absent* (no code in the port reads them): `plugins.local/`
 and `templates.local/` (plugins compiled in, templates embedded),
 `lock/` (no cross-process lock files — one in-process daemon),
 `config.php` (config is env-driven). Migration from the official image:
-re-point/copy `cache/` + `themes.local/` from the old `/var/www` volume
-(the official's `app` volume mixes code and data because PHP needs a live
-working copy; ours is data-only).
+**keep the Postgres volume** (re-point the same `TTRSS_DB_*` — feeds,
+articles, tags, users, prefs and even live sessions live in the DB); use a
+**fresh app volume**. Not carried over: manually-set feed icons
+(`cache/ln`) and user-local themes (re-add as wanted); everything else on
+the official's volume is regenerable cache. (The official's `app` volume
+mixes code and data because PHP needs a live working copy; ours is
+data-only, so there is nothing else to copy.)
 
 `TTRSS_PLUGINS` default: `auth_internal,note` (the official's `nginx_xaccel`
 is dropped — we have no nginx). Result: **~60 MB image with no PHP, no nginx,
@@ -196,6 +238,12 @@ no rsync, no sudo, no cron** (the official app image is ~350 MB).
   - no precompressed `.gz` assets (gzip/brotli/zstd at request time instead;
     modern browsers get *better* compression than the official image)
   - version string pinned to the frozen reference (`26.08-2f7d831f`)
+  - in-container port is **9000** (compose mapping `…:9000`, was `…:80`)
+  - the process runs as **`OWNER_UID`/`OWNER_GID`** (default 1000), root
+    only for the data-dir chown; no `CAP_NET_BIND_SERVICE` / port-80 mode
+  - no infinite DB wait at boot: a DB that never appears yields a crash
+    loop (pool timeout → exit → compose restart) instead of a silent
+    "waiting..." hang
   - **SVG favicons work** (extension): the reference's MIME allowlist
     (RSSUtils.php:9-15) predates SVG and its GD `calculate_avg_color` can't
     open one, so a feed serving an SVG icon gets the default gray. We allow

@@ -4682,6 +4682,7 @@ dependencies = [
  "idna",
  "image",
  "kuchikiki",
+ "libc",
  "md5",
  "mime_guess",
  "minijinja",

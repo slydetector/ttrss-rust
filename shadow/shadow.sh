@@ -16,7 +16,7 @@ ENV_FILE="$SHADOW_DIR/.env"
 DB_CONTAINER="ttrss-shadow-db-1"
 
 # --- defaults (overridable via shadow/.env; kept in sync with compose.yaml) ---
-SHADOW_PORT="${SHADOW_PORT:-8282}"
+SHADOW_PORT="${SHADOW_PORT:-9000}"
 SHADOW_DB_PORT="${SHADOW_DB_PORT:-5433}"
 TTRSS_DB_USER="${TTRSS_DB_USER:-shadow}"
 TTRSS_DB_PASS="${TTRSS_DB_PASS:-shadow}"

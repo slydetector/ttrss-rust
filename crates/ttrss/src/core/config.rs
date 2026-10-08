@@ -5,6 +5,10 @@
 //! environment variable (see `Config::_ENVVAR_PREFIX` and the `_DEFAULTS[]`
 //! table); we read the same `TTRSS_*` variables with the same defaults. A few
 //! extra, M1-only fields (listen address, doc root) live here too.
+//!
+//! Exception: `OWNER_UID`/`OWNER_GID` deliberately keep the official docker
+//! image's unprefixed names (its `ENV OWNER_UID=1000`), so a user's existing
+//! UID tuning carries over on migration.
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -37,7 +41,7 @@ pub struct Config {
     pub db_name: String,
     pub db_sslmode: String,
 
-    /// Self URL (Config.php SELF_URL_PATH), e.g. `http://127.0.0.1:8280/tt-rss`.
+    /// Self URL (Config.php SELF_URL_PATH), e.g. `http://127.0.0.1:9000/tt-rss`.
     /// The configured value: daemon/CLI contexts use it directly, and the web
     /// path falls back to it when [`Config::get_self_url`] cannot detect one.
     pub self_url: String,
@@ -81,8 +85,19 @@ pub struct Config {
     pub plugins: String,
 
     // -- M1 server-specific (not part of upstream Config.php) -------------
-    /// Where the Rust HTTP server listens.
+    /// Where the Rust HTTP server listens. Must be unprivileged (port
+    /// >= 1024): the process drops root before binding (see
+    /// [`crate::privs`]), and we deliberately do not support privileged
+    /// ports.
     pub listen: SocketAddr,
+    /// The `OWNER_UID` env var (the official docker image's `app` user
+    /// UID, default 1000): the UID the process drops to after the
+    /// data-dir chown when it starts as root. `0` = run everything as
+    /// root. Ignored when the process starts non-root.
+    pub owner_uid: u32,
+    /// The `OWNER_GID` env var (default 1000), the GID counterpart of
+    /// [`Config::owner_uid`].
+    pub owner_gid: u32,
     /// Root of the static/web tree to serve byte-for-byte.
     pub docroot: PathBuf,
     /// The app-data root (default `"data"`, CWD-relative; the docker image
@@ -193,7 +208,9 @@ impl Default for Config {
             auth_auto_create: true,
             auth_remote_post_logout_url: String::new(),
             plugins: DEFAULT_PLUGINS.to_string(),
-            listen: "127.0.0.1:8280".parse().unwrap(),
+            listen: "127.0.0.1:9000".parse().unwrap(),
+            owner_uid: 1000,
+            owner_gid: 1000,
             docroot: PathBuf::from("tt-rss"),
             data_dir: PathBuf::from("data"),
             cache_dir: PathBuf::from("cache"),
@@ -255,6 +272,17 @@ impl Config {
             .map(PathBuf::from)
             .unwrap_or_else(|_| data_dir.join("cache"));
 
+        // The process drops root before binding (crate::privs), so only
+        // unprivileged ports are supported — no `CAP_NET_BIND_SERVICE`
+        // opt-in, deliberately.
+        let listen: SocketAddr = env("TTRSS_LISTEN_PORT", "127.0.0.1:9000")?;
+        if listen.port() < 1024 {
+            return Err(anyhow!(
+                "TTRSS_LISTEN_PORT={listen}: privileged ports (<1024) are not supported; \
+                 use an unprivileged port (the image listens on 9000)"
+            ));
+        }
+
         Ok(Self {
             db_host: std::env::var("TTRSS_DB_HOST").unwrap_or_else(|_| "db".into()),
             db_port: env("TTRSS_DB_PORT", "5432")?,
@@ -263,7 +291,7 @@ impl Config {
             db_name,
             db_sslmode: std::env::var("TTRSS_DB_SSLMODE").unwrap_or_else(|_| "prefer".into()),
             self_url: std::env::var("TTRSS_SELF_URL_PATH")
-                .unwrap_or_else(|_| "http://127.0.0.1:8280/tt-rss/".into()),
+                .unwrap_or_else(|_| "http://127.0.0.1:9000/tt-rss/".into()),
             force_self_url_path_usage: sql_bool_to_bool(
                 &std::env::var("TTRSS_FORCE_SELF_URL_PATH_USAGE").unwrap_or_default(),
             ),
@@ -286,7 +314,9 @@ impl Config {
             auth_remote_post_logout_url: std::env::var("TTRSS_AUTH_REMOTE_POST_LOGOUT_URL")
                 .unwrap_or_default(),
             plugins: std::env::var("TTRSS_PLUGINS").unwrap_or_else(|_| DEFAULT_PLUGINS.to_string()),
-            listen: env("TTRSS_LISTEN_PORT", "127.0.0.1:8280")?,
+            listen,
+            owner_uid: env("OWNER_UID", "1000")?,
+            owner_gid: env("OWNER_GID", "1000")?,
             docroot: std::env::var("TTRSS_DOCROOT")
                 .map(PathBuf::from)
                 .unwrap_or_else(|_| PathBuf::from("tt-rss")),
@@ -791,6 +821,73 @@ mod tests {
         with_env(None, None, |c| {
             assert_eq!(c.data_dir, PathBuf::from("data"));
             assert_eq!(c.cache_dir, PathBuf::from("data/cache"));
+        });
+    }
+
+    /// `from_env` OWNER_UID/OWNER_GID (official image's unprefixed names,
+    /// default 1000) and the unprivileged-only listen port. One test
+    /// function: env vars are process-global, so the cases run
+    /// sequentially.
+    #[test]
+    fn from_env_owner_and_listen_validation() {
+        fn with_env(
+            owner_uid: Option<&str>,
+            owner_gid: Option<&str>,
+            listen: Option<&str>,
+            f: impl FnOnce(Result<Config>),
+        ) {
+            let old = [
+                ("OWNER_UID", std::env::var("OWNER_UID").ok()),
+                ("OWNER_GID", std::env::var("OWNER_GID").ok()),
+                ("TTRSS_LISTEN_PORT", std::env::var("TTRSS_LISTEN_PORT").ok()),
+            ];
+            for (key, val) in [
+                ("OWNER_UID", owner_uid),
+                ("OWNER_GID", owner_gid),
+                ("TTRSS_LISTEN_PORT", listen),
+            ] {
+                match val {
+                    Some(v) => unsafe { std::env::set_var(key, v) },
+                    None => unsafe { std::env::remove_var(key) },
+                }
+            }
+            f(Config::from_env());
+            for (key, val) in old {
+                match val {
+                    Some(v) => unsafe { std::env::set_var(key, v) },
+                    None => unsafe { std::env::remove_var(key) },
+                }
+            }
+        }
+
+        // unset → the image defaults (the reference's `app` user).
+        with_env(None, None, None, |r| {
+            let c = r.expect("from_env");
+            assert_eq!(c.owner_uid, 1000);
+            assert_eq!(c.owner_gid, 1000);
+            assert_eq!(c.listen, "127.0.0.1:9000".parse().unwrap());
+        });
+        // set → verbatim (a user's host-UID tuning carries over).
+        with_env(Some("1001"), Some("2000"), None, |r| {
+            let c = r.expect("from_env");
+            assert_eq!(c.owner_uid, 1001);
+            assert_eq!(c.owner_gid, 2000);
+        });
+        // 0 → explicit opt-out to all-root.
+        with_env(Some("0"), Some("0"), None, |r| {
+            let c = r.expect("from_env");
+            assert_eq!(c.owner_uid, 0);
+            assert_eq!(c.owner_gid, 0);
+        });
+        // bad value → clean parse error naming the var.
+        with_env(Some("not-a-uid"), None, None, |r| {
+            let e = r.expect_err("should fail").to_string();
+            assert!(e.contains("OWNER_UID"), "{e}");
+        });
+        // privileged port → rejected (the process drops root before bind).
+        with_env(None, None, Some("0.0.0.0:80"), |r| {
+            let e = r.expect_err("should fail").to_string();
+            assert!(e.contains("<1024"), "{e}");
         });
     }
 
