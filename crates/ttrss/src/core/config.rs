@@ -86,7 +86,7 @@ pub struct Config {
     /// Root of the static/web tree to serve byte-for-byte.
     pub docroot: PathBuf,
     /// The app-data root (default `"data"`, CWD-relative; the docker image
-    /// sets `TTRSS_DATA_DIR=/var/lib/ttrss` — the single `app` volume):
+    /// sets `TTRSS_DATA_DIR=/var/lib/tt-rss` — the single `app` volume):
     /// user-supplied + persistent data that is **not** the docroot —
     /// `cache/` (disk caches), `sql/post-init.d/` (startup SQL patches),
     /// `themes.local/` (user themes).
@@ -726,13 +726,13 @@ mod tests {
         }
 
         // data dir set, cache dir unset → `<data>/cache` (the image default).
-        with_env(Some("/var/lib/ttrss"), None, |c| {
-            assert_eq!(c.data_dir, PathBuf::from("/var/lib/ttrss"));
-            assert_eq!(c.cache_dir, PathBuf::from("/var/lib/ttrss/cache"));
+        with_env(Some("/var/lib/tt-rss"), None, |c| {
+            assert_eq!(c.data_dir, PathBuf::from("/var/lib/tt-rss"));
+            assert_eq!(c.cache_dir, PathBuf::from("/var/lib/tt-rss/cache"));
         });
         // cache dir set → wins verbatim.
-        with_env(Some("/var/lib/ttrss"), Some("/elsewhere"), |c| {
-            assert_eq!(c.data_dir, PathBuf::from("/var/lib/ttrss"));
+        with_env(Some("/var/lib/tt-rss"), Some("/elsewhere"), |c| {
+            assert_eq!(c.data_dir, PathBuf::from("/var/lib/tt-rss"));
             assert_eq!(c.cache_dir, PathBuf::from("/elsewhere"));
         });
         // neither set → the CWD-relative dev defaults (cache nested under

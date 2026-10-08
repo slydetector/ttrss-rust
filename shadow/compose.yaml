@@ -10,12 +10,16 @@ name: ttrss-shadow
 services:
   db:
     image: postgres:17-alpine
+    # Run as the invoking host user (the official image's "arbitrary users"
+    # mode): the bind mount needs no chown, and all DB files end up owned by
+    # the host user for easy inspection.
+    user: "${UID:-1000}:${GID:-1000}"
     environment:
       POSTGRES_USER: ${TTRSS_DB_USER:-shadow}
       POSTGRES_PASSWORD: ${TTRSS_DB_PASS:-shadow}
       POSTGRES_DB: ${TTRSS_DB_NAME:-shadow}
     volumes:
-      - shadow-data:/var/lib/postgresql/data
+      - ./data/db:/var/lib/postgresql/data
     ports:
       - "${SHADOW_DB_PORT:-5433}:5432"
     healthcheck:
@@ -42,15 +46,10 @@ services:
       TTRSS_DB_PASS: ${TTRSS_DB_PASS:-shadow}
       TTRSS_SELF_URL_PATH: ${TTRSS_SELF_URL_PATH:-http://127.0.0.1:8282/tt-rss/}
       TTRSS_LISTEN_PORT: 0.0.0.0:80
-      TTRSS_DOCROOT: /opt/ttrss-web
-      TTRSS_CACHE_DIR: /opt
       TTRSS_ENCRYPTION_KEY: ${TTRSS_ENCRYPTION_KEY:-9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08}
       TTRSS_PLUGINS: ${TTRSS_PLUGINS:-auth_internal}
       RUST_LOG: ${RUST_LOG:-info}
     ports:
       - "${SHADOW_PORT:-8282}:80"
     volumes:
-      - ./feed-icons:/opt/feed-icons
-
-volumes:
-  shadow-data:
+      - ./data/tt-rss:/var/lib/tt-rss

@@ -125,8 +125,8 @@ FROM debian:trixie-slim
   + docroot baked at /var/www/html/tt-rss   (read-only code; the familiar
                                               official path; debug aid)
   + postgresql-client (pg_isready for the entrypoint's DB wait) + ca-certificates
-  + ENV TTRSS_DATA_DIR=/var/lib/ttrss       (baked; the user never sees the knob)
-  + /var/lib/ttrss                          (the single `app` volume mount point)
+  + ENV TTRSS_DATA_DIR=/var/lib/tt-rss       (baked; the user never sees the knob)
+  + /var/lib/tt-rss                          (the single `app` volume mount point)
 ENTRYPOINT:  shell script:
   VAR__FILE secret expansion → pg_isready wait → chown $OWNER_UID:$OWNER_GID
   → exec ttrss   (startup runs the bootstrap in-process — schema per
@@ -138,11 +138,11 @@ HEALTHCHECK: http://localhost:80<base>/index.php   (official parity)
 
 **The single `app` volume** (the official docs' volume *name*, kept):
 everything the app writes or the user supplies lives under one mount —
-`/var/lib/ttrss` (FHS: app state; the official's 7-volume layout collapses
+`/var/lib/tt-rss` (FHS: app state; the official's 7-volume layout collapses
 to one because our code is baked, not rsync'd):
 
 ```
-app → /var/lib/ttrss
+app → /var/lib/tt-rss
   cache/            feed-icons/, images/, …  (regenerable; TTRSS_CACHE_DIR
                                                still wins if explicitly set)
   sql/post-init.d/  user SQL patches, run at every boot
@@ -196,6 +196,15 @@ no rsync, no sudo, no cron** (the official app image is ~350 MB).
   - no precompressed `.gz` assets (gzip/brotli/zstd at request time instead;
     modern browsers get *better* compression than the official image)
   - version string pinned to the frozen reference (`26.08-2f7d831f`)
+  - **SVG favicons work** (extension): the reference's MIME allowlist
+    (RSSUtils.php:9-15) predates SVG and its GD `calculate_avg_color` can't
+    open one, so a feed serving an SVG icon gets the default gray. We allow
+    `image/svg+xml` (serving is safe: it renders in `<img>` context, which
+    sandboxes embedded scripts) and compute the accent color from the fill
+    palette via `usvg` (parse + tree walk, **no rasterizer** — ~14 pure-Rust
+    crates; a huge `viewBox` can't blow up memory the way a rasterizer
+    pixmap could). Degenerate SVGs (strokes/filters/patterns only) still
+    fall back to gray, matching the reference's behavior.
 
 ## 5. Decision items
 
