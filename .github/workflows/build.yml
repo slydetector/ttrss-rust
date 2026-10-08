@@ -73,7 +73,7 @@ jobs:
       #   without it; with it, cache save/restore is multi-threaded.
       # Each install is a no-op when the piece already exists, so the file
       # stays portable to GitHub.
-      - name: Ensure build toolchain (node + clippy + zstd)
+      - name: Ensure build toolchain (node + clippy + rustfmt)
         run: |
           command -v node >/dev/null 2>&1 || (apt-get update && apt-get install -y --no-install-recommends nodejs)
           command -v zstd >/dev/null 2>&1 || (apt-get update && apt-get install -y --no-install-recommends zstd)
