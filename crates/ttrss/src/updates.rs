@@ -282,7 +282,40 @@ pub async fn process_feed(
                 DEBUG_LEVEL_VERBOSE,
                 "favicon: trying to update favicon...".into(),
             );
-            crate::favicons::update_favicon(cfg, &site_url, feed.id).await;
+            // The reference logs nothing about the outcome; the debug dialog
+            // surfaces it (deliberate extension — docs/19 deviations).
+            match crate::favicons::update_favicon(cfg, &site_url, feed.id).await {
+                crate::favicons::FaviconOutcome::Saved { url, mime } => dlog(
+                    log.as_deref_mut(),
+                    DEBUG_LEVEL_VERBOSE,
+                    format!("favicon: downloaded {url} ({mime})"),
+                ),
+                crate::favicons::FaviconOutcome::NoCandidates => dlog(
+                    log.as_deref_mut(),
+                    DEBUG_LEVEL_VERBOSE,
+                    "favicon: no candidate URLs found".into(),
+                ),
+                crate::favicons::FaviconOutcome::Rejected(attempts) => {
+                    let list = attempts
+                        .iter()
+                        .map(|(url, mime)| match mime {
+                            Some(m) => format!("{url} [{m}]"),
+                            None => format!("{url} [fetch failed]"),
+                        })
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    dlog(
+                        log.as_deref_mut(),
+                        DEBUG_LEVEL_VERBOSE,
+                        format!("favicon: no usable icon (candidates: {list})"),
+                    )
+                }
+                crate::favicons::FaviconOutcome::WriteFailed(url) => dlog(
+                    log.as_deref_mut(),
+                    DEBUG_LEVEL_VERBOSE,
+                    format!("favicon: download ok, write failed ({url})"),
+                ),
+            }
         }
 
         // Compute avg color if the icon exists and we don't have one yet.

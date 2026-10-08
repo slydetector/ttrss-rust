@@ -76,15 +76,33 @@ pub async fn get_favicon_urls(site_url: &str) -> Vec<String> {
     urls
 }
 
+/// The outcome of [`update_favicon`]. The feed-debug dialog logs it
+/// (a deliberate extension beyond the reference — the PHP's
+/// `RSSUtils::update_favicon` returns a bare bool and logs nothing).
+#[derive(Debug)]
+pub enum FaviconOutcome {
+    /// The icon was saved.
+    Saved { url: String, mime: String },
+    /// The site page fetch/parse yielded no favicon candidates at all.
+    NoCandidates,
+    /// Candidates were found but none produced an allowed image type.
+    /// One `(url, sniffed mime)` per attempt; `None` mime = the fetch
+    /// itself failed.
+    Rejected(Vec<(String, Option<String>)>),
+    /// A usable icon was fetched but writing it to disk failed.
+    WriteFailed(String),
+}
+
 /// `RSSUtils::update_favicon` (RSSUtils.php:1774-1822) — try each candidate
-/// URL: fetch, sniff MIME, save to disk if allowed. Returns `true` on success.
-pub async fn update_favicon(cfg: &Config, site_url: &str, feed_id: i32) -> bool {
+/// URL: fetch, sniff MIME, save to disk if allowed.
+pub async fn update_favicon(cfg: &Config, site_url: &str, feed_id: i32) -> FaviconOutcome {
     let candidate_urls = get_favicon_urls(site_url).await;
     if candidate_urls.is_empty() {
         tracing::debug!(site_url, "favicon: no candidate URLs found");
-        return false;
+        return FaviconOutcome::NoCandidates;
     }
 
+    let mut rejected: Vec<(String, Option<String>)> = Vec::new();
     for url in &candidate_urls {
         let result = urlhelper::fetch(&FetchOptions {
             url: url.clone(),
@@ -94,33 +112,38 @@ pub async fn update_favicon(cfg: &Config, site_url: &str, feed_id: i32) -> bool 
         .await;
 
         let Some(body) = result.body else {
+            rejected.push((url.clone(), None));
             continue;
         };
 
         let mime = crate::diskcache::sniff_mime(&body);
         if !FAVICON_ALLOWED_MIME.contains(&mime) {
+            rejected.push((url.clone(), Some(mime.to_string())));
             continue;
         }
 
         // Save to the feed-icon cache directory.
         let dir = &cfg.feed_icon_dir();
         if std::fs::create_dir_all(dir).is_err() {
-            return false;
+            return FaviconOutcome::WriteFailed(url.clone());
         }
         let path = dir.join(feed_id.to_string());
         match std::fs::write(&path, &body) {
             Ok(_) => {
                 tracing::debug!(feed_id, url, mime, "favicon: saved");
-                return true;
+                return FaviconOutcome::Saved {
+                    url: url.clone(),
+                    mime: mime.to_string(),
+                };
             }
             Err(e) => {
                 tracing::warn!(feed_id, url, error = %e, "favicon: write failed");
-                return false;
+                return FaviconOutcome::WriteFailed(url.clone());
             }
         }
     }
 
-    false
+    FaviconOutcome::Rejected(rejected)
 }
 
 /// `Colors::calculate_avg_color` (colors.php:274-295) — decode the icon,
