@@ -24,6 +24,10 @@ async fn main() -> anyhow::Result<()> {
         )
         .init();
 
+    // The official startup.sh's VAR__FILE docker-secret expansion, in-process
+    // (parity, done before any env read — see the function's doc).
+    ttrss::core::config::expand_file_secrets();
+
     let config = Config::from_env()?;
     let db = Db::connect(&config).await?;
     // Schema bootstrap/migration (docs/20): runs on every startup, before

@@ -471,6 +471,56 @@ fn urlenc(s: &str) -> String {
     out
 }
 
+/// The official image's `VAR__FILE` docker-secret expansion (the
+/// `startup.sh` loop), done in-process: for every env var whose name ends
+/// in `__FILE`, the value is a *file path*; the file's contents become the
+/// var with the suffix stripped. Generic by design (the official matches
+/// `*__FILE` with no name filter), so compose/Swarm/K8s secrets mounted at
+/// any path work: set `TTRSS_DB_PASS__FILE=/run/secrets/db_pass`.
+///
+/// Official semantics, kept exactly: the file **wins** over an already-set
+/// base var (with a warning); an unreadable/missing file leaves the base
+/// var untouched (with a warning); a readable *empty* file clears it;
+/// trailing newlines are trimmed (the official's `$(cat …)` command
+/// substitution drops them); the `__FILE` vars themselves stay in the env.
+///
+/// Must run before any env read (top of `main`). Edition-2024 `set_var` is
+/// `unsafe` (global mutable state) — safe here: single-threaded startup.
+pub fn expand_file_secrets() {
+    for (name, path) in std::env::vars() {
+        let Some(base) = name.strip_suffix("__FILE").filter(|b| !b.is_empty()) else {
+            continue;
+        };
+        if std::env::var(base).is_ok() {
+            tracing::warn!(
+                base,
+                file_var = name.as_str(),
+                "both {base} and {name} are set. {name} will override {base}."
+            );
+        }
+        match std::fs::read_to_string(&path) {
+            Ok(value) => {
+                let value = value.trim_end_matches(['\n', '\r']).to_string();
+                // Single-threaded: before config parsing, before any tokio
+                // runtime/thread is spawned.
+                unsafe { std::env::set_var(base, &value) };
+                tracing::debug!(
+                    base,
+                    file = path.as_str(),
+                    "{base} environment variable was set by secret file {path}"
+                );
+            }
+            Err(_) => {
+                tracing::warn!(
+                    file = path.as_str(),
+                    file_var = name.as_str(),
+                    "secret file {path} for {name} is not readable or does not exist."
+                );
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -742,5 +792,109 @@ mod tests {
             assert_eq!(c.data_dir, PathBuf::from("data"));
             assert_eq!(c.cache_dir, PathBuf::from("data/cache"));
         });
+    }
+
+    /// `expand_file_secrets` — the official startup.sh's VAR__FILE loop.
+    /// One test function: env vars are process-global, so the cases run
+    /// sequentially.
+    #[test]
+    fn expand_file_secrets_official_semantics() {
+        fn with_vars(vars: &[(&str, Option<&str>)], f: impl FnOnce()) {
+            let old: Vec<(&str, Option<String>)> = vars
+                .iter()
+                .map(|(k, _)| (*k, std::env::var(*k).ok()))
+                .collect();
+            for (k, v) in vars {
+                match v {
+                    Some(v) => unsafe { std::env::set_var(k, v) },
+                    None => unsafe { std::env::remove_var(k) },
+                }
+            }
+            f();
+            for (k, v) in old {
+                match v {
+                    Some(v) => unsafe { std::env::set_var(k, v) },
+                    None => unsafe { std::env::remove_var(k) },
+                }
+            }
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        let file = |name: &str, contents: &str| {
+            let p = dir.path().join(name);
+            std::fs::write(&p, contents).unwrap();
+            p.to_string_lossy().into_owned()
+        };
+
+        // A readable file: the contents become the base var; trailing
+        // newlines are trimmed (the official's `$(cat …)` semantics).
+        let p = file("db_pass", "s3cr3t\n");
+        with_vars(
+            &[("TTRSS_DB_PASS", None), ("TTRSS_DB_PASS__FILE", Some(&p))],
+            || {
+                expand_file_secrets();
+                assert_eq!(std::env::var("TTRSS_DB_PASS").unwrap(), "s3cr3t");
+            },
+        );
+
+        // An already-set base var: the file wins.
+        let p = file("db_pass2", "from-file");
+        with_vars(
+            &[
+                ("TTRSS_DB_PASS", Some("from-env")),
+                ("TTRSS_DB_PASS__FILE", Some(&p)),
+            ],
+            || {
+                expand_file_secrets();
+                assert_eq!(std::env::var("TTRSS_DB_PASS").unwrap(), "from-file");
+            },
+        );
+
+        // A missing file: the base var survives.
+        with_vars(
+            &[
+                ("TTRSS_DB_PASS", Some("from-env")),
+                (
+                    "TTRSS_DB_PASS__FILE",
+                    Some(&dir.path().join("nope").to_string_lossy()),
+                ),
+            ],
+            || {
+                expand_file_secrets();
+                assert_eq!(std::env::var("TTRSS_DB_PASS").unwrap(), "from-env");
+            },
+        );
+
+        // A readable empty file clears the base var (the official's
+        // `$(cat emptyfile)` → `export VAR=`).
+        let p = file("db_pass3", "");
+        with_vars(
+            &[
+                ("TTRSS_DB_PASS", Some("from-env")),
+                ("TTRSS_DB_PASS__FILE", Some(&p)),
+            ],
+            || {
+                expand_file_secrets();
+                assert_eq!(std::env::var("TTRSS_DB_PASS").unwrap(), "");
+            },
+        );
+
+        // A var named exactly `__FILE` has an empty base name: skipped,
+        // no panic; the `__FILE` var and unrelated vars are left intact.
+        let p = file("plain", "v");
+        with_vars(
+            &[
+                ("__FILE", Some(&p)),
+                ("TTRSS_DB_PASS__FILE", Some(&p)),
+                ("TTRSS_UNRELATED", Some("keep-me")),
+            ],
+            || {
+                expand_file_secrets();
+                assert_eq!(std::env::var("TTRSS_DB_PASS").unwrap(), "v");
+                assert_eq!(std::env::var("__FILE").unwrap(), p);
+                assert_eq!(std::env::var("TTRSS_DB_PASS__FILE").unwrap(), p);
+                assert_eq!(std::env::var("TTRSS_UNRELATED").unwrap(), "keep-me");
+            },
+        );
     }
 }

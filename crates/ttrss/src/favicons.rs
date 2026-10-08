@@ -264,7 +264,7 @@ fn svg_fill_samples(bytes: &[u8]) -> Option<Vec<([u8; 3], f64)>> {
                 let bb = p.abs_bounding_box();
                 let area = bb.width() as f64 * bb.height() as f64;
                 let weight = area * opacity * fill.opacity().get() as f64;
-                if !(weight > 0.0) {
+                if weight <= 0.0 {
                     continue;
                 }
                 let color = match fill.paint() {
