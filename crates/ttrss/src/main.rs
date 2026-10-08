@@ -11,10 +11,10 @@
 //! The HTTP layer (router + handlers) lives in the library crate at
 //! `ttrss::http` so integration tests can drive it; this binary only boots.
 
+use ttrss::AppState;
 use ttrss::core::config::Config;
 use ttrss::core::db::Db;
 use ttrss::http;
-use ttrss::AppState;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -26,6 +26,11 @@ async fn main() -> anyhow::Result<()> {
 
     let config = Config::from_env()?;
     let db = Db::connect(&config).await?;
+    // Schema bootstrap/migration (docs/20): runs on every startup, before
+    // the daemon and the listener — the server only opens for business on
+    // a schema it knows (fresh DB → full schema; older DB → numbered
+    // migrations). Fail-closed: an error exits before binding.
+    ttrss::core::schema::ensure_up_to_date(&config, &db).await?;
     tracing::info!(
         listen = %config.listen,
         docroot = %config.docroot.display(),

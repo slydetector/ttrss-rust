@@ -134,9 +134,10 @@ no rsync, no sudo, no cron** (the official app image is ~350 MB).
 ## 4. Phases
 
 - **P0 — code** (in-repo, tested): the in-process startup bootstrap —
-  schema create/migrate (`docs/20`) + the six user-verb behaviors
+  schema create/migrate (**done, `docs/20`: `core::schema::ensure_up_to_date`
+  runs at every startup, 15 DB/unit tests**) + the six user-verb behaviors
   (admin-password policy, access level, auto-user) as env-driven startup
-  steps + tests. The bulk of the work; everything after this is shell and
+  steps + tests. The remaining bulk; everything after this is shell and
   Dockerfile.
 - **P1 — image + fresh-install smoke**: build locally; a two-service compose
   (`db` + our image) with a fresh postgres; verify login as `admin`, feed
