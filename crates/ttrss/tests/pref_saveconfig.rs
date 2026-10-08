@@ -23,6 +23,7 @@ async fn setup(url: &str) -> (AppState, Sess) {
     data.set("uid", ttrss::core::phpser::Value::Int(1));
     let sess = Sess::new("test-sid".to_string());
     sess.replace("test-sid".to_string(), data);
+    sess.set_self_url(&state.config.self_url_rtrim());
     (state, sess)
 }
 
@@ -307,6 +308,7 @@ async fn test_set_pref_refreshes_prefs_cache() {
         data.set("uid", ttrss::core::phpser::Value::Int(1));
         let sess = Sess::new("test-sid".to_string());
         sess.replace("test-sid".to_string(), data);
+
 
         // Prime the cache with the current (no `USER_LANGUAGE`) rows → None.
         let before = ttrss::i18n::resolve_user_locale(&state, 1, None, None).await;

@@ -220,7 +220,11 @@ async fn log_viewer(state: &AppState, sess: &Sess, page: i64, severity: i64) -> 
 /// server-info panes. The event-log pane assumes `LOG_DESTINATION == sql` (the
 /// default, like `recent_log_events`); the `getphpinfo` pane surfaces
 /// Rust/server diagnostics instead of `phpinfo()`.
-pub async fn index(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> String {
+pub async fn index(
+    state: &AppState,
+    sess: &Sess,
+    extra: &Map<String, Value>,
+) -> String {
     let severity = clean_int(extra.get("severity"));
     let severity = if severity == 0 { 512 } else { severity }; // default E_USER_WARNING
     let page = clean_int(extra.get("page"));
@@ -331,7 +335,7 @@ pub async fn index(state: &AppState, sess: &Sess, extra: &Map<String, Value>) ->
         sess,
         crate::pluginhost::HOOK_PREFS_TAB,
         "prefSystem",
-    )
+            )
     .await);
 
     out.push_str("</div>");

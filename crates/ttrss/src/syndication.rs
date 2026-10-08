@@ -78,14 +78,14 @@ pub struct RssRequest<'a> {
 }
 
 /// `op=rss` handler.
-pub async fn handle_rss(state: &AppState, req: &RssRequest<'_>) -> Response {
+pub async fn handle_rss(state: &AppState, req: &RssRequest<'_>, self_url: &str) -> Response {
     let res = match lookup_access_key(state, req).await {
         None => forbidden(),
         Some(owner_uid) => {
             if req.format != "atom" && req.format != "json" {
                 unknown_format(req.format)
             } else {
-                generate_feed(state, owner_uid, req).await
+                generate_feed(state, owner_uid, req, self_url).await
             }
         }
     };
@@ -96,10 +96,14 @@ pub async fn handle_rss(state: &AppState, req: &RssRequest<'_>) -> Response {
 }
 
 /// `Handler_Public::generate_syndicated_feed`.
-async fn generate_feed(state: &AppState, owner_uid: i64, req: &RssRequest<'_>) -> Response {
+async fn generate_feed(
+    state: &AppState,
+    owner_uid: i64,
+    req: &RssRequest<'_>,
+    self_url: &str,
+) -> Response {
     let pool = state.db.pool();
     let feed = req.id.unwrap_or("");
-    let self_url = state.config.self_url_rtrim();
 
     // `if (!$limit) $limit = 60;`
     let limit = if req.limit == 0 { 60 } else { req.limit };
@@ -178,7 +182,7 @@ async fn generate_feed(state: &AppState, owner_uid: i64, req: &RssRequest<'_>) -
     // `if (!$feed_site_url) $feed_site_url = Config::get_self_url();`
     let mut feed_site_url = q.feed_site_url;
     if feed_site_url.is_empty() {
-        feed_site_url = self_url.clone();
+        feed_site_url = self_url.to_string();
     }
     let feed_title = htmlspecialchars(&q.feed_title);
 
@@ -222,7 +226,7 @@ async fn generate_feed(state: &AppState, owner_uid: i64, req: &RssRequest<'_>) -
             .map(|d| d.and_utc().to_rfc3339_opts(SecondsFormat::Secs, true))
             .unwrap_or_else(|| "1970-01-01T00:00:00+00:00".to_string());
         let article_id = if req.orig_guid.is_empty() {
-            make_article_tag_uri(id, date_entered.as_ref(), &self_url)
+            make_article_tag_uri(id, date_entered.as_ref(), self_url)
         } else {
             link.clone()
         };
@@ -329,7 +333,7 @@ async fn generate_feed(state: &AppState, owner_uid: i64, req: &RssRequest<'_>) -
 
         let source_link = site_url
             .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| self_url.clone());
+            .unwrap_or_else(|| self_url.to_string());
         // PHP: `$line['feed_title'] ?? $feed_title`, where
         // `$feed_title = htmlspecialchars($qfh_ret[1])`. The plain feed query
         // has no `feed_title` column, so the (already-escaped) feed title is
@@ -342,7 +346,7 @@ async fn generate_feed(state: &AppState, owner_uid: i64, req: &RssRequest<'_>) -
             // Atom content: sanitized + disk-cache URL rewrites; a non-empty
             // note is prepended as a styled div (raw, matching PHP).
             let mut atom_content =
-                diskcache::rewrite_urls(&content_sanitized, &image_cache_dir, &self_url);
+                diskcache::rewrite_urls(&content_sanitized, &image_cache_dir, self_url);
             if let Some(note) = &note {
                 atom_content =
                     format!("<div style=\"{note_style}\">Article note: {note}</div>{atom_content}");
@@ -448,7 +452,7 @@ async fn generate_feed(state: &AppState, owner_uid: i64, req: &RssRequest<'_>) -
             json!(Utc::now().format("%Y-%m-%dT%H:%M:%S+00:00").to_string()),
         );
         ctx.insert("feed_url".into(), json!(htmlspecialchars(&feed_self_url)));
-        ctx.insert("self_url".into(), json!(htmlspecialchars(&self_url)));
+        ctx.insert("self_url".into(), json!(htmlspecialchars(self_url)));
         ctx.insert("articles".into(), Value::Array(articles_atom));
         let body = atom_env()
             .get_template("feed_atom")

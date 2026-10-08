@@ -206,6 +206,7 @@ async fn test_owner_scoping() {
     let sess2 = Sess::new("note-test-2".into());
     sess2.replace("note-test-2".into(), data);
 
+
     // Owner 1 has no row for the entry: `edit` is footer-only…
     let v = pluginhandler(&state, &sess1, "tok", "edit", &req(&ref_id.to_string(), None)).await.unwrap();
     assert!(!raw(&v).contains("<textarea"));

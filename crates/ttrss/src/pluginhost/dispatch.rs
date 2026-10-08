@@ -78,6 +78,7 @@ pub(crate) fn login_ctx(state: &AppState) -> HostCtx {
 }
 
 pub async fn session_ctx(state: &AppState, sess: &Sess) -> HostCtx {
+    let self_url = sess.self_url();
     let data = sess.data();
     let uid_i64 = data.uid().unwrap_or(0);
     let uid = Some(uid_i64 as i32);
@@ -110,7 +111,7 @@ pub async fn session_ctx(state: &AppState, sess: &Sess) -> HostCtx {
         &sys,
         &usr,
     )
-    .with_self_url(state.config.self_url.clone())
+    .with_self_url(self_url)
     .with_cache_dir(state.config.cache_dir.clone())
 }
 
@@ -145,8 +146,8 @@ pub async fn owner_ctx(state: &AppState, owner_uid: i32) -> HostCtx {
         &sys,
         &usr,
     )
-        .with_self_url(state.config.self_url.clone())
-        .with_cache_dir(state.config.cache_dir.clone())
+    .with_self_url(state.config.self_url.clone())
+    .with_cache_dir(state.config.cache_dir.clone())
 }
 
 /// Build an owner-scoped [`HostCtx`] from the pipeline pieces — no `AppState` /
@@ -247,6 +248,7 @@ pub async fn public_dispatch(
     plugin_param: &str,
     method: &str,
     request: &Value,
+    self_url: &str,
 ) -> Result<MethodOutput, PluginError> {
     // PHP: `basename(clean($_REQUEST["plugin"]))` — unlike the protected
     // path, the name is basename'd (a `plugin` of `../x` cannot escape).
@@ -276,7 +278,7 @@ pub async fn public_dispatch(
         &system,
         &[name.as_str()],
     )
-    .with_self_url(state.config.self_url.clone())
+    .with_self_url(self_url.to_string())
     .with_cache_dir(state.config.cache_dir.clone());
     let Some((host, idx)) = ctx.get_plugin_detached(&name) else {
         let mut params = Map::new();

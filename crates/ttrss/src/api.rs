@@ -96,8 +96,14 @@ pub async fn handler(state: State<AppState>, sess: Extension<Sess>, req: Request
     if op == "getfeedicon" {
         return get_feed_icon(&state, &sess, &body, seq).await;
     }
-    let (status, content) =
-        before_and_dispatch(&state, &sess, &op, &body, accept_language.as_deref()).await;
+    let (status, content) = before_and_dispatch(
+        &state,
+        &sess,
+        &op,
+        &body,
+        accept_language.as_deref(),
+    )
+    .await;
 
     let mut res = envelope(seq, status, content);
     // `before()` sets `Content-Type: application/json`; the session `nocache`
@@ -134,6 +140,7 @@ pub async fn before_and_dispatch(
     body: &Map<String, Value>,
     accept_language: Option<&str>,
 ) -> (i64, Value) {
+    let self_url = sess.self_url();
     let data = sess.data();
     let uid = data.uid();
 
@@ -150,7 +157,7 @@ pub async fn before_and_dispatch(
             (STATUS_OK, json!({ "status": "OK" }))
         }
         "isloggedin" => (STATUS_OK, json!({ "status": data.uid().is_some() })),
-        "getconfig" => (STATUS_OK, get_config(state, uid).await),
+        "getconfig" => (STATUS_OK, get_config(state, uid, &self_url).await),
         "getunread" => get_unread(state, uid, body).await,
         "getcounters" => get_counters(state, sess, body).await,
         "getfeeds" => get_feeds(state, uid, body).await,
@@ -234,6 +241,7 @@ fn param_bool_default(body: &Map<String, Value>, key: &str, default: bool) -> bo
 
 /// `API::login` — app-password auth (`service = '_api'`), then a fresh session.
 async fn login(state: &AppState, sess: &Sess, body: &Map<String, Value>) -> (i64, Value) {
+    let self_url = sess.self_url();
     let pool = state.db.pool();
     let login_name = clean_str(body.get("user").and_then(Value::as_str).unwrap_or(""));
     let password = clean_str(body.get("password").and_then(Value::as_str).unwrap_or(""));
@@ -297,7 +305,7 @@ async fn login(state: &AppState, sess: &Sess, body: &Map<String, Value>) -> (i64
         STATUS_OK,
         json!({
             "session_id": new_id,
-            "config": get_config(state, Some(uid as i64)).await,
+            "config": get_config(state, Some(uid as i64), &self_url).await,
             "api_level": API_LEVEL,
         }),
     )
@@ -332,7 +340,7 @@ async fn verify_app_password(pool: &sqlx::PgPool, login: &str, password: &str) -
 }
 
 /// `API::_get_config` (+ `getConfig`).
-async fn get_config(state: &AppState, uid: Option<i64>) -> Value {
+async fn get_config(state: &AppState, uid: Option<i64>, self_url: &str) -> Value {
     let uid = uid.unwrap_or(0);
     let pool = state.db.pool();
     let num_feeds =
@@ -374,7 +382,7 @@ async fn get_config(state: &AppState, uid: Option<i64>) -> Value {
     json!({
         "custom_sort_types": sort_types_val,
         "daemon_is_running": true,
-        "icons_url": format!("{}/public.php", state.config.self_url_rtrim()),
+        "icons_url": format!("{self_url}/public.php"),
         "num_feeds": num_feeds,
     })
 }
@@ -1447,11 +1455,7 @@ pub async fn catchup_feed(
 }
 
 /// `API::unsubscribeFeed` — remove the session user's feed, or `E_OPERATION_FAILED`.
-pub async fn unsubscribe_feed(
-    state: &AppState,
-    sess: &Sess,
-    body: &Map<String, Value>,
-) -> (i64, Value) {
+pub async fn unsubscribe_feed(state: &AppState, sess: &Sess, body: &Map<String, Value>) -> (i64, Value) {
     let uid = sess.data().uid().unwrap_or(0);
     let pool = state.db.pool();
     let feed_id = clean_int(body.get("feed_id"));
@@ -1476,11 +1480,7 @@ pub async fn unsubscribe_feed(
 /// (always unset in this port), then runs `RSSUtils::update_rss_feed`. An
 /// on-demand update for a feed already in flight (claimed by the running daemon
 /// loop within the last minute) is a no-op.
-pub async fn update_feed(
-    state: &AppState,
-    _sess: &Sess,
-    body: &Map<String, Value>,
-) -> (i64, Value) {
+pub async fn update_feed(state: &AppState, _sess: &Sess, body: &Map<String, Value>) -> (i64, Value) {
     let pool = state.db.pool();
     let feed_id = clean_int(body.get("feed_id")) as i32;
     let in_flight: Option<bool> = sqlx::query_scalar(
@@ -1550,11 +1550,7 @@ pub async fn subscribe_to_feed(
 /// unread / note / score. The value is a controlled SQL literal (a boolean,
 /// `NOT <field>`, a `quote($data)` string, or an int), matching the PHP's
 /// string-interpolated `SET <field> = <set_to>`.
-pub async fn update_article(
-    state: &AppState,
-    sess: &Sess,
-    body: &Map<String, Value>,
-) -> (i64, Value) {
+pub async fn update_article(state: &AppState, sess: &Sess, body: &Map<String, Value>) -> (i64, Value) {
     let uid = sess.data().uid().unwrap_or(0);
     let pool = state.db.pool();
     let article_ids = param_int_array(body, "article_ids");

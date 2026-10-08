@@ -31,6 +31,7 @@ async fn setup(
     data.set("uid", PValue::Int(1));
     let sess = Sess::new("test-sid".to_string());
     sess.replace("test-sid".to_string(), data);
+    sess.set_self_url(&state.config.self_url_rtrim());
     (state, sess)
 }
 
@@ -691,6 +692,7 @@ async fn test_editsave_rule_bracket_fields() {
     data.set("csrf_token", PValue::Bytes(b"tok".to_vec()));
     let sess = Sess::new("test-sid".to_string());
     sess.replace("test-sid".to_string(), data);
+
 
     let id: i32 = sqlx::query_scalar(
         "INSERT INTO ttrss_filters2 (owner_uid, title, enabled) VALUES (1, 'Brk', true) RETURNING id",

@@ -201,6 +201,7 @@ async fn test_sharepopup_not_logged_in() {
         "bookmarklets",
         "sharepopup",
         &json!({}),
+        &state.config.self_url_rtrim(),
     )
     .await
     .unwrap();
@@ -245,7 +246,15 @@ async fn test_subscribe_not_logged_in() {
     with_test_db(|url| Box::pin(async move {
     let state = setup(&url, "bookmarklets").await;
 
-    let v = public_dispatch(&state, "bookmarklets", "subscribe", &json!({})).await.unwrap();
+    let v = public_dispatch(
+        &state,
+        "bookmarklets",
+        "subscribe",
+        &json!({}),
+        &state.config.self_url_rtrim(),
+    )
+    .await
+    .unwrap();
     let MethodOutput::Response { status, body, .. } = v else {
         panic!("expected a Response, got {v:?}");
     };

@@ -221,13 +221,15 @@ pub fn render_prefs_page(
     html
 }
 
-/// Render the not-authenticated login page.
-pub fn render_login_page(config: &Config, additional_buttons: &str) -> String {
+/// Render the not-authenticated login page. `self_url` is the per-request
+/// detected self URL (PHP `Config::get_self_url`), used for the form's
+/// `returnUrl`.
+pub fn render_login_page(config: &Config, additional_buttons: &str, self_url: &str) -> String {
     let doc = config.docroot.as_path();
     let scripts_ts = scripts_timestamp(doc);
     let theme_light = theme_path(doc, "light.css", "themes/light.css");
     let theme_dark = theme_path(doc, "night.css", "themes/night.css");
-    let return_url = urlencode(&format!("{}/", config.self_url_rtrim()));
+    let return_url = urlencode(&format!("{}/", self_url));
     let lifetime = 86400; // SESSION_COOKIE_LIFETIME default
     let mut env = minijinja::Environment::new();
     env.add_function("__", |msg: String| -> String {
@@ -277,7 +279,7 @@ mod tests {
 
     #[test]
     fn login_page_substitutes_dynamic_values() {
-        let html = render_login_page(&test_config(), "");
+        let html = render_login_page(&test_config(), "", &test_config().self_url);
         // No placeholders remain.
         assert!(!html.contains("{{ "));
         assert!(!html.contains(" {{"));
@@ -413,13 +415,13 @@ mod tests {
     async fn login_page_translates_for_non_english_locale() {
         let i18n = std::sync::Arc::new(crate::i18n::I18nCache::new(std::path::PathBuf::from("../../tt-rss/locale")));
         // English (no scope): the original string is present.
-        let en = render_login_page(&test_config(), "");
+        let en = render_login_page(&test_config(), "", &test_config().self_url);
         assert!(en.contains("Log in"), "English login should have the original string");
         // German (scoped): the string should be translated.
         let de = crate::i18n::I18N
             .scope(
                 crate::i18n::I18nCtx { locale: Some("de_DE".to_string()), cache: i18n },
-                async { render_login_page(&test_config(), "") },
+                async { render_login_page(&test_config(), "", &test_config().self_url) },
             )
             .await;
         assert!(!de.contains(">Log in<"), "German login should not have the English button text");

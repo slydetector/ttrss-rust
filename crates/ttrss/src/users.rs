@@ -145,14 +145,14 @@ pub async fn index(
         sess,
         crate::pluginhost::HOOK_PREFS_TAB_SECTION,
         "prefUsersToolbar",
-    )
+            )
     .await;
     let tabs = crate::pluginhost::dispatch::prefs_chain(
         state,
         sess,
         crate::pluginhost::HOOK_PREFS_TAB,
         "prefUsers",
-    )
+            )
     .await;
 
     let mut out = String::new();
@@ -212,6 +212,7 @@ pub async fn user_details(
     sess: &Sess,
     extra: &serde_json::Map<String, serde_json::Value>,
 ) -> String {
+    let self_url = sess.self_url();
     let pool = state.db.pool();
     let tz = TzCtx::for_session(state, &sess.data()).await;
 
@@ -264,11 +265,7 @@ pub async fn user_details(
         let title: String = f.get(1);
         let site_url: Option<String> = f.get(2);
         let icon_url = if state.config.feed_icon_dir().join(fid.to_string()).exists() {
-            format!(
-                "{}/public.php?op=feed_icon&id={}",
-                state.config.self_url_rtrim(),
-                fid
-            )
+            format!("{self_url}/public.php?op=feed_icon&id={fid}")
         } else {
             "images/blank_icon.gif".to_string()
         };

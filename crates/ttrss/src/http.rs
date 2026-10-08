@@ -134,7 +134,8 @@ async fn index(
                 },
                 async {
                     let buttons = loginform_additional_buttons(&state).await;
-                    render::render_login_page(&state.config, &buttons)
+                    let self_url = sess.self_url();
+                    render::render_login_page(&state.config, &buttons, &self_url)
                 },
             )
             .await;
@@ -243,7 +244,8 @@ async fn prefs_page(
                 },
                 async {
                     let buttons = loginform_additional_buttons(&state).await;
-                    render::render_login_page(&state.config, &buttons)
+                    let self_url = sess.self_url();
+                    render::render_login_page(&state.config, &buttons, &self_url)
                 },
             )
             .await;
@@ -521,6 +523,7 @@ async fn public_handler(
     let accept_language = headers
         .get(axum::http::header::ACCEPT_LANGUAGE)
         .and_then(|v| v.to_str().ok());
+    let self_url = sess.self_url();
     match op {
         "login" => {
             let env: Vec<(String, String)> = basic_auth_env(&server_env)
@@ -552,7 +555,7 @@ async fn public_handler(
                 ),
             };
             let request = public_request_map(&query, &form);
-            match crate::pluginhost::dispatch::public_dispatch(&state, &plugin, &pmethod, &request)
+            match crate::pluginhost::dispatch::public_dispatch(&state, &plugin, &pmethod, &request, &self_url)
                 .await
             {
                 Ok(crate::pluginhost::plugin::MethodOutput::Json(v)) =>
@@ -615,7 +618,7 @@ async fn public_handler(
                 noxml: param_to_bool(query.noxml.as_deref()),
                 accept_language,
             };
-            syndication::handle_rss(&state, &req).await
+            syndication::handle_rss(&state, &req, &self_url).await
         }
         // `Handler_Public::getProfiles` — the login page's Profile dropdown.
         // The login form POSTs `op=getprofiles&login=…` in the form body on
@@ -782,7 +785,12 @@ fn public_request_map(query: &PublicQuery, form: &PublicForm) -> serde_json::Val
 }
 
 /// `Handler_Public::logout` + `UserHelper::logout`.
-async fn logout_flow(state: &AppState, sess: session::Sess, form: &PublicForm) -> Response {
+async fn logout_flow(
+    state: &AppState,
+    sess: session::Sess,
+    form: &PublicForm,
+) -> Response {
+    let self_url = sess.self_url();
     // `validate_csrf`: `isset($csrf) && hash_equals($_SESSION['csrf_token'] ?? "", $csrf)`.
     let data = sess.data();
     let session_csrf = data.csrf_token().unwrap_or("");
@@ -833,11 +841,10 @@ async fn logout_flow(state: &AppState, sess: session::Sess, form: &PublicForm) -
         .await;
     }
     let location = if redirect_url.is_empty() {
-        format!("{}/index.php", state.config.self_url_rtrim())
+        format!("{self_url}/index.php")
     } else {
-        crate::urlhelper::validate(&redirect_url, false).unwrap_or_else(|| {
-            format!("{}/index.php", state.config.self_url_rtrim())
-        })
+        crate::urlhelper::validate(&redirect_url, false)
+            .unwrap_or_else(|| format!("{self_url}/index.php"))
     };
     let mut res = axum::http::Response::builder()
         .status(StatusCode::FOUND)
@@ -905,6 +912,7 @@ async fn login_flow(
     form: &PublicForm,
     server_env: &[(String, String)],
 ) -> Response {
+    let self_url = sess.self_url();
     let login = form.login.as_deref().unwrap_or("").to_string();
     let password = form.password.as_deref().unwrap_or("").to_string();
     let _otp = form
@@ -912,7 +920,6 @@ async fn login_flow(
         .as_deref()
         .and_then(|s| s.trim().parse::<i64>().ok());
     let return_url = query.return_url.as_deref().unwrap_or("");
-    let self_url = state.config.self_url_rtrim();
 
     // M7.20: go through the plugin system (HOOK_AUTH_USER) instead of
     // calling auth::authenticate directly. The first plugin that returns
@@ -1218,11 +1225,11 @@ mod tests {
     // covered there (`prefs::tests::cast_string_to_int` / `cast_string_to_bool` /
     // `cast_bool_zero_string_is_false`).
 
-    // REVISIT (REVISIT): the `get_self_url` (a–k) and `get_self_dir` cases from
-    // ConfigTest.php exercise the PHP `Config::get_self_url()` (which detects the
-    // self URL from $_SERVER / is_server_https) and `Config::get_self_dir()`.
-    // The Rust port takes SELF_URL_PATH + docroot from the environment instead,
-    // so these are N/A here. Tracked in docs/01-plan.md (test-parity, config row).
+    // NOTE: the `get_self_url` (a–k) cases from ConfigTest.php are ported 1:1
+    // to `core::config::tests::self_url_a..k` (per-request detection, web-SAPI
+    // branch). `test_get_self_dir` stays N/A: the port takes the docroot from
+    // the `TTRSS_DOCROOT` env var. Tracked in docs/01-plan.md (test-parity,
+    // config row).
 
     // FunctionsTest.php — ported 1:1 (tracked in docs/01-plan.md, test-parity,
     // functions row): clean (10, server::util), truncate_string (11,

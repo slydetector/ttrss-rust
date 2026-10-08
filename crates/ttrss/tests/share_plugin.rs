@@ -245,9 +245,15 @@ async fn test_get_public_route() {
     let state = setup(&url, "share").await;
 
     // The seed pre-sets uuid-hn-001 on article 1 (owner 1).
-    let v = public_dispatch(&state, "share", "get", &json!({"key": "uuid-hn-001"}))
-        .await
-        .unwrap();
+    let v = public_dispatch(
+        &state,
+        "share",
+        "get",
+        &json!({"key": "uuid-hn-001"}),
+        &state.config.self_url_rtrim(),
+    )
+    .await
+    .unwrap();
     let MethodOutput::Response { status, content_type, body } = v else {
         panic!("expected a Response, got {v:?}");
     };
@@ -264,9 +270,15 @@ async fn test_get_public_route_404() {
     with_test_db(|url| Box::pin(async move {
     let state = setup(&url, "share").await;
 
-    let v = public_dispatch(&state, "share", "get", &json!({"key": "nonexistent"}))
-        .await
-        .unwrap();
+    let v = public_dispatch(
+        &state,
+        "share",
+        "get",
+        &json!({"key": "nonexistent"}),
+        &state.config.self_url_rtrim(),
+    )
+    .await
+    .unwrap();
     let MethodOutput::Response { status, body, .. } = v else {
         panic!("expected a Response, got {v:?}");
     };
@@ -350,9 +362,15 @@ async fn test_get_public_route_render_chain_seam() {
     );
 
     // The page: owner-0 storage is empty → no tags match → no toggle.
-    let v = public_dispatch(&state, "share", "get", &json!({"key": "uuid-hn-001"}))
-        .await
-        .unwrap();
+    let v = public_dispatch(
+        &state,
+        "share",
+        "get",
+        &json!({"key": "uuid-hn-001"}),
+        &state.config.self_url_rtrim(),
+    )
+    .await
+    .unwrap();
     let MethodOutput::Response { status, body, .. } = v else {
         panic!("expected a Response, got {v:?}");
     };

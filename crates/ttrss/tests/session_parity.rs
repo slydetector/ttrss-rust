@@ -614,7 +614,7 @@ async fn test_validate_session_returns_true_in_single_user_mode() {
     let mut s = guest_session();
 
     assert!(
-        sessions::validate_session(&app_state(&db), true, &mut s).await,
+        sessions::validate_session(&app_state(&db), true, &mut s,).await,
         "Should always return true when SINGLE_USER_MODE is enabled"
     );
         Ok(())
@@ -629,7 +629,7 @@ async fn test_validate_session_returns_true_for_guest() {
     let mut s = guest_session();
 
     assert!(
-        sessions::validate_session(&app_state(&db), false, &mut s).await,
+        sessions::validate_session(&app_state(&db), false, &mut s,).await,
         "Guest sessions (no uid) should validate successfully"
     );
         Ok(())
@@ -644,7 +644,7 @@ async fn test_validate_session_returns_true_for_valid_admin() {
     let mut s = valid_admin_session();
 
     assert!(
-        sessions::validate_session(&app_state(&db), false, &mut s).await,
+        sessions::validate_session(&app_state(&db), false, &mut s,).await,
         "Admin session with correct pwd_hash should validate"
     );
         Ok(())
@@ -664,7 +664,7 @@ async fn test_validate_session_fails_when_password_changed() {
         Value::Bytes(b"SHA1:wronghashvalue000000000000000000000000000000".to_vec()),
     );
 
-    let result = sessions::validate_session(&app_state(&db), false, &mut s).await;
+    let result = sessions::validate_session(&app_state(&db), false, &mut s,).await;
 
     assert!(!result, "Should fail when pwd_hash does not match DB");
     let msg = s
@@ -685,7 +685,7 @@ async fn test_validate_session_fails_when_user_not_found() {
     let db = common::make_db_from_url(&url).await.expect("test db");
     let mut s = non_existent_user_session();
 
-    let result = sessions::validate_session(&app_state(&db), false, &mut s).await;
+    let result = sessions::validate_session(&app_state(&db), false, &mut s,).await;
 
     assert!(!result, "Should fail when user ID does not exist in DB");
     let msg = s
@@ -706,7 +706,7 @@ async fn test_validate_session_fails_when_account_disabled() {
     let db = common::make_db_from_url(&url).await.expect("test db");
     let mut s = disabled_user_session(&db).await;
 
-    let result = sessions::validate_session(&app_state(&db), false, &mut s).await;
+    let result = sessions::validate_session(&app_state(&db), false, &mut s,).await;
 
     assert!(!result, "Should fail when account is disabled");
     let msg = s
@@ -730,7 +730,7 @@ async fn test_validate_session_with_empty_pwd_hash_in_session() {
     // Set pwd_hash to empty string (but uid is valid)
     s.set("pwd_hash", Value::Bytes(Vec::new()));
 
-    let result = sessions::validate_session(&app_state(&db), false, &mut s).await;
+    let result = sessions::validate_session(&app_state(&db), false, &mut s,).await;
 
     assert!(
         !result,
@@ -749,7 +749,7 @@ async fn test_validate_session_with_uid_zero() {
     // uid=0 is falsy in PHP, so it should be treated as a guest
     s.set("uid", Value::Int(0));
 
-    let result = sessions::validate_session(&app_state(&db), false, &mut s).await;
+    let result = sessions::validate_session(&app_state(&db), false, &mut s,).await;
 
     assert!(
         result,

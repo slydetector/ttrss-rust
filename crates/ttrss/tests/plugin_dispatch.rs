@@ -115,6 +115,7 @@ async fn setup(url: &str, plugin: DispatchPlugin, csrf: &str) -> (AppState, Sess
     data.set("csrf_token", PValue::Bytes(csrf.as_bytes().to_vec()));
     let sess = Sess::new("test-sid".into());
     sess.replace("test-sid".into(), data);
+    sess.set_self_url(&state.config.self_url_rtrim());
     (state, sess)
 }
 
@@ -327,6 +328,7 @@ async fn test_public_private_method_rejected() {
         "dispatchtest",
         "getnote",
         &json!({}),
+        &state.config.self_url_rtrim(),
     )
     .await
     .expect("no plugin error");
@@ -353,6 +355,7 @@ async fn test_public_dispatch() {
         "dispatchtest",
         "showarticle",
         &json!({ "key": "abc123" }),
+        &state.config.self_url_rtrim(),
     )
     .await
     .expect("no plugin error");
@@ -382,6 +385,7 @@ async fn test_public_unknown_plugin() {
         "no_such_plugin",
         "showarticle",
         &json!({}),
+        &state.config.self_url_rtrim(),
     )
     .await
     .expect("no plugin error");
@@ -408,6 +412,7 @@ async fn test_public_unknown_method() {
         "dispatchtest",
         "no_such_method",
         &json!({}),
+        &state.config.self_url_rtrim(),
     )
     .await
     .expect("no plugin error");
@@ -434,6 +439,7 @@ async fn test_public_name_basename() {
         "plugins/dispatchtest",
         "showarticle",
         &json!({}),
+        &state.config.self_url_rtrim(),
     )
     .await
     .expect("no plugin error");

@@ -851,7 +851,11 @@ pub async fn catchup_selected(state: &AppState, sess: &Sess, extra: &Map<String,
 }
 
 /// `RPC::markSelected`.
-pub async fn mark_selected(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Value {
+pub async fn mark_selected(
+    state: &AppState,
+    sess: &Sess,
+    extra: &Map<String, Value>,
+) -> Value {
     let uid = sess.data().uid().unwrap_or(0);
     let pool = state.db.pool();
     let ids = param_int_array(extra, "ids");
@@ -865,7 +869,11 @@ pub async fn mark_selected(state: &AppState, sess: &Sess, extra: &Map<String, Va
 }
 
 /// `RPC::publishSelected`.
-pub async fn publish_selected(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Value {
+pub async fn publish_selected(
+    state: &AppState,
+    sess: &Sess,
+    extra: &Map<String, Value>,
+) -> Value {
     let uid = sess.data().uid().unwrap_or(0);
     let pool = state.db.pool();
     let ids = param_int_array(extra, "ids");
@@ -880,7 +888,11 @@ pub async fn publish_selected(state: &AppState, sess: &Sess, extra: &Map<String,
 
 /// `RPC::mark`: star / unstar one article (`mark` is the cleaned request
 /// string, cast to boolean by Postgres exactly as PHP's `marked = ?`).
-pub async fn mark(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Value {
+pub async fn mark(
+    state: &AppState,
+    sess: &Sess,
+    extra: &Map<String, Value>,
+) -> Value {
     let uid = sess.data().uid().unwrap_or(0);
     let mark = cleaned_str(extra, "mark");
     let id = cleaned_str(extra, "id");
@@ -911,7 +923,11 @@ pub async fn mark(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> 
 }
 
 /// `RPC::publ`: publish / unpublish one article (see [`mark`]).
-pub async fn publ(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Value {
+pub async fn publ(
+    state: &AppState,
+    sess: &Sess,
+    extra: &Map<String, Value>,
+) -> Value {
     let uid = sess.data().uid().unwrap_or(0);
     let pub_ = cleaned_str(extra, "pub");
     let id = cleaned_str(extra, "id");

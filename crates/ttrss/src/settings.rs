@@ -227,8 +227,9 @@ pub async fn clone_profile(
 /// `Pref_Prefs::previewDigest`: preview of the headline digest (days=1,
 /// limit=16), rendered via `digest::prepare_headlines_digest`.
 pub async fn preview_digest(state: &AppState, sess: &Sess) -> Value {
+    let self_url = sess.self_url();
     let uid = sess.data().uid().unwrap_or(0) as i32;
-    crate::digest::prepare_headlines_digest(state, uid, 1, 16).await
+    crate::digest::prepare_headlines_digest(state, uid, 1, 16, &self_url).await
 }
 
 /// `Pref_Prefs::appPasswordList` (the private renderer shared by

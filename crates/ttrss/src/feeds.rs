@@ -325,7 +325,11 @@ pub async fn getfeedtree(state: &AppState, sess: &Sess, extra: &Map<String, Valu
 /// `Pref_Feeds::index` — the feeds settings tab: a `TabContainer` with the
 /// "My feeds" toolbar/tree, "OPML" import/export, and "Sharing" panes
 /// (`index_feeds` / `index_opml` / `index_shared`).
-pub async fn index(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> String {
+pub async fn index(
+    state: &AppState,
+    sess: &Sess,
+    extra: &Map<String, Value>,
+) -> String {
     let uid = sess.data().uid().unwrap_or(0);
     let profile = sess.data().profile().map(|p| p as i32);
     let rows = prefs::load_rows(&state.db, uid, profile).await;
@@ -2832,7 +2836,11 @@ struct FeedFullRow {
 /// row (with a computed `icon` + decrypted `auth_pass`), the category `<select>`,
 /// the update/purge interval options, the user's access level, and the language
 /// list. `plugin_data` is empty (no plugins are ported).
-pub async fn editfeed(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Value {
+pub async fn editfeed(
+    state: &AppState,
+    sess: &Sess,
+    extra: &Map<String, Value>,
+) -> Value {
     let uid = sess.data().uid().unwrap_or(0);
     let profile = sess.data().profile().map(|p| p as i32);
     let feed_id = util::clean_int(extra.get("id"));

@@ -43,6 +43,12 @@ struct Inner {
     /// `session_destroy()` (PHP logout): the middleware deletes the stored
     /// row instead of persisting it, and the session is dead for this request.
     destroyed: bool,
+    /// Per-request self URL (PHP `Config::get_self_url()`, web-SAPI branch):
+    /// computed from this request's `Host` / `X-Forwarded-Proto` / URI by the
+    /// session middleware, so two requests of the same session served through
+    /// different frontends each see their own value. Request-local like `id`
+    /// and `dirty` — never part of the persisted `data`.
+    self_url: String,
 }
 
 impl Sess {
@@ -56,6 +62,7 @@ impl Sess {
                 data: Session::new(),
                 dirty: false,
                 destroyed: false,
+                self_url: String::new(),
             })),
         }
     }
@@ -94,6 +101,16 @@ impl Sess {
     /// auto-started, and `extend_session` re-stamped the cookie).
     pub fn had_cookie(&self) -> bool {
         !self.inner.lock().unwrap().id.is_empty()
+    }
+    /// This request's self URL (see [`Inner::self_url`]). Stamped by the
+    /// session middleware before the handler runs; `""` only for hand-built
+    /// sessions that skipped the middleware (tests stamp it explicitly).
+    pub fn self_url(&self) -> String {
+        self.inner.lock().unwrap().self_url.clone()
+    }
+    /// Stamp the per-request self URL (tests: mirrors the middleware).
+    pub fn set_self_url(&self, url: &str) {
+        self.inner.lock().unwrap().self_url = url.to_string();
     }
 }
 
@@ -335,12 +352,17 @@ pub async fn session_middleware(
     } else {
         load(&state.db, state.config.encryption_key, &id).await
     };
+    // Per-request self URL (PHP `Config::get_self_url()`, web-SAPI branch):
+    // the single stamp site — every route passes through here, so handlers
+    // read `sess.self_url()` without threading a parameter.
+    let self_url = state.config.get_self_url(req.headers(), req.uri().path());
     let sess = Sess {
         inner: Arc::new(Mutex::new(Inner {
             id,
             data,
             dirty: false,
             destroyed: false,
+            self_url,
         })),
     };
     req.extensions_mut().insert(sess.clone());

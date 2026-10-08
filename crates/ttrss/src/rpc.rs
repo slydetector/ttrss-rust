@@ -134,7 +134,7 @@ pub async fn handler(
             StatusCode::FOUND,
             [(
                 header::LOCATION,
-                format!("public.php?{}", state.config.self_url_rtrim()),
+                format!("public.php?{}", sess.self_url()),
             )],
         )
             .into_response();
@@ -833,7 +833,7 @@ async fn sanity_check(
         .to_string();
 
     let client_scheme = url_scheme(&client_location);
-    let server_scheme = url_scheme(&state.config.self_url_rtrim());
+    let server_scheme = url_scheme(&sess.self_url());
 
     let mut err = "E_SUCCESS";
     let mut params: Map<String, Value> = Map::new();
@@ -849,7 +849,7 @@ async fn sanity_check(
         );
         params.insert(
             "self_url_path".into(),
-            Value::from(state.config.self_url_rtrim()),
+            Value::from(sess.self_url()),
         );
     }
 
@@ -950,7 +950,7 @@ async fn make_init_params(state: &AppState, sess: &Sess, uid: i64, profile: Opti
     let (max_feed_id, num_feeds) = feed_counts(state.db.pool(), uid).await;
     let labels = labels_all(state.db.pool(), uid).await;
     let is_default_pw = is_default_password(state.db.pool(), uid).await;
-    let self_url = state.config.self_url_rtrim();
+    let self_url = sess.self_url();
 
     let theme_pref = p("USER_CSS_THEME").as_str().to_string();
     let theme = if theme_exists(&state.config.docroot, &theme_pref) {

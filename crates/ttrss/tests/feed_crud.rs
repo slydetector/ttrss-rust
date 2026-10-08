@@ -44,6 +44,7 @@ async fn setup_from_url(url: &str) -> (AppState, Sess) {
     data.set("uid", PValue::Int(1));
     let sess = Sess::new("test-sid".to_string());
     sess.replace("test-sid".to_string(), data);
+    sess.set_self_url(&state.config.self_url_rtrim());
     (state, sess)
 }
 

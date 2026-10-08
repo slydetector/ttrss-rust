@@ -52,7 +52,11 @@ pub struct Params<'a> {
 }
 
 /// `Handler_Public::forgotpass`: render the password-recovery page (or 403).
-pub async fn forgotpass(state: &AppState, sess: &session::Sess, p: &Params<'_>) -> Response {
+pub async fn forgotpass(
+    state: &AppState,
+    sess: &session::Sess,
+    p: &Params<'_>,
+) -> Response {
     // `Config::get(Config::DISABLE_LOGIN_FORM) || !str_contains(Config::PLUGINS, "auth_internal")`.
     if state.config.disable_login_form || !state.config.plugins.contains("auth_internal") {
         return Response::builder()
@@ -95,7 +99,7 @@ pub async fn forgotpass(state: &AppState, sess: &session::Sess, p: &Params<'_>) 
     } else if p.method.is_none() {
         initial_form(sess)
     } else if p.method.is_some_and(|m| m == "do") {
-        do_reset(state, sess, pool, p, now).await
+        do_reset(sess, pool, p, now).await
     } else {
         // `method` present but not `"do"` (and no hash): PHP prints nothing.
         String::new()
@@ -164,12 +168,12 @@ fn initial_form(sess: &session::Sess) -> String {
 /// The `method=do` POST: validate the CSRF token + arithmetic CAPTCHA + fields,
 /// look up the user, then store a fresh `resetpass_token` (and "email" the link).
 async fn do_reset(
-    state: &AppState,
     sess: &session::Sess,
     pool: &PgPool,
     p: &Params<'_>,
     now: i64,
 ) -> String {
+    let self_url = sess.self_url();
     let data = sess.data();
     let session_csrf = data.csrf_token().unwrap_or("");
     let t1 = data.get_int("pwdreset:testvalue1").unwrap_or(0);
@@ -214,9 +218,7 @@ async fn do_reset(
         Some((uid,)) => {
             let token = util::sha1_hex(util::get_random_bytes(128));
             let link = format!(
-                "{}/public.php?op=forgotpass&hash={}&login={}",
-                state.config.self_url_rtrim(),
-                token,
+                "{self_url}/public.php?op=forgotpass&hash={token}&login={}",
                 render::urlencode(&login)
             );
             // `Mailer::mail(…)` — no-op: the MTA is not wired up (see module docs).

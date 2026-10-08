@@ -38,7 +38,14 @@ pub struct Config {
     pub db_sslmode: String,
 
     /// Self URL (Config.php SELF_URL_PATH), e.g. `http://127.0.0.1:8280/tt-rss`.
+    /// The configured value: daemon/CLI contexts use it directly, and the web
+    /// path falls back to it when [`Config::get_self_url`] cannot detect one.
     pub self_url: String,
+
+    /// `Config::FORCE_SELF_URL_PATH_USAGE` (T_BOOL, default false): when set,
+    /// the web path also uses the configured `self_url` instead of detecting
+    /// it from the request.
+    pub force_self_url_path_usage: bool,
 
     /// Decoded 32-byte `TTRSS_ENCRYPTION_KEY`, or `None` if unset (no session
     /// encryption, matching `Config::get(Config::ENCRYPTION_KEY)` gating).
@@ -171,6 +178,7 @@ impl Default for Config {
             db_name: "postgres".into(),
             db_sslmode: "prefer".into(),
             self_url: "https://example.com/tt-rss".into(),
+            force_self_url_path_usage: false,
             encryption_key: None,
             single_user_mode: false,
             forbid_password_changes: false,
@@ -239,6 +247,9 @@ impl Config {
             db_sslmode: std::env::var("TTRSS_DB_SSLMODE").unwrap_or_else(|_| "prefer".into()),
             self_url: std::env::var("TTRSS_SELF_URL_PATH")
                 .unwrap_or_else(|_| "http://127.0.0.1:8280/tt-rss/".into()),
+            force_self_url_path_usage: sql_bool_to_bool(
+                &std::env::var("TTRSS_FORCE_SELF_URL_PATH_USAGE").unwrap_or_default(),
+            ),
             encryption_key: match std::env::var("TTRSS_ENCRYPTION_KEY") {
                 Ok(k) if !k.trim().is_empty() => Some(crate::core::crypt::hex_key(&k)?),
                 _ => None,
@@ -315,6 +326,49 @@ impl Config {
         self.self_url.trim_end_matches('/').to_string()
     }
 
+    /// `Config::get_self_url()` (web-SAPI branch): the app base URL for an
+    /// incoming request, detected the way the PHP reference does it —
+    ///
+    /// - scheme: `https` iff `X-Forwarded-Proto: https` (our server is plain
+    ///   TCP, so the PHP `HTTPS` SAPI var is always absent and the header is
+    ///   the decider — `is_server_https()`),
+    /// - host: the `Host` header,
+    /// - path: the request URI path with the two PHP stripping regexes
+    ///   applied in order, then `rtrim('/')`.
+    ///
+    /// The configured [`Config::self_url`] is used instead when
+    /// `force_self_url_path_usage` is set (the `FORCE_SELF_URL_PATH_USAGE`
+    /// branch) or when the request carries no usable `Host` header (a
+    /// degenerate case PHP would emit with an empty host).
+    ///
+    /// Takes the request headers + path (not the `Request`) so handlers that
+    /// consume the body before computing URLs (e.g. `public_handler`) can use
+    /// it too.
+    pub fn get_self_url(&self, headers: &axum::http::HeaderMap, path: &str) -> String {
+        if self.force_self_url_path_usage {
+            return self.self_url_rtrim();
+        }
+        let host = match headers
+            .get(axum::http::header::HOST)
+            .and_then(|v| v.to_str().ok())
+            .filter(|h| !h.is_empty())
+        {
+            Some(h) => h.to_string(),
+            None => return self.self_url_rtrim(),
+        };
+        let https = headers
+            .get("x-forwarded-proto")
+            .and_then(|v| v.to_str().ok())
+            == Some("https");
+        let scheme = if https { "https" } else { "http" };
+        let path = strip_self_url_path(path);
+        if path.is_empty() {
+            format!("{scheme}://{host}")
+        } else {
+            format!("{scheme}://{host}{path}")
+        }
+    }
+
     /// sqlx connection URL (equivalent of `Db::get_dsn()`).
     pub fn db_url(&self) -> String {
         format!(
@@ -343,6 +397,29 @@ impl Config {
             ..Default::default()
         }
     }
+}
+
+/// `Config::_self_url()`'s path cleaning: the two PHP stripping regexes in
+/// the reference's order, then its final `rtrim($self_url_path, "/")`:
+///
+/// 1. `/(\/api\/{1,})?(\w+\.php)?(\?.*$)?$/` — a trailing `/api/` run
+///    (`{1,}` is greedy, so `/api//` is consumed whole), an optional
+///    `word.php`, and the query (already absent from the axum path — the PHP
+///    `parse_url` split happens there as in the reference),
+/// 2. `/(\/plugins(.local)?)\/.{1,}$/` — the whole `/plugins/…` /
+///    `/plugins.local/…` tail.
+///
+/// Case-sensitive, like the unflagged PHP patterns.
+fn strip_self_url_path(path: &str) -> String {
+    static API_PHP: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+        regex::Regex::new(r"(\/api\/{1,})?(\w+\.php)?(\?.*$)?$").unwrap()
+    });
+    static PLUGINS: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+        regex::Regex::new(r"(\/plugins(\.local)?)\/.{1,}$").unwrap()
+    });
+    let p = API_PHP.replace(path, "");
+    let p = PLUGINS.replace(&p, "");
+    p.trim_end_matches('/').to_string()
 }
 
 /// PHP `sql_bool_to_bool()` (`include/functions.php`; the T_BOOL cast in
@@ -465,5 +542,152 @@ mod tests {
         // test_checkbox_to_sql_bool_on / _other
         assert_eq!(checkbox_to_sql_bool("on"), 1);
         assert_eq!(checkbox_to_sql_bool("off"), 0);
+    }
+
+    // ---- ConfigTest.php `test_self_url_a`..`k` (ported 1:1) ----
+
+    fn self_url_req<'a>(
+        host: Option<&'a str>,
+        xfp: Option<&'a str>,
+        path: &'a str,
+    ) -> (axum::http::HeaderMap, &'a str) {
+        let mut h = axum::http::HeaderMap::new();
+        if let Some(host) = host {
+            h.insert(axum::http::header::HOST, host.parse().unwrap());
+        }
+        if let Some(xfp) = xfp {
+            h.insert("x-forwarded-proto", xfp.parse().unwrap());
+        }
+        (h, path)
+    }
+
+    fn self_url_of(c: &Config, req: &(axum::http::HeaderMap, &str)) -> String {
+        c.get_self_url(&req.0, req.1)
+    }
+
+    #[test]
+    fn self_url_a() {
+        let req = self_url_req(Some("example.com"), Some("http"), "/tt-rss/api/index.php");
+        assert_eq!(
+            self_url_of(&cfg("http://x"), &req),
+            "http://example.com/tt-rss"
+        );
+    }
+
+    #[test]
+    fn self_url_b() {
+        let req = self_url_req(Some("example.com"), Some("https"), "/api/");
+        assert_eq!(self_url_of(&cfg("http://x"), &req), "https://example.com");
+    }
+
+    #[test]
+    fn self_url_c() {
+        let req = self_url_req(Some("example.com"), Some("https"), "/api/index.php");
+        assert_eq!(self_url_of(&cfg("http://x"), &req), "https://example.com");
+    }
+
+    #[test]
+    fn self_url_d() {
+        let req = self_url_req(Some("example.com"), Some("https"), "/api//");
+        assert_eq!(self_url_of(&cfg("http://x"), &req), "https://example.com");
+    }
+
+    #[test]
+    fn self_url_e() {
+        let req = self_url_req(Some("example.com"), Some("https"), "/");
+        assert_eq!(self_url_of(&cfg("http://x"), &req), "https://example.com");
+    }
+
+    #[test]
+    fn self_url_f() {
+        let req = self_url_req(Some("example.com"), None, "/tt-rss/index.php");
+        assert_eq!(
+            self_url_of(&cfg("http://x"), &req),
+            "http://example.com/tt-rss"
+        );
+    }
+
+    #[test]
+    fn self_url_g() {
+        let req = self_url_req(Some("example.com"), None, "/tt-rss/");
+        assert_eq!(
+            self_url_of(&cfg("http://x"), &req),
+            "http://example.com/tt-rss"
+        );
+    }
+
+    #[test]
+    fn self_url_h() {
+        let req = self_url_req(Some("example.com"), None, "/tt-rss");
+        assert_eq!(
+            self_url_of(&cfg("http://x"), &req),
+            "http://example.com/tt-rss"
+        );
+    }
+
+    #[test]
+    fn self_url_i() {
+        // PHP feeds `$_SERVER["REQUEST_URI"]` with a raw space; on the wire
+        // that is `%20`, which `http::Uri` requires. The stripping is
+        // unaffected: `\w+` stops at the space/`%` either way.
+        let req = self_url_req(
+            Some("example.com"),
+            None,
+            "/tt-rss////plugins.local/example///api/long%20path/test.php",
+        );
+        assert_eq!(
+            self_url_of(&cfg("http://x"), &req),
+            "http://example.com/tt-rss"
+        );
+    }
+
+    #[test]
+    fn self_url_j() {
+        let req = self_url_req(
+            Some("example.com"),
+            None,
+            "/tt-rss/plugins.local/example/api/longpath/test.php/reader/api/0/stream/items/ids?n=1000&output=json&s=user/-/state/com.google/starred",
+        );
+        assert_eq!(
+            self_url_of(&cfg("http://x"), &req),
+            "http://example.com/tt-rss"
+        );
+    }
+
+    #[test]
+    fn self_url_k() {
+        let req = self_url_req(
+            Some("example.com"),
+            None,
+            "/tt-rss/plugins/example/api/longpath/test.php/reader/api/0/stream/items/ids?n=1000&output=json&s=user/-/state/com.google/starred",
+        );
+        assert_eq!(
+            self_url_of(&cfg("http://x"), &req),
+            "http://example.com/tt-rss"
+        );
+    }
+
+    #[test]
+    fn self_url_forced_uses_configured() {
+        // `Config::get_self_url()`'s FORCE_SELF_URL_PATH_USAGE branch: the
+        // configured value wins even when the request would detect another.
+        let mut c = cfg("https://configured.example/app");
+        c.force_self_url_path_usage = true;
+        let req = self_url_req(Some("example.com"), Some("https"), "/other/api/");
+        assert_eq!(
+            c.get_self_url(&req.0, req.1),
+            "https://configured.example/app"
+        );
+    }
+
+    #[test]
+    fn self_url_no_host_falls_back_to_configured() {
+        // No `Host` header: PHP would emit an empty host; the port keeps the
+        // configured value instead.
+        let req = self_url_req(None, Some("https"), "/tt-rss/");
+        assert_eq!(
+            cfg("https://configured.example/tt-rss").get_self_url(&req.0, req.1),
+            "https://configured.example/tt-rss"
+        );
     }
 }

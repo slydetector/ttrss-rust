@@ -617,21 +617,21 @@ pub async fn index(state: &AppState, sess: &Sess) -> Result<String, sqlx::Error>
         sess,
         crate::pluginhost::HOOK_PREFS_TAB_SECTION,
         "prefPrefsPrefsInside",
-    )
+            )
     .await;
     let prefs_outside = crate::pluginhost::dispatch::prefs_chain(
         state,
         sess,
         crate::pluginhost::HOOK_PREFS_TAB_SECTION,
         "prefPrefsPrefsOutside",
-    )
+            )
     .await;
     let prefs_tabs = crate::pluginhost::dispatch::prefs_chain(
         state,
         sess,
         crate::pluginhost::HOOK_PREFS_TAB,
         "prefPrefs",
-    )
+            )
     .await;
 
     let rendered = index_env()

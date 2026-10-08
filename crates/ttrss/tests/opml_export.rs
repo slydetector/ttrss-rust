@@ -90,6 +90,7 @@ async fn test_export_handler() {
     let sess = Sess::new("test-sid".to_string());
     sess.replace("test-sid".to_string(), data);
 
+
     let extra = serde_json::Map::new();
     let (status, ct, disp, body) = ttrss::opml::export(&state, &sess, &extra).await;
 

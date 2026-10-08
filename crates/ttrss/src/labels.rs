@@ -23,7 +23,11 @@ use crate::AppState;
 /// Create label, Remove, Clear colors) + the `PrefLabelTree` fed by
 /// `getlabeltree`. Fully static (no per-request values), rendered from a
 /// fixed template with an empty context.
-pub async fn index(state: &AppState, sess: &Sess, _extra: &Map<String, Value>) -> String {
+pub async fn index(
+    state: &AppState,
+    sess: &Sess,
+    _extra: &Map<String, Value>,
+) -> String {
     // M7.22 item 7 — the `Pref_Labels::index` plugin chain (PHP site after
     // the tree pane, before the page's closing tag).
     let pref_labels_tabs = crate::pluginhost::dispatch::prefs_chain(
@@ -31,7 +35,7 @@ pub async fn index(state: &AppState, sess: &Sess, _extra: &Map<String, Value>) -
         sess,
         crate::pluginhost::HOOK_PREFS_TAB,
         "prefLabels",
-    )
+            )
     .await;
     let mut ctx = Map::new();
     ctx.insert(

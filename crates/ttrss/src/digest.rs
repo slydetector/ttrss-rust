@@ -37,6 +37,7 @@ pub async fn prepare_headlines_digest(
     uid: i32,
     days: i64,
     limit: i64,
+    self_url: &str,
 ) -> Value {
     let db = state.db.pool();
     let rows = prefs::load_rows(&state.db, uid as i64, None).await;
@@ -53,7 +54,6 @@ pub async fn prepare_headlines_digest(
     let enable_cats = prefs::resolve(prefs::ENABLE_FEED_CATS, &rows, None).as_bool();
 
     let (cur_date, cur_time) = cur_date_time(&tz_string);
-    let self_url = state.config.self_url_rtrim();
 
     // The headline query (mirrors the PHP SQL; `NOW() - INTERVAL '.. day'`).
     let lines = sqlx::query(AssertSqlSafe(format!(
@@ -150,8 +150,8 @@ pub async fn prepare_headlines_digest(
         .flat_map(|(_, a)| a.iter().map(|r| Value::from(r.ref_id)))
         .collect();
 
-    let html = render_html(&cur_date, &cur_time, &self_url, &feeds);
-    let text = render_text(&cur_date, &cur_time, &self_url, &feeds);
+    let html = render_html(&cur_date, &cur_time, self_url, &feeds);
+    let text = render_text(&cur_date, &cur_time, self_url, &feeds);
 
     Value::Array(vec![
         Value::String(html),

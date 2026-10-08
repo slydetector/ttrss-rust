@@ -81,6 +81,7 @@ async fn test_getarticle_runs_render_article_api_chain() {
     let sess = Sess::new("render-api-test".into());
     sess.replace("render-api-test".into(), data);
 
+
     // The per-user API gate.
     sqlx::query(
         "INSERT INTO ttrss_user_prefs2 (owner_uid, pref_name, profile, value)

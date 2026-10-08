@@ -293,6 +293,7 @@ async fn test_getconfig_custom_sort_types() {
     let sess = ttrss::session::Sess::new("sort-types".into());
     sess.replace("sort-types".into(), data);
 
+
     let (status, out) =
         ttrss::api::before_and_dispatch(&state, &sess, "getconfig", json!({}).as_object().unwrap(), None)
             .await;
@@ -381,8 +382,14 @@ async fn test_format_article_runs_hook() {
         .execute(state.db.pool())
         .await
         .expect("uuid set");
-    let out = public_dispatch(&state, "share", "get", &json!({ "key": "disp-key" }))
-        .await
+    let out = public_dispatch(
+        &state,
+        "share",
+        "get",
+        &json!({ "key": "disp-key" }),
+        &state.config.self_url_rtrim(),
+    )
+    .await
         .expect("share get");
     match out {
         ttrss::pluginhost::plugin::MethodOutput::Response { status, body, .. } => {
@@ -496,6 +503,7 @@ async fn test_api_update_article_marked_fires_mark() {
     let sess = ttrss::session::Sess::new("api-sid".into());
     sess.replace("api-sid".into(), data);
 
+
     let (status, out) = ttrss::api::before_and_dispatch(
         &state,
         &sess,
@@ -527,6 +535,7 @@ async fn test_api_update_article_published_fires_publish() {
     data.set("uid", PValue::Int(1));
     let sess = ttrss::session::Sess::new("api-sid".into());
     sess.replace("api-sid".into(), data);
+
 
     let (status, out) = ttrss::api::before_and_dispatch(
         &state,
@@ -560,6 +569,7 @@ async fn test_api_plugin_method_dispatched() {
     data.set("uid", PValue::Int(1));
     let sess = ttrss::session::Sess::new("api-plugin-sid".into());
     sess.replace("api-plugin-sid".into(), data);
+
 
     let (status, out) = ttrss::api::before_and_dispatch(
         &state,
