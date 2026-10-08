@@ -85,10 +85,17 @@ pub struct Config {
     pub listen: SocketAddr,
     /// Root of the static/web tree to serve byte-for-byte.
     pub docroot: PathBuf,
+    /// The app-data root (default `"data"`, CWD-relative; the docker image
+    /// sets `TTRSS_DATA_DIR=/var/lib/ttrss` — the single `app` volume):
+    /// user-supplied + persistent data that is **not** the docroot —
+    /// `cache/` (disk caches), `sql/post-init.d/` (startup SQL patches),
+    /// `themes.local/` (user themes).
+    pub data_dir: PathBuf,
     /// The disk-cache root (PHP `Config::CACHE_DIR`, default `"cache"`): a
     /// writable sibling of the (read-only/static) docroot, CWD-relative. All
     /// disk caches are fixed subdirs under it — `feed-icons` (favicons) and
-    /// `images` (downloaded media). Overridable via `TTRSS_CACHE_DIR`.
+    /// `images` (downloaded media). Overridable via `TTRSS_CACHE_DIR`
+    /// (otherwise `<data_dir>/cache`).
     pub cache_dir: PathBuf,
     /// `Config::MAX_FAVICON_FILE_SIZE` (T_INT): the max size of an uploaded
     /// custom favicon, in bytes (default 1 MiB). Overridable via
@@ -188,6 +195,7 @@ impl Default for Config {
             plugins: DEFAULT_PLUGINS.to_string(),
             listen: "127.0.0.1:8280".parse().unwrap(),
             docroot: PathBuf::from("tt-rss"),
+            data_dir: PathBuf::from("data"),
             cache_dir: PathBuf::from("cache"),
             max_favicon_file_size: 1048576,
             max_cache_file_size: 67108864,
@@ -237,6 +245,15 @@ impl Config {
 
         let db_user = std::env::var("TTRSS_DB_USER").unwrap_or_else(|_| "postgres".into());
         let db_name = std::env::var("TTRSS_DB_NAME").unwrap_or_else(|_| db_user.clone());
+        // The app-data root (the single `app` volume in the image). The cache
+        // root defaults to its `cache/` subdir unless `TTRSS_CACHE_DIR`
+        // overrides it explicitly.
+        let data_dir = std::env::var("TTRSS_DATA_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from("data"));
+        let cache_dir = std::env::var("TTRSS_CACHE_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| data_dir.join("cache"));
 
         Ok(Self {
             db_host: std::env::var("TTRSS_DB_HOST").unwrap_or_else(|_| "db".into()),
@@ -273,9 +290,8 @@ impl Config {
             docroot: std::env::var("TTRSS_DOCROOT")
                 .map(PathBuf::from)
                 .unwrap_or_else(|_| PathBuf::from("tt-rss")),
-            cache_dir: std::env::var("TTRSS_CACHE_DIR")
-                .map(PathBuf::from)
-                .unwrap_or_else(|_| PathBuf::from("cache")),
+            data_dir,
+            cache_dir,
             max_favicon_file_size: env("TTRSS_MAX_FAVICON_FILE_SIZE", "1048576")?,
             max_cache_file_size: env("TTRSS_MAX_CACHE_FILE_SIZE", "67108864")?,
             force_article_purge: env("TTRSS_FORCE_ARTICLE_PURGE", "0")?,
@@ -689,5 +705,51 @@ mod tests {
             cfg("https://configured.example/tt-rss").get_self_url(&req.0, req.1),
             "https://configured.example/tt-rss"
         );
+    }
+
+    /// `from_env` data-dir resolution: `TTRSS_CACHE_DIR` wins when set,
+    /// otherwise the cache root is `<TTRSS_DATA_DIR>/cache` (single `app`
+    /// volume model, docs/19). One test function: env vars are
+    /// process-global, so the cases run sequentially.
+    #[test]
+    fn from_env_data_dir_cache_resolution() {
+        fn with_env(data: Option<&str>, cache: Option<&str>, f: impl FnOnce(&Config)) {
+            let old_data = std::env::var("TTRSS_DATA_DIR").ok();
+            let old_cache = std::env::var("TTRSS_CACHE_DIR").ok();
+            for (key, val) in [("TTRSS_DATA_DIR", data), ("TTRSS_CACHE_DIR", cache)] {
+                match val {
+                    Some(v) => unsafe { std::env::set_var(key, v) },
+                    None => unsafe { std::env::remove_var(key) },
+                }
+            }
+            f(&Config::from_env().expect("from_env"));
+            for (key, val) in [
+                ("TTRSS_DATA_DIR", old_data.as_deref()),
+                ("TTRSS_CACHE_DIR", old_cache.as_deref()),
+            ] {
+                match val {
+                    Some(v) => unsafe { std::env::set_var(key, v) },
+                    None => unsafe { std::env::remove_var(key) },
+                }
+            }
+        }
+
+        // data dir set, cache dir unset → `<data>/cache` (the image default).
+        with_env(Some("/var/lib/ttrss"), None, |c| {
+            assert_eq!(c.data_dir, PathBuf::from("/var/lib/ttrss"));
+            assert_eq!(c.cache_dir, PathBuf::from("/var/lib/ttrss/cache"));
+        });
+        // cache dir set → wins verbatim.
+        with_env(Some("/var/lib/ttrss"), Some("/elsewhere"), |c| {
+            assert_eq!(c.data_dir, PathBuf::from("/var/lib/ttrss"));
+            assert_eq!(c.cache_dir, PathBuf::from("/elsewhere"));
+        });
+        // neither set → the CWD-relative dev defaults (cache nested under
+        // the data dir; the *struct* literal default stays `"cache"` for
+        // test constructors).
+        with_env(None, None, |c| {
+            assert_eq!(c.data_dir, PathBuf::from("data"));
+            assert_eq!(c.cache_dir, PathBuf::from("data/cache"));
+        });
     }
 }
