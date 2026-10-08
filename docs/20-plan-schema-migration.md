@@ -204,8 +204,15 @@ Concretely:
 - any later CLI form (manual ops) is a thin wrapper over the same
   functions and the same `ensure_up_to_date`, so no path can diverge.
 
-This design (doc 20) implements the first step of that sequence; the
-user-verb steps land with the docker-plan P0 increment.
+This design (doc 20) implements the first step of that sequence. **The user
+verb library functions have landed** in `ttrss::users` (`user_add`,
+`user_modify`, `user_has_password`, `user_exists`, `user_check_password`,
+`user_set_password`, `user_set_access_level`, `user_enable_api`,
+`user_remove` — 1:1 ports of the `UserHelper` statics + `update.php` verb
+semantics, `tests/user_verbs.rs`, 12 cases; no PHP CLI suite exists for
+these, so the port carries its own coverage). What remains for the docker
+P0 increment is the env-driven **policy wiring** in `main.rs` (admin
+password star-banner, access level, auto-user) on top of these functions.
 
 ## 5. Tests
 

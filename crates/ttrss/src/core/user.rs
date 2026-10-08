@@ -21,6 +21,9 @@ pub const ACCESS_LEVEL_READONLY: i32 = -1;
 pub const ACCESS_LEVEL_USER: i32 = 0;
 pub const ACCESS_LEVEL_POWERUSER: i32 = 5;
 pub const ACCESS_LEVEL_ADMIN: i32 = 10;
+/// `ACCESS_LEVEL_KEEP_CURRENT` — the `user_modify` "leave the level alone"
+/// sentinel (not a real stored level).
+pub const ACCESS_LEVEL_KEEP_CURRENT: i32 = -1024;
 
 /// `UserHelper::hash_password` — returns the full `ALGO:hash` string.
 pub fn hash_password(pass: &str, salt: &str, algo: &str) -> Option<String> {

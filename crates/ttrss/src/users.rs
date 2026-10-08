@@ -334,6 +334,199 @@ pub(crate) async fn reset_password(pool: &sqlx::PgPool, uid: i32, new_password: 
     format!("Changed password of user <strong>{login}</strong> to <strong>{tmp_pwd}</strong>")
 }
 
+// ---------------------------------------------------------------------------
+// `update.php` verbs (docs/19 P0) — the `UserHelper` primitives plus the
+// verb wrappers the CLI / first-boot bootstrap calls directly.
+// ---------------------------------------------------------------------------
+
+/// `UserHelper::map_access_level($level) != ACCESS_LEVEL_KEEP_CURRENT` — a
+/// real, stored access level.
+pub fn is_valid_access_level(level: i32) -> bool {
+    matches!(
+        level,
+        user::ACCESS_LEVEL_DISABLED
+            | user::ACCESS_LEVEL_READONLY
+            | user::ACCESS_LEVEL_USER
+            | user::ACCESS_LEVEL_POWERUSER
+            | user::ACCESS_LEVEL_ADMIN
+    )
+}
+
+/// `UserHelper::user_add` — add `$login`/`$password` at `$access_level`.
+/// False when the login is blank, the password empty, the user already
+/// exists, or the level is not a valid stored level. New passwords hash
+/// SSHA-512 with a fresh salt (the `hash_password` default algo).
+pub async fn user_add(
+    pool: &sqlx::PgPool,
+    login: &str,
+    password: &str,
+    access_level: i32,
+) -> sqlx::Result<bool> {
+    let login = clean_str(login);
+    if login.is_empty() || password.is_empty() || !is_valid_access_level(access_level) {
+        return Ok(false);
+    }
+    if find_user_by_login(pool, &login).await.is_some() {
+        return Ok(false);
+    }
+    let salt = user::get_salt();
+    let pwd_hash = user::hash_password(password, &salt, user::ALGO_SSHA512).unwrap_or_default();
+    sqlx::query(
+        "INSERT INTO ttrss_users (salt, login, pwd_hash, access_level, created)
+         VALUES ($1, $2, $3, $4, NOW())",
+    )
+    .bind(&salt)
+    .bind(login.to_lowercase())
+    .bind(&pwd_hash)
+    .bind(access_level)
+    .execute(pool)
+    .await?;
+    Ok(true)
+}
+
+/// `UserHelper::user_modify` — set `$uid`'s password (when `$new_password`
+/// is non-empty: fresh salt + SSHA-512) and/or `$access_level` (when not
+/// `KEEP_CURRENT`). False when the user does not exist.
+pub async fn user_modify(
+    pool: &sqlx::PgPool,
+    uid: i32,
+    new_password: Option<&str>,
+    access_level: i32,
+) -> sqlx::Result<bool> {
+    let row: Option<(String, String, i32)> =
+        sqlx::query_as("SELECT pwd_hash, salt, access_level FROM ttrss_users WHERE id = $1")
+            .bind(uid)
+            .fetch_optional(pool)
+            .await?;
+    let Some((cur_hash, cur_salt, cur_level)) = row else {
+        return Ok(false);
+    };
+    let (pwd_hash, salt) = match new_password {
+        Some(p) if !p.is_empty() => {
+            let salt = user::get_salt();
+            (
+                user::hash_password(p, &salt, user::ALGO_SSHA512).unwrap_or_default(),
+                salt,
+            )
+        }
+        _ => (cur_hash, cur_salt),
+    };
+    let level = if access_level == user::ACCESS_LEVEL_KEEP_CURRENT {
+        cur_level
+    } else {
+        access_level
+    };
+    sqlx::query("UPDATE ttrss_users SET pwd_hash = $1, salt = $2, access_level = $3 WHERE id = $4")
+        .bind(&pwd_hash)
+        .bind(&salt)
+        .bind(level)
+        .bind(uid)
+        .execute(pool)
+        .await?;
+    Ok(true)
+}
+
+/// `UserHelper::user_has_password` — verify `$password` against `$uid`'s
+/// stored hash (false when the user does not exist).
+pub async fn user_has_password(
+    pool: &sqlx::PgPool,
+    uid: i32,
+    password: &str,
+) -> sqlx::Result<bool> {
+    let row: Option<(String, String)> =
+        sqlx::query_as("SELECT pwd_hash, salt FROM ttrss_users WHERE id = $1")
+            .bind(uid)
+            .fetch_optional(pool)
+            .await?;
+    Ok(row
+        .as_ref()
+        .is_some_and(|(hash, salt)| user::verify_password(hash, password, salt)))
+}
+
+/// `update.php` `user-exists` — does `$login` exist (case-insensitive)?
+pub async fn user_exists(pool: &sqlx::PgPool, login: &str) -> sqlx::Result<bool> {
+    Ok(find_user_by_login(pool, login).await.is_some())
+}
+
+/// `update.php` `user-check-password` — is `$password` `$login`'s?
+pub async fn user_check_password(
+    pool: &sqlx::PgPool,
+    login: &str,
+    password: &str,
+) -> sqlx::Result<bool> {
+    match find_user_by_login(pool, login).await {
+        Some(uid) => user_has_password(pool, uid, password).await,
+        None => Ok(false),
+    }
+}
+
+/// `update.php` `user-set-password` — set `$login`'s password (false when
+/// the user does not exist).
+pub async fn user_set_password(
+    pool: &sqlx::PgPool,
+    login: &str,
+    password: &str,
+) -> sqlx::Result<bool> {
+    match find_user_by_login(pool, login).await {
+        Some(uid) => user_modify(pool, uid, Some(password), user::ACCESS_LEVEL_KEEP_CURRENT).await,
+        None => Ok(false),
+    }
+}
+
+/// `update.php` `user-set-access-level` — set `$login`'s level (false when
+/// the user does not exist or the level is not a valid stored level).
+pub async fn user_set_access_level(
+    pool: &sqlx::PgPool,
+    login: &str,
+    access_level: i32,
+) -> sqlx::Result<bool> {
+    if !is_valid_access_level(access_level) {
+        return Ok(false);
+    }
+    match find_user_by_login(pool, login).await {
+        Some(uid) => user_modify(pool, uid, None, access_level).await,
+        None => Ok(false),
+    }
+}
+
+/// `update.php` `user-add` — `user_add` (the env-driven bootstrap parses the
+/// `USER:PASS:LEVEL` env var; an empty level defaults to 0 *there*).
+pub async fn user_add_cmd(
+    pool: &sqlx::PgPool,
+    login: &str,
+    password: &str,
+    access_level: i32,
+) -> sqlx::Result<bool> {
+    user_add(pool, login, password, access_level).await
+}
+
+/// `update.php` `user-enable-api` — set `$login`'s `ENABLE_API_ACCESS` pref
+/// (false when the user does not exist).
+pub async fn user_enable_api(db: &crate::core::db::Db, login: &str, enable: bool) -> bool {
+    let Some(uid) = find_user_by_login(db.pool(), login).await else {
+        return false;
+    };
+    crate::prefs::set(
+        db,
+        crate::prefs::ENABLE_API_ACCESS,
+        if enable { "true" } else { "false" },
+        uid as i64,
+        None,
+        false,
+    )
+    .await
+}
+
+/// `update.php` `user-remove` — delete `$login`'s user row (false when the
+/// user does not exist).
+pub async fn user_remove(pool: &sqlx::PgPool, login: &str) -> sqlx::Result<bool> {
+    let res = sqlx::query("DELETE FROM ttrss_users WHERE LOWER(login) = LOWER($1)")
+        .bind(login)
+        .execute(pool)
+        .await?;
+    Ok(res.rows_affected() > 0)
+}
+
 /// `Pref_Users::edit` — the per-user edit dialog data (or `None` if absent).
 pub async fn edit(state: &AppState, _sess: &Sess, extra: &Map<String, Value>) -> Option<Value> {
     let pool = state.db.pool();

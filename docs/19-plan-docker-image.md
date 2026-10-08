@@ -103,12 +103,17 @@ one-liner that can be run outside the image; possible follow-up).
    `schema::ensure_up_to_date` at every startup (SQL read from the docroot,
    port of PHP's `Db_Migrations`); the startup bootstrap reuses it alongside
    the user verbs below.
-2. **No `update.php` user verbs** → port the six verbs
-   (`user-check-password`, `user-set-password`, `user-set-access-level`,
-   `user-add`, `user-exists`, `user-enable-api`) as library functions and
-   wire them into the **in-process startup bootstrap** (env-driven, no
-   separate CLI — see `docs/20` §4), with test parity against the PHP CLI
-   tests.
+2. ~~**No `update.php` user verbs**~~ → **verb functions done**
+   (2026-10-14): `user_add`, `user_modify`, `user_has_password`,
+   `user_exists`, `user_check_password`, `user_set_password`,
+   `user_set_access_level`, `user_enable_api`, `user_remove` ported 1:1
+   into `ttrss::users` (the `UserHelper` statics + `update.php` verb
+   semantics; `tests/user_verbs.rs`, 12 cases — no PHP CLI suite exists
+   for these, so the port carries its own coverage, same bar as
+   `Db_Migrations`). **Remaining:** wire the env-driven policy steps into
+   `main.rs` startup (admin-password star-banner, access level, auto-user)
+   on top of these functions — the in-process bootstrap per `docs/20` §4
+   (no separate CLI).
 
 ## 3. Image design
 
@@ -135,10 +140,11 @@ no rsync, no sudo, no cron** (the official app image is ~350 MB).
 
 - **P0 — code** (in-repo, tested): the in-process startup bootstrap —
   schema create/migrate (**done, `docs/20`: `core::schema::ensure_up_to_date`
-  runs at every startup, 15 DB/unit tests**) + the six user-verb behaviors
-  (admin-password policy, access level, auto-user) as env-driven startup
-  steps + tests. The remaining bulk; everything after this is shell and
-  Dockerfile.
+  runs at every startup, 15 DB/unit tests**) + the user-verb functions
+  (**done, 2026-10-14: `ttrss::users`, 12 tests**) + the env-driven
+  **policy wiring** in `main.rs` (admin-password star-banner, access
+  level, auto-user) + tests. The remaining bulk; everything after this is
+  shell and Dockerfile.
 - **P1 — image + fresh-install smoke**: build locally; a two-service compose
   (`db` + our image) with a fresh postgres; verify login as `admin`, feed
   add, and the in-container daemon updating feeds on its own.
