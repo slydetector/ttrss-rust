@@ -204,15 +204,21 @@ Concretely:
 - any later CLI form (manual ops) is a thin wrapper over the same
   functions and the same `ensure_up_to_date`, so no path can diverge.
 
-This design (doc 20) implements the first step of that sequence. **The user
-verb library functions have landed** in `ttrss::users` (`user_add`,
-`user_modify`, `user_has_password`, `user_exists`, `user_check_password`,
+**The full sequence has landed (2026-10-14).** The user verb library
+functions live in `ttrss::users` (`user_add`, `user_modify`,
+`user_has_password`, `user_exists`, `user_check_password`,
 `user_set_password`, `user_set_access_level`, `user_enable_api`,
 `user_remove` — 1:1 ports of the `UserHelper` statics + `update.php` verb
 semantics, `tests/user_verbs.rs`, 12 cases; no PHP CLI suite exists for
-these, so the port carries its own coverage). What remains for the docker
-P0 increment is the env-driven **policy wiring** in `main.rs` (admin
-password star-banner, access level, auto-user) on top of these functions.
+these, so the port carries its own coverage). The env-driven **policy
+wiring** is `ttrss::bootstrap` (`main.rs`, after `ensure_up_to_date`,
+fail-closed): admin-password star-banner, `ADMIN_USER_ACCESS_LEVEL`,
+`AUTO_CREATE_USER*`, and the post-init SQL patches at
+`<data_dir>/sql/post-init.d` (the reference's `${SCRIPT_ROOT}/sql/
+post-init.d`, mapped to the data dir — our image has no separate script
+root; the dir + the single-`app`-volume layout are in `docs/19` §3).
+`tests/bootstrap.rs` (12) covers the policy; `Config.data_dir`
+(`TTRSS_DATA_DIR`) is the app-data root (`docs/19`).
 
 ## 5. Tests
 

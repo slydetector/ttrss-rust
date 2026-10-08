@@ -96,41 +96,67 @@ one-liner that can be run outside the image; possible follow-up).
   `--user-check-password admin:password` flow) **and all 149 migration files**
   (`sql/pgsql/migrations/`).
 
-**Missing (code):**
+**Missing (code): all landed.**
 
-1. **No schema bootstrap/migration** — the port assumes a v151 DB exists.
-   → **designed in `docs/20-plan-schema-migration.md`**: built-in
-   `schema::ensure_up_to_date` at every startup (SQL read from the docroot,
-   port of PHP's `Db_Migrations`); the startup bootstrap reuses it alongside
-   the user verbs below.
-2. ~~**No `update.php` user verbs**~~ → **verb functions done**
-   (2026-10-14): `user_add`, `user_modify`, `user_has_password`,
-   `user_exists`, `user_check_password`, `user_set_password`,
-   `user_set_access_level`, `user_enable_api`, `user_remove` ported 1:1
-   into `ttrss::users` (the `UserHelper` statics + `update.php` verb
-   semantics; `tests/user_verbs.rs`, 12 cases — no PHP CLI suite exists
-   for these, so the port carries its own coverage, same bar as
-   `Db_Migrations`). **Remaining:** wire the env-driven policy steps into
-   `main.rs` startup (admin-password star-banner, access level, auto-user)
-   on top of these functions — the in-process bootstrap per `docs/20` §4
-   (no separate CLI).
+1. ~~**No schema bootstrap/migration**~~ → **done (`docs/20`)**:
+   `core::schema::ensure_up_to_date` at every startup (fresh DB →
+   `schema.sql` + stamp 151; older DB → numbered files; fail-closed),
+   15 tests.
+2. ~~**No `update.php` user verbs**~~ → **done (2026-10-14)**:
+   `user_add`, `user_modify`, `user_has_password`, `user_exists`,
+   `user_check_password`, `user_set_password`, `user_set_access_level`,
+   `user_enable_api`, `user_remove` ported 1:1 into `ttrss::users`
+   (`tests/user_verbs.rs`, 12 cases — no PHP CLI suite exists for these,
+   so the port carries its own coverage, same bar as `Db_Migrations`).
+3. **Startup bootstrap** → **done (2026-10-14, `ttrss::bootstrap`)**: the
+   reference `startup.sh`'s user-management steps in-process —
+   admin-password policy (stock `password` → random 16-char + the verbatim
+   star banner), `ADMIN_USER_ACCESS_LEVEL` (invalid → fail-closed),
+   `AUTO_CREATE_USER*`, and the post-init SQL patches
+   (`<data_dir>/sql/post-init.d`, sorted, autocommit — the reference's
+   `find … | psql -f` under `set -e`). 4 unit + 12 integration tests
+   (`tests/bootstrap.rs`).
 
 ## 3. Image design
 
 ```dockerfile
 FROM debian:trixie-slim
   + ttrss binary
-  + docroot baked at /var/www/html/tt-rss   (familiar official path; debug aid)
+  + docroot baked at /var/www/html/tt-rss   (read-only code; the familiar
+                                              official path; debug aid)
   + postgresql-client (pg_isready for the entrypoint's DB wait) + ca-certificates
-  + ENV TTRSS_CACHE_DIR=/cache              (explicit; no CWD dependence)
-  + /cache                                  (the cache-dir volume mount point)
+  + ENV TTRSS_DATA_DIR=/var/lib/ttrss       (baked; the user never sees the knob)
+  + /var/lib/ttrss                          (the single `app` volume mount point)
 ENTRYPOINT:  shell script:
   VAR__FILE secret expansion → pg_isready wait → chown $OWNER_UID:$OWNER_GID
   → exec ttrss   (startup runs the bootstrap in-process — schema per
-                  docs/20, admin-password policy, auto-user, all env-driven —
-                  then serves: server + daemon, 0.0.0.0:80)
+                  docs/20, admin-password policy, access level, auto-user,
+                  post-init patches — all env-driven — then serves:
+                  server + daemon, 0.0.0.0:80)
 HEALTHCHECK: http://localhost:80<base>/index.php   (official parity)
 ```
+
+**The single `app` volume** (the official docs' volume *name*, kept):
+everything the app writes or the user supplies lives under one mount —
+`/var/lib/ttrss` (FHS: app state; the official's 7-volume layout collapses
+to one because our code is baked, not rsync'd):
+
+```
+app → /var/lib/ttrss
+  cache/            feed-icons/, images/, …  (regenerable; TTRSS_CACHE_DIR
+                                               still wins if explicitly set)
+  sql/post-init.d/  user SQL patches, run at every boot
+  themes.local/     user themes (served at the docroot-relative URL
+                    themes.local/<t>; the static handler maps that prefix)
+```
+
+Deliberately *absent* (no code in the port reads them): `plugins.local/`
+and `templates.local/` (plugins compiled in, templates embedded),
+`lock/` (no cross-process lock files — one in-process daemon),
+`config.php` (config is env-driven). Migration from the official image:
+re-point/copy `cache/` + `themes.local/` from the old `/var/www` volume
+(the official's `app` volume mixes code and data because PHP needs a live
+working copy; ours is data-only).
 
 `TTRSS_PLUGINS` default: `auth_internal,note` (the official's `nginx_xaccel`
 is dropped — we have no nginx). Result: **~60 MB image with no PHP, no nginx,
@@ -138,13 +164,14 @@ no rsync, no sudo, no cron** (the official app image is ~350 MB).
 
 ## 4. Phases
 
-- **P0 — code** (in-repo, tested): the in-process startup bootstrap —
-  schema create/migrate (**done, `docs/20`: `core::schema::ensure_up_to_date`
-  runs at every startup, 15 DB/unit tests**) + the user-verb functions
-  (**done, 2026-10-14: `ttrss::users`, 12 tests**) + the env-driven
-  **policy wiring** in `main.rs` (admin-password star-banner, access
-  level, auto-user) + tests. The remaining bulk; everything after this is
-  shell and Dockerfile.
+- **P0 — code: DONE (2026-10-14).** The in-process startup bootstrap —
+  schema create/migrate (`docs/20`, 15 tests) + the user-verb functions
+  (`ttrss::users`, 12 tests) + the env-driven **policy wiring**
+  (`ttrss::bootstrap`: admin-password star-banner, access level,
+  auto-user, post-init patches; 4 unit + 12 integration tests) + the
+  directory model (`Config.data_dir` / `TTRSS_DATA_DIR`, `cache/` under
+  it, `themes.local` served from it). Everything remaining is shell and
+  Dockerfile.
 - **P1 — image + fresh-install smoke**: build locally; a two-service compose
   (`db` + our image) with a fresh postgres; verify login as `admin`, feed
   add, and the in-container daemon updating feeds on its own.
