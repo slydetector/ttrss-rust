@@ -99,13 +99,16 @@ one-liner that can be run outside the image; possible follow-up).
 **Missing (code):**
 
 1. **No schema bootstrap/migration** — the port assumes a v151 DB exists.
-   → new `ttrss init` subcommand: empty DB → run `schema.sql` (+ `pg_trgm`
-   extension); DB below v151 → apply `migrations/<v>.sql` in ascending order
-   (port of PHP's migration loop).
-2. **No `update.php` user verbs** → port the six flags `init` needs:
-   `user-check-password`, `user-set-password`, `user-set-access-level`,
-   `user-add`, `user-exists`, `user-enable-api` (with test parity against the
-   PHP CLI tests).
+   → **designed in `docs/20-plan-schema-migration.md`**: built-in
+   `schema::ensure_up_to_date` at every startup (SQL read from the docroot,
+   port of PHP's `Db_Migrations`); the startup bootstrap reuses it alongside
+   the user verbs below.
+2. **No `update.php` user verbs** → port the six verbs
+   (`user-check-password`, `user-set-password`, `user-set-access-level`,
+   `user-add`, `user-exists`, `user-enable-api`) as library functions and
+   wire them into the **in-process startup bootstrap** (env-driven, no
+   separate CLI — see `docs/20` §4), with test parity against the PHP CLI
+   tests.
 
 ## 3. Image design
 
@@ -118,8 +121,9 @@ FROM debian:trixie-slim
   + /cache                                  (the cache-dir volume mount point)
 ENTRYPOINT:  shell script:
   VAR__FILE secret expansion → pg_isready wait → chown $OWNER_UID:$OWNER_GID
-  → ttrss init   (idempotent: schema, migration, admin policy, auto-user)
-  → exec ttrss   (server + daemon, 0.0.0.0:80)
+  → exec ttrss   (startup runs the bootstrap in-process — schema per
+                  docs/20, admin-password policy, auto-user, all env-driven —
+                  then serves: server + daemon, 0.0.0.0:80)
 HEALTHCHECK: http://localhost:80<base>/index.php   (official parity)
 ```
 
@@ -129,9 +133,11 @@ no rsync, no sudo, no cron** (the official app image is ~350 MB).
 
 ## 4. Phases
 
-- **P0 — code** (in-repo, tested): `ttrss init` (schema create/migrate + the
-  six user verbs) + tests. The bulk of the work; everything after this is
-  shell and Dockerfile.
+- **P0 — code** (in-repo, tested): the in-process startup bootstrap —
+  schema create/migrate (`docs/20`) + the six user-verb behaviors
+  (admin-password policy, access level, auto-user) as env-driven startup
+  steps + tests. The bulk of the work; everything after this is shell and
+  Dockerfile.
 - **P1 — image + fresh-install smoke**: build locally; a two-service compose
   (`db` + our image) with a fresh postgres; verify login as `admin`, feed
   add, and the in-container daemon updating feeds on its own.
