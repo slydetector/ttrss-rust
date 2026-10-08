@@ -34,11 +34,14 @@ fn mtime_secs(p: &Path) -> i64 {
 }
 
 /// `get_theme_path($theme, $default)`: resolve the theme CSS path and append its
-/// mtime as a cache-buster.
-pub fn theme_path(docroot: &Path, theme: &str, default: &str) -> String {
-    for d in ["themes", "themes.local"] {
-        let f = format!("{d}/{theme}");
-        let p = docroot.join(&f);
+/// mtime as a cache-buster. User themes live in the data dir's `themes.local/`
+/// (docs/19 volume model); the URL keeps the docroot-relative shape
+/// `themes.local/<t>?<mtime>` — the static handler resolves that prefix from
+/// the data dir.
+pub fn theme_path(docroot: &Path, data_dir: &Path, theme: &str, default: &str) -> String {
+    for (dir, url_prefix) in [(docroot, "themes"), (data_dir, "themes.local")] {
+        let f = format!("{url_prefix}/{theme}");
+        let p = dir.join(url_prefix).join(theme);
         if p.is_file() {
             return format!("{f}?{}", mtime_secs(&p));
         }
@@ -124,19 +127,16 @@ pub fn render_otp_challenge(config: &Config, return_url: &str, form: &OtpForm) -
 /// per-user theme `<link>` (PHP `index.php`/`prefs.php` head). Emits nothing when
 /// the pref is empty or the theme file doesn't exist (`theme_exists`); the
 /// resolved path carries its mtime cache-buster via [`theme_path`].
-pub fn theme_css_link(docroot: &Path, theme: &str) -> String {
+pub fn theme_css_link(docroot: &Path, data_dir: &Path, theme: &str) -> String {
     if theme.is_empty() {
         return String::new();
     }
-    let exists = docroot
-        .join("themes")
-        .join(theme)
-        .exists()
-        || docroot.join("themes.local").join(theme).exists();
+    let exists = docroot.join("themes").join(theme).exists()
+        || data_dir.join("themes.local").join(theme).exists();
     if !exists {
         return String::new();
     }
-    let path = theme_path(docroot, theme, "");
+    let path = theme_path(docroot, data_dir, theme, "");
     format!(
         "<link href=\"{path}\" rel=\"stylesheet\" type=\"text/css\" data-orig-href=\"{path}\" id=\"theme_css\"/>"
     )
@@ -227,8 +227,8 @@ pub fn render_prefs_page(
 pub fn render_login_page(config: &Config, additional_buttons: &str, self_url: &str) -> String {
     let doc = config.docroot.as_path();
     let scripts_ts = scripts_timestamp(doc);
-    let theme_light = theme_path(doc, "light.css", "themes/light.css");
-    let theme_dark = theme_path(doc, "night.css", "themes/night.css");
+    let theme_light = theme_path(doc, &config.data_dir, "light.css", "themes/light.css");
+    let theme_dark = theme_path(doc, &config.data_dir, "night.css", "themes/night.css");
     let return_url = urlencode(&format!("{}/", self_url));
     let lifetime = 86400; // SESSION_COOKIE_LIFETIME default
     let mut env = minijinja::Environment::new();
@@ -294,30 +294,72 @@ mod tests {
     #[test]
     fn get_theme_path_matches_php() {
         let docroot = test_config().docroot;
+        let data_dir = std::path::Path::new("no-such-data-dir");
         // test_get_theme_path_nonexistent
-        assert_eq!(theme_path(&docroot, "nonexistent-theme-xyz", ""), "");
+        assert_eq!(
+            theme_path(&docroot, data_dir, "nonexistent-theme-xyz", ""),
+            ""
+        );
         // test_get_theme_path_with_default
         assert_eq!(
-            theme_path(&docroot, "nonexistent-theme-xyz", "themes/classic"),
+            theme_path(
+                &docroot,
+                data_dir,
+                "nonexistent-theme-xyz",
+                "themes/classic"
+            ),
             "themes/classic"
         );
         // test_get_theme_path_empty_default
-        assert_eq!(theme_path(&docroot, "nonexistent-theme-xyz", ""), "");
+        assert_eq!(
+            theme_path(&docroot, data_dir, "nonexistent-theme-xyz", ""),
+            ""
+        );
     }
 
     #[test]
     fn theme_css_link_matches_php() {
         let docroot = test_config().docroot;
+        let data_dir = std::path::Path::new("no-such-data-dir");
         // Empty pref → no link.
-        assert_eq!(theme_css_link(&docroot, ""), "");
+        assert_eq!(theme_css_link(&docroot, data_dir, ""), "");
         // Missing theme file → no link (`theme_exists` false).
-        assert_eq!(theme_css_link(&docroot, "nonexistent-theme-xyz"), "");
+        assert_eq!(
+            theme_css_link(&docroot, data_dir, "nonexistent-theme-xyz"),
+            ""
+        );
         // Real theme → `stylesheet_tag` link with mtime cache-buster.
         if docroot.join("themes/night.css").is_file() {
-            let link = theme_css_link(&docroot, "night.css");
+            let link = theme_css_link(&docroot, data_dir, "night.css");
             assert!(link.starts_with("<link href=\"themes/night.css?"));
             assert!(link.contains(" rel=\"stylesheet\" type=\"text/css\""));
             assert!(link.ends_with("id=\"theme_css\"/>"));
+        }
+    }
+
+    #[test]
+    fn data_dir_theme_resolves_and_links() {
+        // User themes live in `<data_dir>/themes.local` (docs/19 volume
+        // model); the URL keeps the docroot-relative shape.
+        let docroot = test_config().docroot;
+        let tmp = tempfile::tempdir().unwrap();
+        let local = tmp.path().join("themes.local").join("mytheme.css");
+        std::fs::create_dir_all(local.parent().unwrap()).unwrap();
+        std::fs::write(&local, "body { color: red; }").unwrap();
+
+        assert_eq!(
+            theme_path(docroot.as_path(), tmp.path(), "mytheme.css", ""),
+            format!("themes.local/mytheme.css?{}", mtime_secs(&local))
+        );
+        let link = theme_css_link(docroot.as_path(), tmp.path(), "mytheme.css");
+        assert!(link.starts_with("<link href=\"themes.local/mytheme.css?"));
+        // A docroot theme still wins over the data dir (the PHP iteration
+        // order: `themes` before the local dir).
+        let shadowed = tmp.path().join("themes.local").join("night.css");
+        std::fs::write(&shadowed, "body { }").unwrap();
+        if docroot.join("themes/night.css").is_file() {
+            let link = theme_css_link(docroot.as_path(), tmp.path(), "night.css");
+            assert!(link.starts_with("<link href=\"themes/night.css?"));
         }
     }
 

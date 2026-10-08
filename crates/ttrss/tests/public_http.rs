@@ -356,6 +356,43 @@ async fn test_api_login_otp_enabled_requires_app_password() {
     })).await.unwrap();
 }
 
+// docs/19 volume model: user themes live in `<data_dir>/themes.local` and are
+// served at the docroot-relative URL `themes.local/<t>`. The static handler
+// maps that prefix to the data dir.
+#[tokio::test]
+async fn test_local_theme_served_from_data_dir() {
+    with_test_db(|url| Box::pin(async move {
+        let mut cfg = common::test_config();
+        let tmp = tempfile::tempdir().expect("tempdir");
+        std::fs::create_dir_all(tmp.path().join("themes.local")).expect("mkdir");
+        std::fs::write(
+            tmp.path().join("themes.local/mytheme.css"),
+            "body { color: red; }",
+        )
+        .expect("write theme");
+        cfg.data_dir = tmp.path().to_path_buf();
+
+        let db = common::make_db_from_url(&url).await.expect("test db");
+        let state = AppState::new(cfg, db);
+        let app = app(state);
+
+        let req = Request::builder()
+            .method(Method::GET)
+            .uri("/tt-rss/themes.local/mytheme.css")
+            .body(Body::empty())
+            .expect("request");
+        let resp = app.oneshot(req).await.expect("response");
+        assert_eq!(resp.status(), StatusCode::OK, "local theme must be served");
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .expect("read body");
+        assert_eq!(&bytes[..], b"body { color: red; }");
+        Ok(())
+    }))
+    .await
+    .unwrap();
+}
+
 #[tokio::test]
 async fn test_base_path_redirects_to_trailing_slash() {
     with_test_db(|url| Box::pin(async move {

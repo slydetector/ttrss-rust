@@ -452,7 +452,11 @@ async fn theme_css_link(state: &AppState, data: &core_session::Session) -> Strin
     let rows = crate::prefs::load_rows_cached(&state.prefs_cache, &state.db, uid, profile).await;
     let pref = crate::prefs::resolve("USER_CSS_THEME", &rows, profile);
     let theme = pref.as_str();
-    render::theme_css_link(state.config.docroot.as_path(), theme)
+    render::theme_css_link(
+        state.config.docroot.as_path(),
+        state.config.data_dir.as_path(),
+        theme,
+    )
 }
 
 /// `UserHelper::print_user_stylesheet()` — the per-user custom CSS (the
@@ -1107,13 +1111,20 @@ async fn static_handler(State(state): State<AppState>, req: Request) -> axum::re
             .to_string()
     };
     let rel = rel.trim_start_matches('/');
-    let candidate = state.config.docroot.join(rel);
-    // Resolve and confine to the doc root (defends against path traversal).
+    // `themes.local/…` URLs resolve from the data dir (user themes, docs/19
+    // volume model); everything else from the doc root.
+    let base = if rel.starts_with("themes.local/") {
+        state.config.data_dir.as_path()
+    } else {
+        state.config.docroot.as_path()
+    };
+    let candidate = base.join(rel);
+    // Resolve and confine to the base dir (defends against path traversal).
     match (
         fs::canonicalize(&candidate).await,
-        fs::canonicalize(&state.config.docroot).await,
+        fs::canonicalize(base).await,
     ) {
-        (Ok(file), Ok(docroot)) if file.starts_with(&docroot) && file.is_file() => {
+        (Ok(file), Ok(base_dir)) if file.starts_with(&base_dir) && file.is_file() => {
             match fs::read(&file).await {
                 Ok(bytes) => {
                     let mime = mime::mime_for_path(&file);

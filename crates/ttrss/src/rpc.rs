@@ -953,7 +953,7 @@ async fn make_init_params(state: &AppState, sess: &Sess, uid: i64, profile: Opti
     let self_url = sess.self_url();
 
     let theme_pref = p("USER_CSS_THEME").as_str().to_string();
-    let theme = if theme_exists(&state.config.docroot, &theme_pref) {
+    let theme = if theme_exists(&state.config.docroot, &state.config.data_dir, &theme_pref) {
         theme_pref
     } else {
         String::new()
@@ -1132,12 +1132,14 @@ async fn is_default_password(pool: &sqlx::PgPool, uid: i64) -> bool {
     user::verify_password(&r.get::<String, _>(0), "password", &r.get::<String, _>(1))
 }
 
-/// `theme_exists`: a bare `themes/<name>` file/dir (or a local-themes dir).
-fn theme_exists(docroot: &std::path::Path, theme: &str) -> bool {
+/// `theme_exists`: a bare `themes/<name>` file/dir in the docroot (or a
+/// local-themes dir in the data dir — docs/19 volume model).
+fn theme_exists(docroot: &std::path::Path, data_dir: &std::path::Path, theme: &str) -> bool {
     if theme.is_empty() {
         return false;
     }
-    docroot.join("themes").join(theme).exists() || docroot.join("themes.local").join(theme).exists()
+    docroot.join("themes").join(theme).exists()
+        || data_dir.join("themes.local").join(theme).exists()
 }
 
 /// `RPC::image_to_base64` — `data:image/<ext>;base64,<b64>` ("" if missing).
@@ -1239,7 +1241,8 @@ mod tests {
     fn theme_exists_matches_php() {
         // test_theme_exists_fake
         let docroot = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tt-rss");
-        assert!(!theme_exists(&docroot, "nonexistent-theme-xyz"));
+        let data_dir = std::path::Path::new("no-such-data-dir");
+        assert!(!theme_exists(&docroot, data_dir, "nonexistent-theme-xyz"));
     }
 
     fn rt() -> tokio::runtime::Runtime {

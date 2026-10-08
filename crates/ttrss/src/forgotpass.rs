@@ -291,8 +291,8 @@ async fn reset_link(pool: &PgPool, hash: &str, login: &str, now: i64) -> String 
 fn render_shell(config: &Config, content: &str) -> String {
     let doc = config.docroot.as_path();
     let scripts_ts = render::scripts_timestamp(doc);
-    let theme_light = render::theme_path(doc, "light.css", "themes/light.css");
-    let theme_dark = render::theme_path(doc, "night.css", "themes/night.css");
+    let theme_light = render::theme_path(doc, &config.data_dir, "light.css", "themes/light.css");
+    let theme_dark = render::theme_path(doc, &config.data_dir, "night.css", "themes/night.css");
     let mut env = minijinja::Environment::new();
     env.add_function("__", |msg: String| -> String {
         __(&msg)
