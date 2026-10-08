@@ -42,6 +42,7 @@ async fn test_admin_user_pass_applied() {
     with_test_db(|url| {
         Box::pin(async move {
             let db = make_db(&url).await;
+            let data = tempfile::tempdir().expect("data dir");
             assert!(
                 users::user_check_password(db.pool(), "admin", "password")
                     .await
@@ -52,7 +53,7 @@ async fn test_admin_user_pass_applied() {
                 admin_user_pass: Some("new-admin-pass".into()),
                 ..Default::default()
             };
-            let report = bootstrap::run(&db, &vars).await.unwrap();
+            let report = bootstrap::run(&db, &vars, data.path()).await.unwrap();
             assert!(report.admin_password_set);
             assert!(report.admin_password_randomized.is_none());
             assert!(
@@ -77,8 +78,9 @@ async fn test_admin_password_randomized_when_stock() {
     with_test_db(|url| {
         Box::pin(async move {
             let db = make_db(&url).await;
+            let data = tempfile::tempdir().expect("data dir");
 
-            let report = bootstrap::run(&db, &BootstrapVars::default())
+            let report = bootstrap::run(&db, &BootstrapVars::default(), data.path())
                 .await
                 .unwrap();
             let Some(new_pass) = report.admin_password_randomized else {
@@ -109,6 +111,7 @@ async fn test_admin_password_untouched_when_not_stock() {
     with_test_db(|url| {
         Box::pin(async move {
             let db = make_db(&url).await;
+            let data = tempfile::tempdir().expect("data dir");
             users::user_set_password(db.pool(), "admin", "custom-pass")
                 .await
                 .unwrap();
@@ -120,7 +123,7 @@ async fn test_admin_password_untouched_when_not_stock() {
                     .unwrap();
 
             // No vars: the admin password is not the stock one → untouched.
-            let report = bootstrap::run(&db, &BootstrapVars::default())
+            let report = bootstrap::run(&db, &BootstrapVars::default(), data.path())
                 .await
                 .unwrap();
             assert!(report.admin_password_randomized.is_none());
@@ -150,12 +153,13 @@ async fn test_admin_level_applied() {
     with_test_db(|url| {
         Box::pin(async move {
             let db = make_db(&url).await;
+            let data = tempfile::tempdir().expect("data dir");
             let vars = BootstrapVars {
                 admin_user_pass: Some("x".into()), // suppress the randomize step
                 admin_user_access_level: Some("10".into()),
                 ..Default::default()
             };
-            let report = bootstrap::run(&db, &vars).await.unwrap();
+            let report = bootstrap::run(&db, &vars, data.path()).await.unwrap();
             assert!(report.admin_level_set);
             let level: i32 =
                 sqlx::query_scalar("SELECT access_level FROM ttrss_users WHERE login = $1")
@@ -176,6 +180,7 @@ async fn test_admin_level_invalid_fails() {
     with_test_db(|url| {
         Box::pin(async move {
             let db = make_db(&url).await;
+            let data = tempfile::tempdir().expect("data dir");
             let level_before: i32 =
                 sqlx::query_scalar("SELECT access_level FROM ttrss_users WHERE login = $1")
                     .bind("admin")
@@ -187,7 +192,10 @@ async fn test_admin_level_invalid_fails() {
                 admin_user_access_level: Some("7".into()),
                 ..Default::default()
             };
-            let err = bootstrap::run(&db, &vars).await.unwrap_err().to_string();
+            let err = bootstrap::run(&db, &vars, data.path())
+                .await
+                .unwrap_err()
+                .to_string();
             assert!(err.contains("Invalid access level value: 7"), "{err}");
             // Fail-closed: the server exits (main's `?`) — the level is
             // unchanged.
@@ -212,6 +220,7 @@ async fn test_auto_user_created() {
     with_test_db(|url| {
         Box::pin(async move {
             let db = make_db(&url).await;
+            let data = tempfile::tempdir().expect("data dir");
             let vars = BootstrapVars {
                 // Suppress the admin randomize (deterministic snapshot below).
                 admin_user_pass: Some("x".into()),
@@ -220,7 +229,7 @@ async fn test_auto_user_created() {
                 auto_create_user_access_level: String::new(), // → 0, as PHP
                 ..Default::default()
             };
-            let report = bootstrap::run(&db, &vars).await.unwrap();
+            let report = bootstrap::run(&db, &vars, data.path()).await.unwrap();
             assert!(report.auto_user_created);
             let level: i32 =
                 sqlx::query_scalar("SELECT access_level FROM ttrss_users WHERE login = $1")
@@ -246,6 +255,7 @@ async fn test_auto_user_existing_untouched() {
     with_test_db(|url| {
         Box::pin(async move {
             let db = make_db(&url).await;
+            let data = tempfile::tempdir().expect("data dir");
             users::user_add(db.pool(), "autouser", "original-pass", 5)
                 .await
                 .unwrap();
@@ -255,7 +265,7 @@ async fn test_auto_user_existing_untouched() {
                 auto_create_user_pass: "other-pass".into(),
                 ..Default::default()
             };
-            let report = bootstrap::run(&db, &vars).await.unwrap();
+            let report = bootstrap::run(&db, &vars, data.path()).await.unwrap();
             assert!(!report.auto_user_created);
             // The `--user-exists` guard: the existing password is untouched.
             assert!(
@@ -282,13 +292,14 @@ async fn test_auto_user_enable_api() {
     with_test_db(|url| {
         Box::pin(async move {
             let db = make_db(&url).await;
+            let data = tempfile::tempdir().expect("data dir");
             let vars = BootstrapVars {
                 auto_create_user: Some("apiuser".into()),
                 auto_create_user_pass: "pw".into(),
                 auto_create_user_enable_api: Some("true".into()),
                 ..Default::default()
             };
-            let report = bootstrap::run(&db, &vars).await.unwrap();
+            let report = bootstrap::run(&db, &vars, data.path()).await.unwrap();
             assert_eq!(report.auto_user_api, Some(true));
             let uid: i32 = sqlx::query_scalar("SELECT id FROM ttrss_users WHERE login = $1")
                 .bind("apiuser")
@@ -312,7 +323,7 @@ async fn test_auto_user_enable_api() {
                 auto_create_user_enable_api: Some("false".into()),
                 ..Default::default()
             };
-            let report = bootstrap::run(&db, &vars).await.unwrap();
+            let report = bootstrap::run(&db, &vars, data.path()).await.unwrap();
             assert_eq!(report.auto_user_api, Some(false));
             let pref: String = sqlx::query_scalar(
                 "SELECT value FROM ttrss_user_prefs2
@@ -338,6 +349,7 @@ async fn test_all_unset_is_noop() {
     with_test_db(|url| {
         Box::pin(async move {
             let db = make_db(&url).await;
+            let data = tempfile::tempdir().expect("data dir");
             // A non-stock admin password so the randomize step has nothing to do
             // (with the stock one, "no-op" would still randomize — by design).
             users::user_set_password(db.pool(), "admin", "custom-pass")
@@ -345,7 +357,7 @@ async fn test_all_unset_is_noop() {
                 .unwrap();
             let before = snapshot(&db).await;
 
-            let report = bootstrap::run(&db, &BootstrapVars::default())
+            let report = bootstrap::run(&db, &BootstrapVars::default(), data.path())
                 .await
                 .unwrap();
             assert!(!report.admin_password_set);
@@ -355,6 +367,107 @@ async fn test_all_unset_is_noop() {
             assert_eq!(report.auto_user_api, None);
 
             assert_eq!(snapshot(&db).await, before);
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
+}
+
+// ── post-init SQL patches ───────────────────────────────────────────────────
+
+fn write_patches(data: &tempfile::TempDir, files: &[(&str, &str)]) {
+    let dir = data.path().join("sql").join("post-init.d");
+    std::fs::create_dir_all(&dir).unwrap();
+    for (name, body) in files {
+        std::fs::write(dir.join(name), body).unwrap();
+    }
+}
+
+#[tokio::test]
+async fn test_post_init_patches_applied_in_order() {
+    with_test_db(|url| Box::pin(async move {
+        let db = make_db(&url).await;
+        let data = tempfile::tempdir().expect("data dir");
+        write_patches(
+            &data,
+            &[
+                // `a` creates the table, `b` inserts — the ordering guard:
+                // sorted-by-name application (the reference's `find` order is
+                // unspecified).
+                (
+                    "a_setup.sql",
+                    "create table post_init_marker (note text); insert into post_init_marker values ('a');",
+                ),
+                (
+                    "b_more.sql",
+                    "insert into post_init_marker values ('b');",
+                ),
+                // Not a .sql file — the reference's `-name '*.sql'` skips it.
+                ("c_notes.txt", "-- ignored"),
+            ],
+        );
+
+        let report =
+            bootstrap::run(&db, &BootstrapVars::default(), data.path()).await.unwrap();
+        assert_eq!(report.post_init_applied, vec!["a_setup.sql", "b_more.sql"]);
+        let notes: Vec<String> =
+            sqlx::query_scalar("SELECT note FROM post_init_marker ORDER BY note")
+                .fetch_all(db.pool())
+                .await
+                .unwrap();
+        assert_eq!(notes, vec!["a".to_string(), "b".to_string()]);
+        Ok(())
+    }))
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn test_post_init_absent_dir_is_noop() {
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = make_db(&url).await;
+            let data = tempfile::tempdir().expect("data dir");
+            let report = bootstrap::run(&db, &BootstrapVars::default(), data.path())
+                .await
+                .unwrap();
+            assert!(report.post_init_applied.is_empty());
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn test_post_init_failing_patch_fails_closed() {
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = make_db(&url).await;
+            let data = tempfile::tempdir().expect("data dir");
+            write_patches(
+                &data,
+                &[(
+                    "a_bad.sql",
+                    "create table post_init_marker (note text); insert into nowhere values (1);",
+                )],
+            );
+            let err = bootstrap::run(&db, &BootstrapVars::default(), data.path())
+                .await
+                .unwrap_err()
+                .to_string();
+            assert!(err.contains("a_bad.sql"), "{err}");
+            // The good statement committed (`psql -f` autocommit); the bad one
+            // did not.
+            let has_table: bool = sqlx::query_scalar(
+                "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = $1)",
+            )
+            .bind("post_init_marker")
+            .fetch_one(db.pool())
+            .await
+            .unwrap();
+            assert!(has_table);
             Ok(())
         })
     })

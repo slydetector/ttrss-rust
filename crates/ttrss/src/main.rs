@@ -36,7 +36,12 @@ async fn main() -> anyhow::Result<()> {
     // `password` → random 16-char + star banner), admin access level,
     // auto-create user. Env-driven, idempotent, a no-op when the vars are
     // unset; fail-closed like the schema step.
-    ttrss::bootstrap::run(&db, &ttrss::bootstrap::BootstrapVars::from_env()).await?;
+    ttrss::bootstrap::run(
+        &db,
+        &ttrss::bootstrap::BootstrapVars::from_env(),
+        &config.data_dir,
+    )
+    .await?;
     tracing::info!(
         listen = %config.listen,
         docroot = %config.docroot.display(),

@@ -31,6 +31,11 @@
 //! (The `VAR__FILE` secret expansion, `pg_isready` wait, chown and the
 //! post-init SQL patches live in the entrypoint / [`run`] respectively.)
 
+use std::path::Path;
+
+use anyhow::Context;
+use sqlx::AssertSqlSafe;
+
 use crate::core::db::Db;
 use crate::core::user;
 use crate::users;
@@ -79,6 +84,9 @@ pub struct BootstrapReport {
     pub auto_user_created: bool,
     /// The resolved `AUTO_CREATE_USER_ENABLE_API` value (None = unset).
     pub auto_user_api: Option<bool>,
+    /// Post-init patch files applied, in order (the reference prints one
+    /// `applying SQL patch file: …` line per file).
+    pub post_init_applied: Vec<String>,
 }
 
 /// `update.php`'s `map_access_level`-validated level parse.
@@ -117,8 +125,16 @@ fn star_banner(password: &str) -> String {
 }
 
 /// Run the bootstrap sequence on `db`. Idempotent: every step is a no-op
-/// when its env var is unset / its precondition unmet.
-pub async fn run(db: &Db, vars: &BootstrapVars) -> Result<BootstrapReport, anyhow::Error> {
+/// when its env var is unset / its precondition unmet. `data_dir` is the
+/// app-data root (docs/19 volume model) — the post-init patches live at
+/// `<data_dir>/sql/post-init.d` (the reference's
+/// `${SCRIPT_ROOT}/sql/post-init.d`, mapped to the data dir since our image
+/// has no separate script root).
+pub async fn run(
+    db: &Db,
+    vars: &BootstrapVars,
+    data_dir: &Path,
+) -> Result<BootstrapReport, anyhow::Error> {
     let pool = db.pool();
     let mut report = BootstrapReport::default();
 
@@ -176,6 +192,47 @@ pub async fn run(db: &Db, vars: &BootstrapVars) -> Result<BootstrapReport, anyho
             let enable = crate::core::config::sql_bool_to_bool(raw);
             let _ = users::user_enable_api(db, login, enable).await;
             report.auto_user_api = Some(enable);
+        }
+    }
+
+    // ── post-init SQL patches ──────────────────────────────────────────────
+    // The reference: `find ${SCRIPT_ROOT}/sql/post-init.d/ -name '*.sql' |
+    // while read F; do psql -f $F; done` (its startup.sh runs under `set -e`,
+    // so a failing patch aborts the boot — we are fail-closed too). The
+    // frozen reference ships the directory empty; users mount their patches
+    // at `<data_dir>/sql/post-init.d`.
+    let patch_dir = data_dir.join("sql").join("post-init.d");
+    if patch_dir.is_dir() {
+        // The reference's `find` order is unspecified (filesystem order);
+        // sorted by name is the deterministic equivalent.
+        let mut files: Vec<std::path::PathBuf> = std::fs::read_dir(&patch_dir)
+            .with_context(|| format!("reading {}", patch_dir.display()))?
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .filter(|p| p.is_file() && p.extension().is_some_and(|e| e == "sql"))
+            .collect();
+        files.sort();
+        for file in &files {
+            tracing::info!(file = %file.display(), "applying SQL patch file");
+            let sql = std::fs::read_to_string(file)
+                .with_context(|| format!("reading {}", file.display()))?;
+            // `psql -f` autocommits per statement; sqlx without an explicit
+            // transaction does the same.
+            for stmt in crate::core::schema::split_statements(&sql) {
+                sqlx::query(AssertSqlSafe(stmt.clone()))
+                    .execute(pool)
+                    .await
+                    .with_context(|| format!("SQL patch in {}", file.display()))?;
+            }
+            report
+                .post_init_applied
+                .push(file.file_name().unwrap().to_string_lossy().into_owned());
+        }
+        if !report.post_init_applied.is_empty() {
+            tracing::info!(
+                count = report.post_init_applied.len(),
+                "bootstrap: applied post-init SQL patches"
+            );
         }
     }
 
