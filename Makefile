@@ -182,7 +182,7 @@ demo-follow: ## follow the demo server's log output (tail -f)
 SHADOW_SCRIPT := shadow/shadow.sh
 
 .PHONY: shadow
-shadow: ## preflight + build + bring up the shadow (db + rust) against a prod copy
+shadow: ## preflight + build + bring up the shadow (db + app) against a prod copy
 	bash $(SHADOW_SCRIPT) preflight
 	bash $(SHADOW_SCRIPT) up
 
@@ -194,7 +194,7 @@ shadow-copy: ## re-sync the shadow from prod (re-dump + restore + restart; no re
 shadow-follow: ## follow all shadow service logs (Ctrl-C to stop)
 	(cd shadow && docker compose logs -f)
 .PHONY: shadow-stop
-shadow-stop: ## stop the shadow stack (db + rust); keeps the data volume
+shadow-stop: ## stop the shadow stack (db + app); keeps the data volume
 	bash $(SHADOW_SCRIPT) stop
 
 .PHONY: shadow-db

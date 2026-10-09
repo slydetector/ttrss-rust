@@ -12,7 +12,7 @@ volume, rather than the synthetic golden dataset. The oracle, the whole test
 suite, and the shadow all run on Postgres 17, so the shadow is a like-for-like
 environment with prod.
 
-Everything runs in a **2-container docker compose stack** (`db` + `rust`) — no
+Everything runs in a **2-container docker compose stack** (`db` + `app`) — no
 PHP, no nginx, no updater. See "The stack" below.
 
 ## Verdict: viable, and cheap to do safely
@@ -33,7 +33,7 @@ PHP, no nginx, no updater. See "The stack" below.
   (`rust:1.98-trixie`, `debian:trixie-slim`, `postgres:17-alpine`) are
   available.
 
-## The stack: `db` + `rust` (no nginx, no PHP)
+## The stack: `db` + `app` (no nginx, no PHP)
 
 The PHP reference needs four containers: `db`, `app` (PHP-FPM), `web` (nginx:
 serves static files + proxies `*.php` to PHP-FPM), and `updater` (the feed
@@ -44,14 +44,14 @@ just:
 | service | image | role |
 |---------|-------|------|
 | `db` | `postgres:17-alpine` | the prod-data copy (host port `5433`) |
-| `rust` | built from `shadow/Dockerfile` | the port; serves the app on container `:9000` → host `:9000` |
+| `app` | built from the repo-root `Dockerfile` | the port; serves the app on container `:9000` → host `:9000` |
 
 No nginx, no PHP-FPM, no updater — the server runs with `TTRSS_DAEMON=0`, so
 the prod snapshot stays frozen (no background feed updates during poking).
 
-### Docker image (the `rust` service)
+### Docker image (the `app` service)
 
-`shadow/Dockerfile`, multi-stage:
+`Dockerfile` (repo root), multi-stage:
 
 - **build** — `rust:1.98-trixie` compiles `target/release/ttrss` from `crates/`.
 - **runtime** — `debian:trixie-slim` + the binary + the `tt-rss` frontend
@@ -72,23 +72,23 @@ One entry point — **`make shadow`** — that runs, in order:
    `SELECT schema_version FROM ttrss_version` and require it to equal the
    frozen reference's version (**151**); abort on any mismatch (or if the
    table is missing).
-2. **Build.** `docker compose build rust` (cached when the source is unchanged).
+2. **Build.** `docker compose build app` (cached when the source is unchanged).
 3. **DB up.** `docker compose up -d db` — the `postgres:17-alpine` container on
    host port `5433`, wait for healthy.
 4. **Reset.** Drop + recreate the `shadow` database (idempotent).
 5. **Copy prod → shadow.** `pg_dump --format=custom --no-owner --no-acl` from
    prod (local 18.6 client) streamed directly into `pg_restore --no-owner -d
    shadow` (the empty DB) — no dump file is written.
-6. **Rust up.** `docker compose up -d rust` — connects to `db`, daemon off.
+6. **App up.** `docker compose up -d app` — connects to `db`, daemon off.
 7. **Health check + summary** (curl the shadow's `/tt-rss/healthz` on `9000`;
    print URL, stop command).
 
 ### Companion targets
 
 - **`make shadow-copy`** — re-sync only: reset `shadow`, re-dump prod → `shadow`,
-  restart `rust` (no rebuild). The fast path for "I changed prod, give me a
+  restart `app` (no rebuild). The fast path for "I changed prod, give me a
   fresh copy."
-- **`make shadow-stop`** — stop the `rust` + `db` containers (keeps the volume);
+- **`make shadow-stop`** — stop the `app` + `db` containers (keeps the volume);
   the oracle is never touched.
 - **`shadow-db`** (internal) — bring up `db` + reset the `shadow` database.
 
@@ -107,11 +107,11 @@ One entry point — **`make shadow`** — that runs, in order:
 ## Efficiency & repeatability
 
 - **Idempotent end-to-end:** each `make shadow` = stop prior shadow → build
-  (cached) → db up → drop+recreate `shadow` → re-dump → rust up. Every run
+  (cached) → db up → drop+recreate `shadow` → re-dump → app up. Every run
   yields a fresh prod snapshot with no manual cleanup.
 - **The container + image are reused** (only the `shadow` database is
   dropped/recreated each run, which is cheap and local).
-- **`docker compose build rust`** is a no-op when the source is unchanged
+- **`docker compose build app`** is a no-op when the source is unchanged
   (layer caching).
 - **`--format=custom`** = a compressed single file (smaller network transfer)
   and locally restorable with `pg_restore`; add `-j N` for a parallel restore on
@@ -164,12 +164,13 @@ One entry point — **`make shadow`** — that runs, in order:
 
 | target | action |
 |---|---|
-| `make shadow` | preflight + build + db + copy + rust + health (single entry point) |
-| `make shadow-copy` | re-dump prod → `shadow` + restart `rust` (no rebuild) |
-| `make shadow-stop` | stop the `rust` + `db` containers (keeps the volume) |
+| `make shadow` | preflight + build + db + copy + app + health (single entry point) |
+| `make shadow-copy` | re-dump prod → `shadow` + restart `app` (no rebuild) |
+| `make shadow-stop` | stop the `app` + `db` containers (keeps the volume) |
 | `shadow-db` (internal) | ensure `db` is up + reset the `shadow` database |
 
-New files: `shadow/Dockerfile`, `shadow/compose.yaml`, `shadow/.env.example`
+New files: `Dockerfile` (repo root; originally `shadow/Dockerfile`),
+`shadow/compose.yaml`, `shadow/.env.example`
 (committed), `shadow/.env` (gitignored), `shadow/{preflight,copy,stop}.sh`, a
 repo-root `.dockerignore`. `.gitignore` gains `shadow/.env` +
 `shadow/feed-icons/`.
@@ -183,6 +184,6 @@ repo-root `.dockerignore`. `.gitignore` gains `shadow/.env` +
    key, `TTRSS_ENCRYPTION_KEY` available as an override.
 3. **Drift preflight** — **hard-fail** on a `ttrss_version.schema_version`
    mismatch (expected: 151).
-4. **Stack** — 2-container compose (`db` + `rust`); the Rust port replaces
+4. **Stack** — 2-container compose (`db` + `app`); the Rust port replaces
    nginx + PHP-FPM, so no nginx. Base images are debian (`rust:1.98-trixie` →
    `debian:trixie-slim`).

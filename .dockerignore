@@ -15,5 +15,10 @@ demo.pid
 AGENTS.md
 README.md
 Makefile
-# shadow/: keep the Dockerfile; exclude local secrets.
+# shadow/: local prod-copy data (a full production DB dump) + secrets.
+shadow/data
 shadow/.env
+data
+.venv
+*.log
+.env

@@ -1,0 +1,55 @@
+# Blessed tt-rss (Rust) stack: postgres + the self-contained app (serving +
+# in-container feed daemon). Drop-in replacement for the official PHP stack
+# (no nginx, no PHP-FPM, no updater service — docs/19).
+#
+# Usage:
+#   cp .env.example .env && $EDITOR .env
+#   docker compose up -d
+#
+# All app configuration lives in .env (passed to the app verbatim via
+# env_file; it also feeds the ${...} interpolations below) — like the
+# official stack, the app service needs no compose-side environment:
+# TTRSS_DB_HOST=db etc. are image defaults (the official stack topology).
+# HTTP_PORT must be defined in .env (no fallback here).
+name: ttrss
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - POSTGRES_USER=${TTRSS_DB_USER}
+      - POSTGRES_PASSWORD=${TTRSS_DB_PASS}
+      - POSTGRES_DB=${TTRSS_DB_NAME}
+    volumes:
+      - db:/var/lib/postgresql/data
+    healthcheck:
+      # The app connects once at startup and has no DB retry loop, so gate
+      # it on pg readiness (the official stack's bare `depends_on` would
+      # crash-loop on a cold start).
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  app:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: ttrss-rust
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "${HTTP_PORT}:9000"
+    volumes:
+      - app:/var/lib/tt-rss
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  db:
+  app:

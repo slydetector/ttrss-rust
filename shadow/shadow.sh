@@ -2,9 +2,9 @@
 # shadow — bring up a Rust-backed "shadow" of a production tt-rss database.
 #
 #   preflight  check tools, shadow/.env, and prod schema drift (hard-fail)
-#   up         build + db up + reset shadow + copy prod + rust up + health
-#   copy       re-sync: reset shadow + re-copy prod + restart rust (no rebuild)
-#   stop       stop the shadow stack (db + rust); keeps the data volume
+#   up         build + db up + reset shadow + copy prod + app up + health
+#   copy       re-sync: reset shadow + re-copy prod + restart app (no rebuild)
+#   stop       stop the shadow stack (db + app); keeps the data volume
 #   db         (internal) ensure the shadow db is up + reset the shadow database
 #
 # Prod credentials live in the gitignored shadow/.env (see shadow/.env.example).
@@ -71,8 +71,8 @@ cmd_preflight() {
 
 # --- steps --------------------------------------------------------------------
 build_image() {
-  info "building the rust image (cached when the source is unchanged)"
-  ( cd "$SHADOW_DIR" && docker compose build rust )
+  info "building the app image (cached when the source is unchanged)"
+  ( cd "$SHADOW_DIR" && docker compose build app )
 }
 
 db_up() {
@@ -88,7 +88,7 @@ db_up() {
 }
 
 stop_rust() {
-  ( cd "$SHADOW_DIR" && docker compose stop rust >/dev/null 2>&1 ) || true
+  ( cd "$SHADOW_DIR" && docker compose stop app >/dev/null 2>&1 ) || true
 }
 
 reset_db() {
@@ -119,7 +119,7 @@ copy_prod() {
 }
 
 rust_up() {
-  ( cd "$SHADOW_DIR" && docker compose up -d rust )
+  ( cd "$SHADOW_DIR" && docker compose up -d app )
 }
 
 health_summary() {

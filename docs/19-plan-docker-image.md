@@ -1,6 +1,8 @@
 # Plan: Docker image — a drop-in replacement for the official tt-rss images
 
-**Date:** 2026-10-07 · **Status:** plan, pending sign-off on the decision items (§5)
+**Date:** 2026-10-07 · **Status:** image built + shadow-verified (2026-10-08); blessed
+layout landed (root `Dockerfile` + `docker/` stack, 2026-10-09); P1 fresh-install
+smoke is the next gate
 
 ## 1. The target
 
@@ -89,9 +91,10 @@ one-liner that can be run outside the image; possible follow-up).
 
 **Already in place:**
 
-- `shadow/Dockerfile` — multi-stage `rust:1.98-trixie` → `debian:trixie-slim`,
-  docroot baked in, port 9000, in-process chown + privilege drop. The new
-  image extends it; nothing is thrown away.
+- `Dockerfile` (repo root; was `shadow/Dockerfile` before the blessed layout) —
+  multi-stage `rust:1.98-trixie` → `debian:trixie-slim`, docroot baked in,
+  port 9000, in-process chown + privilege drop. The new image extends it;
+  nothing is thrown away.
 - The binary reads the official `TTRSS_*` env names; the in-process update
   daemon + cron housekeeping (`ttrss::updates::daemon_loop`, on by default)
   *is* the updater service's job; password-hash formats match

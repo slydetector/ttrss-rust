@@ -28,10 +28,10 @@ services:
       timeout: 3s
       retries: 30
 
-  rust:
+  app:
     build:
       context: ..
-      dockerfile: shadow/Dockerfile
+      dockerfile: Dockerfile
       args:
         RUST_IMAGE: rust:1.98-trixie
     image: ttrss-shadow-rust
@@ -39,21 +39,13 @@ services:
       db:
         condition: service_healthy
     environment:
-      TTRSS_DB_HOST: db
-      TTRSS_DB_PORT: "5432"
+      # The rest (TTRSS_DB_HOST/PORT, TTRSS_LISTEN_ADDR, TTRSS_PLUGINS,
+      # RUST_LOG, OWNER_UID/GID) are image defaults (Dockerfile ENV).
       TTRSS_DB_USER: ${TTRSS_DB_USER:-shadow}
       TTRSS_DB_NAME: ${TTRSS_DB_NAME:-shadow}
       TTRSS_DB_PASS: ${TTRSS_DB_PASS:-shadow}
       TTRSS_SELF_URL_PATH: ${TTRSS_SELF_URL_PATH:-http://127.0.0.1:9000/tt-rss/}
-      TTRSS_LISTEN_ADDR: 0.0.0.0:9000
-      # The process drops to these after chowning the data volume (docs/19).
-      # Host-side interpolation: set OWNER_UID/GID in shadow/.env (or the
-      # shell) to match the host user and keep bind-mount ownership.
-      OWNER_UID: ${OWNER_UID:-1000}
-      OWNER_GID: ${OWNER_GID:-1000}
       TTRSS_ENCRYPTION_KEY: ${TTRSS_ENCRYPTION_KEY:-9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08}
-      TTRSS_PLUGINS: ${TTRSS_PLUGINS:-auth_internal}
-      RUST_LOG: ${RUST_LOG:-info}
     ports:
       - "${SHADOW_PORT:-9000}:9000"
     volumes:

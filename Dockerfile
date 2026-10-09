@@ -1,4 +1,5 @@
-# Rust port — shadow image. Multi-stage:
+# Rust port — the ttrss image (drop-in replacement for the official PHP
+# stack). Multi-stage:
 #   build:   rust:1.98-trixie compiles the server from crates/ (trixie => glibc 2.41).
 #   runtime: debian:trixie-slim (same debian family, so the binary's glibc matches)
 #            + the binary + the tt-rss frontend docroot (served byte-for-byte).
@@ -35,9 +36,20 @@ COPY tt-rss /var/www/html/tt-rss
 # OWNER_UID/OWNER_GID = the reference image's `app` user defaults; the
 # entrypoint (as root) chowns the data dir, then the server runs as this
 # UID for its whole life (docs/19).
+#
+# TTRSS_DB_HOST/PORT mirror the reference image's own ENV defaults
+# (tt-rss/.docker/app/Dockerfile): the image assumes the official stack
+# topology (a peer service named "db"). TTRSS_PLUGINS deviates from the
+# reference image's default ("auth_internal, note, nginx_xaccel"):
+# nginx_xaccel is meaningless without nginx; the image ships
+# auth_internal + tweak_article_header.
 ENV TTRSS_DOCROOT=/var/www/html/tt-rss \
     TTRSS_LISTEN_ADDR=0.0.0.0:9000 \
     TTRSS_DATA_DIR=/var/lib/tt-rss \
+    TTRSS_DB_HOST=db \
+    TTRSS_DB_PORT=5432 \
+    TTRSS_PLUGINS=auth_internal,tweak_article_header \
+    RUST_LOG=info \
     OWNER_UID=1000 \
     OWNER_GID=1000
 EXPOSE 9000
@@ -48,8 +60,9 @@ EXPOSE 9000
 # 500s — session.rs TODO(scope)), so a DB outage does not flip this check.
 # The URL is derived at check time from the container's own env: base path
 # from TTRSS_SELF_URL_PATH (the same source of truth the router nests at),
-# port from TTRSS_LISTEN_ADDR — always dialed via localhost, never the
+# falling back to the app's own default base /tt-rss when it is unset —
+# port from TTRSS_LISTEN_ADDR. Always dialed via localhost, never the
 # user's external host, so no per-deployment wiring is needed.
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD ["sh", "-c", "s=${TTRSS_SELF_URL_PATH#*://}; case $s in */*) seg=${s#*/};; *) seg=;; esac; p=${TTRSS_LISTEN_ADDR##*:}; [ -n \"$p\" ] || p=9000; u=http://localhost:$p; [ -n \"$seg\" ] && u=$u/${seg%%/*}; curl --fail --silent --show-error $u/index.php"]
+    CMD ["sh", "-c", "s=${TTRSS_SELF_URL_PATH:-/tt-rss/}; case $s in */*) seg=${s#*/};; *) seg=;; esac; p=${TTRSS_LISTEN_ADDR##*:}; [ -n \"$p\" ] || p=9000; u=http://localhost:$p; [ -n \"$seg\" ] && u=$u/${seg%%/*}; curl --fail --silent --show-error $u/index.php"]
 ENTRYPOINT ["ttrss"]
