@@ -24,7 +24,7 @@ PHP, no nginx, no updater. See "The stack" below.
 - **The Rust server is a single self-contained process.** It serves the
   frontend static assets byte-for-byte *and* handles the dynamic routes
   (login, `do.php`/API, the SPA shell) in-process. Everything server-specific
-  is env (`TTRSS_DB_*`, `TTRSS_SELF_URL_PATH`, `TTRSS_LISTEN_PORT`,
+  is env (`TTRSS_DB_*`, `TTRSS_SELF_URL_PATH`, `TTRSS_LISTEN_ADDR`,
   `TTRSS_DOCROOT`, `TTRSS_CACHE_DIR`, `TTRSS_ENCRYPTION_KEY`,
   `TTRSS_DAEMON`). So "start everything" = **Postgres (shadow) + the server
   container**.

@@ -35,7 +35,7 @@ COPY tt-rss /var/www/html/tt-rss
 # entrypoint (as root) chowns the data dir, then the server runs as this
 # UID for its whole life (docs/19).
 ENV TTRSS_DOCROOT=/var/www/html/tt-rss \
-    TTRSS_LISTEN_PORT=0.0.0.0:9000 \
+    TTRSS_LISTEN_ADDR=0.0.0.0:9000 \
     TTRSS_DATA_DIR=/var/lib/tt-rss \
     OWNER_UID=1000 \
     OWNER_GID=1000

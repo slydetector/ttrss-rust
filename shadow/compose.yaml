@@ -45,7 +45,7 @@ services:
       TTRSS_DB_NAME: ${TTRSS_DB_NAME:-shadow}
       TTRSS_DB_PASS: ${TTRSS_DB_PASS:-shadow}
       TTRSS_SELF_URL_PATH: ${TTRSS_SELF_URL_PATH:-http://127.0.0.1:9000/tt-rss/}
-      TTRSS_LISTEN_PORT: 0.0.0.0:9000
+      TTRSS_LISTEN_ADDR: 0.0.0.0:9000
       # The process drops to these after chowning the data volume (docs/19).
       # Host-side interpolation: set OWNER_UID/GID in shadow/.env (or the
       # shell) to match the host user and keep bind-mount ownership.

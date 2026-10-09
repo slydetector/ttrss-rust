@@ -275,10 +275,10 @@ impl Config {
         // The process drops root before binding (crate::privs), so only
         // unprivileged ports are supported — no `CAP_NET_BIND_SERVICE`
         // opt-in, deliberately.
-        let listen: SocketAddr = env("TTRSS_LISTEN_PORT", "127.0.0.1:9000")?;
+        let listen: SocketAddr = env("TTRSS_LISTEN_ADDR", "127.0.0.1:9000")?;
         if listen.port() < 1024 {
             return Err(anyhow!(
-                "TTRSS_LISTEN_PORT={listen}: privileged ports (<1024) are not supported; \
+                "TTRSS_LISTEN_ADDR={listen}: privileged ports (<1024) are not supported; \
                  use an unprivileged port (the image listens on 9000)"
             ));
         }
@@ -839,12 +839,12 @@ mod tests {
             let old = [
                 ("OWNER_UID", std::env::var("OWNER_UID").ok()),
                 ("OWNER_GID", std::env::var("OWNER_GID").ok()),
-                ("TTRSS_LISTEN_PORT", std::env::var("TTRSS_LISTEN_PORT").ok()),
+                ("TTRSS_LISTEN_ADDR", std::env::var("TTRSS_LISTEN_ADDR").ok()),
             ];
             for (key, val) in [
                 ("OWNER_UID", owner_uid),
                 ("OWNER_GID", owner_gid),
-                ("TTRSS_LISTEN_PORT", listen),
+                ("TTRSS_LISTEN_ADDR", listen),
             ] {
                 match val {
                     Some(v) => unsafe { std::env::set_var(key, v) },

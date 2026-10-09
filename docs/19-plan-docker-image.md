@@ -132,7 +132,7 @@ FROM debian:trixie-slim
                                               official path; debug aid)
   + ca-certificates
   + ENV TTRSS_DATA_DIR=/var/lib/tt-rss       (baked; the user never sees the knob)
-  + ENV TTRSS_LISTEN_PORT=0.0.0.0:9000
+  + ENV TTRSS_LISTEN_ADDR=0.0.0.0:9000
   + ENV OWNER_UID=1000 OWNER_GID=1000        (the reference image's defaults)
   + /var/lib/tt-rss                          (the single `app` volume mount point)
 ENTRYPOINT: ["ttrss"]   (no shell — everything is in-process:
@@ -152,7 +152,7 @@ The drop happens before the tokio runtime exists, so every worker thread is
 born the app UID. Consequences and deviations from the reference:
 
 - **Port**: 9000 (the reference app image's own port), unprivileged only —
-  `TTRSS_LISTEN_PORT` < 1024 fails with a clear error (the reference's
+  `TTRSS_LISTEN_ADDR` < 1024 fails with a clear error (the reference's
   nginx side served 80; we have no nginx, and no
   `CAP_NET_BIND_SERVICE` opt-in, deliberately).
 - **Stronger than the reference**: its php-fpm *master* stays root
