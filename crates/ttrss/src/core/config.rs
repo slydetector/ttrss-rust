@@ -430,9 +430,9 @@ impl Config {
             db_host: "127.0.0.1".into(),
             db_pass: "postgres".into(),
             db_sslmode: "disable".into(),
-            self_url: "http://127.0.0.1:8280/tt-rss/".into(),
+            self_url: "http://127.0.0.1:9000/tt-rss/".into(),
             plugins: String::new(),
-            listen: "127.0.0.1:8281".parse().unwrap(),
+            listen: "127.0.0.1:9000".parse().unwrap(),
             cache_dir: std::path::PathBuf::from("no-such-test-icon-dir"),
             daemon_sleep_interval: 60,
             schedule_log_daemon_update_login_limit_users: String::from("@hourly"),
@@ -560,7 +560,7 @@ mod tests {
             db_host: "127.0.0.1".into(),
             db_pass: "password".into(),
             self_url: self_url.into(),
-            listen: "127.0.0.1:8281".parse().unwrap(),
+            listen: "127.0.0.1:9000".parse().unwrap(),
             cache_dir: PathBuf::from("tt-rss/cache/feed-icons"),
             ..Default::default()
         }
@@ -568,8 +568,8 @@ mod tests {
 
     #[test]
     fn base_path_standard() {
-        assert_eq!(cfg("http://127.0.0.1:8280/tt-rss/").base_path(), "/tt-rss");
-        assert_eq!(cfg("http://127.0.0.1:8280/tt-rss").base_path(), "/tt-rss");
+        assert_eq!(cfg("http://127.0.0.1:9000/tt-rss/").base_path(), "/tt-rss");
+        assert_eq!(cfg("http://127.0.0.1:9000/tt-rss").base_path(), "/tt-rss");
     }
 
     #[test]
@@ -580,8 +580,8 @@ mod tests {
     #[test]
     fn self_url_rtrim() {
         assert_eq!(
-            cfg("http://127.0.0.1:8280/tt-rss/").self_url_rtrim(),
-            "http://127.0.0.1:8280/tt-rss"
+            cfg("http://127.0.0.1:9000/tt-rss/").self_url_rtrim(),
+            "http://127.0.0.1:9000/tt-rss"
         );
     }
 

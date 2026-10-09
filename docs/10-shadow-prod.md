@@ -176,7 +176,9 @@ repo-root `.dockerignore`. `.gitignore` gains `shadow/.env` +
 
 ## Decisions (resolved)
 
-1. **Shadow HTTP port** — `9000` (dedicated; coexists with the demo on `8281`).
+1. **Shadow HTTP port** — `9000` (the one port: `make run` / `demo-start` /
+   the docker image all use it too — don't run shadow alongside a local
+   dev server).
 2. **Encryption key** — not needed (no authenticated feeds in prod); default
    key, `TTRSS_ENCRYPTION_KEY` available as an override.
 3. **Drift preflight** — **hard-fail** on a `ttrss_version.schema_version`

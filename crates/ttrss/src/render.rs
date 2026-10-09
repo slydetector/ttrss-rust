@@ -258,9 +258,9 @@ mod tests {
         Config {
             db_host: "127.0.0.1".into(),
             db_pass: "password".into(),
-            self_url: "http://127.0.0.1:8280/tt-rss/".into(),
+            self_url: "http://127.0.0.1:9000/tt-rss/".into(),
             cache_dir: docroot.join("cache"),
-            listen: "127.0.0.1:8281".parse().unwrap(),
+            listen: "127.0.0.1:9000".parse().unwrap(),
             docroot,
             ..Default::default()
         }
@@ -269,8 +269,8 @@ mod tests {
     #[test]
     fn urlencode_matches_php() {
         assert_eq!(
-            urlencode("http://127.0.0.1:8280/tt-rss/"),
-            "http%3A%2F%2F127.0.0.1%3A8280%2Ftt-rss%2F"
+            urlencode("http://127.0.0.1:9000/tt-rss/"),
+            "http%3A%2F%2F127.0.0.1%3A9000%2Ftt-rss%2F"
         );
     }
 
@@ -280,7 +280,7 @@ mod tests {
         // No placeholders remain.
         assert!(!html.contains("{{ "));
         assert!(!html.contains(" {{"));
-        assert!(html.contains("return=http%3A%2F%2F127.0.0.1%3A8280%2Ftt-rss%2F"));
+        assert!(html.contains("return=http%3A%2F%2F127.0.0.1%3A9000%2Ftt-rss%2F"));
         assert!(html.contains("const __default_light_theme = \"themes/light.css?"));
         assert!(html.contains("src=\"js/common.js?"));
         // Scripts timestamp resolves to a real (nonzero) mtime from the docroot.

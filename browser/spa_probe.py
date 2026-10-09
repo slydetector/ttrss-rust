@@ -17,7 +17,7 @@ Usage:
     python3 browser/spa_probe.py [--base URL] [--login U] [--password P]
                                  [--headed] [--out DIR] [--settle MS]
 
-Assumes the Rust server is already running (e.g. `make run`, port 8281).
+Assumes the Rust server is already running (e.g. `make run`, port 9000).
 """
 
 import argparse
@@ -28,7 +28,7 @@ from urllib.parse import parse_qs, urlparse
 
 from playwright.sync_api import sync_playwright
 
-DEFAULT_BASE = "http://127.0.0.1:8281/tt-rss/"
+DEFAULT_BASE = "http://127.0.0.1:9000/tt-rss/"
 
 
 def op_method(url: str) -> str:

@@ -39,7 +39,7 @@ lists every target. The most common targets:
 make oracle-up      # bring up the PHP oracle (db + app + updater + nginx)
 make oracle-down    # tear down (keeps the db volume)
 make build          # build the Rust server + harness
-make run            # run the Rust server in the foreground (port 8281)
+make run            # run the Rust server in the foreground (port 9000)
 make harness        # reset DB + build + run the corpus + diff vs oracle-a
 make test           # run the full workspace test suite
 ```

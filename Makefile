@@ -16,9 +16,10 @@ PROFILE     ?= release
 CARGO_PROF  := $(if $(filter release,$(PROFILE)),--release,)
 SERVER_BIN  := ./target/$(PROFILE)/ttrss
 
-# Canonical Rust server values (the oracle web is on 8280; the Rust server on
-# 8281 so the diff can compare them as the same app on different ports).
-SERVER_PORT := 8281
+# Canonical Rust server values. 9000 = the reference app image's own port —
+# one port across dev (run), demo, the docker image and shadow. (The retired
+# oracle used 8280/8281; see oracle/README.md.)
+SERVER_PORT := 9000
 BASE_URL  := http://127.0.0.1:$(SERVER_PORT)/tt-rss/
 ORACLE_URL := http://127.0.0.1:8280/tt-rss/
 SCENARIOS := oracle/corpus/scenarios.template.toml
@@ -105,7 +106,7 @@ clean: ## remove build + temp files (target/ via cargo clean; demo log/pid; *.rs
 	@echo "removed target/ ($(PROFILE) + debug), $(DEMO_LOG), $(DEMO_PID), and any *.rs.bk"
 
 .PHONY: run
-run: build-server ## run the (release by default) Rust server (canonical env, port 8281)
+run: build-server ## run the (release by default) Rust server (canonical env, port 9000)
 	TTRSS_DB_HOST=127.0.0.1 TTRSS_DB_PORT=5432 \
 	TTRSS_DB_USER=$(DB_USER) TTRSS_DB_NAME=$(DB_NAME) TTRSS_DB_PASS=$(DB_PASS) \
 	TTRSS_PLUGINS=$(PLUGINS) TTRSS_ENCRYPTION_KEY=$(ENC_KEY) \
@@ -134,7 +135,7 @@ demo-reset: demo-db ## reset the oracle DB to the golden baseline (no server man
 	$(SCRIPTS)/reset-db.sh
 
 .PHONY: demo-start
-demo-start: build-server demo-db ## start the (release) Rust server on 0.0.0.0:8281 against the oracle DB, in its current state (LAN)
+demo-start: build-server demo-db ## start the (release) Rust server on 0.0.0.0:9000 against the oracle DB, in its current state (LAN)
 	@test -n "$(LAN_IP)" || { echo "error: could not detect a LAN IP; set one explicitly: make demo-start LAN_IP=<ip>"; exit 1; }
 	@echo "stopping the PHP stack (app/updater/web), if running..."
 	@( cd oracle && docker compose stop app updater web >/dev/null 2>&1 ) || true
