@@ -20,9 +20,9 @@ use ttrss::pluginhost::plugin::Plugin;
 use ttrss::plugins::toggle_sidebar::ToggleSidebar;
 
 fn test_config(plugins: &str) -> Config {
-    let mut cfg = Config::for_test();
-    cfg.plugins = plugins.into();
-    cfg
+    let mut c = common::test_config();
+    c.plugins = plugins.into();
+    c
 }
 
 async fn setup(url: &str, plugins: &str) -> AppState {

@@ -20,7 +20,6 @@ mod common;
 use serde_json::{Map, Value, json};
 use test_db::template::with_test_db;
 use ttrss::AppState;
-use ttrss::core::config::Config;
 use ttrss::core::db::Db;
 use ttrss::core::phpser::Value as PValue;
 use ttrss::core::session::Session;
@@ -1231,26 +1230,11 @@ async fn test_counters_get_conditional_with_both_feed_and_label_ids() {
 // (`(int)` cast from string or numeric), and the label-subset wiring on the
 // conditional path (`get_conditional($feed_ids, $label_ids)`).
 
-/// Test-only config for the handler-level tests (mirrors `api_writes.rs`).
-fn test_config() -> Config {
-    Config {
-        db_host: "127.0.0.1".into(),
-        db_pass: "postgres".into(),
-        db_sslmode: "disable".into(),
-        self_url: "http://127.0.0.1:8280/tt-rss/".into(),
-        listen: "127.0.0.1:8281".parse().unwrap(),
-        cache_dir: std::path::PathBuf::from("no-such-test-icon-dir"),
-        http_429_throttle_interval: 3600,
-        daemon_sleep_interval: 60,
-        ..Default::default()
-    }
-}
-
 /// [`setup`] + the `AppState`/`Sess` the handler takes (session `uid = 1`,
 /// the fixture owner).
 async fn setup_state(url: &str) -> (AppState, Sess) {
     let db = setup(url).await;
-    let state = AppState::new(test_config(), db);
+    let state = AppState::new(common::test_config(), db);
     let mut data = Session::new();
     data.set("uid", PValue::Int(1));
     let sess = Sess::new("test-sid".to_string());

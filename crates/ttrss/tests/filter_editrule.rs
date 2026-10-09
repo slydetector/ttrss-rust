@@ -11,7 +11,6 @@ mod common;
 use serde_json::{Map, Value, json};
 use test_db::template::with_test_db;
 use ttrss::AppState;
-use ttrss::core::config::Config;
 use ttrss::core::db::Db;
 use ttrss::core::phpser::Value as PValue;
 use ttrss::core::session::Session;
@@ -91,13 +90,9 @@ fn expected_nested(selected: &[&str]) -> String {
     )
 }
 
-fn test_config() -> Config {
-    common::test_config()
-}
-
 async fn setup(url: &str) -> (AppState, Sess) {
     let db: Db = common::make_db_from_url(url).await.expect("test db");
-    let state = AppState::new(test_config(), db);
+    let state = AppState::new(common::test_config(), db);
     let mut data = Session::new();
     data.set("uid", PValue::Int(1));
     let sess = Sess::new("test-sid".to_string());

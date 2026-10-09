@@ -20,15 +20,13 @@ use ttrss::core::phpser::Value as PValue;
 use ttrss::core::session::Session;
 use ttrss::session::Sess;
 
-/// A test-only config. `docroot` must point at the frozen `tt-rss` tree so
-/// `AppState` can load the real gettext catalogs (the translations map).
 fn test_config() -> Config {
-    let mut cfg = Config::for_test();
-    cfg.plugins = "auth_internal".into();
-    cfg.docroot = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+    let mut c = common::test_config();
+    // The real docroot so the gettext catalogs load (docs: i18n parity).
+    c.docroot = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../..")
         .join("tt-rss");
-    cfg
+    c
 }
 
 /// Fresh fixtures + a session carrying `uid = 1` (owner of all fixture rows).

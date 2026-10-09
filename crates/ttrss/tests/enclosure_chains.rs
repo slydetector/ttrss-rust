@@ -24,9 +24,8 @@ use ttrss::session::Sess;
 use ttrss::util::sha1_hex;
 
 fn test_config(plugins: &str, icons_dir: PathBuf) -> Config {
-    let mut cfg = Config::for_test();
+    let mut cfg = common::test_config();
     cfg.plugins = plugins.to_string();
-    cfg.self_url = "http://127.0.0.1:8280/tt-rss/".to_string();
     cfg.cache_dir = icons_dir.parent().map(PathBuf::from).unwrap_or_default();
     cfg
 }
@@ -151,7 +150,7 @@ async fn test_view_enclosure_entry_chain_local_cache() {
                 // gets a cached copy the way the plugin's task would: the article
                 // id + the sha1 of the content_url.
                 let cache =
-                    DiskCache::new(&base, "starred-images", "http://127.0.0.1:8280/tt-rss/");
+                    DiskCache::new(&base, "starred-images", "http://127.0.0.1:9000/tt-rss/");
                 let url = "https://img.youtube.com/vi/dQw4w9WgXcQ/hqdefault.jpg";
                 let name = format!("1-{}", sha1_hex(url));
                 cache.put(&name, b"fake-bytes");

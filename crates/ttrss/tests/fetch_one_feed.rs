@@ -13,7 +13,6 @@ use std::net::TcpListener;
 use std::sync::Arc;
 
 use test_db::template::with_test_db;
-use ttrss::core::config::Config;
 use ttrss::core::db::Db;
 use ttrss::pluginhost::PluginHost;
 use ttrss::updates::{FeedUpdateFlags, fetch_one_feed};
@@ -30,30 +29,6 @@ const MOCK_FEED: &str = include_str!("../../../tt-rss/tests_integration/feed.xml
 
 /// The PHP suite's invalid-XML string.
 const BAD_FEED: &str = "<invalid-xml><unclosed>";
-
-/// A test `Config` with short fetch timeouts + the upstream fetch-tuning
-/// defaults (the `fetch_one_feed` function only reads the fetch-tuning fields
-/// + the encryption key).
-fn test_config() -> Config {
-    Config {
-        db_host: String::new(),
-        db_port: 0,
-        db_user: String::new(),
-        db_name: String::new(),
-        db_sslmode: String::new(),
-        self_url: String::new(),
-        plugins: String::new(),
-        listen: "127.0.0.1:0".parse().unwrap(),
-        docroot: std::path::PathBuf::new(),
-        cache_dir: std::path::PathBuf::new(),
-        max_favicon_file_size: 0,
-        feed_fetch_timeout: 5,
-        feed_fetch_no_cache_timeout: 3,
-        http_429_throttle_interval: 3600,
-        daemon_sleep_interval: 60,
-        ..Default::default()
-    }
-}
 
 /// Insert a user and return its id.
 async fn create_user(db: &Db, uid: i32, access_level: i32) -> i32 {
@@ -155,7 +130,7 @@ async fn test_fetch_one_feed_success() {
     with_test_db(|url| {
         Box::pin(async move {
             let db = common::make_db_from_url(&url).await.expect("test db");
-            let cfg = test_config();
+            let cfg = common::test_config();
             let mock = MockServer::new(vec![Canned {
                 status: 200,
                 reason: "OK",
@@ -199,7 +174,7 @@ async fn test_fetch_one_feed_success() {
 async fn test_fetch_one_feed_304() {
     with_test_db(|url| Box::pin(async move {
     let db = common::make_db_from_url(&url).await.expect("test db");
-    let cfg = test_config();
+    let cfg = common::test_config();
     let mock = MockServer::new(vec![Canned {
         status: 304,
         reason: "Not Modified",
@@ -243,7 +218,7 @@ async fn test_fetch_one_feed_429() {
     with_test_db(|url| {
         Box::pin(async move {
             let db = common::make_db_from_url(&url).await.expect("test db");
-            let cfg = test_config();
+            let cfg = common::test_config();
             let mock = MockServer::new(vec![Canned {
                 status: 429,
                 reason: "Too Many Requests",
@@ -298,7 +273,7 @@ async fn test_fetch_one_feed_network_error() {
     with_test_db(|url| {
         Box::pin(async move {
             let db = common::make_db_from_url(&url).await.expect("test db");
-            let cfg = test_config();
+            let cfg = common::test_config();
             // A port that is not listening (bind + drop to get a free port).
             let listener = TcpListener::bind("127.0.0.1:0").unwrap();
             let dead_port = listener.local_addr().unwrap().port();
@@ -344,7 +319,7 @@ async fn test_fetch_one_feed_parse_failure() {
     with_test_db(|url| {
         Box::pin(async move {
             let db = common::make_db_from_url(&url).await.expect("test db");
-            let cfg = test_config();
+            let cfg = common::test_config();
             let mock = MockServer::new(vec![Canned {
                 status: 200,
                 reason: "OK",
@@ -383,7 +358,7 @@ async fn test_fetch_one_feed_readonly_owner() {
     with_test_db(|url| {
         Box::pin(async move {
             let db = common::make_db_from_url(&url).await.expect("test db");
-            let cfg = test_config();
+            let cfg = common::test_config();
             let mock = MockServer::new(vec![Canned {
                 status: 200,
                 reason: "OK",

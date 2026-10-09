@@ -26,19 +26,9 @@ use ttrss::pluginhost::plugin::MethodOutput;
 use ttrss::session::Sess;
 
 fn test_config(plugins: &str) -> Config {
-    Config {
-        db_host: "127.0.0.1".into(),
-        db_pass: "postgres".into(),
-        db_sslmode: "disable".into(),
-        self_url: "http://127.0.0.1:8280/tt-rss/".into(),
-        plugins: plugins.into(),
-        listen: "127.0.0.1:8281".parse().unwrap(),
-        cache_dir: std::path::PathBuf::from("no-such-test-icon-dir"),
-        http_429_throttle_interval: 3600,
-        daemon_sleep_interval: 60,
-        schedule_log_daemon_update_login_limit_users: String::from("@hourly"),
-        ..Default::default()
-    }
+    let mut c = common::test_config();
+    c.plugins = plugins.into();
+    c
 }
 
 async fn setup(url: &str, plugins: &str) -> AppState {

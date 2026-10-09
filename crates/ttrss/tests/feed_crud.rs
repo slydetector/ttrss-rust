@@ -15,30 +15,14 @@ use axum::http::{Method, header};
 use serde_json::{Map, Value, json};
 use test_db::template::with_test_db;
 use ttrss::AppState;
-use ttrss::core::config::Config;
 use ttrss::core::db::Db;
 use ttrss::core::phpser::Value as PValue;
 use ttrss::core::session::Session;
 use ttrss::session::Sess;
 
-/// A test-only config (the handlers only need `db` + `cache_dir`).
-fn test_config() -> Config {
-    Config {
-        db_host: "127.0.0.1".into(),
-        db_pass: "postgres".into(),
-        db_sslmode: "disable".into(),
-        self_url: "http://127.0.0.1:8280/tt-rss/".into(),
-        listen: "127.0.0.1:8281".parse().unwrap(),
-        cache_dir: std::path::PathBuf::from("no-such-test-icon-dir"),
-        http_429_throttle_interval: 3600,
-        daemon_sleep_interval: 60,
-        ..Default::default()
-    }
-}
-
 async fn setup_from_url(url: &str) -> (AppState, Sess) {
     let db: Db = common::make_db_from_url(url).await.expect("test db");
-    let state = AppState::new(test_config(), db);
+    let state = AppState::new(common::test_config(), db);
     let mut data = Session::new();
     data.set("uid", PValue::Int(1));
     let sess = Sess::new("test-sid".to_string());
@@ -821,7 +805,7 @@ async fn test_get_shared_url() {
             assert_eq!(r["title"].as_str(), Some("Hacker News"));
             let link = r["link"].as_str().expect("link");
             assert!(
-                link.starts_with("http://127.0.0.1:8280/tt-rss/public.php?op=rss&id=1&is_cat=0&q="),
+                link.starts_with("http://127.0.0.1:9000/tt-rss/public.php?op=rss&id=1&is_cat=0&q="),
                 "unexpected link: {link}"
             );
             // A key was created and is present + non-empty in the query string.
@@ -845,7 +829,7 @@ async fn test_remove_icon() {
     // A real, writable icon dir for this test.
     let icon_dir = std::env::temp_dir().join(format!("ttrss-feedicon-{}", std::process::id()));
     std::fs::create_dir_all(icon_dir.join("feed-icons")).unwrap();
-    let mut cfg = test_config();
+    let mut cfg = common::test_config();
     cfg.cache_dir = icon_dir.clone();
     let state = AppState::new(cfg, state.db.clone());
 
@@ -894,7 +878,7 @@ async fn test_upload_icon() {
             let icon_dir =
                 std::env::temp_dir().join(format!("ttrss-feedicon-up-{}", std::process::id()));
             std::fs::create_dir_all(icon_dir.join("feed-icons")).unwrap();
-            let mut cfg = test_config();
+            let mut cfg = common::test_config();
             cfg.cache_dir = icon_dir.clone();
             let state = AppState::new(cfg, state.db.clone());
 
@@ -935,7 +919,7 @@ async fn test_upload_icon() {
             );
 
             // File too large: a 10-byte upload with a 4-byte cap.
-            let mut cfg2 = test_config();
+            let mut cfg2 = common::test_config();
             cfg2.cache_dir = icon_dir.clone();
             cfg2.max_favicon_file_size = 4;
             let state2 = AppState::new(cfg2, state.db.clone());
@@ -1199,7 +1183,7 @@ async fn test_dispatch_case_insensitive() {
     with_test_db(|url| {
         Box::pin(async move {
             let db: Db = common::make_db_from_url(&url).await.expect("test db");
-            let state = AppState::new(test_config(), db);
+            let state = AppState::new(common::test_config(), db);
 
             // A session for `uid = 1` (admin) with the stored pwd hash + a valid csrf
             // token, so `validate_session` + the CSRF gate pass and routing is the test.

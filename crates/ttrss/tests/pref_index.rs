@@ -16,22 +16,12 @@ use ttrss::core::db::Db;
 use ttrss::core::phpser::Value as PValue;
 use ttrss::session::Sess;
 
-/// A test-only config (the handlers only need `db`).
 fn test_config() -> Config {
-    Config {
-        db_host: "127.0.0.1".into(),
-        db_pass: "postgres".into(),
-        db_sslmode: "disable".into(),
-        self_url: "http://127.0.0.1:8280/tt-rss/".into(),
-        listen: "127.0.0.1:8281".parse().unwrap(),
-        cache_dir: std::path::PathBuf::from("no-such-test-icon-dir"),
-        http_429_throttle_interval: 3600,
-        daemon_sleep_interval: 60,
-        docroot: std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../..")
-            .join("tt-rss"),
-        ..Default::default()
-    }
+    let mut c = common::test_config();
+    c.docroot = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .join("tt-rss");
+    c
 }
 
 /// Fresh fixtures + a session carrying `uid = 1` and an admin access level.

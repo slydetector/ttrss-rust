@@ -12,32 +12,9 @@ mod common;
 use sqlx::AssertSqlSafe;
 use std::sync::Arc;
 use test_db::template::with_test_db;
-use ttrss::core::config::Config;
 use ttrss::core::db::Db;
 use ttrss::pluginhost::PluginHost;
 use ttrss::updates::{DueFeed, claim_feeds, select_due_feeds};
-
-/// A test `Config` with the daemon defaults + a short sleep interval.
-fn test_config() -> Config {
-    Config {
-        db_host: String::new(),
-        db_port: 0,
-        db_user: String::new(),
-        db_name: String::new(),
-        db_sslmode: String::new(),
-        self_url: String::new(),
-        plugins: String::new(),
-        listen: "127.0.0.1:0".parse().unwrap(),
-        docroot: std::path::PathBuf::new(),
-        cache_dir: std::path::PathBuf::new(),
-        max_favicon_file_size: 0,
-        feed_fetch_timeout: 5,
-        feed_fetch_no_cache_timeout: 3,
-        http_429_throttle_interval: 3600,
-        daemon_sleep_interval: 60,
-        ..Default::default()
-    }
-}
 
 /// Insert a user (with a recent `last_login`) and return its id.
 async fn create_user(db: &Db, uid: i32, access_level: i32) -> i32 {
@@ -94,7 +71,7 @@ async fn test_select_due_feeds_default_interval() {
     with_test_db(|url| {
         Box::pin(async move {
             let db = common::make_db_from_url(&url).await.expect("test db");
-            let cfg = test_config();
+            let cfg = common::test_config();
             let uid = create_user(&db, 300, 0).await;
             let feed_id = create_feed(&db, 300, uid, 0, "NOW() - INTERVAL '2 hour'").await;
 
@@ -118,7 +95,7 @@ async fn test_select_due_feeds_not_due() {
     with_test_db(|url| {
         Box::pin(async move {
             let db = common::make_db_from_url(&url).await.expect("test db");
-            let cfg = test_config();
+            let cfg = common::test_config();
             let uid = create_user(&db, 301, 0).await;
             let feed_id = create_feed(&db, 301, uid, 0, "NOW()").await;
 
@@ -141,7 +118,7 @@ async fn test_select_due_feeds_disabled() {
     with_test_db(|url| {
         Box::pin(async move {
             let db = common::make_db_from_url(&url).await.expect("test db");
-            let cfg = test_config();
+            let cfg = common::test_config();
             let uid = create_user(&db, 302, 0).await;
             let feed_id = create_feed(&db, 302, uid, -1, "NOW() - INTERVAL '2 hour'").await;
 
@@ -164,7 +141,7 @@ async fn test_select_due_feeds_never_updated() {
     with_test_db(|url| {
         Box::pin(async move {
             let db = common::make_db_from_url(&url).await.expect("test db");
-            let cfg = test_config();
+            let cfg = common::test_config();
             let uid = create_user(&db, 303, 0).await;
             let feed_id = create_feed(&db, 303, uid, 0, "NULL").await;
 
@@ -187,7 +164,7 @@ async fn test_select_due_feeds_disabled_owner() {
     with_test_db(|url| {
         Box::pin(async move {
             let db = common::make_db_from_url(&url).await.expect("test db");
-            let cfg = test_config();
+            let cfg = common::test_config();
             let uid = create_user(&db, 304, -2 /* DISABLED */).await;
             let feed_id = create_feed(&db, 304, uid, 0, "NOW() - INTERVAL '2 hour'").await;
 
@@ -210,7 +187,7 @@ async fn test_select_due_feeds_in_progress() {
     with_test_db(|url| {
         Box::pin(async move {
             let db = common::make_db_from_url(&url).await.expect("test db");
-            let cfg = test_config();
+            let cfg = common::test_config();
             let uid = create_user(&db, 305, 0).await;
             let feed_id = create_feed(&db, 305, uid, 0, "NOW() - INTERVAL '2 hour'").await;
             // Mark the feed as currently being updated (the in-progress marker).
@@ -264,7 +241,7 @@ async fn test_daemon_loop_graceful_shutdown() {
     with_test_db(|url| {
         Box::pin(async move {
             let db = common::make_db_from_url(&url).await.expect("test db");
-            let cfg = test_config();
+            let cfg = common::test_config();
             let cancel = tokio_util::sync::CancellationToken::new();
 
             let handle = tokio::spawn({

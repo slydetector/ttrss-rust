@@ -16,30 +16,14 @@ use kuchikiki::traits::TendrilSink;
 use serde_json::{Map, Value, json};
 use test_db::template::with_test_db;
 use ttrss::AppState;
-use ttrss::core::config::Config;
 use ttrss::core::phpser::Value as PValue;
 use ttrss::core::session::{self, Session};
 use ttrss::session::Sess;
 
-/// A test-only config (the handlers only need `db` + `feed_icon_dir`).
-fn test_config() -> Config {
-    Config {
-        db_host: "127.0.0.1".into(),
-        db_pass: "postgres".into(),
-        db_sslmode: "disable".into(),
-        self_url: "http://127.0.0.1:8280/tt-rss/".into(),
-        listen: "127.0.0.1:8281".parse().unwrap(),
-        cache_dir: std::path::PathBuf::from("no-such-test-icon-dir"),
-        http_429_throttle_interval: 3600,
-        daemon_sleep_interval: 60,
-        ..Default::default()
-    }
-}
-
 /// Fresh fixtures + a session carrying `uid = 1` (owner of all fixture rows).
 async fn setup(url: &str) -> (AppState, Sess) {
     let db = common::make_db_from_url(url).await.expect("test db");
-    let state = AppState::new(test_config(), db);
+    let state = AppState::new(common::test_config(), db);
     let mut data = Session::new();
     data.set("uid", PValue::Int(1));
     let sess = Sess::new("test-sid".to_string());

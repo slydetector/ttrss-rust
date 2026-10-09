@@ -22,15 +22,13 @@ use ttrss::core::db::Db;
 use ttrss::core::phpser::Value as PValue;
 use ttrss::core::session::Session;
 
-/// A test-only config. `docroot` must point at the frozen `tt-rss` tree so
-/// `AppState` can load the real gettext catalogs.
 fn test_config() -> Config {
-    let mut cfg = Config::for_test();
-    cfg.plugins = "auth_internal".into();
-    cfg.docroot = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+    let mut c = common::test_config();
+    // The real docroot so the gettext catalogs load (docs: i18n parity).
+    c.docroot = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../..")
         .join("tt-rss");
-    cfg
+    c
 }
 
 async fn setup(url: &str) -> AppState {
@@ -60,7 +58,7 @@ async fn init_rpc(state: &AppState, accept_language: Option<&str>) -> Value {
         .method(Method::GET)
         .uri(
             "/tt-rss/backend.php?op=RPC&method=sanitycheck&csrf_token=tok\
-             &clientLocation=http%3A%2F%2F127.0.0.1%3A8280%2Ftt-rss%2Findex.php",
+             &clientLocation=http%3A%2F%2F127.0.0.1%3A9000%2Ftt-rss%2Findex.php",
         )
         .header("cookie", "ttrss_sid=test-sid");
     if let Some(lang) = accept_language {
@@ -179,7 +177,7 @@ async fn view_rpc(state: &AppState, feed: &str) -> String {
         .method(Method::GET)
         .uri(format!(
             "/tt-rss/backend.php?op=Feeds&method=view&csrf_token=tok\
-             &clientLocation=http%3A%2F%2F127.0.0.1%3A8280%2Ftt-rss%2Findex.php&feed={feed}"
+             &clientLocation=http%3A%2F%2F127.0.0.1%3A9000%2Ftt-rss%2Findex.php&feed={feed}"
         ))
         .header("cookie", "ttrss_sid=view-sid")
         .body(Body::empty())

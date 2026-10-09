@@ -16,7 +16,6 @@ use async_trait::async_trait;
 use common::{Canned, MockServer};
 use serde_json::{Value, json};
 use test_db::template::with_test_db;
-use ttrss::core::config::Config;
 use ttrss::core::db::Db;
 use ttrss::feeds::subscribe;
 use ttrss::pluginhost::host::HostCtx;
@@ -202,27 +201,6 @@ impl Plugin for PreSubscribeStub {
 // Helpers
 // ---------------------------------------------------------------------------
 
-fn test_config() -> Config {
-    Config {
-        db_host: String::new(),
-        db_port: 0,
-        db_user: String::new(),
-        db_name: String::new(),
-        db_sslmode: String::new(),
-        self_url: String::new(),
-        plugins: String::new(),
-        listen: "127.0.0.1:0".parse().unwrap(),
-        docroot: std::path::PathBuf::new(),
-        cache_dir: std::path::PathBuf::new(),
-        max_favicon_file_size: 0,
-        feed_fetch_timeout: 5,
-        feed_fetch_no_cache_timeout: 3,
-        http_429_throttle_interval: 3600,
-        daemon_sleep_interval: 60,
-        ..Default::default()
-    }
-}
-
 async fn create_user(db: &Db, uid: i32, access_level: i32) -> i32 {
     sqlx::query(
         "INSERT INTO ttrss_users (id, login, pwd_hash, access_level) VALUES ($1, $2, 'SHA1:00', $3)",
@@ -277,7 +255,7 @@ async fn test_feed_basic_info_hook_supplies_title_skipping_fetch() {
     with_test_db(|url| {
         Box::pin(async move {
             let db = common::make_db_from_url(&url).await.expect("test db");
-            let mut cfg = test_config();
+            let mut cfg = common::test_config();
             cfg.plugins = "basic_info_stub".to_string();
             let uid = create_user(&db, 400, 0).await;
             let feed_id = create_feed(
@@ -312,7 +290,7 @@ async fn test_fetch_feed_hook_supplies_data_skipping_fetch() {
     with_test_db(|url| {
         Box::pin(async move {
             let db = common::make_db_from_url(&url).await.expect("test db");
-            let mut cfg = test_config();
+            let mut cfg = common::test_config();
             cfg.plugins = "fetch_stub".to_string();
             let uid = create_user(&db, 410, 0).await;
             let feed_id = create_feed(
@@ -361,7 +339,7 @@ async fn test_subscribe_feed_hook_transforms_content() {
     with_test_db(|url| {
         Box::pin(async move {
             let db = common::make_db_from_url(&url).await.expect("test db");
-            let mut cfg = test_config();
+            let mut cfg = common::test_config();
             cfg.plugins = "subscribe_stub".to_string();
             let uid = create_user(&db, 420, 0).await;
             let mock = MockServer::new(vec![Canned {
@@ -406,7 +384,7 @@ async fn test_subscribe_feed_hook_transforms_content() {
 async fn test_pre_subscribe_hook_rewrites_url_before_fetch() {
     with_test_db(|url| Box::pin(async move {
         let db = common::make_db_from_url(&url).await.expect("test db");
-        let mut cfg = test_config();
+        let mut cfg = common::test_config();
         cfg.plugins = "pre_subscribe_stub".to_string();
         let uid = create_user(&db, 430, 0).await;
         let mock = MockServer::new(vec![Canned {

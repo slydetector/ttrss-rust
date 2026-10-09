@@ -13,13 +13,7 @@ use croner::Cron;
 use sqlx::AssertSqlSafe;
 use std::str::FromStr;
 use test_db::template::with_test_db;
-use ttrss::core::config::Config;
 use ttrss::core::db::Db;
-
-/// A test `Config` with the housekeeping defaults.
-fn test_config() -> Config {
-    common::test_config()
-}
 
 /// Insert a user and return its id.
 async fn create_user(db: &Db, uid: i32, access_level: i32) -> i32 {
@@ -212,7 +206,7 @@ async fn test_disable_failed_feeds() {
     with_test_db(|url| {
         Box::pin(async move {
             let db = common::make_db_from_url(&url).await.expect("test db");
-            let cfg = test_config(); // daemon_unsuccessful_days_limit = 30
+            let cfg = common::test_config(); // daemon_unsuccessful_days_limit = 30
             let uid = create_user(&db, 401, 0).await;
 
             // A feed that failed to update for > 30 days but is still being attempted
@@ -317,7 +311,7 @@ async fn test_cleanup_feed_icons() {
     with_test_db(|url| {
         Box::pin(async move {
             let db = common::make_db_from_url(&url).await.expect("test db");
-            let mut cfg = test_config(); // cache_max_days = 7
+            let mut cfg = common::test_config(); // cache_max_days = 7
             let uid = create_user(&db, 403, 0).await;
 
             // A temp dir to act as the feed-icon cache.
@@ -416,7 +410,7 @@ async fn test_record_run_upsert() {
 async fn test_run_due_tasks_runs_due_only() {
     with_test_db(|url| Box::pin(async move {
     let db = common::make_db_from_url(&url).await.expect("test db");
-    let cfg = test_config();
+    let cfg = common::test_config();
 
     // Register two custom tasks: one due (cron `@hourly`, never run → normalizes
     // to `0 * * * *`), one not due (cron `@daily`, last_run just now).
@@ -498,7 +492,7 @@ async fn test_purge_feed() {
     with_test_db(|url| {
         Box::pin(async move {
             let db = common::make_db_from_url(&url).await.expect("test db");
-            let cfg = test_config();
+            let cfg = common::test_config();
             let uid = create_user(&db, 404, 0).await;
             let feed_id = create_feed(&db, 404, uid, "http://example.com/f404").await;
 
@@ -559,7 +553,7 @@ async fn test_purge_feed_disabled() {
     with_test_db(|url| {
         Box::pin(async move {
             let db = common::make_db_from_url(&url).await.expect("test db");
-            let cfg = test_config();
+            let cfg = common::test_config();
             let uid = create_user(&db, 405, 0).await;
             // A feed with purge_interval = 0; set the owner's PURGE_OLD_DAYS pref to 0
             // so the effective interval is 0 (disabled).

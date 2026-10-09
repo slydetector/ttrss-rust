@@ -17,7 +17,6 @@
 mod common;
 
 use std::sync::Arc;
-use ttrss::core::config::Config;
 use ttrss::core::db::Db;
 use ttrss::pluginhost::PluginHost;
 use ttrss::updates::{FeedUpdateFlags, fetch_one_feed};
@@ -95,15 +94,6 @@ const FEED_C: &str = r#"<?xml version="1.0" encoding="utf-8"?>
   </entry>
 </feed>
 "#;
-
-/// A test `Config` with short fetch timeouts + the upstream fetch-tuning
-/// defaults (the workhorse only reads the fetch-tuning fields + the key).
-fn test_config() -> Config {
-    let mut cfg = Config::for_test();
-    cfg.feed_fetch_timeout = 5;
-    cfg.feed_fetch_no_cache_timeout = 3;
-    cfg
-}
 
 /// Insert a user and return its id.
 async fn create_user(db: &Db, uid: i32, access_level: i32) -> i32 {
@@ -184,7 +174,7 @@ async fn test_batch_smoke() {
     with_test_db(|url| {
         Box::pin(async move {
             let db = common::make_db_from_url(&url).await.expect("test db");
-            let cfg = test_config();
+            let cfg = common::test_config();
             let mock = MockServer::new(vec![
                 Canned {
                     status: 200,

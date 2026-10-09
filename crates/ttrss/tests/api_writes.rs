@@ -16,31 +16,16 @@ use serde_json::{Map, Value, json};
 use test_db::template::with_test_db;
 use ttrss::AppState;
 use ttrss::api;
-use ttrss::core::config::Config;
 use ttrss::core::db::Db;
 use ttrss::core::phpser::Value as PValue;
 use ttrss::core::session::Session;
 use ttrss::session::Sess;
 
 /// A test-only config (the handlers only need `db` for these cases).
-fn test_config() -> Config {
-    Config {
-        db_host: "127.0.0.1".into(),
-        db_pass: "postgres".into(),
-        db_sslmode: "disable".into(),
-        self_url: "http://127.0.0.1:8280/tt-rss/".into(),
-        listen: "127.0.0.1:8281".parse().unwrap(),
-        cache_dir: std::path::PathBuf::from("no-such-test-icon-dir"),
-        http_429_throttle_interval: 3600,
-        daemon_sleep_interval: 60,
-        ..Default::default()
-    }
-}
-
 /// Fresh fixtures + a session carrying `uid = 1` (owner of all fixture rows).
 async fn setup(url: &str) -> (AppState, Sess) {
     let db = common::make_db_from_url(url).await.expect("test db");
-    let state = AppState::new(test_config(), db);
+    let state = AppState::new(common::test_config(), db);
     let mut data = Session::new();
     data.set("uid", PValue::Int(1));
     let sess = Sess::new("test-sid".to_string());
@@ -715,7 +700,7 @@ fn icon_dir(tag: &str) -> std::path::PathBuf {
 /// A uid-1 `AppState` + `Sess` whose `cache_dir` is `dir` (icons at `dir/feed-icons`).
 async fn setup_icon(url: &str, dir: std::path::PathBuf) -> (AppState, Sess) {
     let db = common::make_db_from_url(url).await.expect("test db");
-    let mut config = test_config();
+    let mut config = common::test_config();
     config.cache_dir = dir;
     let state = AppState::new(config, db);
     let mut data = Session::new();

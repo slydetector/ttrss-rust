@@ -10,18 +10,13 @@ use axum::body::to_bytes;
 use axum::response::Response;
 use test_db::template::with_test_db;
 use ttrss::AppState;
-use ttrss::core::config::Config;
 use ttrss::core::db::Db;
 use ttrss::forgotpass;
 use ttrss::session::Sess;
 
-fn test_config() -> Config {
-    common::test_config()
-}
-
 async fn setup(url: &str) -> AppState {
     let db: Db = common::make_db_from_url(url).await.expect("test db");
-    AppState::new(test_config(), db)
+    AppState::new(common::test_config(), db)
 }
 
 /// Read an axum `Response` body to a UTF-8 string.
@@ -250,7 +245,7 @@ async fn test_forgotpass_forbidden() {
     with_test_db(|url| {
         Box::pin(async move {
             let db: Db = common::make_db_from_url(&url).await.expect("test db");
-            let mut config = test_config();
+            let mut config = common::test_config();
             config.disable_login_form = true;
             let state = AppState::new(config, db);
             let sess = Sess::new(String::new());

@@ -13,18 +13,24 @@ mod common;
 
 use async_trait::async_trait;
 use test_db::template::with_test_db;
+use ttrss::core::config::Config;
 
 use std::sync::Arc;
 
 use serde_json::{Map, Value, json};
 use ttrss::AppState;
-use ttrss::core::config::Config;
 use ttrss::core::db::Db;
 use ttrss::core::phpser::Value as PValue;
 use ttrss::core::session::Session;
 use ttrss::pluginhost::host::{HostCtx, PluginHost};
 use ttrss::pluginhost::plugin::{About, MethodOutput, Plugin, PluginError};
 use ttrss::session::Sess;
+
+fn test_config() -> Config {
+    let mut c = common::test_config();
+    c.plugins = "auth_internal,dispatchtest".into();
+    c
+}
 
 // ── the test double plugin ──────────────────────────────────────────────────
 
@@ -83,22 +89,6 @@ impl Plugin for DispatchPlugin {
 }
 
 // ── setup ───────────────────────────────────────────────────────────────────
-
-fn test_config() -> Config {
-    Config {
-        db_host: "127.0.0.1".into(),
-        db_pass: "postgres".into(),
-        db_sslmode: "disable".into(),
-        self_url: "http://127.0.0.1:8280/tt-rss/".into(),
-        plugins: "auth_internal,dispatchtest".into(),
-        listen: "127.0.0.1:8281".parse().unwrap(),
-        cache_dir: std::path::PathBuf::from("no-such-test-icon-dir"),
-        http_429_throttle_interval: 3600,
-        daemon_sleep_interval: 60,
-        schedule_log_daemon_update_login_limit_users: String::from("@hourly"),
-        ..Default::default()
-    }
-}
 
 /// A registry holding only the double (production's list is empty until
 /// M7.4+), a `Sess` with `uid = 1` + the given CSRF token (as login would).

@@ -31,6 +31,13 @@ use ttrss::core::session::Session;
 use ttrss::i18n::{I18nCache, ngettext, translate};
 use ttrss::pref_ui::get_translations;
 
+fn test_config(plugins: &str) -> Config {
+    let mut c = common::test_config();
+    c.plugins = plugins.into();
+    c.docroot = tt_rss_dir();
+    c
+}
+
 /// The 5 locales under test — each has all three sample strings in its
 /// catalog (verified against `tt-rss/locale/*/LC_MESSAGES/messages.mo`).
 const LOCALES: [&str; 5] = ["de_DE", "fr_FR", "ru_RU", "it_IT", "es"];
@@ -42,15 +49,6 @@ fn tt_rss_dir() -> std::path::PathBuf {
     std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../..")
         .join("tt-rss")
-}
-
-/// A test config. `docroot` points at the frozen `tt-rss` tree so the real
-/// gettext catalogs load.
-fn test_config(plugins: &str) -> Config {
-    let mut cfg = Config::for_test();
-    cfg.plugins = plugins.into();
-    cfg.docroot = tt_rss_dir();
-    cfg
 }
 
 /// A catalog loaded straight from the frozen `.mo` files (the source of truth
@@ -136,7 +134,7 @@ async fn view_not_found(state: &AppState) -> String {
         .method(Method::GET)
         .uri(
             "/tt-rss/backend.php?op=Feeds&method=view&csrf_token=tok\
-             &clientLocation=http%3A%2F%2F127.0.0.1%3A8280%2Ftt-rss%2Findex.php&feed=999999",
+             &clientLocation=http%3A%2F%2F127.0.0.1%3A9000%2Ftt-rss%2Findex.php&feed=999999",
         )
         .header("cookie", "ttrss_sid=e2e-sid")
         .body(Body::empty())

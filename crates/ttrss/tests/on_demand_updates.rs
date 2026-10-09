@@ -15,7 +15,6 @@ use serde_json::{Map, Value, json};
 use test_db::template::with_test_db;
 use ttrss::AppState;
 use ttrss::api::update_feed;
-use ttrss::core::config::Config;
 use ttrss::core::db::Db;
 use ttrss::core::phpser::Value as PValue;
 use ttrss::core::session::Session;
@@ -24,30 +23,6 @@ use ttrss::pluginhost::PluginHost;
 use ttrss::session::Sess;
 
 const MOCK_FEED: &str = include_str!("../../../tt-rss/tests_integration/feed.xml");
-
-/// A test `Config` with short fetch timeouts + the upstream fetch-tuning
-/// defaults (the on-demand update paths only read the fetch-tuning fields +
-/// the encryption key).
-fn test_config() -> Config {
-    Config {
-        db_host: String::new(),
-        db_port: 0,
-        db_user: String::new(),
-        db_name: String::new(),
-        db_sslmode: String::new(),
-        self_url: String::new(),
-        plugins: String::new(),
-        listen: "127.0.0.1:0".parse().unwrap(),
-        docroot: std::path::PathBuf::new(),
-        cache_dir: std::path::PathBuf::new(),
-        max_favicon_file_size: 0,
-        feed_fetch_timeout: 5,
-        feed_fetch_no_cache_timeout: 3,
-        http_429_throttle_interval: 3600,
-        daemon_sleep_interval: 60,
-        ..Default::default()
-    }
-}
 
 /// Insert a user and return its id.
 async fn create_user(db: &Db, uid: i32, access_level: i32) -> i32 {
@@ -98,7 +73,7 @@ async fn entry_count(db: &Db, feed_id: i32) -> i64 {
 }
 
 fn make_state(db: Db) -> AppState {
-    AppState::new(test_config(), db)
+    AppState::new(common::test_config(), db)
 }
 
 fn make_sess(uid: i64) -> Sess {
@@ -126,7 +101,7 @@ async fn test_subscribe_first_update() {
     with_test_db(|url| {
         Box::pin(async move {
             let db = common::make_db_from_url(&url).await.expect("test db");
-            let cfg = test_config();
+            let cfg = common::test_config();
             let mock = atom_mock();
             let uid = create_user(&db, 300, 0).await;
 
@@ -163,7 +138,7 @@ async fn test_subscribe_existing_feed() {
     with_test_db(|url| {
         Box::pin(async move {
             let db = common::make_db_from_url(&url).await.expect("test db");
-            let cfg = test_config();
+            let cfg = common::test_config();
             let mock = atom_mock();
             let uid = create_user(&db, 301, 0).await;
             let feed_id = create_feed(&db, 301, uid, &mock.url("/feed")).await;

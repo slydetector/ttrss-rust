@@ -27,10 +27,9 @@ use ttrss::session::Sess;
 use serde_json::Value;
 
 fn test_config(plugins: &str) -> Config {
-    let mut cfg = Config::for_test();
-    cfg.plugins = plugins.to_string();
-    cfg.self_url = "http://127.0.0.1:8280/tt-rss/".to_string();
-    cfg
+    let mut c = common::test_config();
+    c.plugins = plugins.into();
+    c
 }
 
 async fn setup(url: &str, plugins: &str) -> AppState {

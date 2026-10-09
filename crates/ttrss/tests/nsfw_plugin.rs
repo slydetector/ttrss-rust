@@ -12,10 +12,10 @@ mod common;
 
 use std::sync::Arc;
 use test_db::template::with_test_db;
+use ttrss::core::config::Config;
 
 use serde_json::{Map, Value, json};
 use ttrss::AppState;
-use ttrss::core::config::Config;
 use ttrss::core::db::Db;
 use ttrss::core::phpser::Value as PValue;
 use ttrss::core::session::Session;
@@ -25,19 +25,9 @@ use ttrss::pluginhost::plugin::MethodOutput;
 use ttrss::session::Sess;
 
 fn test_config() -> Config {
-    Config {
-        db_host: "127.0.0.1".into(),
-        db_pass: "postgres".into(),
-        db_sslmode: "disable".into(),
-        self_url: "http://127.0.0.1:8280/tt-rss/".into(),
-        plugins: "nsfw".into(),
-        listen: "127.0.0.1:8281".parse().unwrap(),
-        cache_dir: std::path::PathBuf::from("no-such-test-icon-dir"),
-        http_429_throttle_interval: 3600,
-        daemon_sleep_interval: 60,
-        schedule_log_daemon_update_login_limit_users: String::from("@hourly"),
-        ..Default::default()
-    }
+    let mut c = common::test_config();
+    c.plugins = "nsfw".into();
+    c
 }
 
 async fn setup(url: &str) -> AppState {
@@ -230,7 +220,7 @@ async fn test_image_hook() {
             let plugin = state.plugins.get_plugin("nsfw").expect("nsfw registered");
             // PHP: `Config::get_self_url() . "/plugins/nsfw/nsfw.png"` — the base carries
             // no trailing slash.
-            let mut c = ctx(&state).with_self_url("http://127.0.0.1:8280/tt-rss");
+            let mut c = ctx(&state).with_self_url("http://127.0.0.1:9000/tt-rss");
 
             let matching = json!({ "tags": ["nsfw"] });
             let v = plugin
@@ -245,7 +235,7 @@ async fn test_image_hook() {
             assert_eq!(
                 v,
                 json!([
-                    "http://127.0.0.1:8280/tt-rss/plugins/nsfw/nsfw.png",
+                    "http://127.0.0.1:9000/tt-rss/plugins/nsfw/nsfw.png",
                     "",
                     "nsfw"
                 ])
@@ -388,12 +378,12 @@ async fn test_get_image_runs_article_image_chain() {
             }
             let content = "<img src='https://example.com/real.png'>";
             let matching = json!({ "id": 1, "tags": ["nsfw"] });
-            let mut c = ctx(&state).with_self_url("http://127.0.0.1:8280/tt-rss");
+            let mut c = ctx(&state).with_self_url("http://127.0.0.1:9000/tt-rss");
             let (image, stream, kind) =
                 ttrss::article::get_image(&mut c, &[], content, "https://example.com", &matching)
                     .await;
             assert_eq!(
-                image, "http://127.0.0.1:8280/tt-rss/plugins/nsfw/nsfw.png",
+                image, "http://127.0.0.1:9000/tt-rss/plugins/nsfw/nsfw.png",
                 "chain should short-circuit the DOM parse"
             );
             assert_eq!(stream, "");

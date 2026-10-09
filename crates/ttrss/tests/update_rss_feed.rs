@@ -14,7 +14,6 @@ use serde_json::Value;
 use sqlx::Row;
 use std::sync::Arc;
 use test_db::template::with_test_db;
-use ttrss::core::config::Config;
 use ttrss::core::db::Db;
 use ttrss::pluginhost::host::HostCtx;
 use ttrss::pluginhost::{About, HOOK_ARTICLE_FILTER, Plugin, PluginHost};
@@ -50,28 +49,6 @@ const ENCLOSURE_FEED: &str = r#"<?xml version="1.0" encoding="utf-8"?>
     <content type="html">...</content>
   </entry>
 </feed>"#;
-
-/// A test `Config` (the pipeline reads `force_article_purge` from it; the
-/// defaults match a fresh upstream install).
-fn test_config() -> Config {
-    Config {
-        db_host: String::new(),
-        db_port: 0,
-        db_user: String::new(),
-        db_name: String::new(),
-        db_sslmode: String::new(),
-        self_url: String::new(),
-        plugins: String::new(),
-        listen: "127.0.0.1:0".parse().unwrap(),
-        docroot: std::path::PathBuf::new(),
-        cache_dir: std::path::PathBuf::new(),
-        max_favicon_file_size: 0,
-        feed_fetch_no_cache_timeout: 3,
-        http_429_throttle_interval: 3600,
-        daemon_sleep_interval: 60,
-        ..Default::default()
-    }
-}
 
 /// Insert a user and return its id.
 async fn create_user(db: &Db, uid: i32, access_level: i32) -> i32 {
@@ -139,7 +116,7 @@ async fn test_nonexistent_feed_returns_false() {
             assert!(
                 !update_rss_feed(
                     db.pool(),
-                    &test_config(),
+                    &common::test_config(),
                     Arc::new(no_plugins()),
                     9999,
                     MOCK_FEED,
@@ -168,7 +145,7 @@ async fn test_readonly_user_cannot_update_feed() {
             assert!(
                 !update_rss_feed(
                     db.pool(),
-                    &test_config(),
+                    &common::test_config(),
                     Arc::new(no_plugins()),
                     feed_id,
                     MOCK_FEED,
@@ -197,7 +174,7 @@ async fn test_successful_update_returns_true() {
             assert!(
                 update_rss_feed(
                     db.pool(),
-                    &test_config(),
+                    &common::test_config(),
                     Arc::new(no_plugins()),
                     feed_id,
                     MOCK_FEED,
@@ -227,7 +204,7 @@ async fn test_feed_metadata_updated() {
             assert!(
                 update_rss_feed(
                     db.pool(),
-                    &test_config(),
+                    &common::test_config(),
                     Arc::new(no_plugins()),
                     feed_id,
                     MOCK_FEED,
@@ -258,7 +235,7 @@ async fn test_article_fields_stored_correctly() {
             assert!(
                 update_rss_feed(
                     db.pool(),
-                    &test_config(),
+                    &common::test_config(),
                     Arc::new(no_plugins()),
                     feed_id,
                     MOCK_FEED,
@@ -317,7 +294,7 @@ async fn test_enclosure_stored_on_update() {
             assert!(
                 update_rss_feed(
                     db.pool(),
-                    &test_config(),
+                    &common::test_config(),
                     Arc::new(no_plugins()),
                     feed_id,
                     ENCLOSURE_FEED,
@@ -371,7 +348,7 @@ async fn test_second_update_does_not_create_duplicate() {
             assert!(
                 update_rss_feed(
                     db.pool(),
-                    &test_config(),
+                    &common::test_config(),
                     Arc::new(no_plugins()),
                     feed_id,
                     MOCK_FEED,
@@ -386,7 +363,7 @@ async fn test_second_update_does_not_create_duplicate() {
             assert!(
                 update_rss_feed(
                     db.pool(),
-                    &test_config(),
+                    &common::test_config(),
                     Arc::new(no_plugins()),
                     feed_id,
                     MOCK_FEED,
@@ -416,7 +393,7 @@ async fn test_parse_error_returns_false() {
             assert!(
                 !update_rss_feed(
                     db.pool(),
-                    &test_config(),
+                    &common::test_config(),
                     Arc::new(no_plugins()),
                     feed_id,
                     BAD_FEED,
@@ -530,7 +507,7 @@ async fn test_filter_action_drops_article() {
             assert!(
                 update_rss_feed(
                     db.pool(),
-                    &test_config(),
+                    &common::test_config(),
                     Arc::new(no_plugins()),
                     feed_id,
                     MOCK_FEED,
@@ -575,7 +552,7 @@ async fn test_score_action_marks_starred() {
             assert!(
                 update_rss_feed(
                     db.pool(),
-                    &test_config(),
+                    &common::test_config(),
                     Arc::new(no_plugins()),
                     feed_id,
                     MOCK_FEED,
@@ -608,7 +585,7 @@ async fn test_score_action_below_read_threshold() {
             assert!(
                 update_rss_feed(
                     db.pool(),
-                    &test_config(),
+                    &common::test_config(),
                     Arc::new(no_plugins()),
                     feed_id,
                     MOCK_FEED,
@@ -641,7 +618,7 @@ async fn test_catchup_action_marks_read() {
             assert!(
                 update_rss_feed(
                     db.pool(),
-                    &test_config(),
+                    &common::test_config(),
                     Arc::new(no_plugins()),
                     feed_id,
                     MOCK_FEED,
@@ -673,7 +650,7 @@ async fn test_tag_action_adds_tags() {
             assert!(
                 update_rss_feed(
                     db.pool(),
-                    &test_config(),
+                    &common::test_config(),
                     Arc::new(no_plugins()),
                     feed_id,
                     MOCK_FEED,
@@ -707,7 +684,7 @@ async fn test_ignore_tag_removes_tag() {
             assert!(
                 update_rss_feed(
                     db.pool(),
-                    &test_config(),
+                    &common::test_config(),
                     Arc::new(no_plugins()),
                     feed_id,
                     MOCK_FEED,
@@ -751,7 +728,7 @@ async fn test_blacklisted_tag_removed() {
             assert!(
                 update_rss_feed(
                     db.pool(),
-                    &test_config(),
+                    &common::test_config(),
                     Arc::new(no_plugins()),
                     feed_id,
                     MOCK_FEED,
@@ -794,7 +771,7 @@ async fn test_label_action_assigns_label() {
             assert!(
                 update_rss_feed(
                     db.pool(),
-                    &test_config(),
+                    &common::test_config(),
                     Arc::new(no_plugins()),
                     feed_id,
                     MOCK_FEED,
@@ -870,7 +847,7 @@ async fn test_article_filter_hook_rewrites_content() {
     let host = Arc::new(PluginHost::startup(&[|| Box::new(HookRewriter)]));
     // The owner's active set is the system list (`Config::plugins`) + the owner's
     // `_ENABLED_PLUGINS`; put the stub in the system list so it's active.
-    let mut cfg = test_config();
+    let mut cfg = common::test_config();
     cfg.plugins = "hook_rewriter".to_string();
     assert!(update_rss_feed(
         db.pool(),
@@ -934,7 +911,7 @@ async fn test_auto_assign_labels_match_and_no_match() {
             let host = Arc::new(PluginHost::startup(&[|| {
                 Box::new(ttrss::plugins::auto_assign_labels::AutoAssignLabels)
             }]));
-            let mut cfg = test_config();
+            let mut cfg = common::test_config();
             cfg.plugins = "auto_assign_labels".to_string();
             assert!(
                 update_rss_feed(

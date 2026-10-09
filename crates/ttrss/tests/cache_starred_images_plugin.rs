@@ -10,13 +10,19 @@
 mod common;
 
 use test_db::template::with_test_db;
+use ttrss::core::config::Config;
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use ttrss::AppState;
-use ttrss::core::config::Config;
 use ttrss::core::db::Db;
+
+fn test_config() -> Config {
+    let mut c = common::test_config();
+    c.plugins = "cache_starred_images".into();
+    c
+}
 
 static COUNTER: AtomicUsize = AtomicUsize::new(0);
 
@@ -27,22 +33,6 @@ fn cache_base() -> PathBuf {
     let dir = std::env::temp_dir().join(format!("ttrss_csi_{}_{}", std::process::id(), n));
     let _ = std::fs::create_dir_all(&dir);
     dir
-}
-
-fn test_config() -> Config {
-    Config {
-        db_host: "127.0.0.1".into(),
-        db_pass: "postgres".into(),
-        db_sslmode: "disable".into(),
-        self_url: "http://127.0.0.1:8280/tt-rss/".into(),
-        plugins: "cache_starred_images".into(),
-        listen: "127.0.0.1:8282".parse().unwrap(),
-        cache_dir: PathBuf::from("no-such-test-icon-dir"),
-        http_429_throttle_interval: 3600,
-        daemon_sleep_interval: 60,
-        schedule_log_daemon_update_login_limit_users: String::from("@hourly"),
-        ..Default::default()
-    }
 }
 
 async fn setup(url: &str, base: PathBuf) -> AppState {
