@@ -18,8 +18,9 @@ RUN cargo build --release -p ttrss --bin ttrss
 
 # --- runtime stage ---
 FROM debian:trixie-slim
+# curl: the HEALTHCHECK probe (below).
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates libgcc-s1 \
+    && apt-get install -y --no-install-recommends ca-certificates curl libgcc-s1 \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /var/lib/tt-rss
 COPY --from=build /src/target/release/ttrss /usr/local/bin/ttrss
@@ -40,4 +41,15 @@ ENV TTRSS_DOCROOT=/var/www/html/tt-rss \
     OWNER_UID=1000 \
     OWNER_GID=1000
 EXPOSE 9000
+# Reference parity (official web-nginx image, identical flags): an HTTP
+# probe of the real login page — 200 means the app serves at the configured
+# base path (dead process / 404 / 500 => unhealthy). Deliberately weaker
+# than the reference: our login page renders with the DB down (the reference
+# 500s — session.rs TODO(scope)), so a DB outage does not flip this check.
+# The URL is derived at check time from the container's own env: base path
+# from TTRSS_SELF_URL_PATH (the same source of truth the router nests at),
+# port from TTRSS_LISTEN_ADDR — always dialed via localhost, never the
+# user's external host, so no per-deployment wiring is needed.
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD ["sh", "-c", "s=${TTRSS_SELF_URL_PATH#*://}; case $s in */*) seg=${s#*/};; *) seg=;; esac; p=${TTRSS_LISTEN_ADDR##*:}; [ -n \"$p\" ] || p=9000; u=http://localhost:$p; [ -n \"$seg\" ] && u=$u/${seg%%/*}; curl --fail --silent --show-error $u/index.php"]
 ENTRYPOINT ["ttrss"]

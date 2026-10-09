@@ -19,6 +19,7 @@ use axum::response::Response;
 use base64::Engine as _;
 use sqlx::{PgPool, Row};
 use std::sync::{Arc, Mutex};
+use tracing;
 
 use crate::AppState;
 
@@ -152,13 +153,25 @@ pub async fn exists(pool: &PgPool, id: &str) -> bool {
 /// decoded data) is matched; a valid envelope that fails to decrypt is fatal
 /// in PHP (TypeError) but degrades gracefully to the same fallback here.
 async fn read_bytes(pool: &PgPool, key: Option<&[u8; 32]>, id: &str) -> Option<Vec<u8>> {
-    let stored: Option<String> =
-        sqlx::query_scalar("SELECT data FROM ttrss_sessions WHERE id = $1")
-            .bind(id)
-            .fetch_optional(pool)
-            .await
-            .ok()
-            .flatten();
+    let stored: Option<String> = match sqlx::query_scalar(
+        "SELECT data FROM ttrss_sessions WHERE id = $1",
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await
+    {
+        Ok(row) => row,
+        Err(e) => {
+            // TODO(scope): session lookup DB errors are swallowed — the
+            // reference 500s (per-request get_schema_version); revisit for
+            // parity (the container HEALTHCHECK then also sees DB outages).
+            tracing::warn!(
+                error = %e,
+                "session lookup DB errors are swallowed — the reference 500s (per-request get_schema_version); revisit for parity (the container HEALTHCHECK then also sees DB outages)"
+            );
+            return None;
+        }
+    };
     match stored {
         Some(stored) => {
             let inner = base64::engine::general_purpose::STANDARD

@@ -216,7 +216,11 @@ no rsync, no sudo, no cron** (the official app image is ~350 MB).
   Dockerfile.
 - **P1 — image + fresh-install smoke**: build locally; a two-service compose
   (`db` + our image) with a fresh postgres; verify login as `admin`, feed
-  add, and the in-container daemon updating feeds on its own.
+  add, and the in-container daemon updating feeds on its own. Also verify
+  the image's HEALTHCHECK: `healthy` while the app serves (probe of
+  `<base>/index.php`; dead process / base-path mismatch → `unhealthy`
+  after 3×30 s). A DB outage does *not* flip it — our login page renders
+  without the DB (`session.rs` `TODO(scope)`; the reference 500s).
 - **P2 — the real drop-in test**: run the *official* PHP stack (app +
   updater + web-nginx) for a few days (real DB, a few feeds, some config
   changes) → replace **all three** services with our single one (same `db`
