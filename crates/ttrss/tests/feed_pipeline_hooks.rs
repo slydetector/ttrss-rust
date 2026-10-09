@@ -24,6 +24,17 @@ use ttrss::pluginhost::{
 };
 use ttrss::updates::{FeedRow, FeedUpdateFlags, fetch_one_feed, run_house_keeping_hook};
 
+/// Pipeline tests run the real fetch/update code, which may write favicon
+/// files — isolate them from the shared `no-such-test-icon-dir` so parallel
+/// test binaries (e.g. the `api_getfeeds` `has_icon` shape test) never see
+/// each other's files.
+fn pipe_config() -> ttrss::core::config::Config {
+    let mut c = common::test_config();
+    c.plugins = "pipe_stub".to_string();
+    c.cache_dir = std::env::temp_dir().join(format!("ttrss-pipeline-{}", std::process::id()));
+    c
+}
+
 /// A feed with one article (guid `pipe-1`) and one enclosure.
 const PIPE_FEED: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0">
@@ -222,8 +233,7 @@ async fn test_feed_fetched_and_parsed_dispatched() {
                 .await
                 .unwrap();
 
-            let mut cfg = common::test_config();
-            cfg.plugins = "pipe_stub".to_string();
+            let cfg = pipe_config();
             let outcome = fetch_one_feed(pool, &cfg, host, 1, &FeedUpdateFlags::default(), None)
                 .await
                 .unwrap();
@@ -256,8 +266,7 @@ async fn test_enclosure_imported_rewrites() {
     let pool = db.pool();
     let calls = Arc::new(Mutex::new(Vec::new()));
     let host = setup_host(calls.clone());
-    let mut cfg = common::test_config();
-    cfg.plugins = "pipe_stub".to_string();
+    let cfg = pipe_config();
 
     let result = ttrss::updates::process_feed(
         pool,
@@ -295,8 +304,7 @@ async fn test_filter_triggered_and_mark_toggled() {
             let pool = db.pool();
             let calls = Arc::new(Mutex::new(Vec::new()));
             let host = setup_host(calls.clone());
-            let mut cfg = common::test_config();
-            cfg.plugins = "pipe_stub".to_string();
+            let cfg = pipe_config();
 
             // A filter matching the article title, with the `mark` action.
             insert_match_filter(pool, "Pipe Article", 3).await;
@@ -352,8 +360,7 @@ async fn test_publish_toggled() {
             let pool = db.pool();
             let calls = Arc::new(Mutex::new(Vec::new()));
             let host = setup_host(calls.clone());
-            let mut cfg = common::test_config();
-            cfg.plugins = "pipe_stub".to_string();
+            let cfg = pipe_config();
 
             insert_match_filter(pool, "Pipe Article", 5).await; // publish
 
@@ -404,8 +411,7 @@ async fn test_house_keeping_dispatched() {
             let pool = db.pool();
             let calls = Arc::new(Mutex::new(Vec::new()));
             let host = setup_host(calls.clone());
-            let mut cfg = common::test_config();
-            cfg.plugins = "pipe_stub".to_string();
+            let cfg = pipe_config();
 
             // Global daemon host (owner 0).
             run_house_keeping_hook(pool, &cfg, &host, 0).await;
@@ -430,8 +436,7 @@ async fn test_update_task_dispatched() {
             let pool = db.pool();
             let calls = Arc::new(Mutex::new(Vec::new()));
             let host = setup_host(calls.clone());
-            let mut cfg = common::test_config();
-            cfg.plugins = "pipe_stub".to_string();
+            let cfg = pipe_config();
 
             ttrss::updates::run_update_task_hook(pool, &cfg, &host).await;
 
