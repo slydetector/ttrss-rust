@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="ttrss-rust.png" alt="ttrss-rust" width="200">
+</p>
+
 # ttrss
 
 Rust re-implementation of the [tt-rss](https://github.com/tt-rss/tt-rss) (Tiny Tiny RSS)
