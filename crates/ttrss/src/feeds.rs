@@ -29,6 +29,7 @@ use crate::i18n::{__, t_nsprintf, t_sprintf};
 use crate::util;
 
 use crate::AppState;
+use crate::core::config::Config;
 use crate::labels::LABEL_BASE_INDEX;
 use crate::pluginhost::{
     HOOK_PRE_SUBSCRIBE, HOOK_PREFS_EDIT_FEED, HOOK_PREFS_SAVE_FEED, HOOK_SUBSCRIBE_FEED, PluginHost,
@@ -165,6 +166,10 @@ pub async fn getfeedtree(state: &AppState, sess: &Sess, extra: &Map<String, Valu
         .map(|v| util::param_to_bool(Some(v)))
         .unwrap_or(false);
 
+    // Per-request self URL (PHP `Config::get_self_url()`) — the base for the
+    // feed `icon` URLs in the payload below.
+    let self_url = sess.self_url();
+
     let cats = fetch_all_cats(pool, uid).await;
     let feeds = fetch_all_feeds(pool, uid).await;
 
@@ -256,7 +261,8 @@ pub async fn getfeedtree(state: &AppState, sess: &Sess, extra: &Map<String, Valu
 
         // Top-level categories (`parent_cat IS NULL`), ordered (order_id, title).
         for c in cats.iter().filter(|c| c.parent_cat.is_none()) {
-            let items = build_cat_items(&cats, &feeds, state, c.id, show_empty_cats, &tz);
+            let items =
+                build_cat_items(&cats, &feeds, state, c.id, show_empty_cats, &tz, &self_url);
             let n = calculate_children_count(&items);
             let mut cat = Map::new();
             cat.insert("id".into(), json!(format!("CAT:{}", c.id)));
@@ -279,7 +285,7 @@ pub async fn getfeedtree(state: &AppState, sess: &Sess, extra: &Map<String, Valu
         let items: Vec<Value> = feeds
             .iter()
             .filter(|f| f.cat_id.is_none())
-            .map(|f| feed_node(state, f, &tz))
+            .map(|f| feed_node(state, f, &tz, &self_url))
             .collect();
         let n = items.len() as i64;
         if n > 0 || show_empty_cats {
@@ -299,7 +305,10 @@ pub async fn getfeedtree(state: &AppState, sess: &Sess, extra: &Map<String, Valu
         }
     } else {
         // Cats disabled: every feed directly under the root.
-        root_items = feeds.iter().map(|f| feed_node(state, f, &tz)).collect();
+        root_items = feeds
+            .iter()
+            .map(|f| feed_node(state, f, &tz, &self_url))
+            .collect();
         root_children = feeds.len() as i64;
     }
 
@@ -1568,11 +1577,12 @@ fn build_cat_items(
     cat_id: i64,
     show_empty_cats: bool,
     tz: &TzCtx,
+    self_url: &str,
 ) -> Vec<Value> {
     let mut items: Vec<Value> = Vec::new();
 
     for s in cats.iter().filter(|c| c.parent_cat == Some(cat_id)) {
-        let sub_items = build_cat_items(cats, feeds, state, s.id, show_empty_cats, tz);
+        let sub_items = build_cat_items(cats, feeds, state, s.id, show_empty_cats, tz, self_url);
         let n = calculate_children_count(&sub_items);
         let mut cat = Map::new();
         cat.insert("id".into(), json!(format!("CAT:{}", s.id)));
@@ -1592,14 +1602,14 @@ fn build_cat_items(
     }
 
     for f in feeds.iter().filter(|f| f.cat_id == Some(cat_id)) {
-        items.push(feed_node(state, f, tz));
+        items.push(feed_node(state, f, tz, self_url));
     }
 
     items
 }
 
 /// A regular feed node (category feed, uncategorized, or flat list).
-fn feed_node(state: &AppState, f: &FeedRow, tz: &TzCtx) -> Value {
+fn feed_node(state: &AppState, f: &FeedRow, tz: &TzCtx, self_url: &str) -> Value {
     let mut out = Map::new();
     out.insert("id".into(), json!(format!("FEED:{}", f.id)));
     out.insert("bare_id".into(), json!(f.id));
@@ -1608,7 +1618,10 @@ fn feed_node(state: &AppState, f: &FeedRow, tz: &TzCtx) -> Value {
     out.insert("checkbox".into(), json!(false));
     out.insert("unread".into(), json!(-1));
     out.insert("error".into(), json!(f.last_error.clone()));
-    out.insert("icon".into(), json!(feed_icon_url(state, f.id)));
+    out.insert(
+        "icon".into(),
+        json!(feed_icon_url(&state.config, self_url, f.id)),
+    );
     out.insert(
         "param".into(),
         json!(articles_param(
@@ -1624,14 +1637,14 @@ fn feed_node(state: &AppState, f: &FeedRow, tz: &TzCtx) -> Value {
 }
 
 /// `Feeds::_get_icon_url(feed_id)` — the `public.php?op=feed_icon` URL if the
-/// favicon exists, else `""`.
-fn feed_icon_url(state: &AppState, feed_id: i64) -> String {
-    let dir = &state.config.feed_icon_dir();
+/// favicon exists, else `""`. The base is the per-request self URL (PHP
+/// `Config::get_self_url()` — the static `SELF_URL_PATH` config is only the
+/// fallback PHP uses when detection has nothing, which `get_self_url` already
+/// folds in).
+fn feed_icon_url(cfg: &Config, self_url: &str, feed_id: i64) -> String {
+    let dir = &cfg.feed_icon_dir();
     if dir.join(feed_id.to_string()).is_file() {
-        format!(
-            "{}/public.php?op=feed_icon&id={feed_id}",
-            state.config.self_url_rtrim()
-        )
+        format!("{self_url}/public.php?op=feed_icon&id={feed_id}")
     } else {
         String::new()
     }
@@ -2383,7 +2396,7 @@ pub async fn get_shared_url(state: &AppState, sess: &Sess, extra: &Map<String, V
     };
     let link = format!(
         "{}/public.php?{}",
-        state.config.self_url_rtrim(),
+        sess.self_url(),
         http_build_query(&[
             ("op", "rss"),
             ("id", &feed_id),
@@ -2691,7 +2704,7 @@ pub async fn upload_icon(
         .as_secs();
     json!({
         "rc": rc,
-        "icon_url": format!("{}?ts={}", feed_icon_url(state, feed_id), ts),
+        "icon_url": format!("{}?ts={}", feed_icon_url(&state.config, &sess.self_url(), feed_id), ts),
     })
 }
 
@@ -2711,7 +2724,7 @@ pub fn decrypt_feed_pass(auth_pass: &str, key: Option<&[u8; 32]>) -> String {
 
 /// `Feeds::_get_icon` — the Material icon name for a virtual feed id, or the
 /// feed's icon URL for a real feed id ("" when it has no icon).
-pub fn get_icon(state: &AppState, feed_id: i64) -> String {
+pub fn get_icon(state: &AppState, self_url: &str, feed_id: i64) -> String {
     match feed_id {
         0 => "archive".to_string(),
         -1 => "star".to_string(),
@@ -2720,7 +2733,7 @@ pub fn get_icon(state: &AppState, feed_id: i64) -> String {
         -4 => "inbox".to_string(),
         -6 => "restore".to_string(),
         _ if feed_id < crate::labels::LABEL_BASE_INDEX => "label".to_string(),
-        _ => feed_icon_url(state, feed_id),
+        _ => feed_icon_url(&state.config, self_url, feed_id),
     }
 }
 
@@ -2914,7 +2927,10 @@ pub async fn editfeed(state: &AppState, sess: &Sess, extra: &Map<String, Value>)
                 state.config.encryption_key.as_ref()
             )),
         );
-        obj.insert("icon".into(), json!(get_icon(state, feed_id)));
+        obj.insert(
+            "icon".into(),
+            json!(get_icon(state, &sess.self_url(), feed_id)),
+        );
     }
 
     // update intervals (key => label), with the "Default interval" option annotated.

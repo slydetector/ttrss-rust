@@ -229,19 +229,20 @@ async fn test_get_icon_virtual() {
         Box::pin(async move {
             let (state, _sess) = setup(&url).await;
             use ttrss::feeds::get_icon;
-            assert_eq!(get_icon(&state, 0), "archive");
-            assert_eq!(get_icon(&state, -1), "star");
-            assert_eq!(get_icon(&state, -2), "rss_feed");
-            assert_eq!(get_icon(&state, -3), "whatshot");
-            assert_eq!(get_icon(&state, -4), "inbox");
-            assert_eq!(get_icon(&state, -6), "restore");
+            let base = "http://127.0.0.1:9000/tt-rss";
+            assert_eq!(get_icon(&state, base, 0), "archive");
+            assert_eq!(get_icon(&state, base, -1), "star");
+            assert_eq!(get_icon(&state, base, -2), "rss_feed");
+            assert_eq!(get_icon(&state, base, -3), "whatshot");
+            assert_eq!(get_icon(&state, base, -4), "inbox");
+            assert_eq!(get_icon(&state, base, -6), "restore");
             // Label ids (below LABEL_BASE_INDEX) map to the generic label icon.
             assert_eq!(
-                get_icon(&state, ttrss::labels::LABEL_BASE_INDEX - 5),
+                get_icon(&state, base, ttrss::labels::LABEL_BASE_INDEX - 5),
                 "label"
             );
             // A real feed with no icon file maps to the empty string.
-            assert_eq!(get_icon(&state, 1), "");
+            assert_eq!(get_icon(&state, base, 1), "");
             Ok(())
         })
     })
@@ -636,4 +637,35 @@ async fn test_opensite() {
     );
         Ok(())
     })).await.unwrap();
+}
+
+/// The `icon` field is built from the **per-request** self URL (PHP
+/// `Config::get_self_url()` — `Host` + `X-Forwarded-Proto`), not the static
+/// `SELF_URL_PATH` config. Regression: behind a reverse proxy the feed icons
+/// were requested from the dev default `http://127.0.0.1:9000/tt-rss/…`
+/// because the port used the static config value.
+#[tokio::test]
+async fn test_editfeed_icon_uses_request_self_url() {
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (mut state, mut sess) = setup(&url).await;
+            let dir = std::env::temp_dir().join("ttrss-editfeed-icon-regression");
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(dir.join("feed-icons")).unwrap();
+            state.config.cache_dir = dir.clone();
+            // A self URL deliberately different from the static config value.
+            sess.set_self_url("https://example.com/tt-rss");
+            std::fs::write(dir.join("feed-icons").join("1"), b"png").unwrap();
+
+            let result = ttrss::feeds::editfeed(&state, &sess, &request(&[("id", json!(1))])).await;
+            assert_eq!(
+                result["feed"]["icon"].as_str().unwrap(),
+                "https://example.com/tt-rss/public.php?op=feed_icon&id=1",
+                "icon must use the per-request self URL, not the static SELF_URL_PATH"
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
 }
