@@ -190,6 +190,27 @@ e2e: ## run the e2e golden path (headless; fresh docker stack on :19000)
 e2e-headed: ## e2e with the browser visible
 	cd e2e && DEBUG=pw:api npx playwright test --headed
 
+# --- image (build + publish) -------------------------------------------------
+# The registry identity (host+namespace, user, token) comes from the
+# environment — REGISTRY=host/namespace, plus REGISTRY_USERNAME/PASSWORD for
+# `docker login` when the registry requires auth — never from this file
+# (docs/19). Empty REGISTRY = local builds only; CI sets the same names from
+# secrets (and skips login when REGISTRY_PASSWORD is empty).
+REGISTRY ?=
+IMAGE    := ttrss-rust
+TAG      ?= latest
+
+.PHONY: image
+image: ## build the docker image locally ($(IMAGE):$(TAG))
+	docker build -t $(IMAGE):$(TAG) .
+
+.PHONY: image-publish
+image-publish: ## push $(IMAGE):$(TAG) to $(REGISTRY) (requires docker login)
+	@test -n "$(REGISTRY)" || { echo "set REGISTRY=<host>/<namespace>"; exit 1; }
+	docker build -t $(IMAGE):$(TAG) .
+	docker tag  $(IMAGE):$(TAG) $(REGISTRY)/$(IMAGE):$(TAG)
+	docker push $(REGISTRY)/$(IMAGE):$(TAG)
+
 .PHONY: php-sync
 php-sync: ## sync to tt-rss php upstream: report commits since the pinned php submodule commit (docs/21)
 	scripts/php-sync.sh

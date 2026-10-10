@@ -71,6 +71,12 @@ jobs:
       # DB over the shared docker network alias. GitHub resolves the service
       # name too, so the file stays portable.
       TTRSS_TEST_PG_URL: postgres://postgres:postgres@postgres:5432/postgres?sslmode=disable
+      # Publishing identity — registry host+namespace / user / token, all from
+      # secrets, none of it in the repo (docs/19). Same secret names on both
+      # CI homes; an unset REGISTRY (local runs, fork PRs) skips the publish.
+      REGISTRY: ${{ secrets.REGISTRY }}
+      REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
+      REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
     steps:
       # Toolchain gaps the stock image leaves for us:
       # - JS actions (like checkout) need node in the job container: GitHub
@@ -131,3 +137,18 @@ jobs:
           export TTRSS_E2E_HOST=$(ip route | awk '/default/ {print $3; exit}')
           make e2e
       - run: cargo clippy --workspace --all-targets
+      # Publish the image to the registry named by the secrets above
+      # (skipped when REGISTRY is unset). latest + a pinned sha tag.
+      - name: Publish ttrss-rust
+        if: env.REGISTRY != ''
+        run: |
+          SHA=$(echo "$GITHUB_SHA" | cut -c1-7)
+          # Login only when the registry asks for it — an empty
+          # REGISTRY_PASSWORD means the registry accepts anonymous push.
+          if [ -n "$REGISTRY_PASSWORD" ]; then
+            echo "$REGISTRY_PASSWORD" | docker login \
+              "$REGISTRY" -u "$REGISTRY_USERNAME" --password-stdin
+          fi
+          docker build -t "ttrss-rust:latest" -t "ttrss-rust:$SHA" .
+          docker push "$REGISTRY/ttrss-rust:latest"
+          docker push "$REGISTRY/ttrss-rust:$SHA"
