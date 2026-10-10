@@ -1046,7 +1046,10 @@ async fn make_init_params(state: &AppState, sess: &Sess, uid: i64, profile: Opti
         Value::from(data.get_bool("bw_limit").unwrap_or(false) as i64),
     );
     out.insert("is_default_pw".into(), Value::from(is_default_pw));
-    out.insert("label_base_index".into(), Value::from(-1024i64));
+    out.insert(
+        "label_base_index".into(),
+        Value::from(crate::labels::LABEL_BASE_INDEX),
+    );
     out.insert("theme".into(), Value::from(theme));
     out.insert(
         "plugins".into(),

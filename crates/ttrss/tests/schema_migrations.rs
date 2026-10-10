@@ -204,7 +204,10 @@ async fn failing_migration_rolls_back_its_file() {
 
             let root = temp_sql_root(|pgsql| {
                 // 150.sql (real) applies fine; 151.sql (doctored) fails partway.
-                let p = pgsql.join("migrations/151.sql");
+                let p = pgsql.join(format!(
+                    "migrations/{}.sql",
+                    ttrss::core::config::SCHEMA_VERSION
+                ));
                 std::fs::write(
                     &p,
                     "alter table ttrss_scheduled_tasks add column owner_uid integer;\n\

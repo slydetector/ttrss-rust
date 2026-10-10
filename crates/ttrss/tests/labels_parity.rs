@@ -44,7 +44,7 @@ fn test_label_to_feed_id_negative_input() {
 // PHP: test_feed_to_label_id_basic
 #[test]
 fn test_feed_to_label_id_basic() {
-    assert_eq!(-1024, labels::feed_to_label_id(1));
+    assert_eq!(labels::LABEL_BASE_INDEX, labels::feed_to_label_id(1));
 }
 
 // PHP: test_feed_to_label_id_larger_feed

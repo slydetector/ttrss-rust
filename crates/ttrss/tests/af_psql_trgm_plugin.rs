@@ -184,8 +184,8 @@ async fn test_filter_not_enabled() {
                 false, // enable_globally = false
                 &[],   // enabled_feeds = empty
                 1,     // feed_id
-                0.75,
-                32,
+                ttrss::plugins::af_psql_trgm::DEFAULT_SIMILARITY,
+                ttrss::plugins::af_psql_trgm::DEFAULT_MIN_LENGTH,
             )
             .await;
             assert!(!result);
@@ -212,8 +212,8 @@ async fn test_filter_too_short() {
                 true,
                 &[],
                 1,
-                0.75,
-                32, // "short" is 5 chars < 32
+                ttrss::plugins::af_psql_trgm::DEFAULT_SIMILARITY,
+                ttrss::plugins::af_psql_trgm::DEFAULT_MIN_LENGTH, // "short" is 5 chars < 32
             )
             .await;
             assert!(!result);
@@ -259,8 +259,8 @@ async fn test_filter_similar() {
                 true, // enable_globally
                 &[],
                 feed_id,
-                0.75,
-                32,
+                ttrss::plugins::af_psql_trgm::DEFAULT_SIMILARITY,
+                ttrss::plugins::af_psql_trgm::DEFAULT_MIN_LENGTH,
             )
             .await;
             assert!(result, "expected the similar article to be caught");

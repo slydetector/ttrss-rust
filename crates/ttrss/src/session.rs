@@ -28,7 +28,7 @@ pub const SESSION_NAME: &str = "ttrss_sid";
 /// `SESSION_COOKIE_LIFETIME` — used when re-stamping persistent cookies.
 pub const COOKIE_LIFETIME: i64 = 86400;
 /// `ttrss_sessions.expire` = now + this (PHP `session_expire`).
-const STORE_EXPIRE: i64 = 86400;
+const STORE_EXPIRE: i64 = COOKIE_LIFETIME;
 
 /// Per-request session handle. Cloned into the request extensions and handed to
 /// handlers; the wrapped lock lets handlers mutate it and the middleware

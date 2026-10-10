@@ -79,7 +79,12 @@ async fn special_feeds_cat_minus_1() {
     with_test_db(|url| {
         Box::pin(async move {
             let (state, sess) = setup(&url).await;
-            let c = get_feeds(&state, &sess, &[("cat_id", json!(-1))]).await;
+            let c = get_feeds(
+                &state,
+                &sess,
+                &[("cat_id", json!(ttrss::cats::CAT_SPECIAL))],
+            )
+            .await;
             // Six special feeds, PHP's fixed order: Starred, Published, Fresh, All,
             // Recently-read, Archived.
             assert_eq!(ids(&c), vec![-1, -2, -3, -4, -6, 0]);
@@ -118,7 +123,7 @@ async fn labels_cat_minus_2() {
     with_test_db(|url| {
         Box::pin(async move {
             let (state, sess) = setup(&url).await;
-            let c = get_feeds(&state, &sess, &[("cat_id", json!(-2))]).await;
+            let c = get_feeds(&state, &sess, &[("cat_id", json!(ttrss::cats::CAT_LABELS))]).await;
             // Both labels (0 unread each, but unread_only=false so they appear).
             let titles: std::collections::BTreeSet<String> = c
                 .as_array()
@@ -148,7 +153,12 @@ async fn all_except_virtual_cat_minus_3_full_shape() {
     with_test_db(|url| {
         Box::pin(async move {
             let (state, sess) = setup(&url).await;
-            let c = get_feeds(&state, &sess, &[("cat_id", json!(-3))]).await;
+            let c = get_feeds(
+                &state,
+                &sess,
+                &[("cat_id", json!(ttrss::cats::CAT_ALL_EXCEPT_VIRTUAL))],
+            )
+            .await;
             // All 4 real feeds, ordered by title (all order_id 0): Ars(3), HN(1),
             // MIT(4), Register(2).
             assert_eq!(ids(&c), vec![3, 1, 4, 2]);
@@ -235,10 +245,10 @@ async fn unread_only_drops_zero_unread_feeds() {
     .unwrap();
 
     // Without unread_only: 5 feeds (the empty one included).
-    let all = get_feeds(&state, &sess, &[("cat_id", json!(-3))]).await;
+    let all = get_feeds(&state, &sess, &[("cat_id", json!(ttrss::cats::CAT_ALL_EXCEPT_VIRTUAL))]).await;
     assert_eq!(all.as_array().unwrap().len(), 5);
     // With unread_only: the 0-unread feed is dropped → 4.
-    let only = get_feeds(&state, &sess, &[("cat_id", json!(-3)), ("unread_only", json!(true))]).await;
+    let only = get_feeds(&state, &sess, &[("cat_id", json!(ttrss::cats::CAT_ALL_EXCEPT_VIRTUAL)), ("unread_only", json!(true))]).await;
     assert_eq!(only.as_array().unwrap().len(), 4);
     assert!(!ids(&only).contains(&5));
         Ok(())
@@ -251,14 +261,21 @@ async fn limit_and_offset_paginate() {
         Box::pin(async move {
             let (state, sess) = setup(&url).await;
             // Ordered by title: Ars(3), HN(1), MIT(4), Register(2).
-            let first =
-                get_feeds(&state, &sess, &[("cat_id", json!(-3)), ("limit", json!(2))]).await;
+            let first = get_feeds(
+                &state,
+                &sess,
+                &[
+                    ("cat_id", json!(ttrss::cats::CAT_ALL_EXCEPT_VIRTUAL)),
+                    ("limit", json!(2)),
+                ],
+            )
+            .await;
             assert_eq!(ids(&first), vec![3, 1]);
             let second = get_feeds(
                 &state,
                 &sess,
                 &[
-                    ("cat_id", json!(-3)),
+                    ("cat_id", json!(ttrss::cats::CAT_ALL_EXCEPT_VIRTUAL)),
                     ("limit", json!(2)),
                     ("offset", json!(2)),
                 ],

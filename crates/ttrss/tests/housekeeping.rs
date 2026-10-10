@@ -330,7 +330,8 @@ async fn test_cleanup_feed_icons() {
             std::fs::write(&existing_icon, b"icon-existing").expect("write existing icon");
             let missing_icon = dir.join("feed-icons").join(missing_feed_id.to_string());
             std::fs::write(&missing_icon, b"icon-missing").expect("write missing icon");
-            let old = std::time::SystemTime::now() - std::time::Duration::from_secs(86400 * 10);
+            let old = std::time::SystemTime::now()
+                - std::time::Duration::from_secs((ttrss::session::COOKIE_LIFETIME * 10) as u64);
             set_mtime(&existing_icon, old);
             set_mtime(&missing_icon, old);
 
@@ -379,9 +380,15 @@ async fn test_record_run_upsert() {
             assert_eq!(row, (3, 0, "@daily".to_string()));
 
             // Upsert (update the same row).
-            ttrss::scheduler::record_run(db.pool(), "test_task", 5, -100, "@hourly")
-                .await
-                .expect("update record");
+            ttrss::scheduler::record_run(
+                db.pool(),
+                "test_task",
+                5,
+                ttrss::scheduler::TASK_RC_EXCEPTION,
+                "@hourly",
+            )
+            .await
+            .expect("update record");
             let row2: (i32, i32, String) = sqlx::query_as(
                 "SELECT last_duration, last_rc, last_cron_expression \
          FROM ttrss_scheduled_tasks WHERE task_name = 'test_task'",
@@ -389,7 +396,14 @@ async fn test_record_run_upsert() {
             .fetch_one(db.pool())
             .await
             .expect("fetch record 2");
-            assert_eq!(row2, (5, -100, "@hourly".to_string()));
+            assert_eq!(
+                row2,
+                (
+                    5,
+                    ttrss::scheduler::TASK_RC_EXCEPTION,
+                    "@hourly".to_string()
+                )
+            );
 
             // Still exactly one row.
             let count: i64 = sqlx::query_scalar(

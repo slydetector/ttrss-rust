@@ -226,7 +226,7 @@ pub fn render_login_page(config: &Config, additional_buttons: &str, self_url: &s
     let theme_light = theme_path(doc, &config.data_dir, "light.css", "themes/light.css");
     let theme_dark = theme_path(doc, &config.data_dir, "night.css", "themes/night.css");
     let return_url = urlencode(&format!("{}/", self_url));
-    let lifetime = 86400; // SESSION_COOKIE_LIFETIME default
+    let lifetime = crate::session::COOKIE_LIFETIME; // SESSION_COOKIE_LIFETIME default
     let mut env = minijinja::Environment::new();
     env.add_function("__", |msg: String| -> String { __(&msg) });
     let template = env

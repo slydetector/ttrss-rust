@@ -194,9 +194,12 @@ async fn test_export_import_settings_roundtrip() {
       let opml = ttrss::opml::build_opml(pool, 1, true).await;
 
       // The three settings blocks, each carrying the schema version.
-      assert!(opml.contains("text=\"tt-rss-prefs\" schema-version=\"151\""), "prefs block: {opml}");
-      assert!(opml.contains("text=\"tt-rss-labels\" schema-version=\"151\""), "labels block: {opml}");
-      assert!(opml.contains("text=\"tt-rss-filters\" schema-version=\"151\""), "filters block: {opml}");
+      let want = format!("text=\"tt-rss-prefs\" schema-version=\"{}\"", ttrss::core::config::SCHEMA_VERSION);
+        assert!(opml.contains(&want), "prefs block: {opml}");
+      let want = format!("text=\"tt-rss-labels\" schema-version=\"{}\"", ttrss::core::config::SCHEMA_VERSION);
+        assert!(opml.contains(&want), "labels block: {opml}");
+      let want = format!("text=\"tt-rss-filters\" schema-version=\"{}\"", ttrss::core::config::SCHEMA_VERSION);
+        assert!(opml.contains(&want), "filters block: {opml}");
       assert!(opml.contains("pref-name=\"RT_TEST_PREF\" value=\"rt_value\""), "pref row: {opml}");
       assert!(opml.contains("label-name=\"RT Label\" label-fg-color=\"#111111\" label-bg-color=\"#222222\""), "label row: {opml}");
       // The filter is a CDATA section (not entity-escaped), with native JSON types
