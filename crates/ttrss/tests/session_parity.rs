@@ -54,10 +54,13 @@ async fn get_stored_data(db: &Db, id: &str) -> Option<String> {
 }
 
 /// `setValidAdminSession`: uid=1 with the schema's admin pwd_hash.
+/// `access_level` 10 — login always records it (auth), and the
+/// access-level-changed validation compares against it.
 fn valid_admin_session() -> Session {
     let mut s = Session::new();
     s.set("uid", Value::Int(1));
     s.set("pwd_hash", Value::Bytes(ADMIN_PWD_HASH.as_bytes().to_vec()));
+    s.set("access_level", Value::Int(10));
     s
 }
 
@@ -87,6 +90,7 @@ async fn disabled_user_session(db: &Db) -> Session {
     let mut s = Session::new();
     s.set("uid", Value::Int(uid as i64));
     s.set("pwd_hash", Value::Bytes(ADMIN_PWD_HASH.as_bytes().to_vec()));
+    s.set("access_level", Value::Int(-2));
     s
 }
 
@@ -818,6 +822,37 @@ async fn test_validate_session_fails_when_account_disabled() {
             assert!(
                 msg.contains("disabled"),
                 "Error message should mention account is disabled"
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
+}
+
+// Rust-only (no PHP test for upstream e88133e): the user's access level
+// changed since the session was created (session still records 10).
+#[tokio::test]
+async fn test_validate_session_fails_when_access_level_changed() {
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = common::make_db_from_url(&url).await.expect("test db");
+            let mut s = valid_admin_session();
+
+            sqlx::query("UPDATE ttrss_users SET access_level = 0 WHERE id = 1")
+                .execute(db.pool())
+                .await
+                .expect("lower the user's access level");
+
+            let result = sessions::validate_session(&app_state(&db), false, &mut s).await;
+
+            assert!(!result, "Should fail when the access level changed");
+            let msg = s
+                .get_str("login_error_msg")
+                .expect("Should set login_error_msg for access level change");
+            assert!(
+                msg.contains("access level changed"),
+                "Error message should mention the access level change"
             );
             Ok(())
         })

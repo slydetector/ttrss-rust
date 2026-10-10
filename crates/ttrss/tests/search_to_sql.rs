@@ -87,6 +87,16 @@ const CASES: &[(&str, &str, &[&str])] = &[
         &["title:"],
     ),
     ("author:bar", "( (LOWER(author) LIKE '%bar%'))", &[]),
+    (
+        "feed:rust",
+        "(ttrss_user_entries.feed_id  IN (SELECT id FROM ttrss_feeds WHERE LOWER(title) LIKE '%rust%'))",
+        &[],
+    ),
+    (
+        "-feed:rust",
+        "(ttrss_user_entries.feed_id NOT IN (SELECT id FROM ttrss_feeds WHERE LOWER(title) LIKE '%rust%'))",
+        &[],
+    ),
     ("note:true", "( (note IS NOT NULL AND note != ''))", &[]),
     ("note:false", "( (note IS NULL OR note = ''))", &[]),
     (

@@ -118,6 +118,13 @@ pub async fn search_to_sql_cached(
                     ));
                     valid_keyword_processed = true;
                 }
+                "feed" => {
+                    query_keywords.push(format!(
+                        "(ttrss_user_entries.feed_id {not} IN (SELECT id FROM ttrss_feeds WHERE LOWER(title) LIKE {}))",
+                        pdo_quote(&format!("%{value_untrimmed}%"))
+                    ));
+                    valid_keyword_processed = true;
+                }
                 "note" => {
                     if value == "true" {
                         query_keywords.push(format!("({not} (note IS NOT NULL AND note != ''))"));

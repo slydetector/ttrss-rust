@@ -76,7 +76,7 @@ async fn setup(url: &str, plugins: &str) -> AppState {
 async fn save_admin_session(state: &AppState) {
     let mut data = Session::new();
     data.set("uid", PValue::Int(1));
-    data.set("access_level", PValue::Int(100));
+    data.set("access_level", PValue::Int(10));
     data.set(
         "pwd_hash",
         PValue::Bytes(b"SHA1:5baa61e4c9b93f3f0682250b6cf8331b7ee68fd8".to_vec()),

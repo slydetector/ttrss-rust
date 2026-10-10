@@ -43,7 +43,7 @@ async fn setup(url: &str, plugins: &str) -> AppState {
 fn session(uid: i32) -> Sess {
     let mut data = Session::new();
     data.set("uid", PValue::Int(uid as i64));
-    data.set("access_level", PValue::Int(100));
+    data.set("access_level", PValue::Int(10));
     data.set("csrf_token", PValue::Bytes(b"tok".to_vec()));
     let sess = Sess::new("note-test".into());
     sess.replace("note-test".into(), data);
@@ -224,7 +224,7 @@ async fn test_owner_scoping() {
     let sess1 = session(1);
     let mut data = Session::new();
     data.set("uid", PValue::Int(2));
-    data.set("access_level", PValue::Int(100));
+    data.set("access_level", PValue::Int(10));
     data.set("csrf_token", PValue::Bytes(b"tok".to_vec()));
     let sess2 = Sess::new("note-test-2".into());
     sess2.replace("note-test-2".into(), data);

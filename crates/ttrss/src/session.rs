@@ -254,6 +254,10 @@ pub async fn destroy(pool: &PgPool, id: &str) -> bool {
 /// `HOOK_VALIDATE_SESSION` (Sessions.php:144): the chain runs after all the
 /// default checks pass — the callback keeps the *last* hook's result (the
 /// loop stops at the first `false`), and that result is the return value.
+///
+/// TODO(port): the M8 `update.php` CLI is not ported yet; when
+/// `dbupdate` lands it must call this function before the
+/// access-level check (upstream bdb1c47, GHSA-9f8c-5cv6-jv5x).
 pub async fn validate_session(
     state: &crate::AppState,
     single_user: bool,
@@ -280,6 +284,15 @@ pub async fn validate_session(
                 sess.set(
                     "login_error_msg",
                     Value::Bytes(__("Session failed to validate (password changed)").into_bytes()),
+                );
+                return false;
+            }
+            if access_level as i64 != sess.get_int("access_level").unwrap_or(0) {
+                sess.set(
+                    "login_error_msg",
+                    Value::Bytes(
+                        __("Session failed to validate (access level changed)").into_bytes(),
+                    ),
                 );
                 return false;
             }

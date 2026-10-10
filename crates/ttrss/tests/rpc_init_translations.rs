@@ -43,7 +43,7 @@ async fn init_rpc(state: &AppState, accept_language: Option<&str>) -> Value {
     // `validate_session` + the CSRF gate pass and the test is the routing.
     let mut data = Session::new();
     data.set("uid", PValue::Int(1));
-    data.set("access_level", PValue::Int(100));
+    data.set("access_level", PValue::Int(10));
     data.set(
         "pwd_hash",
         PValue::Bytes(b"SHA1:5baa61e4c9b93f3f0682250b6cf8331b7ee68fd8".to_vec()),
@@ -162,7 +162,7 @@ async fn test_init_translations_fall_back_to_accept_language() {
 async fn view_rpc(state: &AppState, feed: &str) -> String {
     let mut data = Session::new();
     data.set("uid", PValue::Int(1));
-    data.set("access_level", PValue::Int(100));
+    data.set("access_level", PValue::Int(10));
     data.set(
         "pwd_hash",
         PValue::Bytes(b"SHA1:5baa61e4c9b93f3f0682250b6cf8331b7ee68fd8".to_vec()),
