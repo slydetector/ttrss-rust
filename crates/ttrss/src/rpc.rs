@@ -170,9 +170,7 @@ pub async fn handler(
                     .unwrap_or_else(|_| axum::http::HeaderValue::from_static("/"));
                 res.headers_mut().insert(header::LOCATION, hv);
             }
-            if sess.had_cookie() {
-                super::nocache_headers(res.headers_mut());
-            }
+            super::nocache_headers(res.headers_mut());
             return res;
         }
         DispatchOutput::Download(status, ct, disposition, body) => {
@@ -186,9 +184,7 @@ pub async fn handler(
             {
                 res.headers_mut().insert(header::CONTENT_DISPOSITION, hv);
             }
-            if sess.had_cookie() {
-                super::nocache_headers(res.headers_mut());
-            }
+            super::nocache_headers(res.headers_mut());
             return res;
         }
     };
@@ -198,11 +194,9 @@ pub async fn handler(
         .header(header::CONTENT_TYPE, content_type)
         .body(Body::from(body))
         .expect("valid response");
-    // The PHP session `nocache` limiter stamps responses whose session started
-    // (i.e. the request carried a session cookie).
-    if sess.had_cookie() {
-        super::nocache_headers(res.headers_mut());
-    }
+    // The PHP session `nocache` limiter stamps every response (session_start
+    // runs unconditionally) — same here, cookie or not.
+    super::nocache_headers(res.headers_mut());
     res
 }
 

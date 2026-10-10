@@ -102,11 +102,9 @@ pub async fn handler(state: State<AppState>, sess: Extension<Sess>, req: Request
         before_and_dispatch(&state, &sess, &op, &body, accept_language.as_deref()).await;
 
     let mut res = envelope(seq, status, content);
-    // `before()` sets `Content-Type: application/json`; the session `nocache`
-    // limiter applies when a session was started.
-    if sess.had_cookie() {
-        crate::nocache_headers(res.headers_mut());
-    }
+    // The PHP session `nocache` limiter stamps every response (session_start
+    // runs unconditionally) — same here, cookie or not.
+    crate::nocache_headers(res.headers_mut());
     res
 }
 

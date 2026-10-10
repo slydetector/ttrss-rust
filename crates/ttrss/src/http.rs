@@ -547,7 +547,7 @@ async fn public_handler(
         .get(axum::http::header::ACCEPT_LANGUAGE)
         .and_then(|v| v.to_str().ok());
     let self_url = sess.self_url();
-    match op {
+    let mut res = match op {
         "login" => {
             let env: Vec<(String, String)> = basic_auth_env(&server_env)
                 .into_iter()
@@ -664,7 +664,16 @@ async fn public_handler(
         // the `/healthz` route).
         "healthcheck" => healthz().await.into_response(),
         _ => StatusCode::NOT_FOUND.into_response(),
+    };
+    // The PHP session `nocache` limiter stamps every public.php response
+    // (session_start runs unconditionally — cookie or not). Arms that need
+    // their own cache semantics (`op=cached`/`feed_icon` via send_file,
+    // `op=rss`) set `Cache-Control` themselves and win, as in the reference
+    // (DiskCache's explicit headers override the limiter's).
+    if res.headers().get(header::CACHE_CONTROL).is_none() {
+        nocache_headers(res.headers_mut());
     }
+    res
 }
 
 /// `Handler_Public::cached()`: `?file=<subdir>/<name>` from the app cache dir.
@@ -833,9 +842,7 @@ async fn logout_flow(state: &AppState, sess: session::Sess, form: &PublicForm) -
                 r#"{"error":{"code":"E_UNAUTHORIZED","params":[]}}"#,
             ))
             .expect("valid response");
-        if sess.had_cookie() {
-            nocache_headers(res.headers_mut());
-        }
+        nocache_headers(res.headers_mut());
         return res;
     }
     let (u_login, u_id) = {
@@ -883,10 +890,9 @@ async fn logout_flow(state: &AppState, sess: session::Sess, form: &PublicForm) -
         .header(header::CONTENT_TYPE, "text/html; charset=UTF-8")
         .body(Body::empty())
         .expect("valid response");
-    // The session was active: the PHP nocache limiter stamped the response.
-    if sess.had_cookie() {
-        nocache_headers(res.headers_mut());
-    }
+    // The PHP nocache limiter stamps every response (session_start() runs
+    // unconditionally) — same here, cookie or not.
+    nocache_headers(res.headers_mut());
     // `extend_session` (request start) re-stamped the cookie, then
     // `UserHelper::logout` queued the deletion cookie — in that order.
     if !sid.is_empty() {

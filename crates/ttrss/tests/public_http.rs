@@ -108,6 +108,16 @@ async fn test_getprofiles_form_post_populates_dropdown() {
                 .await
                 .expect("response");
             assert_eq!(resp.status(), StatusCode::OK, "form POST must be 200");
+            // The PHP session nocache limiter stamps every response (the
+            // request carried no session cookie): no shared cache may store
+            // an anonymous response and replay it to the next visitor.
+            assert_eq!(
+                resp.headers()
+                    .get("cache-control")
+                    .and_then(|v| v.to_str().ok()),
+                Some("no-store, no-cache, must-revalidate"),
+                "anonymous responses carry the nocache limiter headers"
+            );
             let v = body_json(resp).await;
             expect_profiles(&state, &v, "httpprofile").await;
             Ok(())
