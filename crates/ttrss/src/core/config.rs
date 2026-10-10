@@ -563,6 +563,11 @@ pub fn expand_file_secrets() {
 mod tests {
     use super::*;
 
+    /// env vars are process-global: every env-mutating test must hold this
+    /// so parallel test threads don't interleave set/remove with each
+    /// other's `from_env`/`expand_file_secrets` reads.
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     fn cfg(self_url: &str) -> Config {
         Config {
             db_host: "127.0.0.1".into(),
@@ -792,20 +797,38 @@ mod tests {
     /// process-global, so the cases run sequentially.
     #[test]
     fn from_env_data_dir_cache_resolution() {
+        let _env = ENV_LOCK.lock().unwrap();
         fn with_env(data: Option<&str>, cache: Option<&str>, f: impl FnOnce(&Config)) {
             let old_data = std::env::var("TTRSS_DATA_DIR").ok();
             let old_cache = std::env::var("TTRSS_CACHE_DIR").ok();
+            // `from_env` reads the process environment wholesale — drop the
+            // ambient OWNER_UID/GID (the official image's unprefixed names)
+            // for the case's duration: the act runner sets
+            // OWNER_UID=not-a-uid, which `from_env` correctly rejects.
+            let old_owner = [
+                ("OWNER_UID", std::env::var("OWNER_UID").ok()),
+                ("OWNER_GID", std::env::var("OWNER_GID").ok()),
+            ];
             for (key, val) in [("TTRSS_DATA_DIR", data), ("TTRSS_CACHE_DIR", cache)] {
                 match val {
                     Some(v) => unsafe { std::env::set_var(key, v) },
                     None => unsafe { std::env::remove_var(key) },
                 }
             }
+            for &(key, _) in &old_owner {
+                unsafe { std::env::remove_var(key) };
+            }
             f(&Config::from_env().expect("from_env"));
             for (key, val) in [
                 ("TTRSS_DATA_DIR", old_data.as_deref()),
                 ("TTRSS_CACHE_DIR", old_cache.as_deref()),
             ] {
+                match val {
+                    Some(v) => unsafe { std::env::set_var(key, v) },
+                    None => unsafe { std::env::remove_var(key) },
+                }
+            }
+            for (key, val) in old_owner {
                 match val {
                     Some(v) => unsafe { std::env::set_var(key, v) },
                     None => unsafe { std::env::remove_var(key) },
@@ -838,6 +861,7 @@ mod tests {
     /// sequentially.
     #[test]
     fn from_env_owner_and_listen_validation() {
+        let _env = ENV_LOCK.lock().unwrap();
         fn with_env(
             owner_uid: Option<&str>,
             owner_gid: Option<&str>,
@@ -904,6 +928,7 @@ mod tests {
     /// sequentially.
     #[test]
     fn expand_file_secrets_official_semantics() {
+        let _env = ENV_LOCK.lock().unwrap();
         fn with_vars(vars: &[(&str, Option<&str>)], f: impl FnOnce()) {
             let old: Vec<(&str, Option<String>)> = vars
                 .iter()
