@@ -32,7 +32,10 @@ async fn setup(url: &str) -> (AppState, Sess) {
     let state = AppState::new(test_config(), db);
     let mut data = Session::new();
     data.set("uid", PValue::Int(1));
-    data.set("access_level", PValue::Int(10));
+    data.set(
+        "access_level",
+        PValue::Int(ttrss::core::user::ACCESS_LEVEL_ADMIN as i64),
+    );
     data.set("auth_module", PValue::Bytes(b"auth_internal".to_vec()));
     data.set("name", PValue::Bytes(b"admin".to_vec()));
     let sess = Sess::new("test-sid".to_string());
@@ -68,11 +71,23 @@ async fn test_edit() {
             let v = v.expect("edit admin");
             assert_eq!(v["user"]["id"], 1);
             assert_eq!(v["user"]["login"], "admin");
-            assert_eq!(v["user"]["access_level"], 10);
+            assert_eq!(
+                v["user"]["access_level"],
+                ttrss::core::user::ACCESS_LEVEL_ADMIN
+            );
             // The access-level name map is present with all five levels.
-            assert_eq!(v["access_level_names"]["10"], "Administrator");
-            assert_eq!(v["access_level_names"]["-2"], "Disabled");
-            assert_eq!(v["access_level_names"]["0"], "User");
+            assert_eq!(
+                v["access_level_names"][ttrss::core::user::ACCESS_LEVEL_ADMIN.to_string()],
+                "Administrator"
+            );
+            assert_eq!(
+                v["access_level_names"][ttrss::core::user::ACCESS_LEVEL_DISABLED.to_string()],
+                "Disabled"
+            );
+            assert_eq!(
+                v["access_level_names"][ttrss::core::user::ACCESS_LEVEL_USER.to_string()],
+                "User"
+            );
 
             // A missing user → `None`.
             assert!(
@@ -118,7 +133,10 @@ async fn test_edit_save_update() {
                 &form(&[
                     ("id", &id.to_string()),
                     ("login", "TestUser"),
-                    ("access_level", "5"),
+                    (
+                        "access_level",
+                        &ttrss::core::user::ACCESS_LEVEL_POWERUSER.to_string(),
+                    ),
                     ("email", "new@example.com"),
                 ]),
             )
@@ -151,7 +169,10 @@ async fn test_edit_save_admin_forced_admin_login() {
                 &form(&[
                     ("id", "1"),
                     ("login", "SuperRenamed"),
-                    ("access_level", "10"),
+                    (
+                        "access_level",
+                        &ttrss::core::user::ACCESS_LEVEL_ADMIN.to_string(),
+                    ),
                     ("email", "a@b.c"),
                 ]),
             )
@@ -181,7 +202,10 @@ async fn test_edit_save_empty_login_early_return() {
                 &form(&[
                     ("id", &id.to_string()),
                     ("login", ""),
-                    ("access_level", "5"),
+                    (
+                        "access_level",
+                        &ttrss::core::user::ACCESS_LEVEL_POWERUSER.to_string(),
+                    ),
                     ("email", "changed@example.com"),
                     ("password", "hunter2"),
                 ]),
@@ -219,7 +243,10 @@ async fn test_edit_save_password_reset() {
                 &form(&[
                     ("id", &id.to_string()),
                     ("login", "pwreset"),
-                    ("access_level", "0"),
+                    (
+                        "access_level",
+                        &ttrss::core::user::ACCESS_LEVEL_USER.to_string(),
+                    ),
                     ("email", ""),
                     ("password", "hunter2"),
                 ]),

@@ -1116,7 +1116,12 @@ async fn test_batch_add_feeds_readonly_noop() {
     with_test_db(|url| {
         Box::pin(async move {
             let (state, sess) = setup_from_url(&url).await;
-            sess.with_mut(|s| s.set("access_level", PValue::Int(-1)));
+            sess.with_mut(|s| {
+                s.set(
+                    "access_level",
+                    PValue::Int(ttrss::core::user::ACCESS_LEVEL_READONLY as i64),
+                )
+            });
             let db = &state.db;
             let before: i64 =
                 sqlx::query_scalar("SELECT COUNT(*) FROM ttrss_feeds WHERE owner_uid = 1")
@@ -1190,7 +1195,10 @@ async fn test_dispatch_case_insensitive() {
             fn sess() -> Sess {
                 let mut d = Session::new();
                 d.set("uid", PValue::Int(1));
-                d.set("access_level", PValue::Int(10));
+                d.set(
+                    "access_level",
+                    PValue::Int(ttrss::core::user::ACCESS_LEVEL_ADMIN as i64),
+                );
                 d.set(
                     "pwd_hash",
                     PValue::Bytes(b"SHA1:5baa61e4c9b93f3f0682250b6cf8331b7ee68fd8".to_vec()),

@@ -39,7 +39,7 @@ async fn body_json(resp: axum::response::Response) -> serde_json::Value {
 async fn add_user_with_profiles(state: &AppState, login: &str, profiles: &[&str]) -> i32 {
     let pool = state.db.pool();
     let uid: i32 = sqlx::query_scalar(
-        "INSERT INTO ttrss_users (login, pwd_hash, access_level) VALUES ($1, 'SHA1:x', 0) RETURNING id",
+        sqlx::AssertSqlSafe(format!("INSERT INTO ttrss_users (login, pwd_hash, access_level) VALUES ($1, 'SHA1:x', {}) RETURNING id", ttrss::core::user::ACCESS_LEVEL_USER)),
     )
     .bind(login)
     .fetch_one(pool)
@@ -171,7 +171,7 @@ async fn test_getprofiles_form_post_missing_login_returns_empty() {
 async fn add_user_with_api_password(state: &AppState) -> &'static str {
     let pool = state.db.pool();
     let uid: i32 = sqlx::query_scalar(
-        "INSERT INTO ttrss_users (login, pwd_hash, access_level) VALUES ($1, 'SHA1:x', 0) RETURNING id",
+        sqlx::AssertSqlSafe(format!("INSERT INTO ttrss_users (login, pwd_hash, access_level) VALUES ($1, 'SHA1:x', {}) RETURNING id", ttrss::core::user::ACCESS_LEVEL_USER)),
     )
     .bind("apilogin")
     .fetch_one(pool)

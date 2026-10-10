@@ -30,7 +30,10 @@ async fn setup(url: &str) -> (AppState, Sess) {
     let state = AppState::new(test_config(), db);
     let mut data = Session::new();
     data.set("uid", PValue::Int(1));
-    data.set("access_level", PValue::Int(10));
+    data.set(
+        "access_level",
+        PValue::Int(ttrss::core::user::ACCESS_LEVEL_ADMIN as i64),
+    );
     data.set("auth_module", PValue::Bytes(b"auth_internal".to_vec()));
     data.set("name", PValue::Bytes(b"admin".to_vec()));
     let sess = Sess::new("test-sid".to_string());

@@ -408,7 +408,10 @@ async fn test_import_no_file_reports_upload_error() {
 fn sess_authed(uid: i64) -> Sess {
     let mut d = ttrss::core::session::Session::new();
     d.set("uid", ttrss::core::phpser::Value::Int(uid));
-    d.set("access_level", ttrss::core::phpser::Value::Int(10));
+    d.set(
+        "access_level",
+        ttrss::core::phpser::Value::Int(ttrss::core::user::ACCESS_LEVEL_ADMIN as i64),
+    );
     d.set(
         "pwd_hash",
         ttrss::core::phpser::Value::Bytes(

@@ -257,7 +257,7 @@ async fn test_no_proxy_credentials_falls_through_to_auth_internal() {
                 ttrss::core::user::hash_password("evepass", salt, ttrss::core::user::ALGO_SSHA512)
                     .expect("hash");
             sqlx::query(
-        "INSERT INTO ttrss_users (login, salt, pwd_hash, access_level) VALUES ('eve', $1, $2, 0)",
+        sqlx::AssertSqlSafe(format!("INSERT INTO ttrss_users (login, salt, pwd_hash, access_level) VALUES ('eve', $1, $2, {})", ttrss::core::user::ACCESS_LEVEL_USER)),
     )
     .bind(salt)
     .bind(format!("{inner}:{salt}"))
@@ -294,7 +294,7 @@ async fn test_ssl_certificate_serial_maps_to_registered_user() {
     let salt = "testsalt";
     let inner = ttrss::core::user::hash_password("gracepass", salt, ttrss::core::user::ALGO_SSHA512).unwrap();
     let uid: i32 = sqlx::query_scalar(
-        "INSERT INTO ttrss_users (login, salt, pwd_hash, access_level) VALUES ('grace', $1, $2, 0) RETURNING id",
+        sqlx::AssertSqlSafe(format!("INSERT INTO ttrss_users (login, salt, pwd_hash, access_level) VALUES ('grace', $1, $2, {}) RETURNING id", ttrss::core::user::ACCESS_LEVEL_USER)),
     )
     .bind(salt)
     .bind(format!("{inner}:{salt}"))

@@ -23,7 +23,7 @@ async fn make_state(url: &str) -> AppState {
 async fn add_user_with_profiles(state: &AppState, login: &str, profiles: &[&str]) -> i32 {
     let pool = state.db.pool();
     let uid: i32 = sqlx::query_scalar(
-        "INSERT INTO ttrss_users (login, pwd_hash, access_level) VALUES ($1, 'SHA1:x', 0) RETURNING id",
+        sqlx::AssertSqlSafe(format!("INSERT INTO ttrss_users (login, pwd_hash, access_level) VALUES ($1, 'SHA1:x', {}) RETURNING id", ttrss::core::user::ACCESS_LEVEL_USER)),
     )
     .bind(login)
     .fetch_one(pool)

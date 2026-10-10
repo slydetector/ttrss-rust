@@ -81,7 +81,7 @@ async fn test_correct_credentials_returns_true_and_sets_session() {
             // $_SESSION['access_level'] == UserHelper::ACCESS_LEVEL_USER (0).
             assert_eq!(id, uid);
             assert_eq!(login, "testuser");
-            assert_eq!(access_level, 0);
+            assert_eq!(access_level, ttrss::core::user::ACCESS_LEVEL_USER);
             // NOTE: PHP also asserts $_SESSION['auth_module'] == 'auth_internal'; the
             // Rust handler layer (main.rs login_flow) sets that session key from the
             // same Success value — asserted at the handler/session layer (parity row
@@ -105,7 +105,7 @@ async fn test_admin_credentials_work() {
 
             // PHP asserts uid == 1 and access_level == UserHelper::ACCESS_LEVEL_ADMIN.
             assert_eq!(id, 1);
-            assert_eq!(access_level, 10);
+            assert_eq!(access_level, ttrss::core::user::ACCESS_LEVEL_ADMIN);
             // NOTE: the `admin` row comes from `schema.sql` itself (password
             // 'password', SHA1 hash, access_level 10). PHP's check_password upgrades
             // the stored hash to SSHA-512 on success; the Rust port does the same in

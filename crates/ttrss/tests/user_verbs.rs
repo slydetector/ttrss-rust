@@ -269,9 +269,13 @@ async fn test_user_set_access_level() {
             let db = make_db(&url).await;
             let uid = seed(&db, "verbuser", "a", 0).await;
             assert!(
-                ttrss::users::user_set_access_level(db.pool(), "verbuser", 10)
-                    .await
-                    .unwrap()
+                ttrss::users::user_set_access_level(
+                    db.pool(),
+                    "verbuser",
+                    ttrss::core::user::ACCESS_LEVEL_ADMIN
+                )
+                .await
+                .unwrap()
             );
             let level: i32 =
                 sqlx::query_scalar("SELECT access_level FROM ttrss_users WHERE id = $1")
@@ -294,9 +298,13 @@ async fn test_user_set_access_level() {
                     .unwrap();
             assert_eq!(level, 10);
             assert!(
-                !ttrss::users::user_set_access_level(db.pool(), "ghost", 0)
-                    .await
-                    .unwrap()
+                !ttrss::users::user_set_access_level(
+                    db.pool(),
+                    "ghost",
+                    ttrss::core::user::ACCESS_LEVEL_USER
+                )
+                .await
+                .unwrap()
             );
             Ok(())
         })

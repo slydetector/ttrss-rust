@@ -93,7 +93,10 @@ impl Plugin for ViewStub {
 fn sess() -> Sess {
     let mut d = Session::new();
     d.set("uid", PValue::Int(1));
-    d.set("access_level", PValue::Int(10));
+    d.set(
+        "access_level",
+        PValue::Int(ttrss::core::user::ACCESS_LEVEL_ADMIN as i64),
+    );
     d.set(
         "pwd_hash",
         PValue::Bytes(b"SHA1:5baa61e4c9b93f3f0682250b6cf8331b7ee68fd8".to_vec()),

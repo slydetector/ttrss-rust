@@ -40,7 +40,10 @@ async fn setup(url: &str, plugins: &str) -> AppState {
 fn session(uid: i32) -> Sess {
     let mut data = Session::new();
     data.set("uid", PValue::Int(uid as i64));
-    data.set("access_level", PValue::Int(10));
+    data.set(
+        "access_level",
+        PValue::Int(ttrss::core::user::ACCESS_LEVEL_ADMIN as i64),
+    );
     data.set("csrf_token", PValue::Bytes(b"tok".to_vec()));
     let sess = Sess::new("share-test".into());
     sess.replace("share-test".into(), data);

@@ -38,7 +38,10 @@ async fn setup(url: &str) -> AppState {
 fn session() -> Sess {
     let mut data = Session::new();
     data.set("uid", PValue::Int(1));
-    data.set("access_level", PValue::Int(10));
+    data.set(
+        "access_level",
+        PValue::Int(ttrss::core::user::ACCESS_LEVEL_ADMIN as i64),
+    );
     data.set("csrf_token", PValue::Bytes(b"tok".to_vec()));
     let sess = Sess::new("no-iframe-test".into());
     sess.replace("no-iframe-test".into(), data);

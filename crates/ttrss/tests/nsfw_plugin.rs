@@ -38,7 +38,10 @@ async fn setup(url: &str) -> AppState {
 fn session() -> Sess {
     let mut data = Session::new();
     data.set("uid", PValue::Int(1));
-    data.set("access_level", PValue::Int(10));
+    data.set(
+        "access_level",
+        PValue::Int(ttrss::core::user::ACCESS_LEVEL_ADMIN as i64),
+    );
     data.set("csrf_token", PValue::Bytes(b"tok".to_vec()));
     let sess = Sess::new("nsfw-test".into());
     sess.replace("nsfw-test".into(), data);
@@ -439,7 +442,7 @@ async fn test_cdm_view_runs_render_article_chain() {
     fn sess() -> Sess {
         let mut d = Session::new();
         d.set("uid", PValue::Int(1));
-        d.set("access_level", PValue::Int(10));
+        d.set("access_level", PValue::Int(ttrss::core::user::ACCESS_LEVEL_ADMIN as i64));
         d.set("pwd_hash", PValue::Bytes(b"SHA1:5baa61e4c9b93f3f0682250b6cf8331b7ee68fd8".to_vec()));
         d.set("auth_module", PValue::Bytes(b"auth_internal".to_vec()));
         d.set("name", PValue::Bytes(b"admin".to_vec()));

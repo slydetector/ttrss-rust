@@ -156,7 +156,7 @@ async fn test_admin_level_applied() {
             let data = tempfile::tempdir().expect("data dir");
             let vars = BootstrapVars {
                 admin_user_pass: Some("x".into()), // suppress the randomize step
-                admin_user_access_level: Some("10".into()),
+                admin_user_access_level: Some(ttrss::core::user::ACCESS_LEVEL_ADMIN.to_string()),
                 ..Default::default()
             };
             let report = bootstrap::run(&db, &vars, data.path()).await.unwrap();

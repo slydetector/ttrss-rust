@@ -159,7 +159,10 @@ async fn save_admin_session(state: &AppState, sid: &str) {
     data.set("uid", PValue::Int(1));
     // The DB admin's access level — login records the DB value, and
     // validate_session rejects a stale one.
-    data.set("access_level", PValue::Int(10));
+    data.set(
+        "access_level",
+        PValue::Int(ttrss::core::user::ACCESS_LEVEL_ADMIN as i64),
+    );
     data.set(
         "pwd_hash",
         PValue::Bytes(b"SHA1:5baa61e4c9b93f3f0682250b6cf8331b7ee68fd8".to_vec()),
@@ -286,7 +289,10 @@ async fn test_validate_session_runs_hook() {
             fl.validate_result.store(false, Ordering::SeqCst);
             let mut data = Session::new();
             data.set("uid", PValue::Int(1));
-            data.set("access_level", PValue::Int(10));
+            data.set(
+                "access_level",
+                PValue::Int(ttrss::core::user::ACCESS_LEVEL_ADMIN as i64),
+            );
             data.set(
                 "pwd_hash",
                 PValue::Bytes(b"SHA1:5baa61e4c9b93f3f0682250b6cf8331b7ee68fd8".to_vec()),
@@ -466,7 +472,10 @@ async fn test_format_article_runs_hook() {
 fn rpc_sess() -> ttrss::session::Sess {
     let mut d = Session::new();
     d.set("uid", PValue::Int(1));
-    d.set("access_level", PValue::Int(10));
+    d.set(
+        "access_level",
+        PValue::Int(ttrss::core::user::ACCESS_LEVEL_ADMIN as i64),
+    );
     d.set(
         "pwd_hash",
         PValue::Bytes(b"SHA1:5baa61e4c9b93f3f0682250b6cf8331b7ee68fd8".to_vec()),

@@ -132,7 +132,7 @@ async fn test_editfeed_basic() {
     assert_eq!(result["force_purge"], 0);
 
     // user
-    assert_eq!(result["user"]["access_level"], 10);
+    assert_eq!(result["user"]["access_level"], ttrss::core::user::ACCESS_LEVEL_ADMIN);
 
     // lang
     assert_eq!(result["lang"]["enabled"], true);
@@ -581,7 +581,7 @@ async fn test_opensite() {
     //   103 — invalid site_url → not found
     // The "other user" feed needs a second user to own it.
     sqlx::query(
-        "INSERT INTO ttrss_users (login, pwd_hash, access_level) VALUES ('other', 'x', 10)",
+        sqlx::AssertSqlSafe(format!("INSERT INTO ttrss_users (login, pwd_hash, access_level) VALUES ('other', 'x', {})", ttrss::core::user::ACCESS_LEVEL_ADMIN)),
     )
     .execute(db)
     .await

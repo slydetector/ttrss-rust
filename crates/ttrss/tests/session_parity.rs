@@ -60,7 +60,10 @@ fn valid_admin_session() -> Session {
     let mut s = Session::new();
     s.set("uid", Value::Int(1));
     s.set("pwd_hash", Value::Bytes(ADMIN_PWD_HASH.as_bytes().to_vec()));
-    s.set("access_level", Value::Int(10));
+    s.set(
+        "access_level",
+        Value::Int(ttrss::core::user::ACCESS_LEVEL_ADMIN as i64),
+    );
     s
 }
 
@@ -90,7 +93,10 @@ async fn disabled_user_session(db: &Db) -> Session {
     let mut s = Session::new();
     s.set("uid", Value::Int(uid as i64));
     s.set("pwd_hash", Value::Bytes(ADMIN_PWD_HASH.as_bytes().to_vec()));
-    s.set("access_level", Value::Int(-2));
+    s.set(
+        "access_level",
+        Value::Int(ttrss::core::user::ACCESS_LEVEL_DISABLED as i64),
+    );
     s
 }
 
@@ -839,10 +845,13 @@ async fn test_validate_session_fails_when_access_level_changed() {
             let db = common::make_db_from_url(&url).await.expect("test db");
             let mut s = valid_admin_session();
 
-            sqlx::query("UPDATE ttrss_users SET access_level = 0 WHERE id = 1")
-                .execute(db.pool())
-                .await
-                .expect("lower the user's access level");
+            sqlx::query(sqlx::AssertSqlSafe(format!(
+                "UPDATE ttrss_users SET access_level = {} WHERE id = 1",
+                ttrss::core::user::ACCESS_LEVEL_USER
+            )))
+            .execute(db.pool())
+            .await
+            .expect("lower the user's access level");
 
             let result = sessions::validate_session(&app_state(&db), false, &mut s).await;
 
