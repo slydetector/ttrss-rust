@@ -1537,6 +1537,7 @@ pub async fn subscribe_to_feed(
         &state.config,
         pool,
         &state.plugins,
+        &sess.self_url(),
         uid,
         access_level,
         &feed_url,

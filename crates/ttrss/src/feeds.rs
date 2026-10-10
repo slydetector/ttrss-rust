@@ -1081,6 +1081,7 @@ pub async fn subscribe(
     cfg: &crate::core::config::Config,
     pool: &sqlx::PgPool,
     plugins: &Arc<PluginHost>,
+    self_url: &str,
     uid: i64,
     access_level: i32,
     url: &str,
@@ -1116,7 +1117,7 @@ pub async fn subscribe(
             pool.clone(),
             cfg.clone(),
             &system,
-            &cfg.self_url,
+            self_url,
             uid as i32,
         )
         .await;
@@ -1170,7 +1171,7 @@ pub async fn subscribe(
             pool.clone(),
             cfg.clone(),
             &system,
-            &cfg.self_url,
+            self_url,
             uid as i32,
         )
         .await;
@@ -1289,6 +1290,7 @@ pub async fn add(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> V
         &state.config,
         pool,
         &state.plugins,
+        &sess.self_url(),
         uid,
         access_level,
         &feed,

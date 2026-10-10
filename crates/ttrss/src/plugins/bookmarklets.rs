@@ -396,6 +396,7 @@ impl Bookmarklets {
                 cfg,
                 pool,
                 &host_arc,
+                &host.self_url,
                 uid as i64,
                 host.access_level,
                 &feed_url,
