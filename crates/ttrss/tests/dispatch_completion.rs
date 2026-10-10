@@ -362,7 +362,7 @@ async fn test_remove_feed_runs_unsubscribe_hook() {
     .execute(state.db.pool())
     .await
     .expect("feed insert");
-    ttrss::feeds::remove_feed(&state, 900, 1).await;
+    ttrss::feeds::remove_feed(&state, 900, 1, &state.config.self_url).await;
     let count: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM ttrss_feeds WHERE id = 900",
     )
@@ -405,7 +405,8 @@ async fn test_create_published_article_get_full_text() {
     with_test_db(|url| {
         Box::pin(async move {
             let (state, _fl) = app(&url).await;
-            let pctx = ttrss::pluginhost::dispatch::owner_ctx(&state, 1).await;
+            let pctx =
+                ttrss::pluginhost::dispatch::owner_ctx(&state, 1, &state.config.self_url).await;
             let ok = ttrss::article::create_published_article(
                 state.db.pool(),
                 "Full text article",

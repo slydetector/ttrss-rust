@@ -312,7 +312,7 @@ async fn test_cleanup_feed_icons() {
         Box::pin(async move {
             let db = common::make_db_from_url(&url).await.expect("test db");
             let tc = common::test_cfg(); // per-test temp cache dir (dropped at test end)
-            let mut cfg = tc.cfg.clone(); // cache_max_days = 7
+            let cfg = tc.cfg.clone(); // cache_max_days = 7
             let uid = create_user(&db, 403, 0).await;
 
             // The per-test cache dir as the feed-icon cache.

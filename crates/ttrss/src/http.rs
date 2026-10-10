@@ -139,8 +139,8 @@ async fn index(
                     cache: state.i18n.clone(),
                 },
                 async {
-                    let buttons = loginform_additional_buttons(&state).await;
                     let self_url = sess.self_url();
+                    let buttons = loginform_additional_buttons(&state, &self_url).await;
                     render::render_login_page(&state.config, &buttons, &self_url)
                 },
             )
@@ -249,8 +249,8 @@ async fn prefs_page(
                     cache: state.i18n.clone(),
                 },
                 async {
-                    let buttons = loginform_additional_buttons(&state).await;
                     let self_url = sess.self_url();
+                    let buttons = loginform_additional_buttons(&state, &self_url).await;
                     render::render_login_page(&state.config, &buttons, &self_url)
                 },
             )
@@ -428,12 +428,13 @@ async fn shell_hook_strings(state: &AppState, sess: &session::Sess) -> (String, 
 /// renders with the system-plugins host (PHP `Handler_Public`'s
 /// `load_all(KIND_SYSTEM, 0, true)`); the echo hooks' output lands to the
 /// right of the Login button.
-async fn loginform_additional_buttons(state: &AppState) -> String {
+async fn loginform_additional_buttons(state: &AppState, self_url: &str) -> String {
     let mut lctx = crate::pluginhost::host::HostCtx::system_plugins(
         std::sync::Arc::clone(&state.plugins),
         state.db.pool().clone(),
         state.config.clone(),
-    );
+    )
+    .with_self_url(self_url.to_string());
     lctx.run_hooks(
         crate::pluginhost::HOOK_LOGINFORM_ADDITIONAL_BUTTONS,
         |plugin, host| plugin.hook_loginform_additional_buttons(host),

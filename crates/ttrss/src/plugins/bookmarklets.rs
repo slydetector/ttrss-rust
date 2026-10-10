@@ -246,7 +246,8 @@ impl Bookmarklets {
                 host.access_level,
                 &sys,
                 &usr,
-            );
+            )
+            .with_self_url(host.self_url.clone());
             crate::article::create_published_article(
                 host.pool(),
                 &title,

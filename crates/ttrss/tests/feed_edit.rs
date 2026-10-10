@@ -648,7 +648,7 @@ async fn test_opensite() {
 async fn test_editfeed_icon_uses_request_self_url() {
     with_test_db(|url| {
         Box::pin(async move {
-            let (mut state, mut sess) = setup(&url).await;
+            let (mut state, sess) = setup(&url).await;
             let dir = std::env::temp_dir().join("ttrss-editfeed-icon-regression");
             let _ = std::fs::remove_dir_all(&dir);
             std::fs::create_dir_all(dir.join("feed-icons")).unwrap();

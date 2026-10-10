@@ -86,7 +86,7 @@ pub struct Config {
 
     // -- M1 server-specific (not part of upstream Config.php) -------------
     /// Where the Rust HTTP server listens. Must be unprivileged (port
-    /// >= 1024): the process drops root before binding (see
+    /// \>= 1024): the process drops root before binding (see
     /// [`crate::privs`]), and we deliberately do not support privileged
     /// ports.
     pub listen: SocketAddr,
