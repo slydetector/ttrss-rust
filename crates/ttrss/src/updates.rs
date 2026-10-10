@@ -2349,7 +2349,10 @@ pub async fn daemon_loop(
     use tokio::sync::Semaphore;
     use tokio::task::JoinSet;
 
-    let interval = std::time::Duration::from_secs(cfg.daemon_sleep_interval.max(60) as u64);
+    // Deliberate deviation: the reference enforces a 60 s floor (fork-bomb
+    // protection for its per-task child processes); this port has no forks,
+    // so 5 s is safe and lets fast cycles be configured (e2e uses it).
+    let interval = std::time::Duration::from_secs(cfg.daemon_sleep_interval.max(5) as u64);
     let n = (cfg.daemon_max_jobs.max(1)) as usize;
 
     let mut ticker = tokio::time::interval(interval);

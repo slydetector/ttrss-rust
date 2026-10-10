@@ -1,0 +1,7 @@
+{
+  "name": "ttrss-e2e",
+  "private": true,
+  "devDependencies": {
+    "@playwright/test": "^1.64.0"
+  }
+}

@@ -175,6 +175,21 @@ demo-follow: ## follow the demo server's log output (tail -f)
 	@test -f $(DEMO_LOG) || { echo "no $(DEMO_LOG); start the server first: make demo-start"; exit 1; }
 	@tail -n 50 -f $(DEMO_LOG)
 
+# --- e2e (Playwright golden path) ---------------------------------------------
+# Everything lives under e2e/ (see e2e/README.md). The suite owns the stack
+# lifecycle itself (fresh `ttrss-e2e` project, port 19000 — never the shadow's
+# 9000). One-time bootstrap: cd e2e && npm ci && npx playwright install chromium.
+
+# DEBUG=pw:api logs every Playwright call to the terminal — a hang shows its
+# stuck call live (config also records trace + video per test).
+.PHONY: e2e
+e2e: ## run the e2e golden path (headless; fresh docker stack on :19000)
+	cd e2e && DEBUG=pw:api npx playwright test
+
+.PHONY: e2e-headed
+e2e-headed: ## e2e with the browser visible
+	cd e2e && DEBUG=pw:api npx playwright test --headed
+
 # --- shadow (prod-data confidence run) ---------------------------------------
 # Everything lives under shadow/ (see docs/10-shadow-prod.md). Prod creds go in the
 # gitignored shadow/.env (create from shadow/.env.example). The drift preflight

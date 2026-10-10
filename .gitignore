@@ -1,7 +1,6 @@
 # Build artifacts
 target/
 *.rs.bk
-demo.pid
 
 # Oracle generated data (dumps, fixtures, logs)
 oracle/data/
@@ -26,3 +25,14 @@ browser/out/
 
 # Shadow-prod host data dirs (prod DB copy + feed icons; host-mounted, inspectable)
 shadow/data/
+
+# e2e (Playwright): deps, captured star-banner password, reports
+e2e/node_modules/
+e2e/.admin-pass
+e2e/test-results/
+e2e/playwright-report/
+e2e/out/
+# e2e throwaway artifacts (synthesized by setup, removed by teardown)
+e2e/compose.yaml
+e2e/.env
+

@@ -15,6 +15,10 @@ demo.pid
 AGENTS.md
 README.md
 Makefile
+.github/
+# e2e/: host-side Playwright suite (the image is tested by it, not built
+# from it) — node_modules + test artifacts would bloat every build context.
+e2e/
 # shadow/: local prod-copy data (a full production DB dump) + secrets.
 shadow/data
 shadow/.env

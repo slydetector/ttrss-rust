@@ -117,6 +117,24 @@ response **body** (not the HTTP status) is the source of truth. See
 surface against the backend dispatch to spot unhandled (op, method) without
 clicking every path.
 
+Interactive MCP chrome session (launch Chrome yourself; `mcp_chrome_*` connects
+to :9222):
+
+```sh
+google-chrome --remote-debugging-port=9222 --user-data-dir=/tmp/chrome-mcp-profile \
+  --no-first-run --no-default-browser-check --disable-infobars \
+  --disable-session-crashed-bubble --disable-features=Translate <url>
+```
+
+One-time per profile: merge `{"credentials_enable_service": false,
+"profile": {"password_manager_enabled": false}}` (via python) into
+`/tmp/chrome-mcp-profile/Default/Preferences` while Chrome is stopped, to kill
+the save-password popup. The a11y `take_snapshot` gives `uid`s to act on;
+`evaluate_script` gives DOM ground truth. Dojo caveats: dijit widgets hide the
+native form controls (drive them with `dijit.byId(id).set('value', …)`); the
+codemode sandbox has no `setTimeout` — do delays inside the page (promise +
+`setTimeout` in the evaluated function).
+
 ## Test harness / oracle (retired 2026-09-19)
 
 - The record/replay corpus (`oracle/` + `crates/harness` + the `harness*`
