@@ -69,12 +69,17 @@ fn request_map(op: &str, method: &str, csrf: &str, extra: &Map<String, Value>) -
 /// `HOOK_POST_LOGOUT` chain run over exactly this set (per-user plugins
 /// never participate in auth; the port's `TTRSS_PLUGINS` env var stays
 /// meaningful for the non-auth hooks as in PHP).
-pub(crate) fn login_ctx(state: &AppState) -> HostCtx {
+///
+/// `self_url` is the request's detected self URL — PHP's
+/// `Config::get_self_url()` runs in web SAPI even before a user is logged
+/// in, so plugins in these chains also see the per-request value.
+pub(crate) fn login_ctx(state: &AppState, self_url: &str) -> HostCtx {
     HostCtx::system_plugins(
         Arc::clone(&state.plugins),
         state.db.pool().clone(),
         state.config.clone(),
     )
+    .with_self_url(self_url.to_string())
 }
 
 pub async fn session_ctx(state: &AppState, sess: &Sess) -> HostCtx {

@@ -846,7 +846,7 @@ async fn logout_flow(state: &AppState, sess: session::Sess, form: &PublicForm) -
     // `[0]` (validated) is the redirect target; otherwise the default.
     let mut redirect_url = String::new();
     {
-        let mut ctx = crate::pluginhost::dispatch::login_ctx(state);
+        let mut ctx = crate::pluginhost::dispatch::login_ctx(state, &sess.self_url());
         ctx.run_hooks_callback(
             crate::pluginhost::HOOK_POST_LOGOUT,
             |plugin, ctx| {
@@ -953,8 +953,8 @@ async fn login_flow(
     // M7.20: the auth chain runs over the **system** plugins only (PHP
     // `load_all(KIND_SYSTEM, 0, true)` — per-user plugins never
     // participate in authentication).
-    let mut ctx =
-        crate::pluginhost::dispatch::login_ctx(state).with_server_env(server_env.to_vec());
+    let mut ctx = crate::pluginhost::dispatch::login_ctx(state, &self_url)
+        .with_server_env(server_env.to_vec());
     let mut uid: Option<i32> = None;
     let mut auth_module: Option<&str> = None;
     let host = ctx.host_arc();
