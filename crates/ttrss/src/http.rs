@@ -209,12 +209,19 @@ async fn index(
         )
         .await;
     let etag = format!("\"{}\"", md5_hex(&html));
-    // `send_conditional_html`: 304 when the client's validator matches.
-    if headers
+    // `send_conditional_html`: 304 when the client's validator matches. The
+    // header may carry several comma-separated tags and the `W/` weak marker
+    // (proxies weaken ETags they compress), so compare weakly — drop the
+    // marker from each tag (RFC 9110 compares weakly in any case).
+    let etag_match = headers
         .get(header::IF_NONE_MATCH)
         .and_then(|v| v.to_str().ok())
-        == Some(etag.as_str())
-    {
+        .map(|h| {
+            h.split(',')
+                .any(|t| t.trim().trim_start_matches("W/").trim() == etag)
+        })
+        .unwrap_or(false);
+    if etag_match {
         return axum::http::Response::builder()
             .status(StatusCode::NOT_MODIFIED)
             .header(header::CACHE_CONTROL, "private, no-cache")
