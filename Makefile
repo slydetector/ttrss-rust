@@ -204,10 +204,9 @@ TAG      ?= latest
 image: ## build the docker image locally ($(IMAGE):$(TAG))
 	docker build -t $(IMAGE):$(TAG) .
 
-.PHONY: image-publish
-image-publish: ## push $(IMAGE):$(TAG) to $(REGISTRY) (requires docker login)
+.PHONY: image-push
+image-push: ## tag + push the existing $(IMAGE):$(TAG) to $(REGISTRY) — no build
 	@test -n "$(REGISTRY)" || { echo "set REGISTRY=<host>/<namespace>"; exit 1; }
-	docker build -t $(IMAGE):$(TAG) .
 	docker tag  $(IMAGE):$(TAG) $(REGISTRY)/$(IMAGE):$(TAG)
 	docker push $(REGISTRY)/$(IMAGE):$(TAG)
 

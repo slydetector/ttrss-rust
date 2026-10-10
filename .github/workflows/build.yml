@@ -138,8 +138,9 @@ jobs:
           make e2e
       - run: cargo clippy --workspace --all-targets
       # Publish the image to the registry named by the secrets above
-      # (skipped when REGISTRY is unset). The build/tag/push mechanics
-      # live in the Makefile target (make image-publish).
+      # (skipped when REGISTRY is unset). The image was already built by
+      # the e2e step (same Dockerfile) — this only tags + pushes it
+      # (make image-push).
       - name: Publish ttrss-rust
         if: env.REGISTRY != ''
         run: |
@@ -149,4 +150,4 @@ jobs:
             echo "$REGISTRY_PASSWORD" | docker login \
               "$REGISTRY" -u "$REGISTRY_USERNAME" --password-stdin
           fi
-          make image-publish REGISTRY="$REGISTRY"
+          make image-push REGISTRY="$REGISTRY"
