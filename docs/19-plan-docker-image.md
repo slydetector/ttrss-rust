@@ -2,7 +2,8 @@
 
 **Date:** 2026-10-07 · **Status:** image built + shadow-verified (2026-10-08); blessed
 layout landed (root `Dockerfile` + `docker/` stack, 2026-10-09); P1 fresh-install
-smoke is the next gate
+smoke done (2026-10-10 — the `e2e/` Playwright golden path, in CI); P2 (the real
+drop-in test) is the next gate
 
 ## 1. The target
 
@@ -217,13 +218,17 @@ no rsync, no sudo, no cron** (the official app image is ~350 MB).
   directory model (`Config.data_dir` / `TTRSS_DATA_DIR`, `cache/` under
   it, `themes.local` served from it). Everything remaining is shell and
   Dockerfile.
-- **P1 — image + fresh-install smoke**: build locally; a two-service compose
-  (`db` + our image) with a fresh postgres; verify login as `admin`, feed
-  add, and the in-container daemon updating feeds on its own. Also verify
-  the image's HEALTHCHECK: `healthy` while the app serves (probe of
-  `<base>/index.php`; dead process / base-path mismatch → `unhealthy`
-  after 3×30 s). A DB outage does *not* flip it — our login page renders
-  without the DB (`session.rs` `TODO(scope)`; the reference 500s).
+- **P1 — image + fresh-install smoke: DONE (2026-10-10, `e2e/`).** The
+  Playwright golden path is the smoke, automated and in CI (the `build`
+  job, after `cargo test`): a fresh two-service stack from the blessed
+  `docker/compose.yaml` (synthesized throwaway copy), a real browser walks
+  boot → login (the star-banner admin password) → subscribe (the feed add)
+  → the in-container daemon fetching the feed on its own (the 5 s
+  `TTRSS_DAEMON_SLEEP_INTERVAL` test override) → opening the feed and
+  reading an article in-app. The suite's setup also gates on the image's
+  HEALTHCHECK reaching `healthy` before the test starts (a DB outage does
+  *not* flip it — our login page renders without the DB (`session.rs`
+  `TODO(scope)`; the reference 500s)). See `e2e/README.md`.
 - **P2 — the real drop-in test**: run the *official* PHP stack (app +
   updater + web-nginx) for a few days (real DB, a few feeds, some config
   changes) → replace **all three** services with our single one (same `db`

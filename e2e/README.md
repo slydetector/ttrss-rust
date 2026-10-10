@@ -1,17 +1,18 @@
 # e2e — Playwright end-to-end suite
 
 Drives the blessed Docker stack from a real browser: build the image, boot a
-fresh install, and walk the golden user path (login → subscribe → on-demand
-update via "Debug feed" → read → daemon self-update → prefs → logout).
-Chromium only.
+fresh install, and walk the golden user path (boot → login → subscribe →
+the in-container daemon fetches the feed on its own → open the feed and read
+an article). Chromium only.
 
 ## Run
 
 ```sh
-cd e2e
-npm ci                      # once
-npx playwright install chromium   # once
-npx playwright test
+make e2e          # headless (the CI entry; DEBUG=pw:api breadcrumbs)
+make e2e-headed   # visible browser, for debugging
+
+# raw (first time: cd e2e && npm ci && npx playwright install chromium)
+cd e2e && npx playwright test
 ```
 
 `E2E_KEEP=1 npx playwright test` leaves the stack running afterwards
@@ -25,7 +26,7 @@ poking; the captured admin password stays in `.admin-pass`.
 | `playwright.config.ts` | projects: `stack-setup` → (chromium spec) → `stack-cleanup` |
 | `global.setup.ts` | synthesize throwaway files → `compose build` → `up -d` → readiness → star-banner password capture → HEALTHCHECK `healthy` |
 | `global.teardown.ts` | `down -v --remove-orphans` → delete throwaway files + `.admin-pass` (skipped with `E2E_KEEP`) |
-| `e2e.spec.ts` | the golden-path test (pending) |
+| `e2e.spec.ts` | the golden-path test (boot → login → subscribe & read) |
 
 Gitignored, regenerated per run: `compose.yaml`, `.env`, `.admin-pass`,
 `test-results/`, `node_modules/`.
@@ -60,3 +61,30 @@ Consequences:
   If it ever stops being depth-invariant (e.g. a relative bind mount is added),
   the copy must start carrying a transform — do that in `global.setup.ts`
   step 1 and keep this section honest.
+
+## CI
+
+Runs in the `build` job, after `cargo test` (`.github/workflows/build.yml`) —
+the Rust suite is the primary gate, the golden path is the final end-to-end
+proof. Two runner-specific facts not obvious from the file (recorded
+2026-10-10):
+
+- **No service-container healthchecks, no dind.** This act-based runner kills
+  the job on the *first* failed service probe (it ignores `--health-retries`),
+  and stock dind's healthcheck has a 1 s probe cap that never passes there.
+  So the e2e stack runs in the **runner's own docker daemon** (a
+  `/var/run/docker.sock` bind mount — the runner's `valid_volumes` must allow
+  it) and readiness is polled by the `stack-setup` project step.
+- **Reaching the app.** Published ports land on the runner host; the browser
+  (inside the job container) reaches port 19000 over the job network's
+  **gateway IP** — the workflow step exports it as `TTRSS_E2E_HOST` (the
+  config's `baseURL` default is `127.0.0.1` for local runs).
+
+## Failure breadcrumbs
+
+On a spec failure the run emits, in the CI log: `FEEDTREE-DUMP` (the feed
+tree's actual DOM rows + an HTML slice, when the subscribed feed's row never
+appears), `PAGE-ERRORS` (uncaught page exceptions) and `CONSOLE-TAIL` (last
+40 console lines); the console transcript + page errors are also attached to
+the report (`browser-console (on failure)`). Per-test trace + video land in
+`test-results/` — inside the container, so they're only reachable locally.
