@@ -1002,8 +1002,8 @@ libraries, don't cleanroom the lifecycle):**
   on success (empty `_sqlx_test.databases` bookkeeping after a green run).
 
 **Row 9–14 pattern** (each new suite = one file in `crates/ttrss/tests/`):
-`mod common;` + per test `#[sqlx::test(fixtures("../../testing/fixtures/schema.sql",
-"../../testing/fixtures/baseline.sql", "../../testing/fixtures/seed.sql"))]` with the
+`mod common;` + per test `#[sqlx::test(fixtures("../../tt-rss/sql/pgsql/schema.sql",
+"../../test-db/fixtures/baseline.sql", "../../test-db/fixtures/seed.sql"))]` with the
 `PoolOptions<Postgres> + PgConnectOptions` signature and `common::make_db`. Extra
 per-suite state = plain INSERTs after `make_db` (or `test_db::seed_user`).
 

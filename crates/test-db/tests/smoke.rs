@@ -16,7 +16,7 @@ async fn count(pool: &sqlx::PgPool, table: &str) -> i64 {
 }
 
 #[sqlx::test(fixtures(
-    "../fixtures/schema.sql",
+    "../../../tt-rss/sql/pgsql/schema.sql",
     "../fixtures/baseline.sql",
     "../fixtures/seed.sql",
 ))]
@@ -62,7 +62,7 @@ async fn fixture_set_matches_php_integration_fixture(pool: sqlx::PgPool) {
 }
 
 #[sqlx::test(fixtures(
-    "../fixtures/schema.sql",
+    "../../../tt-rss/sql/pgsql/schema.sql",
     "../fixtures/baseline.sql",
     "../fixtures/seed.sql",
 ))]

@@ -114,7 +114,7 @@ throwaway `Runtime` is fine (it's used once, then dropped). The existing
 **Before** (current):
 ```rust
 #[sqlx::test(fixtures(
-    "../../test-db/fixtures/schema.sql",
+    "../../tt-rss/sql/pgsql/schema.sql",
     "../../test-db/fixtures/baseline.sql",
     "../../test-db/fixtures/seed.sql",
 ))]

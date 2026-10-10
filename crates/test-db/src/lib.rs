@@ -24,10 +24,13 @@
 //!   use to start/attach the server and export `DATABASE_URL` before the
 //!   test harness runs.
 //!
-//! The versioned fixture files (`fixtures/schema.sql`, `baseline.sql`,
-//! `seed.sql` next to this crate) — the frozen reference's base schema, the
-//! baseline (version 151 + admin user), and the PHP integration suite's
-//! `seed.sql` — are referenced by **explicit path** from each test file
+//! The fixture files — the frozen reference's base schema
+//! (`tt-rss/sql/pgsql/schema.sql`, read straight from the pinned submodule so
+//! the tests track the reference, the same file `core::schema` runs at
+//! runtime), `fixtures/baseline.sql` (the `ttrss_version` stamp + the
+//! `pg_trgm` extension the app bootstrap adds on top of it), and
+//! `fixtures/seed.sql` (the PHP integration suite's seed) — are referenced by
+//! **explicit path** from each test file
 //! (`include_str!` is source-file-relative). This intentionally does **not**
 //! depend on the oracle's golden data dump: the parity suites run under the
 //! same conditions as the PHP reference's own integration tests.
