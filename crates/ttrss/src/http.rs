@@ -1160,12 +1160,51 @@ async fn static_handler(State(state): State<AppState>, req: Request) -> axum::re
         (Ok(file), Ok(base_dir)) if file.starts_with(&base_dir) && file.is_file() => {
             match fs::read(&file).await {
                 Ok(bytes) => {
-                    let mime = mime::mime_for_path(&file);
+                    // Apache-style static serving: validators, no Cache-Control
+                    // (heuristic caching + 304 revalidation, not forced
+                    // revalidation). The ETag is `"<mtime>-<size>"` — stable
+                    // for an unchanged file, invalidated on redeploy.
+                    let mtime = fs::metadata(&file)
+                        .await
+                        .ok()
+                        .and_then(|m| m.modified().ok())
+                        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                        .map(|d| d.as_secs() as i64)
+                        .unwrap_or(0);
+                    let etag = format!("\"{}-{}\"", mtime, bytes.len());
+                    let last_modified = session::rfc1123(mtime);
+                    // `If-None-Match` may carry several tags and the `W/`
+                    // weak marker (proxies weaken ETags they compress) —
+                    // compare weakly, like `send_conditional_html` does.
+                    let etag_match = req
+                        .headers()
+                        .get(header::IF_NONE_MATCH)
+                        .and_then(|v| v.to_str().ok())
+                        .map(|h| {
+                            h.split(',')
+                                .any(|t| t.trim().trim_start_matches("W/").trim() == etag)
+                        })
+                        .unwrap_or(false);
+                    let ims_match = req
+                        .headers()
+                        .get(header::IF_MODIFIED_SINCE)
+                        .and_then(|v| v.to_str().ok())
+                        == Some(last_modified.as_str());
                     let mut res = axum::response::Response::new(Body::from(bytes));
+                    res.headers_mut().insert(
+                        header::CONTENT_TYPE,
+                        mime::mime_for_path(&file).parse().unwrap(),
+                    );
                     res.headers_mut()
-                        .insert(header::CONTENT_TYPE, mime.parse().unwrap());
+                        .insert(header::LAST_MODIFIED, last_modified.parse().unwrap());
                     res.headers_mut()
-                        .insert(header::CACHE_CONTROL, "no-cache".parse().unwrap());
+                        .insert(header::ETAG, etag.parse().unwrap());
+                    res.headers_mut()
+                        .insert(header::ACCEPT_RANGES, "bytes".parse().unwrap());
+                    if etag_match || ims_match {
+                        *res.status_mut() = StatusCode::NOT_MODIFIED;
+                        *res.body_mut() = Body::empty();
+                    }
                     res
                 }
                 Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),

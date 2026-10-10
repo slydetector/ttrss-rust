@@ -537,3 +537,62 @@ async fn test_base_path_redirect_preserves_query_string() {
     .await
     .unwrap();
 }
+
+/// Static files are served with validators (Apache parity: `Last-Modified` +
+/// `ETag` + `Accept-Ranges`, no Cache-Control), and a matching conditional
+/// request gets an empty 304 instead of a full re-download.
+#[tokio::test]
+async fn test_static_file_validators_and_304() {
+    with_test_db(|url| {
+        Box::pin(async move {
+            // The test CWD is `crates/ttrss`; the repo's `tt-rss` docroot is
+            // two levels up (the test config's relative path would miss it).
+            let mut cfg = common::test_config();
+            cfg.docroot = std::env::current_dir()
+                .unwrap()
+                .join("../..")
+                .join("tt-rss");
+            let db = common::make_db_from_url(&url).await.expect("test db");
+            let state = AppState::new(cfg, db);
+            let app = app(state);
+
+            let req = Request::builder()
+                .method(Method::GET)
+                .uri("/tt-rss/COPYING")
+                .body(Body::empty())
+                .expect("request");
+            let resp = app.clone().oneshot(req).await.expect("response");
+            assert_eq!(resp.status(), StatusCode::OK);
+            let etag = resp
+                .headers()
+                .get("etag")
+                .and_then(|v| v.to_str().ok())
+                .expect("ETag header");
+            assert!(
+                resp.headers().get("last-modified").is_some(),
+                "Last-Modified header"
+            );
+            assert!(
+                resp.headers().get("cache-control").is_none(),
+                "no Cache-Control (Apache parity)"
+            );
+
+            // Conditional request with the validator → 304, empty body.
+            let req = Request::builder()
+                .method(Method::GET)
+                .uri("/tt-rss/COPYING")
+                .header("if-none-match", etag)
+                .body(Body::empty())
+                .expect("request");
+            let resp = app.oneshot(req).await.expect("response");
+            assert_eq!(resp.status(), StatusCode::NOT_MODIFIED);
+            let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+                .await
+                .unwrap();
+            assert!(bytes.is_empty(), "304 has no body");
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
+}
