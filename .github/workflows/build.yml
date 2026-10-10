@@ -31,6 +31,11 @@ jobs:
       volumes:
         - /ci-cache/cargo-target:/cargo-target
         - /ci-cache/cargo-home:/cargo-home
+        # The suite's compose stack runs in the RUNNER'S daemon (this
+        # one): the job container gets the daemon's socket. On
+        # GitHub-hosted runners the same mount reaches the runner's own
+        # (dind) daemon.
+        - /var/run/docker.sock:/var/run/docker.sock
     # Serialize per ref so concurrent runs of the same ref don't write the
     # shared volume at once. Different refs may build in parallel; cargo's
     # file locks keep that safe.
@@ -47,11 +52,14 @@ jobs:
           POSTGRES_PASSWORD: postgres
         ports:
           - 5432:5432
+        # Memory-backed data dir — the test-db crate does the same when it
+        # starts its own postgres (crates/test-db/src/lib.rs:88).
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+          --tmpfs /var/lib/postgresql/data
     env:
       # Build artifacts live outside the workspace at a stable mount point (see the container
       # volumes above). CARGO_HOME moves the cargo registry off the image's baked-in
@@ -75,8 +83,14 @@ jobs:
       # stays portable to GitHub.
       - name: Ensure build toolchain (node + clippy + rustfmt)
         run: |
-          command -v node >/dev/null 2>&1 || (apt-get update && apt-get install -y --no-install-recommends nodejs)
+          # Debian's nodejs package lacks npm/npx — the npm package supplies both.
+          command -v node >/dev/null 2>&1 && command -v npx >/dev/null 2>&1 || (apt-get update && apt-get install -y --no-install-recommends nodejs npm)
           command -v zstd >/dev/null 2>&1 || (apt-get update && apt-get install -y --no-install-recommends zstd)
+          # docker CLI + compose plugin for the e2e step (daemon = the
+          # runner's, via the mounted socket; on trixie the client is the
+          # `docker-cli` package and the compose v2 plugin is
+          # `docker-compose`); iproute2 for the gateway lookup.
+          command -v docker >/dev/null 2>&1 || (apt-get update && apt-get install -y --no-install-recommends docker-cli docker-compose iproute2)
           rustup component add clippy rustfmt
       - uses: actions/checkout@v4
         with:
@@ -101,4 +115,19 @@ jobs:
       # Full suite: lib tests + the DB-backed integration binaries
       # (postgres service above).
       - run: cargo test
+      - name: Playwright (chromium + deps)
+        working-directory: e2e
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+      # Headless golden path: the suite's compose project (ttrss-e2e, port
+      # 19000) runs in the runner's daemon (socket mounted above); chromium
+      # (here) reaches the app's published port over the job network's
+      # gateway — the host's own IP on that subnet.
+      - name: e2e (golden path)
+        run: |
+          # Published ports land on the host; reach them via the job
+          # network's gateway (the host's IP on that subnet).
+          export TTRSS_E2E_HOST=$(ip route | awk '/default/ {print $3; exit}')
+          make e2e
       - run: cargo clippy --workspace --all-targets
