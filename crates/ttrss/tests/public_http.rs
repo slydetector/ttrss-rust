@@ -460,3 +460,37 @@ async fn test_base_path_redirects_to_trailing_slash() {
     .await
     .unwrap();
 }
+
+/// `backend.php` public-calls compatibility shim (PHP `backend.php:13-15`):
+/// `op=rss|getProfiles|share` re-issues the request at `public.php` with the
+/// original query string. Regression: the port once redirected to
+/// `public.php?<self_url>` — the self URL in the query position.
+#[tokio::test]
+async fn test_backend_shim_preserves_query_string() {
+    with_test_db(|url| {
+        Box::pin(async move {
+            let state = make_state(&url).await;
+            let app = app(state);
+
+            let req = Request::builder()
+                .method(Method::GET)
+                .uri("/tt-rss/backend.php?op=getProfiles&method=get&login=anon")
+                .body(Body::empty())
+                .expect("request");
+            let resp = app.oneshot(req).await.expect("response");
+            assert_eq!(resp.status(), StatusCode::FOUND, "shim must 302");
+            let location = resp
+                .headers()
+                .get("location")
+                .and_then(|v| v.to_str().ok())
+                .expect("Location header");
+            assert_eq!(
+                location, "public.php?op=getProfiles&method=get&login=anon",
+                "original query string preserved"
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
+}

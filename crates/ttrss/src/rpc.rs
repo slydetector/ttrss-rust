@@ -113,6 +113,10 @@ pub async fn handler(
         .get(header::ACCEPT_LANGUAGE)
         .and_then(|v| v.to_str().ok())
         .map(|s| s.to_string());
+    // The public-calls shim below re-issues the request at `public.php` with
+    // the original query string (PHP `backend.php`: `Location: public.php?` .
+    // QUERY_STRING) — capture it before `parse_backend` consumes the request.
+    let query = req.uri().query().unwrap_or("").to_string();
     let (form, file) = parse_backend(req).await;
     let op = form.op.clone().unwrap_or_default();
     let method = form
@@ -132,7 +136,7 @@ pub async fn handler(
     if matches!(op.as_str(), "rss" | "getProfiles" | "share") {
         return (
             StatusCode::FOUND,
-            [(header::LOCATION, format!("public.php?{}", sess.self_url()))],
+            [(header::LOCATION, format!("public.php?{query}"))],
         )
             .into_response();
     }
