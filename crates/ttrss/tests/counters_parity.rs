@@ -29,10 +29,10 @@ use ttrss::session::Sess;
 /// `DbTestCase::setUp`: `$_SESSION["uid"] = 1`.
 const SESSION_UID: i64 = 1;
 
-/// No icons in the test environment (PHP's `_has_icon` uses the DiskCache,
-/// which is empty in the fresh test DB) — a nonexistent directory gives the
-/// same result.
-const ICON_DIR: &str = "no-such-test-icon-dir";
+/// The per-process test cache dir (see `Config::for_test`). No icons for
+/// these tests' feeds: `_has_icon` is a per-feed-id file check and the
+/// update tests only create icons for their own (high-numbered) feeds.
+const ICON_DIR: &str = "no-such-test-icon-dir"; // nonexistent on purpose — see above
 
 /// `DbTestCase::setUp` + the test class `setUp` on top of the harness pool.
 async fn setup(url: &str) -> Db {

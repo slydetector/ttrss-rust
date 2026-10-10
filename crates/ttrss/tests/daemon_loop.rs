@@ -71,7 +71,8 @@ async fn test_select_due_feeds_default_interval() {
     with_test_db(|url| {
         Box::pin(async move {
             let db = common::make_db_from_url(&url).await.expect("test db");
-            let cfg = common::test_config();
+            let tc = common::test_cfg(); // per-test temp cache dir (dropped at test end)
+            let cfg = tc.cfg.clone();
             let uid = create_user(&db, 300, 0).await;
             let feed_id = create_feed(&db, 300, uid, 0, "NOW() - INTERVAL '2 hour'").await;
 
@@ -95,7 +96,8 @@ async fn test_select_due_feeds_not_due() {
     with_test_db(|url| {
         Box::pin(async move {
             let db = common::make_db_from_url(&url).await.expect("test db");
-            let cfg = common::test_config();
+            let tc = common::test_cfg(); // per-test temp cache dir (dropped at test end)
+            let cfg = tc.cfg.clone();
             let uid = create_user(&db, 301, 0).await;
             let feed_id = create_feed(&db, 301, uid, 0, "NOW()").await;
 
@@ -118,7 +120,8 @@ async fn test_select_due_feeds_disabled() {
     with_test_db(|url| {
         Box::pin(async move {
             let db = common::make_db_from_url(&url).await.expect("test db");
-            let cfg = common::test_config();
+            let tc = common::test_cfg(); // per-test temp cache dir (dropped at test end)
+            let cfg = tc.cfg.clone();
             let uid = create_user(&db, 302, 0).await;
             let feed_id = create_feed(&db, 302, uid, -1, "NOW() - INTERVAL '2 hour'").await;
 
@@ -141,7 +144,8 @@ async fn test_select_due_feeds_never_updated() {
     with_test_db(|url| {
         Box::pin(async move {
             let db = common::make_db_from_url(&url).await.expect("test db");
-            let cfg = common::test_config();
+            let tc = common::test_cfg(); // per-test temp cache dir (dropped at test end)
+            let cfg = tc.cfg.clone();
             let uid = create_user(&db, 303, 0).await;
             let feed_id = create_feed(&db, 303, uid, 0, "NULL").await;
 
@@ -164,7 +168,8 @@ async fn test_select_due_feeds_disabled_owner() {
     with_test_db(|url| {
         Box::pin(async move {
             let db = common::make_db_from_url(&url).await.expect("test db");
-            let cfg = common::test_config();
+            let tc = common::test_cfg(); // per-test temp cache dir (dropped at test end)
+            let cfg = tc.cfg.clone();
             let uid = create_user(&db, 304, -2 /* DISABLED */).await;
             let feed_id = create_feed(&db, 304, uid, 0, "NOW() - INTERVAL '2 hour'").await;
 
@@ -187,7 +192,8 @@ async fn test_select_due_feeds_in_progress() {
     with_test_db(|url| {
         Box::pin(async move {
             let db = common::make_db_from_url(&url).await.expect("test db");
-            let cfg = common::test_config();
+            let tc = common::test_cfg(); // per-test temp cache dir (dropped at test end)
+            let cfg = tc.cfg.clone();
             let uid = create_user(&db, 305, 0).await;
             let feed_id = create_feed(&db, 305, uid, 0, "NOW() - INTERVAL '2 hour'").await;
             // Mark the feed as currently being updated (the in-progress marker).
@@ -241,7 +247,8 @@ async fn test_daemon_loop_graceful_shutdown() {
     with_test_db(|url| {
         Box::pin(async move {
             let db = common::make_db_from_url(&url).await.expect("test db");
-            let cfg = common::test_config();
+            let tc = common::test_cfg(); // per-test temp cache dir (dropped at test end)
+            let cfg = tc.cfg.clone();
             let cancel = tokio_util::sync::CancellationToken::new();
 
             let handle = tokio::spawn({

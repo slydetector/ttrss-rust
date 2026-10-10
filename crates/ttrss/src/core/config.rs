@@ -425,6 +425,13 @@ impl Config {
     }
 
     /// A minimal config for unit tests (no DB, no plugins).
+    ///
+    /// `cache_dir` is a per-process scratch dir **under the OS temp dir**,
+    /// not a path relative to the source tree (the old relative
+    /// `no-such-test-icon-dir` left `5`/`200`/`302` under `crates/ttrss/`).
+    /// Tests that run the update pipeline override it with a per-test
+    /// `tempfile::TempDir` via `common::test_cfg()`, so nothing is left
+    /// behind; this default only catches a writer test that forgets.
     pub fn for_test() -> Self {
         Self {
             db_host: "127.0.0.1".into(),
@@ -433,7 +440,8 @@ impl Config {
             self_url: "http://127.0.0.1:9000/tt-rss/".into(),
             plugins: String::new(),
             listen: "127.0.0.1:9000".parse().unwrap(),
-            cache_dir: std::path::PathBuf::from("no-such-test-icon-dir"),
+            cache_dir: std::env::temp_dir()
+                .join(format!("ttrss-test-cache-{}", std::process::id())),
             daemon_sleep_interval: 60,
             schedule_log_daemon_update_login_limit_users: String::from("@hourly"),
             ..Default::default()

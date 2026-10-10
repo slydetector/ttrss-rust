@@ -311,14 +311,13 @@ async fn test_cleanup_feed_icons() {
     with_test_db(|url| {
         Box::pin(async move {
             let db = common::make_db_from_url(&url).await.expect("test db");
-            let mut cfg = common::test_config(); // cache_max_days = 7
+            let tc = common::test_cfg(); // per-test temp cache dir (dropped at test end)
+            let mut cfg = tc.cfg.clone(); // cache_max_days = 7
             let uid = create_user(&db, 403, 0).await;
 
-            // A temp dir to act as the feed-icon cache.
-            let dir = std::env::temp_dir().join(format!("ttrss_icons_test_{}", std::process::id()));
-            let _ = std::fs::remove_dir_all(&dir);
+            // The per-test cache dir as the feed-icon cache.
+            let dir = tc.cache_dir().to_path_buf();
             std::fs::create_dir_all(dir.join("feed-icons")).expect("create icon dir");
-            cfg.cache_dir = dir.clone();
 
             // A feed that EXISTS (icon should be kept/refreshed) and a feed id that does
             // NOT exist (icon should be deleted).

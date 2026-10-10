@@ -72,8 +72,8 @@ async fn entry_count(db: &Db, feed_id: i32) -> i64 {
     .expect("entry count")
 }
 
-fn make_state(db: Db) -> AppState {
-    AppState::new(common::test_config(), db)
+fn make_state(db: Db, tc: &common::TestCfg) -> AppState {
+    AppState::new(tc.cfg.clone(), db)
 }
 
 fn make_sess(uid: i64) -> Sess {
@@ -101,7 +101,8 @@ async fn test_subscribe_first_update() {
     with_test_db(|url| {
         Box::pin(async move {
             let db = common::make_db_from_url(&url).await.expect("test db");
-            let cfg = common::test_config();
+            let tc = common::test_cfg(); // per-test temp cache dir (dropped at test end)
+            let cfg = tc.cfg.clone();
             let mock = atom_mock();
             let uid = create_user(&db, 300, 0).await;
 
@@ -138,7 +139,8 @@ async fn test_subscribe_existing_feed() {
     with_test_db(|url| {
         Box::pin(async move {
             let db = common::make_db_from_url(&url).await.expect("test db");
-            let cfg = common::test_config();
+            let tc = common::test_cfg(); // per-test temp cache dir (dropped at test end)
+            let cfg = tc.cfg.clone();
             let mock = atom_mock();
             let uid = create_user(&db, 301, 0).await;
             let feed_id = create_feed(&db, 301, uid, &mock.url("/feed")).await;
@@ -178,7 +180,8 @@ async fn test_update_feed_on_demand() {
         Box::pin(async move {
             let db = common::make_db_from_url(&url).await.expect("test db");
             let mock = atom_mock();
-            let state = make_state(db.clone());
+            let tc2 = common::test_cfg(); // keep the cache dir alive for the test
+            let state = make_state(db.clone(), &tc2);
             let uid = create_user(&db, 302, 0).await;
             let feed_id = create_feed(&db, 302, uid, &mock.url("/feed")).await;
             let sess = make_sess(uid as i64);
@@ -205,7 +208,8 @@ async fn test_update_feed_dedup_when_in_flight() {
         Box::pin(async move {
             let db = common::make_db_from_url(&url).await.expect("test db");
             let mock = atom_mock();
-            let state = make_state(db.clone());
+            let tc2 = common::test_cfg(); // keep the cache dir alive for the test
+            let state = make_state(db.clone(), &tc2);
             let uid = create_user(&db, 303, 0).await;
             let feed_id = create_feed(&db, 303, uid, &mock.url("/feed")).await;
             // Mark the feed in-flight (the daemon loop just claimed it).

@@ -113,10 +113,11 @@ async fn test_nonexistent_feed_returns_false() {
     with_test_db(|url| {
         Box::pin(async move {
             let db = common::make_db_from_url(&url).await.expect("test db");
+            let tc = common::test_cfg(); // per-test temp cache dir (dropped at test end)
             assert!(
                 !update_rss_feed(
                     db.pool(),
-                    &common::test_config(),
+                    &tc.cfg,
                     Arc::new(no_plugins()),
                     9999,
                     MOCK_FEED,
@@ -139,13 +140,14 @@ async fn test_readonly_user_cannot_update_feed() {
     with_test_db(|url| {
         Box::pin(async move {
             let db = common::make_db_from_url(&url).await.expect("test db");
+            let tc = common::test_cfg(); // per-test temp cache dir (dropped at test end)
             let readonly_uid = create_user(&db, 100, -1 /* READONLY */).await;
             let feed_id = create_feed(&db, 100, readonly_uid, "http://example.com/feed1.xml").await;
 
             assert!(
                 !update_rss_feed(
                     db.pool(),
-                    &common::test_config(),
+                    &tc.cfg,
                     Arc::new(no_plugins()),
                     feed_id,
                     MOCK_FEED,
@@ -168,13 +170,14 @@ async fn test_successful_update_returns_true() {
     with_test_db(|url| {
         Box::pin(async move {
             let db = common::make_db_from_url(&url).await.expect("test db");
+            let tc = common::test_cfg(); // per-test temp cache dir (dropped at test end)
             let uid = create_user(&db, 101, 0 /* USER */).await;
             let feed_id = create_feed(&db, 101, uid, "http://example.com/feed2.xml").await;
 
             assert!(
                 update_rss_feed(
                     db.pool(),
-                    &common::test_config(),
+                    &tc.cfg,
                     Arc::new(no_plugins()),
                     feed_id,
                     MOCK_FEED,
@@ -198,13 +201,14 @@ async fn test_feed_metadata_updated() {
     with_test_db(|url| {
         Box::pin(async move {
             let db = common::make_db_from_url(&url).await.expect("test db");
+            let tc = common::test_cfg(); // per-test temp cache dir (dropped at test end)
             let uid = create_user(&db, 102, 0).await;
             let feed_id = create_feed(&db, 102, uid, "http://example.com/feed3.xml").await;
 
             assert!(
                 update_rss_feed(
                     db.pool(),
-                    &common::test_config(),
+                    &tc.cfg,
                     Arc::new(no_plugins()),
                     feed_id,
                     MOCK_FEED,
@@ -229,13 +233,14 @@ async fn test_article_fields_stored_correctly() {
     with_test_db(|url| {
         Box::pin(async move {
             let db = common::make_db_from_url(&url).await.expect("test db");
+            let tc = common::test_cfg(); // per-test temp cache dir (dropped at test end)
             let uid = create_user(&db, 103, 0).await;
             let feed_id = create_feed(&db, 103, uid, "http://example.com/feed4.xml").await;
 
             assert!(
                 update_rss_feed(
                     db.pool(),
-                    &common::test_config(),
+                    &tc.cfg,
                     Arc::new(no_plugins()),
                     feed_id,
                     MOCK_FEED,
@@ -288,13 +293,14 @@ async fn test_enclosure_stored_on_update() {
     with_test_db(|url| {
         Box::pin(async move {
             let db = common::make_db_from_url(&url).await.expect("test db");
+            let tc = common::test_cfg(); // per-test temp cache dir (dropped at test end)
             let uid = create_user(&db, 106, 0 /* USER */).await;
             let feed_id = create_feed(&db, 106, uid, "http://example.com/f9.xml").await;
 
             assert!(
                 update_rss_feed(
                     db.pool(),
-                    &common::test_config(),
+                    &tc.cfg,
                     Arc::new(no_plugins()),
                     feed_id,
                     ENCLOSURE_FEED,
@@ -342,13 +348,14 @@ async fn test_second_update_does_not_create_duplicate() {
     with_test_db(|url| {
         Box::pin(async move {
             let db = common::make_db_from_url(&url).await.expect("test db");
+            let tc = common::test_cfg(); // per-test temp cache dir (dropped at test end)
             let uid = create_user(&db, 104, 0).await;
             let feed_id = create_feed(&db, 104, uid, "http://example.com/feed5.xml").await;
 
             assert!(
                 update_rss_feed(
                     db.pool(),
-                    &common::test_config(),
+                    &tc.cfg,
                     Arc::new(no_plugins()),
                     feed_id,
                     MOCK_FEED,
@@ -363,7 +370,7 @@ async fn test_second_update_does_not_create_duplicate() {
             assert!(
                 update_rss_feed(
                     db.pool(),
-                    &common::test_config(),
+                    &tc.cfg,
                     Arc::new(no_plugins()),
                     feed_id,
                     MOCK_FEED,
@@ -387,13 +394,14 @@ async fn test_parse_error_returns_false() {
     with_test_db(|url| {
         Box::pin(async move {
             let db = common::make_db_from_url(&url).await.expect("test db");
+            let tc = common::test_cfg(); // per-test temp cache dir (dropped at test end)
             let uid = create_user(&db, 105, 0).await;
             let feed_id = create_feed(&db, 105, uid, "http://example.com/feed6.xml").await;
 
             assert!(
                 !update_rss_feed(
                     db.pool(),
-                    &common::test_config(),
+                    &tc.cfg,
                     Arc::new(no_plugins()),
                     feed_id,
                     BAD_FEED,
@@ -495,6 +503,7 @@ async fn test_filter_action_drops_article() {
     with_test_db(|url| {
         Box::pin(async move {
             let db = common::make_db_from_url(&url).await.expect("test db");
+            let tc = common::test_cfg(); // per-test temp cache dir (dropped at test end)
             let uid = create_user(&db, 200, 0).await;
             let feed_id = create_feed(&db, 200, uid, "http://example.com/f1.xml").await;
             let filter_id = create_filter(&db, uid, TITLE_RULE, 1 /* title */).await;
@@ -507,7 +516,7 @@ async fn test_filter_action_drops_article() {
             assert!(
                 update_rss_feed(
                     db.pool(),
-                    &common::test_config(),
+                    &tc.cfg,
                     Arc::new(no_plugins()),
                     feed_id,
                     MOCK_FEED,
@@ -544,6 +553,7 @@ async fn test_score_action_marks_starred() {
     with_test_db(|url| {
         Box::pin(async move {
             let db = common::make_db_from_url(&url).await.expect("test db");
+            let tc = common::test_cfg(); // per-test temp cache dir (dropped at test end)
             let uid = create_user(&db, 201, 0).await;
             let feed_id = create_feed(&db, 201, uid, "http://example.com/f2.xml").await;
             let filter_id = create_filter(&db, uid, TITLE_RULE, 1).await;
@@ -552,7 +562,7 @@ async fn test_score_action_marks_starred() {
             assert!(
                 update_rss_feed(
                     db.pool(),
-                    &common::test_config(),
+                    &tc.cfg,
                     Arc::new(no_plugins()),
                     feed_id,
                     MOCK_FEED,
@@ -577,6 +587,7 @@ async fn test_score_action_below_read_threshold() {
     with_test_db(|url| {
         Box::pin(async move {
             let db = common::make_db_from_url(&url).await.expect("test db");
+            let tc = common::test_cfg(); // per-test temp cache dir (dropped at test end)
             let uid = create_user(&db, 202, 0).await;
             let feed_id = create_feed(&db, 202, uid, "http://example.com/f3.xml").await;
             let filter_id = create_filter(&db, uid, TITLE_RULE, 1).await;
@@ -585,7 +596,7 @@ async fn test_score_action_below_read_threshold() {
             assert!(
                 update_rss_feed(
                     db.pool(),
-                    &common::test_config(),
+                    &tc.cfg,
                     Arc::new(no_plugins()),
                     feed_id,
                     MOCK_FEED,
@@ -610,6 +621,7 @@ async fn test_catchup_action_marks_read() {
     with_test_db(|url| {
         Box::pin(async move {
             let db = common::make_db_from_url(&url).await.expect("test db");
+            let tc = common::test_cfg(); // per-test temp cache dir (dropped at test end)
             let uid = create_user(&db, 203, 0).await;
             let feed_id = create_feed(&db, 203, uid, "http://example.com/f4.xml").await;
             let filter_id = create_filter(&db, uid, TITLE_RULE, 1).await;
@@ -618,7 +630,7 @@ async fn test_catchup_action_marks_read() {
             assert!(
                 update_rss_feed(
                     db.pool(),
-                    &common::test_config(),
+                    &tc.cfg,
                     Arc::new(no_plugins()),
                     feed_id,
                     MOCK_FEED,
@@ -642,6 +654,7 @@ async fn test_tag_action_adds_tags() {
     with_test_db(|url| {
         Box::pin(async move {
             let db = common::make_db_from_url(&url).await.expect("test db");
+            let tc = common::test_cfg(); // per-test temp cache dir (dropped at test end)
             let uid = create_user(&db, 204, 0).await;
             let feed_id = create_feed(&db, 204, uid, "http://example.com/f5.xml").await;
             let filter_id = create_filter(&db, uid, TITLE_RULE, 1).await;
@@ -650,7 +663,7 @@ async fn test_tag_action_adds_tags() {
             assert!(
                 update_rss_feed(
                     db.pool(),
-                    &common::test_config(),
+                    &tc.cfg,
                     Arc::new(no_plugins()),
                     feed_id,
                     MOCK_FEED,
@@ -675,6 +688,7 @@ async fn test_ignore_tag_removes_tag() {
     with_test_db(|url| {
         Box::pin(async move {
             let db = common::make_db_from_url(&url).await.expect("test db");
+            let tc = common::test_cfg(); // per-test temp cache dir (dropped at test end)
             let uid = create_user(&db, 205, 0).await;
             let feed_id = create_feed(&db, 205, uid, "http://example.com/f6.xml").await;
             let filter_id = create_filter(&db, uid, TITLE_RULE, 1).await;
@@ -684,7 +698,7 @@ async fn test_ignore_tag_removes_tag() {
             assert!(
                 update_rss_feed(
                     db.pool(),
-                    &common::test_config(),
+                    &tc.cfg,
                     Arc::new(no_plugins()),
                     feed_id,
                     MOCK_FEED,
@@ -712,6 +726,7 @@ async fn test_blacklisted_tag_removed() {
     with_test_db(|url| {
         Box::pin(async move {
             let db = common::make_db_from_url(&url).await.expect("test db");
+            let tc = common::test_cfg(); // per-test temp cache dir (dropped at test end)
             let uid = create_user(&db, 206, 0).await;
             let feed_id = create_feed(&db, 206, uid, "http://example.com/f7.xml").await;
             sqlx::query(
@@ -728,7 +743,7 @@ async fn test_blacklisted_tag_removed() {
             assert!(
                 update_rss_feed(
                     db.pool(),
-                    &common::test_config(),
+                    &tc.cfg,
                     Arc::new(no_plugins()),
                     feed_id,
                     MOCK_FEED,
@@ -756,6 +771,7 @@ async fn test_label_action_assigns_label() {
     with_test_db(|url| {
         Box::pin(async move {
             let db = common::make_db_from_url(&url).await.expect("test db");
+            let tc = common::test_cfg(); // per-test temp cache dir (dropped at test end)
             let uid = create_user(&db, 207, 0).await;
             let feed_id = create_feed(&db, 207, uid, "http://example.com/f8.xml").await;
             let label_id: i32 = sqlx::query_scalar(
@@ -771,7 +787,7 @@ async fn test_label_action_assigns_label() {
             assert!(
                 update_rss_feed(
                     db.pool(),
-                    &common::test_config(),
+                    &tc.cfg,
                     Arc::new(no_plugins()),
                     feed_id,
                     MOCK_FEED,
@@ -841,13 +857,14 @@ impl Plugin for HookRewriter {
 async fn test_article_filter_hook_rewrites_content() {
     with_test_db(|url| Box::pin(async move {
     let db = common::make_db_from_url(&url).await.expect("test db");
+            let tc = common::test_cfg(); // per-test temp cache dir (dropped at test end)
     let uid = create_user(&db, 201, 0 /* USER */).await;
     let feed_id = create_feed(&db, 201, uid, "http://example.com/hook.xml").await;
 
     let host = Arc::new(PluginHost::startup(&[|| Box::new(HookRewriter)]));
     // The owner's active set is the system list (`Config::plugins`) + the owner's
     // `_ENABLED_PLUGINS`; put the stub in the system list so it's active.
-    let mut cfg = common::test_config();
+    let mut cfg = tc.cfg.clone();
     cfg.plugins = "hook_rewriter".to_string();
     assert!(update_rss_feed(
         db.pool(),
@@ -888,6 +905,7 @@ async fn test_auto_assign_labels_match_and_no_match() {
     with_test_db(|url| {
         Box::pin(async move {
             let db = common::make_db_from_url(&url).await.expect("test db");
+            let tc = common::test_cfg(); // per-test temp cache dir (dropped at test end)
             let uid = create_user(&db, 221, 0 /* USER */).await;
             let feed_id = create_feed(&db, 221, uid, "http://example.com/aal.xml").await;
 
@@ -911,7 +929,7 @@ async fn test_auto_assign_labels_match_and_no_match() {
             let host = Arc::new(PluginHost::startup(&[|| {
                 Box::new(ttrss::plugins::auto_assign_labels::AutoAssignLabels)
             }]));
-            let mut cfg = common::test_config();
+            let mut cfg = tc.cfg.clone();
             cfg.plugins = "auto_assign_labels".to_string();
             assert!(
                 update_rss_feed(

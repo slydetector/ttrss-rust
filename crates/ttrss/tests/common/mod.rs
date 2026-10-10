@@ -102,6 +102,33 @@ pub fn test_config() -> ttrss::core::config::Config {
     cfg
 }
 
+/// Test config + a per-test temp cache dir, deleted when the guard drops.
+///
+/// Tests that run the update pipeline must use this: favicon writes go to
+/// `<cache_dir>/feed-icons/<feed_id>` and would otherwise be left on the
+/// filesystem. The guard owns the dir; clone `cfg` for the test body.
+pub struct TestCfg {
+    pub cfg: ttrss::core::config::Config,
+    _cache: tempfile::TempDir,
+}
+
+impl TestCfg {
+    pub fn new() -> Self {
+        let cache = tempfile::tempdir().expect("per-test cache dir");
+        let mut cfg = test_config();
+        cfg.cache_dir = cache.path().to_path_buf();
+        Self { cfg, _cache: cache }
+    }
+
+    pub fn cache_dir(&self) -> &std::path::Path {
+        self._cache.path()
+    }
+}
+
+pub fn test_cfg() -> TestCfg {
+    TestCfg::new()
+}
+
 /// Standard admin session: `uid = 1`, `access_level = 10`.
 pub fn admin_sess() -> ttrss::session::Sess {
     use ttrss::core::phpser::Value as PValue;
