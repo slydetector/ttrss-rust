@@ -299,6 +299,7 @@ async fn login(state: &AppState, sess: &Sess, body: &Map<String, Value>) -> (i64
         false,
         false,
         "auth_internal",
+        &sess.client_ip(),
     );
     sess.replace(new_id.clone(), data);
 

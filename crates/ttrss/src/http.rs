@@ -41,7 +41,12 @@ async fn base_slash_redirect(
 ) -> Response {
     let path = req.uri().path().to_owned();
     if path == base {
-        let target = format!("{base}/");
+        let mut target = format!("{base}/");
+        // Apache's DirectorySlash 301 preserves the query string.
+        if let Some(q) = req.uri().query() {
+            target.push('?');
+            target.push_str(q);
+        }
         let mut resp = Response::new(axum::body::Body::empty());
         *resp.status_mut() = axum::http::StatusCode::MOVED_PERMANENTLY;
         resp.headers_mut().insert(
@@ -1000,6 +1005,7 @@ async fn login_flow(
                     truthy(form.bw_limit.as_deref()),
                     checkbox(form.safe_mode.as_deref()),
                     auth_module.unwrap_or("auth_internal"),
+                    &sess.client_ip(),
                 );
                 // `auth_remote`'s fake-login markers (PHP `$_SESSION[
                 // "fake_login"/"fake_password"/"hide_hello"/"hide_logout"]`):

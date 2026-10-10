@@ -947,6 +947,7 @@ async fn test_authenticate_regenerates_session_id() {
                 false,
                 false,
                 "auth_internal",
+                "127.0.0.1",
             );
 
             assert_ne!(

@@ -243,6 +243,7 @@ pub async fn change_password(
 /// post-login `$_SESSION` contents plus a **fresh** session id (PHP calls
 /// `session_regenerate_id(true)` here, so the pre-login id is never reused).
 /// `bw_limit` / `safe_mode` are the already-parsed checkbox values.
+#[allow(clippy::too_many_arguments)] // mirrors `UserHelper::set_session_for_user`'s field list
 pub fn build_login_session(
     id: i32,
     login: &str,
@@ -251,12 +252,13 @@ pub fn build_login_session(
     bw_limit: bool,
     safe_mode: bool,
     auth_module: &str,
+    ip_address: &str,
 ) -> (String, Session) {
     let now = now_unix();
     let mut data = core_session::Session::new();
     data.set("uid", Value::Int(id as i64));
     data.set("last_login_update", Value::Int(now));
-    data.set("ip_address", Value::Bytes(b"127.0.0.1".to_vec()));
+    data.set("ip_address", Value::Bytes(ip_address.as_bytes().to_vec()));
     data.set("csrf_token", Value::Bytes(random_hex(16).into_bytes()));
     data.set("auth_module", Value::Bytes(auth_module.as_bytes().to_vec()));
     data.set("name", Value::Bytes(login.as_bytes().to_vec()));

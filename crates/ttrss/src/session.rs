@@ -51,6 +51,13 @@ struct Inner {
     /// different frontends each see their own value. Request-local like `id`
     /// and `dirty` — never part of the persisted `data`.
     self_url: String,
+    /// This request's client IP (PHP `UserHelper::get_user_ip()`: the
+    /// `X-Real-IP` header, falling back to `REMOTE_ADDR`). The port reads the
+    /// header the middleware saw; with no proxy in front there is no
+    /// `X-Real-IP`, so `127.0.0.1` stands in for `REMOTE_ADDR`. Stored on the
+    /// session at login as `ip_address` (nothing in the codebase reads it
+    /// back — kept for parity).
+    client_ip: String,
 }
 
 impl Sess {
@@ -65,6 +72,7 @@ impl Sess {
                 dirty: false,
                 destroyed: false,
                 self_url: String::new(),
+                client_ip: "127.0.0.1".to_string(),
             })),
         }
     }
@@ -113,6 +121,16 @@ impl Sess {
     /// Stamp the per-request self URL (tests: mirrors the middleware).
     pub fn set_self_url(&self, url: &str) {
         self.inner.lock().unwrap().self_url = url.to_string();
+    }
+    /// This request's client IP (see [`Inner::client_ip`]). Stamped by the
+    /// session middleware before the handler runs; `127.0.0.1` for hand-built
+    /// sessions that skipped the middleware.
+    pub fn client_ip(&self) -> String {
+        self.inner.lock().unwrap().client_ip.clone()
+    }
+    /// Stamp the per-request client IP (tests: mirrors the middleware).
+    pub fn set_client_ip(&self, ip: &str) {
+        self.inner.lock().unwrap().client_ip = ip.to_string();
     }
 }
 
@@ -383,6 +401,15 @@ pub async fn session_middleware(
     // the single stamp site — every route passes through here, so handlers
     // read `sess.self_url()` without threading a parameter.
     let self_url = state.config.get_self_url(req.headers(), req.uri().path());
+    // `UserHelper::get_user_ip()` (reverse-proxy aware): the `X-Real-IP`
+    // header, else the loopback stand-in for `REMOTE_ADDR`.
+    let client_ip = req
+        .headers()
+        .get("x-real-ip")
+        .and_then(|v| v.to_str().ok())
+        .filter(|h| !h.is_empty())
+        .unwrap_or("127.0.0.1")
+        .to_string();
     let sess = Sess {
         inner: Arc::new(Mutex::new(Inner {
             id,
@@ -390,6 +417,7 @@ pub async fn session_middleware(
             dirty: false,
             destroyed: false,
             self_url,
+            client_ip,
         })),
     };
     req.extensions_mut().insert(sess.clone());
