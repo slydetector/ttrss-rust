@@ -386,3 +386,64 @@ async fn test_fetch_one_feed_readonly_owner() {
     .await
     .unwrap();
 }
+
+/// RSSUtils:404-409 — "feed was batch-subscribed or something, we need to
+/// get basic info": a feed whose `title` / `site_url` never resolved (the
+/// subscribe-time `update_basic_info` fetch failed, or `batchAddFeeds`
+/// inserted it as `[Unknown]`) gets them via a separate fetch at the start
+/// of the update, before the main one.
+#[tokio::test]
+async fn test_fetch_one_feed_resolves_unknown_title_via_basic_info() {
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = common::make_db_from_url(&url).await.expect("test db");
+            let cfg = common::test_config();
+            // One canned 200 is served for BOTH fetches (basic-info + main) —
+            // the server repeats its last response.
+            let mock = MockServer::new(vec![Canned {
+                status: 200,
+                reason: "OK",
+                headers: vec![],
+                body: MOCK_FEED.as_bytes().to_vec(),
+            }]);
+            let uid = create_user(&db, 300, 0).await;
+            let feed_id: i32 = sqlx::query_scalar(
+                "INSERT INTO ttrss_feeds (owner_uid, title, feed_url) \
+                 VALUES ($1, '[Unknown]', $2) RETURNING id",
+            )
+            .bind(uid)
+            .bind(mock.url("/feed"))
+            .fetch_one(db.pool())
+            .await
+            .expect("insert feed");
+
+            let outcome = fetch_one_feed(
+                db.pool(),
+                &cfg,
+                Arc::new(no_plugins()),
+                feed_id,
+                &FeedUpdateFlags::default(),
+                None,
+            )
+            .await
+            .expect("fetch");
+            assert!(outcome.success, "expected success: {:?}", outcome.error);
+            let title: String = sqlx::query_scalar("SELECT title FROM ttrss_feeds WHERE id = $1")
+                .bind(feed_id)
+                .fetch_one(db.pool())
+                .await
+                .expect("title");
+            assert_eq!(title, "Atom:base testfeed");
+            let site_url: String =
+                sqlx::query_scalar("SELECT site_url FROM ttrss_feeds WHERE id = $1")
+                    .bind(feed_id)
+                    .fetch_one(db.pool())
+                    .await
+                    .expect("site_url");
+            assert!(!site_url.is_empty(), "expected site_url resolved");
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
+}

@@ -631,6 +631,22 @@ pub async fn fetch_one_feed(
         .execute(pool)
         .await;
 
+    // The PHP's `update_rss_feed` (RSSUtils:404-409): "feed was batch-subscribed
+    // or something, we need to get basic info — this is not optimal currently
+    // as it fetches stuff separately, TODO: optimize." A feed whose `title` /
+    // `site_url` never resolved (the subscribe-time `update_basic_info` fetch
+    // failed, or `batchAddFeeds` inserted it) resolves them here, with a
+    // separate fetch, before the main one.
+    if feed.title == "[Unknown]" || feed.title.trim().is_empty() || feed.site_url.trim().is_empty()
+    {
+        dlog(
+            log.as_deref_mut(),
+            DEBUG_LEVEL_VERBOSE,
+            format!("setting basic feed info for {feed_id}..."),
+        );
+        crate::rss_utils::update_basic_info(pool, cfg, &plugins, feed_id).await;
+    }
+
     // Conditional-refetch decision: force an unconditional fetch once
     // `last_unconditional` is older than `MAX_CONDITIONAL_INTERVAL`.
     let computed_force = match feed.last_unconditional {

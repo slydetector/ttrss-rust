@@ -118,14 +118,20 @@ async fn create_feed(db: &Db, id: i32, owner_uid: i32, feed_url: &str) -> i32 {
     // `/favicon.ico` requests that consume the mock's connection-ordered canned
     // responses and misalign the per-feed bodies. This test asserts cross-feed
     // dedup, not favicons.
+    // `site_url` is set (a resolved-subscription shape): an empty `site_url`
+    // would trigger the RSSUtils:404-409 basic-info fetch at update start,
+    // issuing an extra request that consumes the mock's connection-ordered
+    // canned responses and misaligns the per-feed bodies (the same hazard the
+    // `favicon_is_custom` above suppresses).
     sqlx::query(
-        "INSERT INTO ttrss_feeds (id, owner_uid, title, feed_url, favicon_is_custom) \
-         VALUES ($1, $2, $3, $4, true)",
+        "INSERT INTO ttrss_feeds (id, owner_uid, title, feed_url, site_url, favicon_is_custom) \
+         VALUES ($1, $2, $3, $4, $5, true)",
     )
     .bind(id)
     .bind(owner_uid)
     .bind(format!("Test Feed {id}"))
     .bind(feed_url)
+    .bind(format!("http://example.test/site-{id}"))
     .execute(db.pool())
     .await
     .expect("create feed");
