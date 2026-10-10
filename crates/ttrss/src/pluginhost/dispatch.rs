@@ -116,10 +116,15 @@ pub async fn session_ctx(state: &AppState, sess: &Sess) -> HostCtx {
     .with_cache_dir(state.config.cache_dir.clone())
 }
 
-/// The owner-scoped context without a web session (feed output, M7.6):
-/// default profile, access 0, user list = the owner's `_ENABLED_PLUGINS`
-/// (default profile).
-pub async fn owner_ctx(state: &AppState, owner_uid: i32) -> HostCtx {
+/// The owner-scoped context for requests that run without a logged-in
+/// session (feed output, API helpers): default profile, access 0, user list
+/// = the owner's `_ENABLED_PLUGINS` (default profile).
+///
+/// `self_url` is the caller's per-request self URL — PHP evaluates
+/// `Config::get_self_url()` at hook-call time, so in a web request that is
+/// the detected value (request `Host` + `X-Forwarded-Proto`), never the
+/// static config value.
+pub async fn owner_ctx(state: &AppState, owner_uid: i32, self_url: &str) -> HostCtx {
     let system: Vec<String> = state
         .config
         .plugins
@@ -148,7 +153,7 @@ pub async fn owner_ctx(state: &AppState, owner_uid: i32) -> HostCtx {
         &sys,
         &usr,
     )
-    .with_self_url(state.config.self_url.clone())
+    .with_self_url(self_url.to_string())
     .with_cache_dir(state.config.cache_dir.clone())
 }
 

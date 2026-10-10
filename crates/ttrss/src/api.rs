@@ -353,7 +353,7 @@ async fn get_config(state: &AppState, uid: Option<i64>, self_url: &str) -> Value
     // `_get_custom_sort_types` (API.php:921-930): each hook's map
     // (sort_value → sort_title) is merged into the result — an object,
     // empty when no plugin contributes (PHP: `$ret = []` → `{}`).
-    let mut pctx = crate::pluginhost::dispatch::owner_ctx(state, uid as i32).await;
+    let mut pctx = crate::pluginhost::dispatch::owner_ctx(state, uid as i32, self_url).await;
     let mut sort_types = Map::new();
     pctx.run_hooks_callback::<Value, _, _>(
         crate::pluginhost::HOOK_HEADLINES_CUSTOM_SORT_MAP,
@@ -1467,7 +1467,7 @@ pub async fn unsubscribe_feed(
     .await
     .unwrap_or(0);
     if exists > 0 {
-        crate::feeds::remove_feed(state, feed_id, uid).await;
+        crate::feeds::remove_feed(state, feed_id, uid, &sess.self_url()).await;
         (STATUS_OK, json!({ "status": "OK" }))
     } else {
         (STATUS_ERR, json!({ "error": E_OPERATION_FAILED }))
@@ -1723,7 +1723,7 @@ pub async fn share_to_published(
     } else {
         content_raw.to_string()
     };
-    let pctx = crate::pluginhost::dispatch::owner_ctx(state, uid as i32).await;
+    let pctx = crate::pluginhost::dispatch::owner_ctx(state, uid as i32, &sess.self_url()).await;
     let ok = crate::article::create_published_article(
         state.db.pool(),
         &title,

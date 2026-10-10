@@ -2098,18 +2098,18 @@ pub async fn batch_edit_save(state: &AppState, sess: &Sess, extra: &Map<String, 
 pub async fn remove_feeds(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Value {
     let uid = sess.data().uid().unwrap_or(0);
     for id in util::param_int_array(extra, "ids") {
-        remove_feed(state, id, uid).await;
+        remove_feed(state, id, uid, &sess.self_url()).await;
     }
     Value::Null
 }
 
 /// `Feeds::remove_feed` — delete a feed (positive id) or a label (negative id).
-pub async fn remove_feed(state: &AppState, id: i64, uid: i64) {
+pub async fn remove_feed(state: &AppState, id: i64, uid: i64, self_url: &str) {
     let pool = state.db.pool();
     if id > 0 {
         // `HOOK_UNSUBSCRIBE_FEED` (Pref_Feeds.php:1149): a plugin returning
         // `true` prevents the default removal.
-        let mut pctx = crate::pluginhost::dispatch::owner_ctx(state, uid as i32).await;
+        let mut pctx = crate::pluginhost::dispatch::owner_ctx(state, uid as i32, self_url).await;
         let feed_id = id;
         let owner_uid = uid;
         if pctx

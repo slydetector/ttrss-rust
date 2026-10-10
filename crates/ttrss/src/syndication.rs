@@ -119,7 +119,7 @@ async fn generate_feed(
     // M7.6: the HOOK_SANITIZE / plugin context for the feed owner (PHP runs
     // the feed output through the owner's plugin host); the custom-sort
     // override chain (below) needs it too.
-    let mut pctx = crate::pluginhost::dispatch::owner_ctx(state, owner_uid as i32).await;
+    let mut pctx = crate::pluginhost::dispatch::owner_ctx(state, owner_uid as i32, self_url).await;
 
     // `[$override_order, $skip_first_id_check] = Feeds::_order_to_override_query($order)`
     let (override_order, skip_first_id_check) = order_to_override_query(&mut pctx, req.order).await;
