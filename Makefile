@@ -190,6 +190,10 @@ e2e: ## run the e2e golden path (headless; fresh docker stack on :19000)
 e2e-headed: ## e2e with the browser visible
 	cd e2e && DEBUG=pw:api npx playwright test --headed
 
+.PHONY: php-sync
+php-sync: ## sync to tt-rss php upstream: report commits since the pinned php submodule commit (docs/21)
+	scripts/php-sync.sh
+
 # --- shadow (prod-data confidence run) ---------------------------------------
 # Everything lives under shadow/ (see docs/10-shadow-prod.md). Prod creds go in the
 # gitignored shadow/.env (create from shadow/.env.example). The drift preflight
