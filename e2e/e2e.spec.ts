@@ -130,30 +130,47 @@ test('fresh install golden path', { timeout: 90_000 }, async ({ page }, testInfo
     // fetches the feed on its own. No manual update.
     const { row: hn, feedId } = await subscribeFeed(page, 'https://hnrss.org/frontpage');
 
-    // A live session's tree counters refresh on the UI's 60 s ticker, but a
-    // fresh page load renders them straight from the server — so poll by
-    // reloading (the session cookie survives) until the unread counter is
-    // non-empty: the daemon's update has landed. The read settles 2 s after
-    // load: the tree rows render server-side, but their counters are filled
-    // by the post-load getfeedtree XHR.
-        await expect
-      .poll(
-        () =>
-          page.reload().then(() =>
-            page.evaluate(
-              (id) =>
-                new Promise<number>((res) =>
-                  setTimeout(() => {
-                    const row = document.querySelector(`#feedTree [data-feed-id="${id}"]`);
-                    const c = row?.querySelector('.counterNode.unread')?.textContent?.trim() ?? '';
-                    res(c === '' ? 0 : Number(c));
-                  }, 2000),
-                ),
-              feedId,
-            ),
-          ),
-        { timeout: 60_000, intervals: [2_000] },
-      )
+    // Poll for the daemon's update by reloading (the session cookie
+    // survives) until the feed's unread counter is positive. The counter is
+    // NOT in the tree payload: `getfeedtree` ships every feed with
+    // `unread: -1` (reference design), and the real count lands 250 ms after
+    // tree init via the `getAllCounters` XHR → `Feeds.parseCounters`. So a
+    // fixed post-load delay is a render-timing race (it lost on a slow CI
+    // runner: 60 s of reloads all read the initial -1). Instead, per reload,
+    // wait in-page for the app's tree model (the same accessor
+    // `Feeds.getUnread` uses: `dijit.byId('feedTree').model.getFeedUnread`)
+    // to report a positive count, and report the current value if it
+    // doesn't. (`Feeds` itself is a module-scoped const — not on window —
+    // but the Dojo globals are.)
+    // `dijit.byId('feedTree').model.getFeedUnread(id, false)`. Playwright
+    // serializes page functions by source — the body must be fully
+    // self-contained (no closures over test locals), so the lookup is
+    // inlined in both spots.
+    const modelUnreadInPage = (fid: number): number => {
+      const t = (window as unknown as {
+        dijit?: { byId(id: string): { model?: { getFeedUnread(id: number, isCat: boolean): number } } };
+      }).dijit;
+      return t?.byId('feedTree')?.model?.getFeedUnread(fid, false) ?? -1;
+    };
+    await expect
+      .poll(async () => {
+        await page.reload();
+        try {
+          await page.waitForFunction(
+            (fid: number) => {
+              const t = (window as unknown as {
+                dijit?: { byId(id: string): { model?: { getFeedUnread(id: number, isCat: boolean): number } } };
+              }).dijit;
+              return (t?.byId('feedTree')?.model?.getFeedUnread(fid, false) ?? -1) > 0;
+            },
+            feedId,
+            { timeout: 15_000, polling: 500 },
+          );
+          return 1;
+        } catch {
+          return await page.evaluate(modelUnreadInPage, feedId);
+        }
+      }, { timeout: 60_000, intervals: [1_000] })
       .toBeGreaterThan(0);
 
     // The daemon's update landed (unread > 0), so the feed's title is

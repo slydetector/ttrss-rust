@@ -14,6 +14,17 @@ const PROJECT = 'ttrss-e2e';
 const ADMIN_PASS_FILE = path.join(__dirname, '.admin-pass');
 
 teardown('tear down the e2e stack', async () => {
+  // App log tail (RUST_LOG=debug in CI) — the daemon's fetch/update detail is
+  // the first thing a flaky run needs; `down` below deletes the containers
+  // and their logs, so capture first.
+  const tail = await pExec('docker', ['compose', '-f', COMPOSE, '-p', PROJECT, 'logs', '--tail', '300', 'app'], {
+    cwd: ROOT,
+    maxBuffer: 16 * 1024 * 1024,
+  })
+    .then((r) => r.stdout)
+    .catch((e: { stdout?: string }) => String(e?.stdout ?? e));
+  console.log(`--- e2e app log (tail 300) ---\n${tail}`);
+
   if (process.env.E2E_KEEP) {
     console.log('E2E_KEEP set — stack left running (ttrss-e2e)');
     return;

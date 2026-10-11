@@ -43,7 +43,9 @@ setup('bring up the fresh e2e stack', async () => {
   // feed daemon every 5 s (stock is 120 s) so the golden-path subscribe
   // settles in seconds instead of minutes; and log at debug so a failure's
   // app log carries the daemon/update detail.
-  await fs.appendFile(ENV_FILE, '\nTTRSS_DAEMON_SLEEP_INTERVAL=5\nRUST_LOG=debug\n');
+  // html5ever logs every parsed HTML token — it swallows the 300-line log
+  // tail the teardown prints, so keep it off (the rest stays at debug).
+  await fs.appendFile(ENV_FILE, '\nTTRSS_DAEMON_SLEEP_INTERVAL=5\nRUST_LOG=debug,html5ever=off\n');
 
   // 2. Kill any leftover stack (a previous E2E_KEEP run) so this is always
   //    a fresh install — the golden path depends on first-boot state
