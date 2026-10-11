@@ -1299,6 +1299,7 @@ pub async fn subscribe(
                     }
                 }
             }
+            tracing::info!(feed_id = id, uid, url = %url, "feed subscribed");
             json!({ "code": 1, "feed_id": id })
         }
         Err(_) => json!({ "code": 7 }),
@@ -2169,8 +2170,23 @@ pub async fn remove_feed(state: &AppState, id: i64, uid: i64, self_url: &str) {
             )
             .await
         {
+            tracing::debug!(
+                feed_id = id,
+                uid,
+                "feed unsubscription prevented by a plugin hook"
+            );
             return;
         }
+
+        // The title for the log line below (read before the delete).
+        let title: Option<String> =
+            sqlx::query_scalar("SELECT title FROM ttrss_feeds WHERE id = $1 AND owner_uid = $2")
+                .bind(id)
+                .bind(uid)
+                .fetch_optional(pool)
+                .await
+                .ok()
+                .flatten();
 
         let mut tx = pool.begin().await.expect("begin");
         // Starred (archived) entries → archived (feed_id = NULL).
@@ -2198,6 +2214,7 @@ pub async fn remove_feed(state: &AppState, id: i64, uid: i64, self_url: &str) {
             .await
             .ok();
         tx.commit().await.expect("commit");
+        tracing::info!(feed_id = id, uid, title = ?title, "feed unsubscribed");
         // Best-effort favicon-cache removal (PHP: `DiskCache('feed-icons')->remove`).
         let _ = std::fs::remove_file(state.config.feed_icon_dir().join(id.to_string()));
     } else {
