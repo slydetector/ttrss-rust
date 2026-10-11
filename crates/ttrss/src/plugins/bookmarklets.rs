@@ -405,6 +405,7 @@ impl Bookmarklets {
                 "",
                 "",
                 0,
+                false, // URL-driven: reference behavior — the daemon fetches first
             )
             .await;
 

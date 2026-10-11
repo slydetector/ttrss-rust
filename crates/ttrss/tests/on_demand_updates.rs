@@ -119,6 +119,7 @@ async fn test_subscribe_first_update() {
                 "",
                 "",
                 0,
+                false, // reference path: the daemon does the first fetch
             )
             .await;
             assert_eq!(rc.get("code").and_then(|v| v.as_i64()), Some(1), "{rc}");
@@ -126,6 +127,53 @@ async fn test_subscribe_first_update() {
 
             // The immediate first update filled in the feed's title (from the feed).
             assert_eq!(feed_title(&db, feed_id as i32).await, "Atom:base testfeed");
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
+}
+
+// The web-dialog deviation (`immediate_update = true`): the feed's articles
+// are in the database before `subscribe` returns, so the dialog's
+// `Feeds.reload()` shows the feed with its unread counter already populated.
+// The content fetched for validation is the content that's processed — no
+// second HTTP request for the feed.
+#[tokio::test]
+async fn test_subscribe_immediate_update() {
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = common::make_db_from_url(&url).await.expect("test db");
+            let tc = common::test_cfg(); // per-test temp cache dir (dropped at test end)
+            let cfg = tc.cfg.clone();
+            let mock = atom_mock();
+            let uid = create_user(&db, 302, 0).await;
+
+            let host = Arc::new(PluginHost::startup(&[]));
+            let rc = subscribe(
+                &cfg,
+                db.pool(),
+                &host,
+                &cfg.self_url,
+                uid as i64,
+                0,
+                &mock.url("/feed"),
+                0,
+                "",
+                "",
+                0,
+                true, // the web-dialog path
+            )
+            .await;
+            assert_eq!(rc.get("code").and_then(|v| v.as_i64()), Some(1), "{rc}");
+            let feed_id = rc.get("feed_id").and_then(|v| v.as_i64()).unwrap();
+
+            // The articles were processed before the response — no daemon pass
+            // happened in between.
+            assert!(
+                entry_count(&db, feed_id as i32).await > 0,
+                "immediate update left no articles"
+            );
             Ok(())
         })
     })
@@ -159,6 +207,7 @@ async fn test_subscribe_existing_feed() {
                 "",
                 "",
                 0,
+                false, // reference path: the daemon does the first fetch
             )
             .await;
             assert_eq!(rc.get("code").and_then(|v| v.as_i64()), Some(0), "{rc}");

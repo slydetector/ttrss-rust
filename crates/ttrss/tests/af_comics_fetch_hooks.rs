@@ -362,6 +362,7 @@ async fn test_subscribe_feed_hook_transforms_content() {
                 "",
                 "",
                 0,
+                false, // reference path
             )
             .await;
 
@@ -413,6 +414,7 @@ async fn test_pre_subscribe_hook_rewrites_url_before_fetch() {
             "",
             "",
             0,
+            false, // reference path
         )
         .await;
 

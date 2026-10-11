@@ -1089,6 +1089,11 @@ pub async fn subscribe(
     auth_login: &str,
     auth_pass: &str,
     update_interval: i32,
+    // The web-dialog path only: update the new feed synchronously after the
+    // insert (a deliberate deviation — the reference leaves the first fetch
+    // to the daemon). Reuses the content already fetched above, so there is
+    // no second HTTP request.
+    immediate_update: bool,
 ) -> Value {
     // `if ($user && $user->access_level == ACCESS_LEVEL_READONLY) return ["code" => 8]`.
     if access_level == crate::core::user::ACCESS_LEVEL_READONLY {
@@ -1257,6 +1262,43 @@ pub async fn subscribe(
     match new_id {
         Ok(id) => {
             crate::rss_utils::update_basic_info(pool, cfg, plugins, id).await;
+            if immediate_update {
+                // Deviation from the reference (the PHP's `_subscribe` leaves
+                // the first fetch to the daemon): process the content we
+                // already fetched for validation, so the feed's articles —
+                // and its unread counter — are in the DB before the response
+                // goes out. The dialog's `Feeds.reload()` then shows the feed
+                // with the correct badge. A failure (parse, DB) is logged and
+                // the feed stays subscribed with no success stamp, so the
+                // daemon retries on its next pass — the daemon's failure
+                // semantics, no new `rc` code for the JS.
+                match crate::updates::update_rss_feed(
+                    pool,
+                    cfg,
+                    Arc::clone(plugins),
+                    id,
+                    &contents,
+                    &crate::updates::FeedUpdateFlags::default(),
+                    None,
+                )
+                .await
+                {
+                    Ok(true) => {}
+                    Ok(false) => {
+                        tracing::warn!(
+                            feed_id = id,
+                            "immediate update after subscribe: parse failed; the daemon will retry"
+                        )
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            feed_id = id,
+                            error = %e,
+                            "immediate update after subscribe errored; the daemon will retry"
+                        )
+                    }
+                }
+            }
             json!({ "code": 1, "feed_id": id })
         }
         Err(_) => json!({ "code": 7 }),
@@ -1298,6 +1340,7 @@ pub async fn add(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> V
         &login,
         &pass,
         update_interval,
+        true, // web dialog: populate the new feed before the response goes out
     )
     .await;
     json!({ "result": rc })

@@ -1544,6 +1544,7 @@ pub async fn subscribe_to_feed(
         &login,
         &password,
         0,
+        false, // REST: reference behavior — the daemon does the first fetch
     )
     .await;
     (STATUS_OK, json!({ "status": rc }))
