@@ -16,8 +16,28 @@ use ttrss::core::config::Config;
 use ttrss::core::db::Db;
 use ttrss::http;
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+fn main() {
+    // Subcommands run before the server (no DB, no listener). `importdb`
+    // imports this deployment's database from an existing tt-rss install —
+    // the "try the port on your existing data" path (docs: feat/importdb).
+    let mut args = std::env::args().skip(1);
+    match args.next().as_deref() {
+        Some("importdb") => {
+            let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+            let code = rt.block_on(ttrss::importdb::run(args.collect()));
+            std::process::exit(code);
+        }
+        _ => {
+            let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+            if let Err(e) = rt.block_on(server_main()) {
+                eprintln!("ttrss: {e:#}");
+                std::process::exit(1);
+            }
+        }
+    }
+}
+
+async fn server_main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),

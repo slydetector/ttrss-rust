@@ -47,6 +47,27 @@ Secret-style keys (`TTRSS_DB_PASS`, `TTRSS_ENCRYPTION_KEY`, …) are expanded
 in-app at startup (`VAR__FILE` form, official `startup.sh` parity) — no
 shell expansion happens in the container.
 
+## Try it with your existing data (`importdb`)
+
+Run this port on a tt-rss install you already have — the import copies its
+database into this deployment; nothing on the source side is touched:
+
+```sh
+docker compose exec app ttrss importdb          # guided prompts
+docker compose exec app ttrss importdb          # re-run: remembered source, press Y
+docker compose exec -T app ttrss importdb --yes # scriptable (no TTY)
+docker compose exec app ttrss importdb --forget # clear the remembered source
+```
+
+The source credentials are remembered in `TTRSS_DATA_DIR/importdb-source`
+(mode 0600) after a successful run — that is what makes re-running one
+keypress. `IMPORTDB_HOST/PORT/DB/USER` + `IMPORTDB_PASS` (or `PGPASSWORD`)
+env vars win over the remembered file (and enable TTY-less runs).
+
+The import streams `pg_dump | pg_restore` into this deployment's database and
+is idempotent — a Ctrl-C or a failed run is fine to simply re-run. When it
+finishes: `docker compose restart app`.
+
 ## Healthcheck
 
 The image's `HEALTHCHECK` probes the real login page at the configured base

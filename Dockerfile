@@ -20,8 +20,11 @@ RUN cargo build --release -p ttrss --bin ttrss
 # --- runtime stage ---
 FROM debian:trixie-slim
 # curl: the HEALTHCHECK probe (below).
+# postgresql-client: `ttrss importdb` (pg_dump|pg_restore — the "try before
+# you buy" import from an existing install); plain apt (no pgdg), same
+# policy as the base image.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates curl libgcc-s1 \
+    && apt-get install -y --no-install-recommends ca-certificates curl libgcc-s1 postgresql-client \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /var/lib/tt-rss
 COPY --from=build /src/target/release/ttrss /usr/local/bin/ttrss

@@ -85,6 +85,9 @@ jobs:
       #   needed them; the fmt gate needs the latter).
       # - zstd: actions/cache falls back to single-threaded gzip (tar -z)
       #   without it; with it, cache save/restore is multi-threaded.
+      # - postgresql-client: the importdb integration test runs the binary
+      #   on the host, which shells out to pg_dump|pg_restore (the image
+      #   ships them; the CI job container must too).
       # Each install is a no-op when the piece already exists, so the file
       # stays portable to GitHub.
       - name: Ensure build toolchain (node + clippy + rustfmt)
@@ -92,6 +95,7 @@ jobs:
           # Debian's nodejs package lacks npm/npx — the npm package supplies both.
           command -v node >/dev/null 2>&1 && command -v npx >/dev/null 2>&1 || (apt-get update && apt-get install -y --no-install-recommends nodejs npm)
           command -v zstd >/dev/null 2>&1 || (apt-get update && apt-get install -y --no-install-recommends zstd)
+          command -v pg_dump >/dev/null 2>&1 || (apt-get update && apt-get install -y --no-install-recommends postgresql-client)
           # docker CLI + compose plugin for the e2e step (daemon = the
           # runner's, via the mounted socket; on trixie the client is the
           # `docker-cli` package and the compose v2 plugin is

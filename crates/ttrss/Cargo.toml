@@ -19,6 +19,8 @@ zstd = "0.13"
 
 [dependencies]
 anyhow.workspace = true
+dialoguer.workspace = true
+indicatif.workspace = true
 async-trait.workspace = true
 axum.workspace = true
 tokio.workspace = true
