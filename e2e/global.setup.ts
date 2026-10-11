@@ -53,7 +53,7 @@ setup('bring up the fresh e2e stack', async () => {
   await dockerCompose('down', '-v', '--remove-orphans').catch(() => {});
 
   // 3. Build the image (root Dockerfile, repo-root context).
-  await dockerCompose('build');
+  await dockerCompose('build', '--provenance=false', '--sbom=false');
 
   // 4. Up — fresh named volumes by construction (down -v above).
   await dockerCompose('up', '-d');

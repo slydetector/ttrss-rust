@@ -96,11 +96,14 @@ jobs:
           command -v node >/dev/null 2>&1 && command -v npx >/dev/null 2>&1 || (apt-get update && apt-get install -y --no-install-recommends nodejs npm)
           command -v zstd >/dev/null 2>&1 || (apt-get update && apt-get install -y --no-install-recommends zstd)
           command -v pg_dump >/dev/null 2>&1 || (apt-get update && apt-get install -y --no-install-recommends postgresql-client)
-          # docker CLI + compose plugin for the e2e step (daemon = the
-          # runner's, via the mounted socket; on trixie the client is the
-          # `docker-cli` package and the compose v2 plugin is
-          # `docker-compose`); iproute2 for the gateway lookup.
-          command -v docker >/dev/null 2>&1 || (apt-get update && apt-get install -y --no-install-recommends docker-cli docker-compose iproute2)
+          # docker CLI for the e2e step (daemon = the runner's, via the
+          # mounted socket; on trixie the client is the `docker-cli`
+          # package); iproute2 for the gateway lookup.
+          command -v docker >/dev/null 2>&1 || (apt-get update && apt-get install -y --no-install-recommends docker-cli iproute2)
+          # Official compose, latest release (the trixie apt plugin is older).
+          mkdir -p /root/.docker/cli-plugins
+          curl -fsSL "https://github.com/docker/compose/releases/latest/download/docker-compose-linux-$(uname -m)" -o /root/.docker/cli-plugins/docker-compose
+          chmod +x /root/.docker/cli-plugins/docker-compose
           rustup component add clippy rustfmt
       - uses: actions/checkout@v4
         with:

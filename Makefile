@@ -202,7 +202,7 @@ TAG      ?= latest
 
 .PHONY: image
 image: ## build the docker image locally ($(IMAGE):$(TAG))
-	docker build -t $(IMAGE):$(TAG) .
+	docker buildx build --provenance=false --sbom=false --load -t $(IMAGE):$(TAG) .
 
 .PHONY: image-push
 image-push: ## tag + push the existing $(IMAGE):$(TAG) to $(REGISTRY) — no build
