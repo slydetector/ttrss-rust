@@ -96,14 +96,22 @@ jobs:
           command -v node >/dev/null 2>&1 && command -v npx >/dev/null 2>&1 || (apt-get update && apt-get install -y --no-install-recommends nodejs npm)
           command -v zstd >/dev/null 2>&1 || (apt-get update && apt-get install -y --no-install-recommends zstd)
           command -v pg_dump >/dev/null 2>&1 || (apt-get update && apt-get install -y --no-install-recommends postgresql-client)
-          # docker CLI for the e2e step (daemon = the runner's, via the
-          # mounted socket; on trixie the client is the `docker-cli`
-          # package); iproute2 for the gateway lookup.
-          command -v docker >/dev/null 2>&1 || (apt-get update && apt-get install -y --no-install-recommends docker-cli iproute2)
-          # Official compose, latest release (the trixie apt plugin is older).
-          mkdir -p /root/.docker/cli-plugins
-          curl -fsSL "https://github.com/docker/compose/releases/latest/download/docker-compose-linux-$(uname -m)" -o /root/.docker/cli-plugins/docker-compose
-          chmod +x /root/.docker/cli-plugins/docker-compose
+          # Docker: the official repo's client + buildx + compose plugins
+          # (docs.docker.com/engine/install/debian). Daemon = the runner's,
+          # via the mounted socket — dockerd just isn't started.
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates curl iproute2
+          # Drop any distro-provided docker before the official one (none
+          # in the rust image; the docs list the conflicting names).
+          PKGS=$(dpkg --get-selections docker.io docker-compose docker-doc docker-buildx podman-docker containerd runc | cut -f1)
+          [ -z "$PKGS" ] || apt-get remove -y $PKGS
+          install -m 0755 -d /etc/apt/keyrings
+          curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc
+          chmod a+r /etc/apt/keyrings/docker.asc
+          printf 'Types: deb\nURIs: https://download.docker.com/linux/debian\nSuites: %s\nComponents: stable\nArchitectures: %s\nSigned-By: /etc/apt/keyrings/docker.asc\n' "$(. /etc/os-release && echo "$VERSION_CODENAME")" "$(dpkg --print-architecture)" > /etc/apt/sources.list.d/docker.sources
+          apt-get update
+          apt-get install -y --no-install-recommends docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+          docker --version && docker buildx version && docker compose version
           rustup component add clippy rustfmt
       - uses: actions/checkout@v4
         with:

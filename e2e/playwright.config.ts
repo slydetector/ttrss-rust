@@ -4,8 +4,9 @@ import { defineConfig } from '@playwright/test';
 // golden-path spec) → stack-cleanup.
 export default defineConfig({
   testDir: '.',
-  timeout: 5 * 60 * 1000, // covers stack-setup on a cold image build; the
-  // browser test sets its own 90 s cap in the spec
+  timeout: 10 * 60 * 1000, // worst cold run ≈ 6 min (build ~4-5 min on CI
+  // + postgres init + app boot + 30 s health probe); green runs exit the
+  // fixture in ~2 min — the cap only bounds a stuck bring-up
   workers: 1,
   // Breadcrumbs by default: a hang or failure should leave a full trace
   // (DOM snapshots, network, console), a video, and an HTML report —
