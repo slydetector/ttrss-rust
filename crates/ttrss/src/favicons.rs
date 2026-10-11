@@ -40,42 +40,46 @@ pub async fn get_favicon_urls(site_url: &str) -> Vec<String> {
     })
     .await;
 
-    let Some(html_bytes) = result.body else {
-        return vec![];
-    };
-
-    // The PHP's `loadHTML` is lenient about encoding; we do the same.
-    let html = String::from_utf8_lossy(&html_bytes).to_string();
-    let doc = parse_html().one(html);
-
-    // Resolve the `<base href>` (if present).
-    let base = doc
-        .select("head > base[href]")
-        .ok()
-        .and_then(|mut sel| sel.next())
-        .and_then(|el| el.attributes.borrow().get("href").map(|s| s.to_string()))
-        .and_then(|href| urlhelper::rewrite_relative(site_url, &href))
-        .unwrap_or_else(|| site_url.to_string());
-
-    // Collect `<link rel="shortcut icon|icon|alternate icon">` entries.
     let mut urls: Vec<String> = Vec::new();
-    if let Ok(sel) = doc.select("head > link[rel]") {
-        for el in sel {
-            let attrs = el.attributes.borrow();
-            let rel = attrs
-                .get("rel")
-                .map(|r| r.to_lowercase())
-                .unwrap_or_default();
-            if (rel == "shortcut icon" || rel == "icon" || rel == "alternate icon")
-                && let Some(href) = attrs.get("href")
-                && let Some(abs) = urlhelper::rewrite_relative(&base, href)
-            {
-                urls.push(abs);
+    let mut base = site_url.to_string();
+
+    if let Some(html_bytes) = result.body {
+        // The PHP's `loadHTML` is lenient about encoding; we do the same.
+        let html = String::from_utf8_lossy(&html_bytes).to_string();
+        let doc = parse_html().one(html);
+
+        // Resolve the `<base href>` (if present).
+        base = doc
+            .select("head > base[href]")
+            .ok()
+            .and_then(|mut sel| sel.next())
+            .and_then(|el| el.attributes.borrow().get("href").map(|s| s.to_string()))
+            .and_then(|href| urlhelper::rewrite_relative(site_url, &href))
+            .unwrap_or(base);
+
+        // Collect `<link rel="shortcut icon|icon|alternate icon">` entries.
+        if let Ok(sel) = doc.select("head > link[rel]") {
+            for el in sel {
+                let attrs = el.attributes.borrow();
+                let rel = attrs
+                    .get("rel")
+                    .map(|r| r.to_lowercase())
+                    .unwrap_or_default();
+                if (rel == "shortcut icon" || rel == "icon" || rel == "alternate icon")
+                    && let Some(href) = attrs.get("href")
+                    && let Some(abs) = urlhelper::rewrite_relative(&base, href)
+                {
+                    urls.push(abs);
+                }
             }
         }
     }
 
-    // Fallback: `<base>/favicon.ico`.
+    // Fallback: `<base>/favicon.ico` — applied when NO candidates were
+    // found, including when the site page fetch failed (the PHP's
+    // `count($favicon_urls) == 0` check sits outside the `if ($html)`
+    // block). Sites that 403 page fetches (e.g. nytimes.com) still serve
+    // a favicon.ico.
     if urls.is_empty()
         && let Some(fallback) = urlhelper::rewrite_relative(&base, "/favicon.ico")
     {
@@ -337,6 +341,17 @@ fn rgb_to_hsv(r: u8, g: u8, b: u8) -> (f64, f64, f64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn test_favicon_urls_fallback_when_page_fetch_fails() {
+        // Nothing listens on 127.0.0.1:1 — the site page fetch fails, and
+        // the /favicon.ico guess must STILL be returned (the PHP's
+        // `count($favicon_urls) == 0` fallback sits outside its
+        // `if ($html)` block — sites like nytimes.com 403 page fetches but
+        // serve a favicon.ico).
+        let urls = get_favicon_urls("http://127.0.0.1:1/site/index.html").await;
+        assert_eq!(urls, vec!["http://127.0.0.1:1/favicon.ico".to_string()]);
+    }
 
     #[test]
     fn test_rgb_to_hsv_red() {
