@@ -534,7 +534,19 @@ struct XmlNode {
 fn take_attrs(e: &quick_xml::events::BytesStart) -> Vec<(String, String)> {
     e.attributes()
         .flatten()
-        .map(|a| (a.key.as_ref().to_string(), a.value.to_string()))
+        .map(|a| {
+            // Entity-decode only (quick-xml's `value` is raw). Deliberate
+            // deviation from the reference: PHP's DOM import also applies
+            // XML attribute whitespace normalization (newlines → space),
+            // which smushes multi-line pref values like USER_STYLESHEET —
+            // the OPML PHP *exports* keeps their literal newlines, so we
+            // keep them too. Unparseable entity → the raw value (old behavior).
+            let v = match quick_xml::escape::unescape(&a.value) {
+                Ok(u) => u.to_string(),
+                Err(_) => a.value.to_string(),
+            };
+            (a.key.as_ref().to_string(), v)
+        })
         .collect()
 }
 
