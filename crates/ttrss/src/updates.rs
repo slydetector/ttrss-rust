@@ -201,6 +201,11 @@ pub async fn process_feed(
     // `chain_hooks_callback(HOOK_FEED_PARSED, …)` (RSSUtils:624) — the
     // initialized parser + feed id are handed to each hook (the result is
     // not used).
+    dlog(
+        log.as_deref_mut(),
+        DEBUG_LEVEL_VERBOSE,
+        "running HOOK_FEED_PARSED handlers...".into(),
+    );
     {
         let system: Vec<String> = cfg
             .plugins
@@ -700,6 +705,11 @@ pub async fn fetch_one_feed(
     // empty) through each hook; a non-empty result means a plugin provided the
     // data. No shipped plugin does this (af_comics's `on_fetch` returns `false`),
     // so it's a no-op for the stock set.
+    dlog(
+        log.as_deref_mut(),
+        DEBUG_LEVEL_VERBOSE,
+        "running HOOK_FETCH_FEED handlers...".into(),
+    );
     let plugin_feed_data: String = {
         let system: Vec<String> = cfg
             .plugins
@@ -798,6 +808,12 @@ pub async fn fetch_one_feed(
             error: result.parse_error,
         });
     }
+    // PHP: `if ($feed_data) { … } else { "feed data has not been modified…" }`.
+    dlog(
+        log.as_deref_mut(),
+        DEBUG_LEVEL_VERBOSE,
+        "feed data has not been modified by a plugin.".into(),
+    );
 
     let res = fetch(&FetchOptions {
         url: feed.feed_url.clone(),
@@ -961,6 +977,13 @@ pub async fn fetch_one_feed(
     // `chain_hooks_callback(HOOK_FEED_FETCHED, …)` (RSSUtils:594): the raw XML
     // is threaded through each hook (a plugin may rewrite it before parsing) —
     // args (feed_data, feed_url, owner_uid, feed), result replaces the data.
+    dlog(
+        log.as_deref_mut(),
+        DEBUG_LEVEL_VERBOSE,
+        "running HOOK_FEED_FETCHED handlers...".into(),
+    );
+    // PHP: `$feed_data_checksum = md5($feed_data)` before the chain.
+    let fetched_checksum = sha1_hex(&feed_data);
     {
         let system: Vec<String> = cfg
             .plugins
@@ -991,6 +1014,17 @@ pub async fn fetch_one_feed(
                 .await;
         }
     }
+    // PHP: `if (md5($feed_data) != $feed_data_checksum) …`.
+    dlog(
+        log.as_deref_mut(),
+        DEBUG_LEVEL_VERBOSE,
+        if sha1_hex(&feed_data) == fetched_checksum {
+            "feed data has not been modified by a plugin."
+        } else {
+            "feed data has been modified by a plugin."
+        }
+        .to_string(),
+    );
 
     // …and the "feed data after hooks" dump.
     if flags.dump_feed_xml {
