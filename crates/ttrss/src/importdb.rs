@@ -378,42 +378,9 @@ fn fmt_mb(b: u64) -> String {
     format!("{:.1}", b as f64 / (1024.0 * 1024.0))
 }
 
-const HELP: &str = "\
-ttrss importdb — import your existing tt-rss data into this deployment
-
-(copies from the other install; nothing over there is touched)
-
-Usage: ttrss importdb [OPTIONS]
-
-Options:
-  -y, --yes     Non-interactive: use the env vars or the remembered source, no prompts
-  --forget      Forget the remembered source and exit
-  -h, --help    Show this help
-
-The source (host, port, database, user, password) is prompted for on a TTY,
-or taken from IMPORTDB_HOST/PORT/DB/USER + IMPORTDB_PASS (or PGPASSWORD).
-After a successful run the source is remembered in $TTRSS_DATA_DIR/importdb-source
-(mode 0600), so re-running is one keypress — or `--yes` in scripts.
-The import is idempotent; a partial one (Ctrl-C, failure) is fine to re-run.";
-
-pub async fn run(args: Vec<String>) -> i32 {
-    let mut yes = false;
-    let mut do_forget = false;
-    for a in &args {
-        match a.as_str() {
-            "--yes" | "-y" => yes = true,
-            "--forget" => do_forget = true,
-            "-h" | "--help" => {
-                println!("{HELP}");
-                return 0;
-            }
-            other => {
-                eprintln!("ttrss importdb: unknown argument {other} (see: ttrss importdb --help)");
-                return 2;
-            }
-        }
-    }
-
+/// Args parsed by clap in `main` (`ttrss importdb -y/--yes [--forget]`);
+/// the long help text lives there too (`long_about`).
+pub async fn run(yes: bool, do_forget: bool) -> i32 {
     let config = match crate::core::config::Config::from_env() {
         Ok(c) => c,
         Err(e) => {

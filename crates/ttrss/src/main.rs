@@ -11,23 +11,54 @@
 //! The HTTP layer (router + handlers) lives in the library crate at
 //! `ttrss::http` so integration tests can drive it; this binary only boots.
 
+use clap::{Parser, Subcommand};
 use ttrss::AppState;
 use ttrss::core::config::Config;
 use ttrss::core::db::Db;
 use ttrss::http;
 
+/// Tiny Tiny RSS (Rust) — web server.
+///
+/// Run bare to serve; the subcommands run before the server (no DB
+/// listener) and exit.
+#[derive(Parser)]
+#[command(version, about)]
+struct Cli {
+    #[command(subcommand)]
+    command: Option<Command>,
+}
+
+#[derive(Subcommand)]
+enum Command {
+    /// Import your existing tt-rss data into this deployment
+    #[command(long_about = "Import your existing tt-rss data into this deployment \
+(copies from the other install; nothing over there is touched).
+
+The source (host, port, database, user, password) is prompted for on a TTY,
+or taken from IMPORTDB_HOST/PORT/DB/USER + IMPORTDB_PASS (or PGPASSWORD).
+After a successful run the source is remembered in $TTRSS_DATA_DIR/importdb-source
+(mode 0600), so re-running is one keypress — or `--yes` in scripts.
+The import is idempotent; a partial one (Ctrl-C, failure) is fine to re-run.")]
+    Importdb {
+        /// Non-interactive: use the env vars or the remembered source, no prompts
+        #[arg(short, long)]
+        yes: bool,
+        /// Forget the remembered source and exit
+        #[arg(long)]
+        forget: bool,
+    },
+}
+
 fn main() {
-    // Subcommands run before the server (no DB, no listener). `importdb`
-    // imports this deployment's database from an existing tt-rss install —
-    // the "try the port on your existing data" path (docs: feat/importdb).
-    let mut args = std::env::args().skip(1);
-    match args.next().as_deref() {
-        Some("importdb") => {
+    let cli = Cli::parse();
+    // No subcommand: the server (the default; docker CMD runs bare `ttrss`).
+    match cli.command {
+        Some(Command::Importdb { yes, forget }) => {
             let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-            let code = rt.block_on(ttrss::importdb::run(args.collect()));
+            let code = rt.block_on(ttrss::importdb::run(yes, forget));
             std::process::exit(code);
         }
-        _ => {
+        None => {
             let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
             if let Err(e) = rt.block_on(server_main()) {
                 eprintln!("ttrss: {e:#}");
