@@ -17,8 +17,14 @@ README.md
 Makefile
 .github/
 # e2e/: host-side Playwright suite (the image is tested by it, not built
-# from it) — node_modules + test artifacts would bloat every build context.
-e2e/
+# from it) — the heavy dirs out of every build context; the small sources
+# stay because ci/Dockerfile (the CI job image) bakes the package files.
+e2e/node_modules/
+e2e/test-results/
+e2e/playwright-report/
+e2e/compose.yaml
+e2e/.env
+e2e/.admin-pass
 # shadow/: local prod-copy data (a full production DB dump) + secrets.
 shadow/data
 shadow/.env

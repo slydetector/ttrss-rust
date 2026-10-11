@@ -4,6 +4,14 @@
 # temporary self-hosted runner (label "ubuntu-latest") and the permanent
 # GitHub home (runs-on: ubuntu-latest is a hosted pool there). Keep it that
 # way: official actions only, stock Docker images, no host-specific syntax.
+#
+# Self-hosted optimization (drop it at the GitHub migration): the ci-image
+# job builds the ttrss-ci job image (ci/Dockerfile — everything the install
+# steps would otherwise unpack into the container per run) and the build job
+# runs in it. On a hosted runner the two jobs can't share a daemon, so
+# ci-image is dead weight there and the build job's guarded steps degrade to
+# the full install automatically. Migration = delete ci-image and point the
+# build job's container back at rust:1.98-trixie.
 name: build
 
 on:
@@ -13,11 +21,42 @@ on:
     branches: [main]
 
 jobs:
+  # The CI job image (the self-hosted optimization — see the header).
+  # Runs in docker:29-cli (stock; ships git + the docker CLI — no JS action,
+  # the runner host has no node for actions/checkout) with the runner's
+  # daemon socket mounted: the runner itself is a dind container, so the
+  # daemon is only reachable from inside a job container — the same pattern
+  # as the build job. Rebuilt every run; the daemon's layer cache makes
+  # unchanged layers near-free, and a lock-file change busts only the
+  # Playwright layer.
+  ci-image:
+    runs-on: ubuntu-latest
+    container:
+      image: docker:29-cli
+      volumes:
+        - /var/run/docker.sock:/var/run/docker.sock
+    concurrency:
+      group: build-${{ github.ref }}
+      cancel-in-progress: true
+    steps:
+      - name: Checkout
+        run: |
+          git init .
+          git remote add origin "${{ github.server_url }}/${{ github.repository }}.git"
+          git fetch --depth 1 origin "${{ github.ref }}"
+          git checkout FETCH_HEAD
+      - name: Build ttrss-ci
+        run: docker build -t ttrss-ci:latest -f ci/Dockerfile .
+
   build:
     runs-on: ubuntu-latest
-    # Same toolchain image as shadow/Dockerfile (rustc 1.98 on trixie).
+    needs: [ci-image] # the image the job container runs in
+    # The CI job image (the ci-image job above, ci/Dockerfile): rustc 1.98 on
+    # trixie plus everything the install steps below would unpack. The steps
+    # stay as the fallback — every piece is guarded, so on a daemon without
+    # ttrss-ci (a hosted runner) they do the full install.
     container:
-      image: rust:1.98-trixie
+      image: ttrss-ci:latest
       # Persistent build state. The runner's docker daemon (dind) has a
       # host-backed /ci-cache dir, so these bind mounts survive between
       # runs: the cargo target dir and registry stay warm on the host SSD,
@@ -98,19 +137,23 @@ jobs:
           command -v pg_dump >/dev/null 2>&1 || (apt-get update && apt-get install -y --no-install-recommends postgresql-client)
           # Docker: the official repo's client + buildx + compose plugins
           # (docs.docker.com/engine/install/debian). Daemon = the runner's,
-          # via the mounted socket — dockerd just isn't started.
-          apt-get update
-          apt-get install -y --no-install-recommends ca-certificates curl iproute2
-          # Drop any distro-provided docker before the official one (none
-          # in the rust image; the docs list the conflicting names).
-          PKGS=$(dpkg --get-selections docker.io docker-compose docker-doc docker-buildx podman-docker containerd runc | cut -f1)
-          [ -z "$PKGS" ] || apt-get remove -y $PKGS
-          install -m 0755 -d /etc/apt/keyrings
-          curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc
-          chmod a+r /etc/apt/keyrings/docker.asc
-          printf 'Types: deb\nURIs: https://download.docker.com/linux/debian\nSuites: %s\nComponents: stable\nArchitectures: %s\nSigned-By: /etc/apt/keyrings/docker.asc\n' "$(. /etc/os-release && echo "$VERSION_CODENAME")" "$(dpkg --print-architecture)" > /etc/apt/sources.list.d/docker.sources
-          apt-get update
-          apt-get install -y --no-install-recommends docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+          # via the mounted socket — dockerd just isn't started. Guarded so
+          # the ttrss-ci image (which bakes this) makes the whole block a
+          # no-op.
+          command -v docker >/dev/null 2>&1 || {
+            apt-get update
+            apt-get install -y --no-install-recommends ca-certificates curl iproute2
+            # Drop any distro-provided docker before the official one (none
+            # in the rust image; the docs list the conflicting names).
+            PKGS=$(dpkg --get-selections docker.io docker-compose docker-doc docker-buildx podman-docker containerd runc | cut -f1)
+            [ -z "$PKGS" ] || apt-get remove -y $PKGS
+            install -m 0755 -d /etc/apt/keyrings
+            curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc
+            chmod a+r /etc/apt/keyrings/docker.asc
+            printf 'Types: deb\nURIs: https://download.docker.com/linux/debian\nSuites: %s\nComponents: stable\nArchitectures: %s\nSigned-By: /etc/apt/keyrings/docker.asc\n' "$(. /etc/os-release && echo "$VERSION_CODENAME")" "$(dpkg --print-architecture)" > /etc/apt/sources.list.d/docker.sources
+            apt-get update
+            apt-get install -y --no-install-recommends docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+          }
           docker --version && docker buildx version && docker compose version
           rustup component add clippy rustfmt
       - uses: actions/checkout@v4
@@ -136,10 +179,24 @@ jobs:
       # Full suite: lib tests + the DB-backed integration binaries
       # (postgres service above).
       - run: cargo test
-      - name: Playwright (chromium + deps)
+      # Playwright: ttrss-ci bakes node_modules + chromium + the apt deps
+      # (ci/Dockerfile). Reuse the baked node_modules through a symlink when
+      # the lock files are unchanged (npm follows the symlink); a mismatch —
+      # defensive, the image is built from this tree — runs a real npm ci.
+      - name: Playwright (baked into ttrss-ci)
         working-directory: e2e
         run: |
-          npm ci
+          NOW=$(sha256sum package.json package-lock.json | sha256sum | awk '{print $1}')
+          BAKED=$(cat /opt/e2e/pkg-hash 2>/dev/null || echo none)
+          if [ "$NOW" = "$BAKED" ] && [ ! -e node_modules ]; then
+            ln -s /opt/e2e/node_modules node_modules
+            echo "reusing the baked node_modules"
+          else
+            rm -f node_modules
+            npm ci
+          fi
+          # No-op when the baked chromium matches (it does — the image is
+          # built from this tree); self-heals a wiped browser dir.
           npx playwright install --with-deps chromium
       # Headless golden path: the suite's compose project (ttrss-e2e, port
       # 19000) runs in the runner's daemon (socket mounted above); chromium
