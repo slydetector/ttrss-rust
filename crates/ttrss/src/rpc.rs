@@ -841,9 +841,21 @@ async fn sanity_check(
     let client_scheme = url_scheme(&client_location);
     let server_scheme = url_scheme(&sess.self_url());
 
+    // `RPC.php:179-181`: the schema check runs first (it takes priority over
+    // the scheme mismatch) — the SPA's reaction to `E_SCHEMA_MISMATCH` is a
+    // redirect to `public.php?op=dbupdate` (`App.js:638`). A DB error here
+    // is read as "not needed": the boot queries below surface the real
+    // failure.
+    let migrations = crate::core::schema::Migrations::from_root(state.config.docroot.join("sql"));
     let mut err = "E_SUCCESS";
     let mut params: Map<String, Value> = Map::new();
-    if client_scheme != server_scheme {
+    if migrations
+        .is_migration_needed(state.db.pool())
+        .await
+        .unwrap_or(false)
+    {
+        err = "E_SCHEMA_MISMATCH";
+    } else if client_scheme != server_scheme {
         err = "E_URL_SCHEME_MISMATCH";
         params.insert(
             "client_scheme".into(),

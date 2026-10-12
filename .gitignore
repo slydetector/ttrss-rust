@@ -36,3 +36,5 @@ e2e/out/
 e2e/compose.yaml
 e2e/.env
 
+*.swp
+*.swo

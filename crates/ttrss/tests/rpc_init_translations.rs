@@ -20,6 +20,7 @@ use ttrss::AppState;
 use ttrss::core::config::Config;
 use ttrss::core::db::Db;
 use ttrss::core::phpser::Value as PValue;
+use ttrss::core::schema::SCHEMA_VERSION;
 use ttrss::core::session::Session;
 
 fn test_config() -> Config {
@@ -222,6 +223,58 @@ async fn test_view_feed_not_found_translated() {
                 body.contains("Feed nicht gefunden."),
                 "de_DE user must get the German 'Feed not found.'; got: {body}"
             );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
+}
+
+/// `RPC.php:179-181`: a database whose `ttrss_version` differs from the
+/// build's `SCHEMA_VERSION` (older *or* newer) must answer the SPA's first
+/// call with `E_SCHEMA_MISMATCH` — the JS reaction is a redirect to
+/// `public.php?op=dbupdate` (`App.js:638`) — instead of the boot payload.
+/// (Rust-only: the frozen PHP suite has no `sanityCheck` test.)
+#[tokio::test]
+async fn test_sanitycheck_schema_mismatch_blocks_boot() {
+    with_test_db(|url| {
+        Box::pin(async move {
+            let state = setup(&url).await;
+            let pool = state.db.pool();
+            let set_version = |v: i32| async move {
+                sqlx::query("UPDATE ttrss_version SET schema_version = $1")
+                    .bind(v)
+                    .execute(pool)
+                    .await
+                    .expect("version stamp");
+            };
+
+            // Up-to-date DB → the normal boot payload.
+            let body = init_rpc(&state, None).await;
+            assert!(
+                body.get("init-params").is_some(),
+                "up-to-date DB must boot: {body}"
+            );
+
+            // One version behind → E_SCHEMA_MISMATCH, no boot payload.
+            set_version(SCHEMA_VERSION - 1).await;
+            let body = init_rpc(&state, None).await;
+            assert_eq!(body["error"]["code"], "E_SCHEMA_MISMATCH");
+            assert!(
+                body.get("init-params").is_none(),
+                "a mismatched DB must not get the boot payload: {body}"
+            );
+
+            // Stamped *above* the build's version → mismatch too
+            // (PHP's `!=`, the same check catches both directions).
+            set_version(SCHEMA_VERSION + 1).await;
+            let body = init_rpc(&state, None).await;
+            assert_eq!(body["error"]["code"], "E_SCHEMA_MISMATCH");
+
+            // Restored → boots again.
+            set_version(SCHEMA_VERSION).await;
+            let body = init_rpc(&state, None).await;
+            assert!(body.get("init-params").is_some(), "restored DB must boot");
             Ok(())
         })
     })
