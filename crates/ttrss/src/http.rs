@@ -1140,13 +1140,13 @@ fn checkbox(s: Option<&str>) -> bool {
 /// (from the nginx `mime.types`), `Cache-Control: no-cache`, and no
 /// `Accept-Ranges` (nginx omits it on the gzip/chunked path real clients hit).
 async fn static_handler(State(state): State<AppState>, req: Request) -> axum::response::Response {
-    let base = state.config.base_path();
+    let url_base = state.config.base_path();
     let uri_path = req.uri().path();
-    let rel = if base.is_empty() {
+    let rel = if url_base.is_empty() {
         uri_path.to_string()
     } else {
         uri_path
-            .strip_prefix(base.as_str())
+            .strip_prefix(url_base.as_str())
             .unwrap_or(uri_path)
             .to_string()
     };
@@ -1160,64 +1160,102 @@ async fn static_handler(State(state): State<AppState>, req: Request) -> axum::re
     };
     let candidate = base.join(rel);
     // Resolve and confine to the base dir (defends against path traversal).
-    match (
+    let (file, base_dir) = match (
         fs::canonicalize(&candidate).await,
         fs::canonicalize(base).await,
     ) {
-        (Ok(file), Ok(base_dir)) if file.starts_with(&base_dir) && file.is_file() => {
-            match fs::read(&file).await {
-                Ok(bytes) => {
-                    // Apache-style static serving: validators, no Cache-Control
-                    // (heuristic caching + 304 revalidation, not forced
-                    // revalidation). The ETag is `"<mtime>-<size>"` — stable
-                    // for an unchanged file, invalidated on redeploy.
-                    let mtime = fs::metadata(&file)
-                        .await
-                        .ok()
-                        .and_then(|m| m.modified().ok())
-                        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                        .map(|d| d.as_secs() as i64)
-                        .unwrap_or(0);
-                    let etag = format!("\"{}-{}\"", mtime, bytes.len());
-                    let last_modified = session::rfc1123(mtime);
-                    // `If-None-Match` may carry several tags and the `W/`
-                    // weak marker (proxies weaken ETags they compress) —
-                    // compare weakly, like `send_conditional_html` does.
-                    let etag_match = req
-                        .headers()
-                        .get(header::IF_NONE_MATCH)
-                        .and_then(|v| v.to_str().ok())
-                        .map(|h| {
-                            h.split(',')
-                                .any(|t| t.trim().trim_start_matches("W/").trim() == etag)
-                        })
-                        .unwrap_or(false);
-                    let ims_match = req
-                        .headers()
-                        .get(header::IF_MODIFIED_SINCE)
-                        .and_then(|v| v.to_str().ok())
-                        == Some(last_modified.as_str());
-                    let mut res = axum::response::Response::new(Body::from(bytes));
-                    res.headers_mut().insert(
-                        header::CONTENT_TYPE,
-                        mime::mime_for_path(&file).parse().unwrap(),
-                    );
-                    res.headers_mut()
-                        .insert(header::LAST_MODIFIED, last_modified.parse().unwrap());
-                    res.headers_mut()
-                        .insert(header::ETAG, etag.parse().unwrap());
-                    res.headers_mut()
-                        .insert(header::ACCEPT_RANGES, "bytes".parse().unwrap());
-                    if etag_match || ims_match {
-                        *res.status_mut() = StatusCode::NOT_MODIFIED;
-                        *res.body_mut() = Body::empty();
+        (Ok(p), Ok(b)) if p.starts_with(&b) => (p, b),
+        _ => return StatusCode::NOT_FOUND.into_response(),
+    };
+    // mod_dir: a directory URL serves its index.html, and the slash-less form
+    // 301-redirects to the slashed URL first — the page's relative asset URLs
+    // resolve against the URL's folder, so without the slash they'd point one
+    // level up and 404. Directories without an index.html 404 (as before).
+    let file = if file.is_dir() {
+        match fs::canonicalize(file.join("index.html")).await {
+            Ok(idx) if idx.starts_with(&base_dir) && idx.is_file() => {
+                if !uri_path.ends_with('/') {
+                    // The nested router strips the base prefix from the URI,
+                    // so re-add it (the redirect target is the full path).
+                    let mut target = url_base.clone();
+                    if target.is_empty() {
+                        target.push('/');
                     }
-                    res
+                    if !target.ends_with('/') {
+                        target.push('/');
+                    }
+                    target.push_str(uri_path.trim_start_matches('/'));
+                    target.push('/');
+                    // DirectorySlash 301s preserve the query string.
+                    if let Some(q) = req.uri().query() {
+                        target.push('?');
+                        target.push_str(q);
+                    }
+                    let mut resp = Response::new(Body::empty());
+                    *resp.status_mut() = StatusCode::MOVED_PERMANENTLY;
+                    resp.headers_mut().insert(
+                        header::LOCATION,
+                        axum::http::HeaderValue::from_str(&target).expect("valid url"),
+                    );
+                    return resp;
                 }
-                Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+                idx
             }
+            _ => return StatusCode::NOT_FOUND.into_response(),
         }
-        _ => StatusCode::NOT_FOUND.into_response(),
+    } else {
+        file
+    };
+    match fs::read(&file).await {
+        Ok(bytes) => {
+            // Apache-style static serving: validators, no Cache-Control
+            // (heuristic caching + 304 revalidation, not forced
+            // revalidation). The ETag is `"<mtime>-<size>"` — stable
+            // for an unchanged file, invalidated on redeploy.
+            let mtime = fs::metadata(&file)
+                .await
+                .ok()
+                .and_then(|m| m.modified().ok())
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_secs() as i64)
+                .unwrap_or(0);
+            let etag = format!("\"{}-{}\"", mtime, bytes.len());
+            let last_modified = session::rfc1123(mtime);
+            // `If-None-Match` may carry several tags and the `W/`
+            // weak marker (proxies weaken ETags they compress) —
+            // compare weakly, like `send_conditional_html` does.
+            let etag_match = req
+                .headers()
+                .get(header::IF_NONE_MATCH)
+                .and_then(|v| v.to_str().ok())
+                .map(|h| {
+                    h.split(',')
+                        .any(|t| t.trim().trim_start_matches("W/").trim() == etag)
+                })
+                .unwrap_or(false);
+            let ims_match = req
+                .headers()
+                .get(header::IF_MODIFIED_SINCE)
+                .and_then(|v| v.to_str().ok())
+                == Some(last_modified.as_str());
+            let mut res = axum::response::Response::new(Body::from(bytes));
+            res.headers_mut().insert(
+                header::CONTENT_TYPE,
+                mime::mime_for_path(&file).parse().unwrap(),
+            );
+            res.headers_mut()
+                .insert(header::LAST_MODIFIED, last_modified.parse().unwrap());
+            res.headers_mut()
+                .insert(header::ETAG, etag.parse().unwrap());
+            res.headers_mut()
+                .insert(header::ACCEPT_RANGES, "bytes".parse().unwrap());
+            if etag_match || ims_match {
+                *res.status_mut() = StatusCode::NOT_MODIFIED;
+                *res.body_mut() = Body::empty();
+            }
+            res
+        }
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     }
 }
 

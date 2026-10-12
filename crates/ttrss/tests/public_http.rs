@@ -596,3 +596,89 @@ async fn test_static_file_validators_and_304() {
     .await
     .unwrap();
 }
+
+/// mod_dir parity: a directory URL without a trailing slash 301s to the
+/// slashed form (relative asset URLs resolve against the URL's folder); the
+/// slashed form serves the directory's `index.html`; a directory without one
+/// 404s. The 301 preserves the query string.
+#[tokio::test]
+async fn test_directory_urls_trailing_slash_redirect() {
+    with_test_db(|url| {
+        Box::pin(async move {
+            let tmp = tempfile::tempdir().expect("docroot tempdir");
+            let docroot = tmp.path().to_path_buf();
+            // `sub/` with an index.html; `bare/` without one.
+            let sub = docroot.join("sub");
+            std::fs::create_dir_all(&sub).unwrap();
+            std::fs::write(sub.join("index.html"), "<html>sub</html>").unwrap();
+            std::fs::create_dir_all(docroot.join("bare")).unwrap();
+            let mut cfg = common::test_config();
+            cfg.docroot = docroot.clone();
+            let db = common::make_db_from_url(&url).await.expect("test db");
+            let app = app(AppState::new(cfg, db));
+
+            // Slash-less directory URL → 301 to the slashed form.
+            let req = Request::builder()
+                .method(Method::GET)
+                .uri("/tt-rss/sub")
+                .body(Body::empty())
+                .expect("request");
+            let resp = app.clone().oneshot(req).await.expect("response");
+            assert_eq!(resp.status(), StatusCode::MOVED_PERMANENTLY);
+            assert_eq!(
+                resp.headers().get("location").and_then(|v| v.to_str().ok()),
+                Some("/tt-rss/sub/")
+            );
+
+            // The 301 preserves the query string.
+            let req = Request::builder()
+                .method(Method::GET)
+                .uri("/tt-rss/sub?a=1&b=2")
+                .body(Body::empty())
+                .expect("request");
+            let resp = app.clone().oneshot(req).await.expect("response");
+            assert_eq!(resp.status(), StatusCode::MOVED_PERMANENTLY);
+            assert_eq!(
+                resp.headers().get("location").and_then(|v| v.to_str().ok()),
+                Some("/tt-rss/sub/?a=1&b=2")
+            );
+
+            // The slashed form serves the index.html.
+            let req = Request::builder()
+                .method(Method::GET)
+                .uri("/tt-rss/sub/")
+                .body(Body::empty())
+                .expect("request");
+            let resp = app.clone().oneshot(req).await.expect("response");
+            assert_eq!(resp.status(), StatusCode::OK);
+            let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+                .await
+                .unwrap();
+            assert_eq!(String::from_utf8_lossy(&bytes), "<html>sub</html>");
+
+            // A directory without an index.html 404s (both forms).
+            for uri in ["/tt-rss/bare", "/tt-rss/bare/"] {
+                let req = Request::builder()
+                    .method(Method::GET)
+                    .uri(uri)
+                    .body(Body::empty())
+                    .expect("request");
+                let resp = app.clone().oneshot(req).await.expect("response");
+                assert_eq!(resp.status(), StatusCode::NOT_FOUND, "{uri}");
+            }
+
+            // A plain file is unaffected (no redirect).
+            std::fs::write(docroot.join("file.txt"), "file").unwrap();
+            let req = Request::builder()
+                .method(Method::GET)
+                .uri("/tt-rss/file.txt")
+                .body(Body::empty())
+                .expect("request");
+            let resp = app.oneshot(req).await.expect("response");
+            assert_eq!(resp.status(), StatusCode::OK);
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
+}
