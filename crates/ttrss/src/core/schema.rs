@@ -17,6 +17,7 @@
 //! - a DB stamped *above* `SCHEMA_VERSION` fails startup (d7 in the plan).
 
 use std::path::PathBuf;
+use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use sqlx::AssertSqlSafe;
@@ -35,7 +36,41 @@ const MIGRATIONS_TABLE: &str = "ttrss_version";
 
 /// Session-level advisory lock serializing concurrent startups' migrations.
 /// (Hardening — the PHP reference has no such guard.)
-const MIGRATION_LOCK_KEY: i64 = 4289;
+pub const MIGRATION_LOCK_KEY: i64 = 4289;
+
+/// `lock_timeout` for the migration lock wait: a wedged holder fails the
+/// startup after this instead of hanging it (see
+/// [`acquire_migration_lock`]). Shares the pool's acquire timeout — one
+/// bounded wait per startup step, one number to tune.
+pub const MIGRATION_LOCK_TIMEOUT: Duration = crate::core::db::POOL_ACQUIRE_TIMEOUT;
+
+/// Take the migration advisory lock, bounded by `lock_timeout`.
+///
+/// An alive-but-stuck holder (a wedged migration, a paused container, an
+/// `idle in transaction` session it waits on) keeps the lock indefinitely —
+/// without the timeout every later startup blocks on it forever with no
+/// error (observed: 6 stacked hangs). With it, the wait fails fast with a
+/// diagnosable message. The lock is held until the returned connection
+/// drops (end of startup).
+pub async fn acquire_migration_lock(
+    pool: &PgPool,
+    timeout: Duration,
+) -> Result<sqlx::pool::PoolConnection<sqlx::Postgres>> {
+    let mut conn = pool.acquire().await?;
+    // `timeout` is a caller constant (never request data); sub-second
+    // values work (Postgres accepts '100ms').
+    let ms = timeout.as_millis().max(1);
+    sqlx::query(AssertSqlSafe(format!("SET lock_timeout = '{ms}ms'")))
+        .execute(&mut *conn)
+        .await?;
+    sqlx::query(AssertSqlSafe(format!(
+        "SELECT pg_advisory_lock({MIGRATION_LOCK_KEY})"
+    )))
+    .execute(&mut *conn)
+    .await
+    .context("acquiring the migration advisory lock (another startup may be wedged — check for stuck processes and idle-in-transaction sessions)")?;
+    Ok(conn)
+}
 
 /// `Db_Migrations` — the engine. PHP's `initialize($root_path, …)` took the
 /// `sql` directory; `from_root` mirrors that.
@@ -221,12 +256,9 @@ impl Migrations {
 pub async fn ensure_up_to_date(config: &Config, db: &Db) -> Result<()> {
     let pool = db.pool();
     // Held until the end of the scope; released when the connection drops.
-    let mut lock_conn = pool.acquire().await?;
-    sqlx::query(AssertSqlSafe(format!(
-        "SELECT pg_advisory_lock({MIGRATION_LOCK_KEY})"
-    )))
-    .execute(&mut *lock_conn)
-    .await?;
+    // `MIGRATION_LOCK_TIMEOUT` makes a wedged holder fail startup fast
+    // instead of hanging it (see `acquire_migration_lock`).
+    let _lock_conn = acquire_migration_lock(pool, MIGRATION_LOCK_TIMEOUT).await?;
 
     if let Err(e) = sqlx::query("CREATE EXTENSION IF NOT EXISTS pg_trgm")
         .execute(pool)

@@ -21,8 +21,16 @@ use sqlx::AssertSqlSafe;
 use sqlx::pool::PoolOptions;
 use sqlx::postgres::{PgConnectOptions, PgConnection, PgPool};
 use std::str::FromStr;
+use std::time::Duration;
 
 use crate::core::config::Config;
+
+/// Bound for pool operations (connection checkout behind an exhausted pool
+/// or a slow new connect). Also the ceiling for startup lock waits (see
+/// `schema::MIGRATION_LOCK_TIMEOUT`) — one number to tune.
+/// (sqlx 0.7 has no per-connect TCP timeout; `acquire_timeout` is the
+/// available bound.)
+pub const POOL_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// The exact per-connection session statements from `Db::pdo_connect()`.
 ///
@@ -69,6 +77,12 @@ impl Db {
 
         let pool = PoolOptions::<sqlx::Postgres>::new()
             .max_connections(max_connections)
+            // An unreachable/hung Postgres (or an exhausted pool) must not
+            // stall callers indefinitely — a wedged startup stacks behind
+            // the migration lock, see `schema::ensure_up_to_date`. 30 s
+            // is the sqlx default — set explicitly so it stays a conscious
+            // choice.
+            .acquire_timeout(POOL_ACQUIRE_TIMEOUT)
             // `after_connect` runs once per *new* connection (not on every
             // checkout). The four statements are session GUCs that persist for
             // the connection's life — sqlx's pool only `ping`s idle connections

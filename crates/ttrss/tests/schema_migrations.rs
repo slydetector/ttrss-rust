@@ -11,7 +11,9 @@ use sqlx::AssertSqlSafe;
 use sqlx::postgres::PgPool;
 use test_db::template::with_test_db;
 use ttrss::core::db::Db;
-use ttrss::core::schema::{Migrations, SCHEMA_VERSION, split_statements};
+use ttrss::core::schema::{
+    MIGRATION_LOCK_KEY, Migrations, SCHEMA_VERSION, acquire_migration_lock, split_statements,
+};
 
 /// The reference SQL tree (single source of truth, read at test time).
 fn sql_root() -> &'static str {
@@ -295,6 +297,49 @@ async fn db_newer_than_the_build_fails() {
                 err.to_string().contains("newer than this build"),
                 "actionable ceiling error: {err}"
             );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
+}
+
+/// A wedged lock holder (an alive-but-stuck startup) must fail a later
+/// startup fast instead of hanging it: the `pg_advisory_lock` wait carries
+/// a `lock_timeout`, and once the holder's connection closes the lock is
+/// free again.
+#[tokio::test]
+async fn test_migration_lock_fails_fast_behind_a_wedged_holder() {
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db: Db = common::make_db_from_url(&url).await?;
+            let pool = db.pool();
+
+            // The "wedged" holder: a dedicated connection (not from the
+            // pool) taking the lock with no timeout of its own.
+            let mut holder = sqlx::postgres::PgConnection::connect(&url).await?;
+            sqlx::query(AssertSqlSafe(format!(
+                "SELECT pg_advisory_lock({MIGRATION_LOCK_KEY})"
+            )))
+            .execute(&mut holder)
+            .await?;
+
+            // The waiting startup: bounded by `lock_timeout` — fails fast
+            // with the actionable message instead of blocking forever.
+            let err = acquire_migration_lock(pool, std::time::Duration::from_millis(100))
+                .await
+                .unwrap_err();
+            assert!(
+                err.to_string()
+                    .contains("acquiring the migration advisory lock"),
+                "actionable timeout message: {err}"
+            );
+
+            // The holder "dies" (connection closed → Postgres releases the
+            // session lock) — the next startup gets the lock.
+            use sqlx::Connection as _;
+            holder.close().await?;
+            acquire_migration_lock(pool, std::time::Duration::from_secs(2)).await?;
             Ok(())
         })
     })
