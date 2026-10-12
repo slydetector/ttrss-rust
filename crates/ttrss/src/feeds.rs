@@ -171,7 +171,7 @@ pub async fn getfeedtree(state: &AppState, sess: &Sess, extra: &Map<String, Valu
     let self_url = sess.self_url();
 
     let cats = fetch_all_cats(pool, uid).await;
-    let feeds = fetch_all_feeds(pool, uid).await;
+    let feeds = fetch_all_feeds(pool, uid, &search).await;
 
     let mut root_items: Vec<Value> = Vec::new();
     let mut root_children = 0i64;
@@ -1747,31 +1747,56 @@ async fn fetch_all_cats(pool: &sqlx::PgPool, uid: i64) -> Vec<CatRow> {
 }
 
 /// All of the user's feeds (+ article count), ordered `(order_id, title)`.
-async fn fetch_all_feeds(pool: &sqlx::PgPool, uid: i64) -> Vec<FeedRow> {
-    let rows = sqlx::query(
-        "SELECT f.id, f.title, COALESCE(f.last_error, ''), f.update_interval,
-                SUBSTRING_FOR_DATE(f.last_updated, 1, 19) AS last_updated,
-                COUNT(ue.int_id) AS num_articles, f.cat_id
-         FROM ttrss_feeds f
-         LEFT JOIN ttrss_user_entries ue ON ue.feed_id = f.id
-         WHERE f.owner_uid = $1
-         GROUP BY f.id, f.cat_id
-         ORDER BY f.order_id, f.title",
-    )
-    .bind(uid)
-    .fetch_all(pool)
-    .await
-    .unwrap_or_default();
+///
+/// `search` is the feed-tree term — the PHP's
+/// `Pref_Feeds::get_category_items` `where_raw`: `(LOWER(title) LIKE %s% OR
+/// LOWER(feed_url) LIKE LOWER(%s%))`. The term is interpolated unescaped
+/// like the PHP, so `_`/`%` in it act as LIKE wildcards.
+async fn fetch_all_feeds(pool: &sqlx::PgPool, uid: i64, search: &str) -> Vec<FeedRow> {
+    let pattern = format!("%{search}%");
+    let rows = if search.is_empty() {
+        sqlx::query(
+            "SELECT f.id, f.title, COALESCE(f.feed_url, ''), COALESCE(f.last_error, ''), f.update_interval,
+                    SUBSTRING_FOR_DATE(f.last_updated, 1, 19) AS last_updated,
+                    COUNT(ue.int_id) AS num_articles, f.cat_id
+             FROM ttrss_feeds f
+             LEFT JOIN ttrss_user_entries ue ON ue.feed_id = f.id
+             WHERE f.owner_uid = $1
+             GROUP BY f.id, f.cat_id
+             ORDER BY f.order_id, f.title",
+        )
+        .bind(uid)
+        .fetch_all(pool)
+        .await
+        .unwrap_or_default()
+    } else {
+        sqlx::query(
+            "SELECT f.id, f.title, COALESCE(f.feed_url, ''), COALESCE(f.last_error, ''), f.update_interval,
+                    SUBSTRING_FOR_DATE(f.last_updated, 1, 19) AS last_updated,
+                    COUNT(ue.int_id) AS num_articles, f.cat_id
+             FROM ttrss_feeds f
+             LEFT JOIN ttrss_user_entries ue ON ue.feed_id = f.id
+             WHERE f.owner_uid = $1
+               AND (LOWER(f.title) LIKE $2 OR LOWER(f.feed_url) LIKE LOWER($2))
+             GROUP BY f.id, f.cat_id
+             ORDER BY f.order_id, f.title",
+        )
+        .bind(uid)
+        .bind(pattern)
+        .fetch_all(pool)
+        .await
+        .unwrap_or_default()
+    };
     rows.iter()
         .map(|r| FeedRow {
             id: r.get::<i32, _>(0) as i64,
             title: r.get::<String, _>(1),
-            last_error: r.get::<String, _>(2),
-            update_interval: r.get::<i32, _>(3) as i64,
-            last_updated: r.get::<Option<String>, _>(4),
-            num_articles: r.get::<i64, _>(5),
+            last_error: r.get::<String, _>(3),
+            update_interval: r.get::<i32, _>(4) as i64,
+            last_updated: r.get::<Option<String>, _>(5),
+            num_articles: r.get::<i64, _>(6),
             cat_id: r
-                .try_get::<Option<i32>, _>(6)
+                .try_get::<Option<i32>, _>(7)
                 .ok()
                 .flatten()
                 .map(|c| c as i64),

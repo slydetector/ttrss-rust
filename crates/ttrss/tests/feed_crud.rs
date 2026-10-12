@@ -1260,3 +1260,73 @@ async fn test_dispatch_case_insensitive() {
     .await
     .unwrap();
 }
+
+/// The regular `FEED:<id>` ids (id > 0 — the mode-2 tree also carries the
+/// special feeds + labels under the same `FEED:` prefix with negative/zero
+/// ids) anywhere in the (nested) tree — an explicit work stack over the
+/// `items` arrays, not recursion.
+fn feed_ids(node: &Value, out: &mut Vec<i64>) {
+    let mut stack = vec![node];
+    while let Some(n) = stack.pop() {
+        if let Some(id) = n.get("id").and_then(Value::as_str) {
+            if let Some(n) = id.strip_prefix("FEED:") {
+                if let Some(v) = n.parse::<i64>().ok() {
+                    if v > 0 {
+                        out.push(v);
+                    }
+                }
+            }
+        }
+        if let Some(items) = n.get("items").and_then(Value::as_array) {
+            stack.extend(items.iter());
+        }
+    }
+}
+
+/// `getfeedtree` (mode 2) with an optional `search` term → the sorted
+/// deduped feed ids in the reply.
+async fn fetch_ids(url: &str, search: Option<&str>) -> Vec<i64> {
+    let (state, sess) = setup_from_url(url).await;
+    let mut req: Vec<(&str, Value)> = vec![("mode", json!("2"))];
+    if let Some(s) = search {
+        req.push(("search", json!(s)));
+    }
+    let v = ttrss::feeds::getfeedtree(&state, &sess, &request(&req)).await;
+    let mut ids: Vec<i64> = Vec::new();
+    feed_ids(&v, &mut ids);
+    ids.sort_unstable();
+    ids.dedup();
+    ids
+}
+
+/// The feed-tree search term restricts the feeds by
+/// `(LOWER(title) LIKE %s% OR LOWER(feed_url) LIKE %s%)` — PHP
+/// `Pref_Feeds::get_category_items`. Rust-only regression (the frozen PHP
+/// suite has no getfeedtree tests): before the fix the param was read into
+/// `$_REQUEST`-scoped state and then dropped.
+#[tokio::test]
+async fn test_getfeedtree_search_filters_feeds() {
+    with_test_db(|url| {
+        Box::pin(async move {
+            // "register" → The Register (id 2) by title (and URL).
+            assert_eq!(fetch_ids(&url, Some("register")).await, vec![2]);
+            // "hnrss" → Hacker News (id 1) by feed_url only (the title
+            // never mentions it) — proves the `OR feed_url` half.
+            assert_eq!(fetch_ids(&url, Some("hnrss")).await, vec![1]);
+            // Uppercase → case-insensitive title match (ids 3-4).
+            assert_eq!(fetch_ids(&url, Some("TECH")).await, vec![3, 4]);
+            // The term is interpolated unescaped like the PHP: `_` is a
+            // LIKE wildcard, so "tech_review" matches "Tech Review"
+            // (the space is the wildcard position) → MIT Tech Review (4).
+            // (All lowercase: the PHP only lowers the pattern in the
+            // feed_url branch, so a mixed-case term would not match the
+            // title branch — same here.)
+            assert_eq!(fetch_ids(&url, Some("tech_review")).await, vec![4]);
+            // No search term → unfiltered (all four fixture feeds).
+            assert_eq!(fetch_ids(&url, None).await, vec![1, 2, 3, 4]);
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
+}
