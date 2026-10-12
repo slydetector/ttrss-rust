@@ -30,6 +30,12 @@ RUN apt-get update \
 # The fmt/clippy gates (the rust image ships neither).
 RUN rustup component add clippy rustfmt
 
+# cargo-nextest — the `make test` runner: the official stable release URL
+# (latest release, x86_64 gnu asset — the runner fleet is linux/amd64).
+RUN curl -fsSL -o /tmp/nextest.tar.gz "https://get.nexte.st/latest/linux" \
+    && tar xzf /tmp/nextest.tar.gz -C /usr/local/bin cargo-nextest \
+    && rm /tmp/nextest.tar.gz
+
 # The docker client stack (docs.docker.com/engine/install/debian): the job
 # reaches the RUNNER's daemon through the mounted socket — no dockerd here.
 RUN apt-get update \

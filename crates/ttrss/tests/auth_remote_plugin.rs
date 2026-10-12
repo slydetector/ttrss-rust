@@ -153,8 +153,8 @@ async fn test_remote_user_auto_creates_and_fake_login_session() {
             assert_eq!(data.uid(), Some(uid as i64));
             assert_eq!(
                 data.get_str("auth_module"),
-                Some("Auth_Remote"),
-                "the authenticating plugin's class is recorded"
+                Some("auth_remote"),
+                "the authenticating plugin's lowercased class name is recorded (PHP UserHelper::authenticate: strtolower($plugin::class))"
             );
 
             // The shell hides the Logout item for fake-login sessions.
