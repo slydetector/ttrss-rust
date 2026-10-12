@@ -164,11 +164,17 @@ pub async fn process_feed(
     flags: &FeedUpdateFlags,
     mut log: Option<&mut FeedDebugLog>,
 ) -> Result<FeedUpdateResult> {
-    let feed_language = if feed.feed_language.trim().is_empty() {
-        "simple".to_string()
-    } else {
-        feed.feed_language.trim().to_lowercase()
-    };
+    // PHP (RSSUtils.php:381-384): feed language, else the owner's
+    // DEFAULT_SEARCH_LANGUAGE pref, else 'simple'.
+    let mut feed_language = feed.feed_language.trim().to_lowercase();
+    if feed_language.is_empty() || feed_language == "0" {
+        let rows = crate::prefs::load_rows_pool(pool, feed.owner_uid as i64, None).await;
+        let pref = crate::prefs::resolve(crate::prefs::DEFAULT_SEARCH_LANGUAGE, &rows, None);
+        feed_language = pref.as_str().to_lowercase();
+    }
+    if feed_language.is_empty() || feed_language == "0" {
+        feed_language = "simple".to_string();
+    }
 
     let mut parser = FeedParser::new(feed_data);
     if !parser.init() {

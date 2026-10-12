@@ -168,6 +168,86 @@ async fn test_fetch_one_feed_success() {
     .unwrap();
 }
 
+/// The registry rows the `ttrss_user_prefs2` FK chain needs (the test
+/// template does not seed the prefs registry — PHP populates it on first
+/// pref save).
+async fn set_default_search_language(db: &Db, uid: i32, lang: &str) {
+    sqlx::query("INSERT INTO ttrss_prefs_types (id, type_name) VALUES (2, 'string')")
+        .execute(db.pool())
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO ttrss_prefs_sections (id, order_id, section_name) VALUES (1, 1, 'General')",
+    )
+    .execute(db.pool())
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO ttrss_prefs (pref_name, type_id, def_value) VALUES ('DEFAULT_SEARCH_LANGUAGE', 2, '')")
+        .execute(db.pool())
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO ttrss_user_prefs2 (owner_uid, pref_name, profile, value) VALUES ($1, 'DEFAULT_SEARCH_LANGUAGE', NULL, $2)")
+        .bind(uid)
+        .bind(lang)
+        .execute(db.pool())
+        .await
+        .unwrap();
+}
+
+// `RSSUtils.php:381-384` — the tsvector language falls back to the owner's
+// DEFAULT_SEARCH_LANGUAGE pref when the feed has no language (else the
+// 'simple' config): a language-less feed must be vectorized with the pref's
+// config, so stemmed queries match (PHP parity).
+#[tokio::test]
+async fn test_fetch_one_feed_tsvector_uses_search_language_pref() {
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = common::make_db_from_url(&url).await.expect("test db");
+            let cfg = common::test_config();
+            const FEED: &str =
+                "<?xml version=\"1.0\"?><rss version=\"2.0\"><channel><title>t</title>\
+                 <item><title>Battery testing begins</title><guid>g1</guid>\
+                 <link>https://x.test/a</link><pubDate>Sun, 06 Nov 1994 08:49:37 GMT</pubDate>\
+                 </item></channel></rss>";
+            let mock = MockServer::new(vec![Canned {
+                status: 200,
+                reason: "OK",
+                headers: vec![("last-modified", "Sun, 06 Nov 1994 08:49:37 GMT".to_string())],
+                body: FEED.as_bytes().to_vec(),
+            }]);
+            let uid = create_user(&db, 200, 0).await;
+            set_default_search_language(&db, uid, "english").await;
+            let feed_id = create_feed(&db, 200, uid, &mock.url("/feed")).await;
+
+            let outcome = fetch_one_feed(
+                db.pool(),
+                &cfg,
+                Arc::new(no_plugins()),
+                feed_id,
+                &FeedUpdateFlags::default(),
+                None,
+            )
+            .await
+            .expect("fetch");
+            assert!(outcome.success, "expected success: {:?}", outcome.error);
+            // The 'english' config stems "battery" to "batteri"; the 'simple'
+            // config would keep the raw lexeme and not match this query.
+            let matched: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM ttrss_entries WHERE id IN (SELECT ref_id FROM ttrss_user_entries WHERE feed_id = $1) \
+                 AND tsvector_combined @@ to_tsquery('english', 'battery')",
+            )
+            .bind(feed_id)
+            .fetch_one(db.pool())
+            .await
+            .expect("tsvector match count");
+            assert_eq!(matched, 1, "entry must be vectorized with the pref's config");
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
+}
+
 // A 304 (not modified): the feed is confirmed unchanged (no new articles, no
 // `last_unconditional` — the fetch was conditional).
 #[tokio::test]
