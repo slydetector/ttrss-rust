@@ -260,6 +260,9 @@ pub fn build_login_session(
     data.set("last_login_update", Value::Int(now));
     data.set("ip_address", Value::Bytes(ip_address.as_bytes().to_vec()));
     data.set("csrf_token", Value::Bytes(random_hex(16).into_bytes()));
+    // PHP stores the plugin's lowercased class name
+    // (`UserHelper::authenticate`: `$auth_module = strtolower($plugin::class)`).
+    let auth_module = auth_module.to_lowercase();
     data.set("auth_module", Value::Bytes(auth_module.as_bytes().to_vec()));
     data.set("name", Value::Bytes(login.as_bytes().to_vec()));
     data.set("access_level", Value::Int(access_level as i64));
@@ -295,4 +298,27 @@ pub async fn get_profiles(db: &Db, login: &str) -> serde_json::Value {
         rv.push(serde_json::json!({ "label": title, "value": id }));
     }
     serde_json::Value::Array(rv)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The session's `auth_module` is the plugin's lowercased class name
+    /// (PHP `UserHelper::authenticate`: `strtolower($plugin::class)`), so the
+    /// prefs auth pane's comparison against `"auth_internal"` matches.
+    #[test]
+    fn test_auth_module_is_lowercased() {
+        let (_sid, data) = build_login_session(
+            1,
+            "admin",
+            10,
+            "hash",
+            false,
+            false,
+            "Auth_Internal", // the plugin's real (capped) class name
+            "127.0.0.1",
+        );
+        assert_eq!(data.get_str("auth_module"), Some("auth_internal"));
+    }
 }
