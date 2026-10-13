@@ -103,6 +103,22 @@ pub fn verify_app_password(stored: &str, pass: &str) -> bool {
     }
 }
 
+/// `check_app_password`'s on-match upgrade: re-hash a verifying app password
+/// from an out-of-date algorithm to `HASH_ALGOS[0]` (same salt) and return
+/// the new `ALGO:HASH:SALT` string. `None` when it doesn't verify or is
+/// already current.
+pub fn upgrade_app_password(stored: &str, pass: &str) -> Option<String> {
+    let stored_algo = stored.split(':').next()?;
+    if stored_algo == ALGO_SSHA512 {
+        return None;
+    }
+    if !verify_app_password(stored, pass) {
+        return None;
+    }
+    let salt = stored.splitn(3, ':').nth(2)?;
+    hash_password(pass, salt, ALGO_SSHA512).map(|new| format!("{new}:{salt}"))
+}
+
 // ---------------------------------------------------------------------------
 // TOTP (OTPPHP TOTP: sha1, 30s, 6 digits)
 // ---------------------------------------------------------------------------
@@ -188,6 +204,26 @@ mod tests {
         assert!(!verify_app_password(&stored, "nope"));
         // malformed
         assert!(!verify_app_password("SSHA-512:abc", pass));
+    }
+
+    #[test]
+    fn app_password_upgrade() {
+        let salt = "a1b2c3d4e5f6";
+        let pass = "AppPass123";
+        // Out-of-date algo → re-hashed to SSHA-512, salt preserved.
+        let legacy = format!("{}:{salt}", hash_password(pass, salt, ALGO_SHA1X).unwrap());
+        let up = upgrade_app_password(&legacy, pass).unwrap();
+        assert!(up.starts_with("SSHA-512:"), "got: {up}");
+        assert!(up.ends_with(salt), "got: {up}");
+        assert!(verify_app_password(&up, pass));
+        // Already current → no upgrade.
+        let current = format!(
+            "{}:{salt}",
+            hash_password(pass, salt, ALGO_SSHA512).unwrap()
+        );
+        assert!(upgrade_app_password(&current, pass).is_none());
+        // Wrong password → no upgrade.
+        assert!(upgrade_app_password(&legacy, "nope").is_none());
     }
 
     #[test]

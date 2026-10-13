@@ -97,6 +97,65 @@ async fn test_generate_app_password() {
     .unwrap();
 }
 
+/// API login with an out-of-date app-password algorithm: the successful
+/// match re-hashes to SSHA-512 (same salt) — `check_app_password`'s on-match
+/// upgrade (the PHP's "Upgrading app password of user … to SSHA-512").
+#[tokio::test]
+async fn test_api_login_upgrades_outdated_app_password_algo() {
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = common::make_state(&url).await;
+            let db = state.db.pool();
+
+            // A legacy SHA1X-format app password (pre-SSHA-512 installations).
+            let pw = "old-style-pass";
+            let salt = "somesalt123";
+            let stored = format!(
+                "{}:{salt}",
+                ttrss::core::user::hash_password(pw, salt, ttrss::core::user::ALGO_SHA1X).unwrap()
+            );
+            assert!(stored.starts_with("SHA1X:"));
+            sqlx::query(
+                "INSERT INTO ttrss_app_passwords (title, owner_uid, pwd_hash, service, created) \
+                 VALUES ('legacy', 1, $1, '_api', NOW())",
+            )
+            .bind(&stored)
+            .execute(db)
+            .await
+            .unwrap();
+            sqlx::query(
+                "INSERT INTO ttrss_user_prefs2 (owner_uid, pref_name, profile, value) \
+                 VALUES (1, 'ENABLE_API_ACCESS', NULL, 'true')",
+            )
+            .execute(db)
+            .await
+            .unwrap();
+
+            let body = request(&[("user", json!("admin")), ("password", json!(pw))]);
+            let (status, content) =
+                ttrss::api::before_and_dispatch(&state, &sess, "login", &body, None).await;
+            assert_eq!(status, 0, "login must succeed: {content}");
+
+            // The stored row is now SSHA-512, salt preserved, still verifies.
+            let new_stored: String = sqlx::query_scalar(
+                "SELECT pwd_hash FROM ttrss_app_passwords WHERE title = 'legacy'",
+            )
+            .fetch_one(db)
+            .await
+            .unwrap();
+            assert!(new_stored.starts_with("SSHA-512:"), "got: {new_stored}");
+            assert!(
+                new_stored.ends_with(salt),
+                "salt must be preserved: {new_stored}"
+            );
+            assert!(ttrss::core::user::verify_app_password(&new_stored, pw));
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
+}
+
 #[tokio::test]
 async fn test_generate_app_password_unique_chars() {
     with_test_db(|url| {

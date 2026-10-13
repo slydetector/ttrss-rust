@@ -8,20 +8,18 @@
 //!   hash verify (with algo upgrade). The OTP challenge and failure
 //!   message are communicated via `HostCtx` side-channels
 //!   (`otp_challenge`, `login_error`).
-//! - `change_password` — verify the old password, set a fresh salt +
-//!   SSHA-512 hash. Dispatched via `invoke_method` (the `IAuthModule2`
-//!   method, not a hook).
-//!
 //! The core auth logic lives in [`crate::auth`] (the `UserHelper` port);
 //! this plugin wraps it in the `Plugin::authenticate` contract.
+//!
+//! (The PHP's `Auth_Internal::change_password` is not exposed as a public
+//! plugin method — the port has no plugin password-change route either; see
+//! the NOTE in the impl below.)
 
 use crate::auth;
-use crate::i18n::__;
 use crate::pluginhost::HOOK_AUTH_USER;
 use crate::pluginhost::host::{HostCtx, PluginHost};
-use crate::pluginhost::plugin::{About, MethodOutput, Plugin, PluginError};
+use crate::pluginhost::plugin::{About, Plugin};
 use async_trait::async_trait;
-use serde_json::Value;
 
 /// PHP's `class Auth_Internal extends Auth_Base implements IAuthModule2`.
 #[derive(Clone, Copy)]
@@ -78,38 +76,10 @@ impl Plugin for AuthInternal {
         }
     }
 
-    /// `IAuthModule2::change_password` — dispatched via the `PluginHandler`
-    /// backend (`op=pluginhandler&plugin=auth_internal&method=changepassword`).
-    fn has_public_method(&self, method: &str) -> bool {
-        method.eq_ignore_ascii_case("changepassword")
-    }
-
-    async fn invoke_method(
-        &self,
-        host: &mut HostCtx,
-        method: &str,
-        params: &Value,
-    ) -> Result<MethodOutput, PluginError> {
-        match method.to_ascii_lowercase().as_str() {
-            "changepassword" => {
-                let uid = host.owner_uid.unwrap_or(0);
-                let old_pw = params
-                    .get("old_password")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
-                let new_pw = params
-                    .get("new_password")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
-                match auth::change_password(host.pool(), uid, old_pw, new_pw).await {
-                    Some(_) => Ok(MethodOutput::Raw(__("Password has been changed."))),
-                    None => Ok(MethodOutput::Raw(format!(
-                        "ERROR: {}",
-                        __("Old password is incorrect.")
-                    ))),
-                }
-            }
-            _ => Err(PluginError::UnknownMethod(method.to_string())),
-        }
-    }
+    // NOTE: the PHP has no plugin password-change route — `Plugin::
+    // is_public_method` defaults to `false` and `Auth_Internal` has no
+    // `changepassword` method, so both plugin routes reject it. The port
+    // matches: passwords change only via `Pref_Prefs` (`op=Pref_Prefs&
+    // method=changepassword` → `settings::changepassword`), which refreshes
+    // the session `pwd_hash`.
 }

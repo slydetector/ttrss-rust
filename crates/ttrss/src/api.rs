@@ -329,10 +329,34 @@ async fn verify_app_password(pool: &sqlx::PgPool, login: &str, password: &str) -
         let stored: String = r.get("pwd_hash");
         if user::verify_app_password(&stored, password) {
             let id: i32 = r.get("id");
-            let _ = sqlx::query("UPDATE ttrss_app_passwords SET last_used = NOW() WHERE id = $1")
-                .bind(id)
-                .execute(pool)
-                .await;
+            // `check_app_password`: an out-of-date algorithm is re-hashed to
+            // `HASH_ALGOS[0]` (same salt) on a successful match — the stored
+            // string becomes `SSHA-512:<hash>:<salt>`.
+            let upgrade = user::upgrade_app_password(&stored, password);
+            match upgrade {
+                Some(new_stored) => {
+                    // `Logger::log(E_USER_NOTICE, …)`.
+                    tracing::info!(
+                        "Upgrading app password of user {login} to {}",
+                        user::ALGO_SSHA512
+                    );
+                    let _ = sqlx::query(
+                        "UPDATE ttrss_app_passwords SET pwd_hash = $1, last_used = NOW() WHERE id = $2",
+                    )
+                    .bind(&new_stored)
+                    .bind(id)
+                    .execute(pool)
+                    .await;
+                }
+                None => {
+                    let _ = sqlx::query(
+                        "UPDATE ttrss_app_passwords SET last_used = NOW() WHERE id = $1",
+                    )
+                    .bind(id)
+                    .execute(pool)
+                    .await;
+                }
+            }
             return true;
         }
     }
