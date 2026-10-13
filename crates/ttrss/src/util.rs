@@ -14,6 +14,16 @@ pub fn sha1_hex(s: impl AsRef<[u8]>) -> String {
     format!("{:x}", sha1::Sha1::digest(s.as_ref()))
 }
 
+/// `md5` of a byte string, lowercase hex.
+pub fn md5_hex(s: impl AsRef<[u8]>) -> String {
+    let digest = md5::compute(s.as_ref());
+    let mut out = String::with_capacity(32);
+    for b in digest.as_slice() {
+        out.push_str(&format!("{b:02x}"));
+    }
+    out
+}
+
 /// PHP `hash_equals` — constant-time string comparison (false on length mismatch).
 pub fn ct_eq(a: &str, b: &str) -> bool {
     let (a, b) = (a.as_bytes(), b.as_bytes());

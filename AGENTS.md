@@ -7,8 +7,10 @@ The PHP reference in `tt-rss/` is a git submodule (pinned by the superproject)
 
 ## Load-bearing rules
 
-- **The PHP reference is the spec.** Where the port and `tt-rss/` disagree, the
-  PHP wins; surface any deliberate deviation.
+- **The PHP reference is the spec.** At feature parity, treat the PHP as the
+  default, not an absolute authority — deliberate deviations are fine when they
+  are a better architectural fit, more modern, or strategically motivated;
+  surface them.
 - **Assume the port is wrong:** consult `tt-rss/` for canonical behavior before
   treating it as correct.
 - **Verify APIs against the toolchain and vendored sources, not memory.** This

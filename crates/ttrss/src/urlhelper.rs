@@ -546,9 +546,13 @@ fn php_dirname(path: &str) -> String {
 // Faithful-by-default notes:
 //   * The PHP uses Guzzle (PSR-7); the port uses `reqwest`. Both follow
 //     redirects, honor conditional requests, and decompress gzip.
-//   * reqwest has no `CURLAUTH_ANY` equivalent; the 403 retry (the PHP retries
-//     once with `CURLAUTH_ANY`) is modeled as a single re-send — the
-//     observable effect for the basic-auth feeds this port handles.
+//   * Auth: `auth_type` ("basic" (default) | "digest" | "any") drives the
+//     attempt (see [`AuthScheme`]). reqwest has no native digest, so a digest
+//     401 challenge gets one computed `Authorization: Digest` resend for the
+//     digest-capable schemes (RFC 2617 `qop=auth` + legacy no-qop; an
+//     `auth-int`-only challenge is skipped). The 403 retry (the PHP retries
+//     once with `CURLAUTH_ANY`) re-sends with "any" = preemptive basic + the
+//     digest challenge handling — a strict superset of the first attempt.
 //   * Per-request timeouts default to the PHP's FILE_FETCH_TIMEOUT (45 s) and
 //     FILE_FETCH_CONNECT_TIMEOUT (15 s); M6c.7 wires the `Config` surface.
 
@@ -654,7 +658,7 @@ pub async fn fetch(opts: &FetchOptions) -> FetchResult {
         }
     };
 
-    let auth_type = opts.auth_type.clone().unwrap_or_else(|| "basic".into());
+    let scheme = AuthScheme::resolve(opts.auth_type.as_deref());
     let followlocation = opts.followlocation.unwrap_or(true);
     let timeout = opts
         .timeout
@@ -704,7 +708,7 @@ pub async fn fetch(opts: &FetchOptions) -> FetchResult {
     };
 
     // Send (with the 403 auth retry — the PHP retries once with CURLAUTH_ANY).
-    let resp = match send_once(&client, &url, opts, &auth_type, &useragent).await {
+    let resp = match send_with_auth(&client, &url, opts, scheme, &useragent).await {
         Ok(r) => {
             let needs_retry = r.status() == reqwest::StatusCode::FORBIDDEN
                 && opts
@@ -713,9 +717,12 @@ pub async fn fetch(opts: &FetchOptions) -> FetchResult {
                     .map(|l| !l.is_empty())
                     .unwrap_or(false)
                 && opts.pass.as_deref().map(|p| !p.is_empty()).unwrap_or(false)
-                && auth_type != "any";
+                && scheme != AuthScheme::Any;
             if needs_retry {
-                match send_once(&client, &url, opts, &auth_type, &useragent).await {
+                // The PHP sets `auth_type = 'any'` and re-fetches: preemptive
+                // basic plus the digest challenge handling — strictly more
+                // capable than the first attempt.
+                match send_with_auth(&client, &url, opts, AuthScheme::Any, &useragent).await {
                     Ok(r2) => r2,
                     Err(e) => {
                         res.error = e.to_string();
@@ -800,15 +807,82 @@ pub async fn fetch(opts: &FetchOptions) -> FetchResult {
     res
 }
 
-/// Build and send a single request for [`fetch`].
-async fn send_once(
+/// The `auth_type` option ("basic" (default) | "digest" | "any") resolved to
+/// the attempt's auth behavior.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum AuthScheme {
+    /// Absent or `"basic"` — the preemptive `Authorization: Basic` header.
+    Basic,
+    /// `"digest"` — no preemptive header; answers a digest 401 challenge.
+    Digest,
+    /// `"any"` (PHP `CURLAUTH_ANY`) — preemptive basic + digest challenge.
+    Any,
+    /// An unrecognized value — the PHP's `in_array`/`===` checks match
+    /// nothing, so the request goes out unauthenticated.
+    Off,
+}
+
+impl AuthScheme {
+    fn resolve(opt: Option<&str>) -> Self {
+        match opt {
+            None | Some("basic") => Self::Basic,
+            Some("digest") => Self::Digest,
+            Some("any") => Self::Any,
+            Some(_) => Self::Off,
+        }
+    }
+
+    /// Send the preemptive `Authorization: Basic` header (basic and any).
+    fn preemptive_basic(self) -> bool {
+        matches!(self, Self::Basic | Self::Any)
+    }
+
+    /// Take part in the one-shot digest challenge round-trip.
+    fn digest_capable(self) -> bool {
+        matches!(self, Self::Digest | Self::Any)
+    }
+}
+
+/// Send one attempt of [`fetch`] with the given [`AuthScheme`]. For the
+/// digest-capable schemes, a `401` answered with `WWW-Authenticate: Digest`
+/// triggers exactly one computed `Authorization: Digest` resend (RFC 2617
+/// `qop=auth` and the legacy no-qop form).
+async fn send_with_auth(
     client: &reqwest::Client,
     url: &str,
     opts: &FetchOptions,
-    auth_type: &str,
+    scheme: AuthScheme,
     useragent: &str,
 ) -> Result<reqwest::Response, reqwest::Error> {
-    let is_basic_or_digest = matches!(auth_type, "basic" | "digest");
+    let resp = build_and_send(client, url, opts, scheme, useragent, None).await?;
+
+    if resp.status() == reqwest::StatusCode::UNAUTHORIZED
+        && scheme.digest_capable()
+        && let (Some(login), Some(pass)) = (&opts.login, &opts.pass)
+        && !login.is_empty()
+        && !pass.is_empty()
+        && let Some(header) = resp
+            .headers()
+            .get(reqwest::header::WWW_AUTHENTICATE)
+            .and_then(|v| v.to_str().ok())
+            .and_then(parse_digest_challenge)
+            .and_then(|ch| digest_authorization(url, opts.post_query.is_some(), login, pass, &ch))
+    {
+        return build_and_send(client, url, opts, scheme, useragent, Some(&header)).await;
+    }
+
+    Ok(resp)
+}
+
+/// Build and send a single request for [`fetch`].
+async fn build_and_send(
+    client: &reqwest::Client,
+    url: &str,
+    opts: &FetchOptions,
+    scheme: AuthScheme,
+    useragent: &str,
+    digest_header: Option<&str>,
+) -> Result<reqwest::Response, reqwest::Error> {
     let is_post = opts.post_query.is_some();
 
     let mut req = if is_post {
@@ -839,7 +913,9 @@ async fn send_once(
         req = req.header("Referer", ref_);
     }
 
-    if is_basic_or_digest
+    if let Some(digest) = digest_header {
+        req = req.header(reqwest::header::AUTHORIZATION, digest);
+    } else if scheme.preemptive_basic()
         && let (Some(login), Some(pass)) = (&opts.login, &opts.pass)
         && !login.is_empty()
         && !pass.is_empty()
@@ -852,6 +928,113 @@ async fn send_once(
     }
 
     req.send().await
+}
+
+/// The parameters of a `WWW-Authenticate: Digest …` challenge.
+struct DigestChallenge {
+    realm: String,
+    nonce: String,
+    opaque: Option<String>,
+    /// The `qop` value list (e.g. `"auth"` / `"auth, auth-int"`); `None` =
+    /// the legacy (RFC 2069) form without `qop`.
+    qop: Option<String>,
+}
+
+/// Parse a `WWW-Authenticate: Digest realm="…", nonce="…", …` header (quoted
+/// and bare values alike). `None` for a non-Digest scheme or a challenge
+/// without `realm`/`nonce`.
+fn parse_digest_challenge(header: &str) -> Option<DigestChallenge> {
+    let header = header.trim();
+    let rest = header
+        .strip_prefix("Digest")
+        .or_else(|| header.strip_prefix("digest"))?
+        .trim();
+    let re = regex::Regex::new(r#"([a-zA-Z]+)=(?:"([^"]*)"|(\S+))"#).ok()?;
+    let mut realm = None;
+    let mut nonce = None;
+    let mut opaque = None;
+    let mut qop = None;
+    for caps in re.captures_iter(rest) {
+        let value = caps.get(2).or(caps.get(3))?.as_str().to_string();
+        match caps.get(1).unwrap().as_str() {
+            "realm" => realm = Some(value),
+            "nonce" => nonce = Some(value),
+            "opaque" => opaque = Some(value),
+            "qop" => qop = Some(value),
+            _ => {}
+        }
+    }
+    Some(DigestChallenge {
+        realm: realm?,
+        nonce: nonce?,
+        opaque,
+        qop,
+    })
+}
+
+/// The request-target (path + query, rooted at `/`) of an absolute URL — the
+/// digest `uri=` parameter and the server's `H(A2)` both use it.
+fn request_uri(url: &str) -> String {
+    let after = url.split_once("://").map(|(_, r)| r).unwrap_or(url);
+    let idx = after
+        .find(|c| c == '/' || c == '?' || c == '#')
+        .unwrap_or(after.len());
+    let uri = &after[idx..];
+    if uri.is_empty() {
+        "/".to_string()
+    } else {
+        uri.to_string()
+    }
+}
+
+/// Build the `Authorization: Digest …` header answering a challenge (RFC 2617
+/// `qop=auth`, or the legacy no-qop form when the challenge offers none).
+fn digest_authorization(
+    url: &str,
+    is_post: bool,
+    login: &str,
+    pass: &str,
+    ch: &DigestChallenge,
+) -> Option<String> {
+    let method = if is_post { "POST" } else { "GET" };
+    let uri = request_uri(url);
+
+    let ha1 = crate::util::md5_hex(&format!("{}:{}:{}", login, ch.realm, pass));
+    let ha2 = crate::util::md5_hex(&format!("{method}:{uri}"));
+
+    let (qop, nc, cnonce) = match ch.qop.as_deref() {
+        None => (None, None, None),
+        Some(q) if q.split(',').any(|x| x.trim() == "auth") => (
+            Some("auth".to_string()),
+            Some("00000001".to_string()),
+            Some(crate::util::random_hex(8)),
+        ),
+        Some(_) => {
+            // TODO(port): digest qop=auth-int unsupported (challenge offers no
+            // "auth"); feed servers only ever advertise "auth".
+            tracing::warn!("digest qop=auth-int unsupported (challenge offers no \"auth\")");
+            return None;
+        }
+    };
+
+    let response = match (&qop, &nc, &cnonce) {
+        (Some(q), Some(nc), Some(cn)) => {
+            crate::util::md5_hex(&format!("{ha1}:{}:{nc}:{cn}:{q}:{ha2}", ch.nonce))
+        }
+        _ => crate::util::md5_hex(&format!("{ha1}:{}:{ha2}", ch.nonce)),
+    };
+
+    let mut header = format!(
+        "Digest username=\"{}\", realm=\"{}\", nonce=\"{}\", uri=\"{}\", response=\"{}\"",
+        login, ch.realm, ch.nonce, uri, response
+    );
+    if let (Some(q), Some(nc), Some(cn)) = (qop, nc, cnonce) {
+        header.push_str(&format!(", qop={q}, nc={nc}, cnonce=\"{cn}\""));
+    }
+    if let Some(op) = &ch.opaque {
+        header.push_str(&format!(", opaque=\"{op}\""));
+    }
+    Some(header)
 }
 
 /// Resolve the IP of a URL's host (the PHP's `gethostbyname` equivalent). An
@@ -963,6 +1146,8 @@ mod tests {
     /// serves canned responses in order, repeating the last when exhausted.
     struct MockProxy {
         port: u16,
+        /// The raw request bytes, one entry per connection (in order).
+        requests: Arc<Mutex<Vec<Vec<u8>>>>,
         _thread: std::thread::JoinHandle<()>,
     }
 
@@ -972,8 +1157,10 @@ mod tests {
             let port = listener.local_addr().unwrap().port();
             let responses = Arc::new(Mutex::new(responses));
             let count = Arc::new(AtomicUsize::new(0));
+            let requests = Arc::new(Mutex::new(Vec::new()));
             let r = responses.clone();
             let c = count.clone();
+            let reqs = requests.clone();
             let thread = std::thread::spawn(move || {
                 for stream in listener.incoming() {
                     let Ok(mut stream) = stream else { continue };
@@ -992,6 +1179,7 @@ mod tests {
                             Err(_) => break,
                         }
                     }
+                    reqs.lock().unwrap().push(data);
                     let idx = c.fetch_add(1, Ordering::Relaxed);
                     let resp = {
                         let resps = r.lock().unwrap();
@@ -1017,12 +1205,23 @@ mod tests {
             });
             Self {
                 port,
+                requests,
                 _thread: thread,
             }
         }
 
         fn proxy(&self) -> String {
             format!("http://127.0.0.1:{}", self.port)
+        }
+
+        /// The i-th recorded raw request, as lossy text ("" if absent).
+        fn request(&self, i: usize) -> String {
+            self.requests
+                .lock()
+                .unwrap()
+                .get(i)
+                .map(|b| String::from_utf8_lossy(b).into_owned())
+                .unwrap_or_default()
         }
     }
 
@@ -1108,6 +1307,172 @@ mod tests {
         let res = fetch(&opts(&target(), mock.proxy())).await;
         assert_eq!(res.body, None);
         assert_eq!(res.error_code, 403);
+    }
+
+    /// A `401 + WWW-Authenticate: Digest` challenge with `auth_type = "digest"`
+    ///: the first request carries no auth header; the resend carries the
+    /// computed `Authorization: Digest` (verified against an independent MD5).
+    #[tokio::test]
+    async fn fetch_digest_challenge_round_trip() {
+        let mock = MockProxy::new(vec![
+            Canned {
+                status: 401,
+                reason: "Unauthorized",
+                headers: vec![(
+                    "WWW-Authenticate",
+                    "Digest realm=\"ttrss\", nonce=\"abc123\", qop=\"auth\"".into(),
+                )],
+                body: Vec::new(),
+            },
+            Canned {
+                status: 200,
+                reason: "OK",
+                headers: vec![],
+                body: b"digest ok".to_vec(),
+            },
+        ]);
+        let mut o = opts(&target(), mock.proxy());
+        o.login = Some("user".into());
+        o.pass = Some("pass".into());
+        o.auth_type = Some("digest".into());
+        let res = fetch(&o).await;
+        assert_eq!(res.body.as_deref(), Some(b"digest ok".as_slice()));
+        assert_eq!(res.error_code, 200);
+
+        // First attempt: unauthenticated (digest is challenge-driven).
+        assert!(
+            !mock
+                .request(0)
+                .to_ascii_lowercase()
+                .contains("authorization:")
+        );
+        // Resend: the computed digest header.
+        // reqwest writes header names lowercase on the wire.
+        let req1 = mock.request(1);
+        let auth = req1
+            .lines()
+            .find(|l| l.to_ascii_lowercase().starts_with("authorization: "))
+            .unwrap();
+        let header = auth.splitn(2, ": ").nth(1).unwrap();
+        assert!(
+            header.starts_with(
+                "Digest username=\"user\", realm=\"ttrss\", nonce=\"abc123\", uri=\"/feed\", "
+            ),
+            "header: {header}"
+        );
+        let field = |name: &str| -> String {
+            let quoted = matches!(name, "response" | "cnonce");
+            let marker = if quoted {
+                format!("{name}=\"")
+            } else {
+                format!("{name}=")
+            };
+            let Some(i) = header.find(&marker) else {
+                panic!("missing {name} in: {header}")
+            };
+            let rest = &header[i + marker.len()..];
+            if quoted {
+                rest.split('"').next().unwrap().to_string()
+            } else {
+                rest.split(',').next().unwrap().trim().to_string()
+            }
+        };
+        let response = field("response");
+        let cnonce = field("cnonce");
+        assert_eq!(field("qop"), "auth");
+        assert_eq!(field("nc"), "00000001");
+        let ha1 = crate::util::md5_hex("user:ttrss:pass");
+        let ha2 = crate::util::md5_hex("GET:/feed");
+        let expected = crate::util::md5_hex(&format!("{ha1}:abc123:00000001:{cnonce}:auth:{ha2}"));
+        assert_eq!(response, expected);
+    }
+
+    /// `auth_type = "basic"` + 403: the retry runs as "any" (preemptive basic)
+    /// and its digest challenge round-trip completes the login.
+    #[tokio::test]
+    async fn fetch_403_retry_any_answers_digest_challenge() {
+        let mock = MockProxy::new(vec![
+            Canned {
+                status: 403,
+                reason: "Forbidden",
+                headers: vec![],
+                body: Vec::new(),
+            },
+            Canned {
+                status: 401,
+                reason: "Unauthorized",
+                headers: vec![(
+                    "WWW-Authenticate",
+                    "Digest realm=\"ttrss\", nonce=\"n2\"".into(),
+                )],
+                body: Vec::new(),
+            },
+            Canned {
+                status: 200,
+                reason: "OK",
+                headers: vec![],
+                body: b"any ok".to_vec(),
+            },
+        ]);
+        let mut o = opts(&target(), mock.proxy());
+        o.login = Some("user".into());
+        o.pass = Some("pass".into());
+        o.auth_type = Some("basic".into());
+        let res = fetch(&o).await;
+        assert_eq!(res.body.as_deref(), Some(b"any ok".as_slice()));
+        assert_eq!(res.error_code, 200);
+
+        let b64 =
+            base64::engine::Engine::encode(&base64::engine::general_purpose::STANDARD, "user:pass");
+        // reqwest writes header names lowercase on the wire.
+        // Attempt 1 (basic) and the "any" retry both send preemptive basic.
+        assert!(
+            mock.request(0)
+                .contains(&format!("authorization: Basic {b64}"))
+        );
+        assert!(
+            mock.request(1)
+                .contains(&format!("authorization: Basic {b64}"))
+        );
+        // The retry's challenge round-trip answers with legacy (no-qop) digest.
+        let req2 = mock.request(2);
+        let auth = req2
+            .lines()
+            .find(|l| l.to_ascii_lowercase().starts_with("authorization: "))
+            .unwrap();
+        assert!(auth.contains("Digest username=\"user\""));
+        let ha1 = crate::util::md5_hex("user:ttrss:pass");
+        let ha2 = crate::util::md5_hex("GET:/feed");
+        let expected = crate::util::md5_hex(&format!("{ha1}:n2:{ha2}"));
+        assert!(auth.contains(&format!("response=\"{expected}\"")));
+        assert!(!auth.contains("qop="));
+    }
+
+    /// `auth_type = "basic"` does NOT answer a digest challenge (PHP: only
+    /// `CURLAUTH_ANY`/digest do) — the 401 is returned as-is.
+    #[tokio::test]
+    async fn fetch_basic_scheme_ignores_digest_challenge() {
+        let mock = MockProxy::new(vec![Canned {
+            status: 401,
+            reason: "Unauthorized",
+            headers: vec![(
+                "WWW-Authenticate",
+                "Digest realm=\"ttrss\", nonce=\"abc123\", qop=\"auth\"".into(),
+            )],
+            body: Vec::new(),
+        }]);
+        let mut o = opts(&target(), mock.proxy());
+        o.login = Some("user".into());
+        o.pass = Some("pass".into());
+        o.auth_type = Some("basic".into());
+        let res = fetch(&o).await;
+        assert_eq!(res.body, None);
+        assert_eq!(res.error_code, 401);
+        assert_eq!(
+            mock.requests.lock().unwrap().len(),
+            1,
+            "no challenge resend"
+        );
     }
 
     #[tokio::test]
