@@ -165,12 +165,31 @@ pub fn send_file(path: &Path, req: &HeaderMap) -> Response {
 /// has its dots stripped ("we do not allow files with extensions"). The cache
 /// base is the parent of the feed-icons dir (the app `CACHE_DIR`).
 pub fn resolve_cached(cache_dir: &Path, file: &str) -> Option<PathBuf> {
+    // `explode("/", file, 2)`: first component = subdir, the rest = filename.
     let (subdir, raw_name) = file.split_once('/')?;
-    let name = raw_name.replace('.', "").trim().to_string();
+    // PHP strips the dots FIRST, then applies `basename()` on every adapter
+    // call — the basename drops the separators that survive, so
+    // `file=images/../../feed-icons/123` resolves to `images/123`, never
+    // outside the subdir (the route is unauthenticated).
+    let stripped = raw_name.replace('.', "");
+    let name = php_basename(&stripped);
     if name.is_empty() {
         return None;
     }
-    Some(cache_dir.join(subdir.trim()).join(name))
+    // PHP `set_dir`: `basename(clean($dir))` — `clean()` = strip_tags + trim.
+    let subdir = crate::util::clean_str(subdir);
+    Some(cache_dir.join(php_basename(&subdir)).join(name))
+}
+
+/// PHP `basename()`: the last path component — unlike `Path::file_name`,
+/// also yields a component for trailing-slash names (`basename("a/b/") ==
+/// "b"`), and `""` for `""`/`"/"`.
+fn php_basename(p: &str) -> &str {
+    let t = p.trim_end_matches('/');
+    match t.rfind('/') {
+        Some(i) => &t[i + 1..],
+        None => t,
+    }
 }
 
 /// `DiskCache::rewrite_urls($str)` — rewrite image `src`/`srcset`/`poster`
@@ -478,6 +497,34 @@ mod tests {
             Some(Path::new("/app/cache/images/abcpng"))
         );
         assert_eq!(resolve_cached(dir, "no-slash"), None);
+    }
+
+    #[test]
+    fn cached_path_resolution_blocks_traversal() {
+        // PHP: dots stripped, then `basename()` on every adapter call — the
+        // remainder can never escape the subdir (unauthenticated route).
+        let dir = Path::new("/app/cache");
+        assert_eq!(
+            resolve_cached(dir, "images/../../feed-icons/123").as_deref(),
+            Some(Path::new("/app/cache/images/123"))
+        );
+        // Trailing slash: PHP `basename("abc/") == "abc"` (a file IS served).
+        assert_eq!(
+            resolve_cached(dir, "images/abc/").as_deref(),
+            Some(Path::new("/app/cache/images/abc"))
+        );
+        // All dots → empty name → 404 (PHP `basename("") == ""`).
+        assert_eq!(resolve_cached(dir, "images/..."), None);
+        // PHP does NOT trim the filename — spaces survive (parity, no trim).
+        assert_eq!(
+            resolve_cached(dir, "images/  abc").as_deref(),
+            Some(Path::new("/app/cache/images/  abc"))
+        );
+        // PHP `set_dir` applies `clean()` (strip_tags + trim) to the subdir.
+        assert_eq!(
+            resolve_cached(dir, "<img>/123").as_deref(),
+            Some(Path::new("/app/cache/123"))
+        );
     }
 
     static TMP_COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
