@@ -332,7 +332,20 @@ fn has_disallowed_ip(tokens: &ParsedUrl, validate_resolved_ip: bool) -> bool {
     }
 
     for ip in &ips {
-        let bin = ip_to_bytes(ip);
+        let mut bin = ip_to_bytes(ip);
+        // Unwrap IPv4-mapped IPv6 (`::ffff:127.0.0.1` → `127.0.0.1`) before
+        // the range checks — the PHP canonicalizes + unwraps via
+        // `inet_pton`/`inet_ntop` for the same reason: without this, a
+        // mapped *public* IP trips the 0000::/8 "zero bytes" reserved rule.
+        if let Some(b) = &bin {
+            if b.len() == 16 {
+                if let Ok(arr) = <[u8; 16]>::try_from(b.as_slice())
+                    && let Some(v4) = std::net::Ipv6Addr::from(arr).to_ipv4_mapped()
+                {
+                    bin = Some(v4.octets().to_vec());
+                }
+            }
+        }
         // reject loopback, link-local, and reserved ranges (regardless of port)
         if !valid_ip_no_res_range(&bin) {
             return true;
@@ -1071,6 +1084,26 @@ async fn resolve_host_ip(url: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// IPv4-mapped IPv6 (`::ffff:a.b.c.d`) must be unwrapped to plain IPv4
+    /// before the range checks (PHP `inet_pton`/`inet_ntop` + `substr`).
+    #[test]
+    fn mapped_ipv4_unwrap() {
+        let check = |url: &str| has_disallowed_ip(parse_url(url).as_ref().unwrap(), false);
+        // Mapped PUBLIC → allowed (was the bug: 0000::/8 "zero bytes" rule).
+        assert!(!check("http://[::ffff:8.8.8.8]/feed"));
+        // Mapped loopback → rejected on any port.
+        assert!(check("http://[::ffff:127.0.0.1]:8080/feed"));
+        // Mapped RFC1918 → rejected on a non-standard port.
+        assert!(check("http://[::ffff:192.168.1.1]:8080/feed"));
+        // Plain forms unchanged.
+        assert!(!check("http://8.8.8.8/feed"));
+        assert!(check("http://192.168.1.1:8080/feed"));
+        // Plain IPv6 unchanged.
+        assert!(!check("http://[2001:db8::1]/feed"));
+        assert!(check("http://[fe80::1]/feed"));
+        assert!(check("http://[::1]/feed"));
+    }
 
     #[test]
     fn user_agent_override() {
