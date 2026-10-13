@@ -409,6 +409,27 @@ mod tests {
     }
 
     #[test]
+    fn test_calculate_avg_color_dark_navy_is_accepted() {
+        // Parity pin: the reference's gate is on HSV (`rgb2hsl`,
+        // colors.php:258 — misnamed, it computes HSV; `calculate_avg_color`
+        // checks `s > 0.25 && v > 0.25`). This dark saturated navy sits on
+        // the 0x33 quantization grid: V = 102/255 = 0.4 > 0.25 → accepted,
+        // while its HSL lightness (0.2) would fail an L-based gate — PHP
+        // accepts it too, so do not "fix" this to L.
+        let img = image::RgbaImage::from_pixel(16, 16, image::Rgba([0, 0, 102, 255]));
+        let mut buf = Vec::new();
+        image::DynamicImage::ImageRgba8(img)
+            .write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::Png)
+            .unwrap();
+
+        let path = std::env::temp_dir().join("test_favicon_navy.png");
+        std::fs::write(&path, &buf).unwrap();
+        let color = calculate_avg_color(&path);
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(color, Some("#000066".to_string()));
+    }
+
+    #[test]
     fn test_calculate_avg_color_tie_is_deterministic_first_sight() {
         // Left half blue / right half green → an exact count tie (8:8 in the
         // step-4 scan). PHP `arsort` is stable over the x-outer scan's
