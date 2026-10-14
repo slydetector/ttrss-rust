@@ -1,6 +1,6 @@
 <div dojoType='dijit.layout.TabContainer' tabPosition='left-h'>
 	<div style='padding : 0px' dojoType='dijit.layout.ContentPane'
-		title="<i class='material-icons'>rss_feed</i> My feeds">
+		title="<i class='material-icons'>rss_feed</i> {{ t_my_feeds }}">
 		<div dojoType="dijit.layout.BorderContainer" gutters="false">
 			<div region='top' dojoType="fox.Toolbar">
 				<div style='float : right'>
@@ -8,64 +8,64 @@
 						<input dojoType="dijit.form.TextBox" id="feed_search" size="20" type="search"
 							value="{{ feed_search }}">
 						<button dojoType="dijit.form.Button" type="submit">
-							Search</button>
+							{{ t_search }}</button>
 					</form>
 				</div>
 
 				<div dojoType="fox.form.DropDownButton">
-					<span>Select</span>
+					<span>{{ t_select }}</span>
 					<div dojoType="dijit.Menu" style="display: none;">
 						<div onclick="dijit.byId('feedTree').model.setAllChecked(true)"
-							dojoType="dijit.MenuItem">All</div>
+							dojoType="dijit.MenuItem">{{ t_all }}</div>
 						<div onclick="dijit.byId('feedTree').model.setAllChecked(false)"
-							dojoType="dijit.MenuItem">None</div>
+							dojoType="dijit.MenuItem">{{ t_none }}</div>
 					</div>
 				</div>
 
 				<div dojoType="fox.form.DropDownButton">
-					<span>Feeds</span>
+					<span>{{ t_feeds }}</span>
 					<div dojoType="dijit.Menu" style="display: none">
 						<div onclick="CommonDialogs.subscribeToFeed()"
-							dojoType="dijit.MenuItem">Subscribe to feed</div>
+							dojoType="dijit.MenuItem">{{ t_subscribe_to_feed }}</div>
 						<div onclick="dijit.byId('feedTree').editSelectedFeed()"
-							dojoType="dijit.MenuItem">Edit selected feeds</div>
+							dojoType="dijit.MenuItem">{{ t_edit_selected_feeds }}</div>
 						<div onclick="dijit.byId('feedTree').resetFeedOrder()"
-							dojoType="dijit.MenuItem">Reset sort order</div>
+							dojoType="dijit.MenuItem">{{ t_reset_sort_order }}</div>
 						<div onclick="dijit.byId('feedTree').batchSubscribe()"
-							dojoType="dijit.MenuItem">Batch subscribe</div>
+							dojoType="dijit.MenuItem">{{ t_batch_subscribe }}</div>
 						<div dojoType="dijit.MenuItem" onclick="dijit.byId('feedTree').removeSelectedFeeds()">
-							Unsubscribe</div>
+							{{ t_unsubscribe }}</div>
 					</div>
 				</div>
 
 				{% if enable_feed_cats %}
 				<div dojoType="fox.form.DropDownButton">
-					<span>Categories</span>
+					<span>{{ t_categories }}</span>
 					<div dojoType="dijit.Menu" style="display: none">
 						<div onclick="dijit.byId('feedTree').createCategory()"
-							dojoType="dijit.MenuItem">Add category</div>
+							dojoType="dijit.MenuItem">{{ t_add_category }}</div>
 						<div onclick="dijit.byId('feedTree').resetCatOrder()"
-							dojoType="dijit.MenuItem">Reset sort order</div>
+							dojoType="dijit.MenuItem">{{ t_reset_sort_order }}</div>
 						<div onclick="dijit.byId('feedTree').removeSelectedCategories()"
-							dojoType="dijit.MenuItem">Remove selected</div>
+							dojoType="dijit.MenuItem">{{ t_remove_selected }}</div>
 					</div>
 				</div>
 				{% endif %}
 
 				<button dojoType='dijit.form.Button'
 					id='pref_feeds_errors_btn' style='display : none'
-					onclick='CommonDialogs.showFeedsWithErrors()'>Feeds with errors</button>
+					onclick='CommonDialogs.showFeedsWithErrors()'>{{ t_feeds_with_errors }}</button>
 				<button dojoType='dijit.form.Button'
 					id='pref_feeds_inactive_btn'
 					style='display : none'
-					onclick="dijit.byId('feedTree').showInactiveFeeds()">Inactive feeds</button>
+					onclick="dijit.byId('feedTree').showInactiveFeeds()">{{ t_inactive_feeds }}</button>
 			</div>
 			<div style="padding : 0px" dojoType="dijit.layout.ContentPane" region="center">
 				<div dojoType="fox.PrefFeedStore" jsId="feedStore"
 					url="backend.php?op=Pref_Feeds&method=getfeedtree">
 				</div>
 				<div dojoType="lib.CheckBoxStoreModel" jsId="feedModel" store="feedStore"
-					query="{id:'root'}" rootId="root" rootLabel="Feeds" childrenAttrs="items"
+					query="{id:'root'}" rootId="root" rootLabel="{{ t_feeds }}" childrenAttrs="items"
 					checkboxStrict="false" checkboxAll="false">
 				</div>
 				<div dojoType="fox.PrefFeedTree" id="feedTree"
@@ -81,9 +81,9 @@
 	</div>
 
 	<div dojoType='dijit.layout.ContentPane'
-		title="<i class='material-icons'>import_export</i> OPML">
+		title="<i class='material-icons'>import_export</i> {{ t_opml }}">
 		<form id='opml_import_form' method='post' enctype='multipart/form-data'>
-			<label class='dijitButton'>Choose file...
+			<label class='dijitButton'>{{ t_choose_file }}
 				<input style='display : none' id='opml_file' name='opml_file' type='file'>
 			</label>
 			<input type='hidden' name='op' value='Pref_Feeds'>
@@ -92,7 +92,7 @@
 			<button dojoType='dijit.form.Button' class='alt-primary'
 				onclick="return Helpers.OPML.import()" type="submit">
 				<i class="material-icons">file_upload</i>
-				Import OPML
+				{{ t_import_opml }}
 			</button>
 		</form>
 
@@ -103,31 +103,31 @@
 		<form dojoType='dijit.form.Form' id='opmlExportForm' style='display : inline-block'>
 			<button dojoType='dijit.form.Button' onclick='Helpers.OPML.export()'>
 				<i class="material-icons">file_download</i>
-				Export OPML
+				{{ t_export_opml }}
 			</button>
 
 			<label class='checkbox'>
 				{{ include_settings_checkbox }}
-				Include tt-rss settings
+				{{ t_include_settings }}
 			</label>
 		</form>
 	{{ pref_feeds_opml }}
 	</div>
 
 	<div dojoType="dijit.layout.ContentPane"
-		title="<i class='material-icons'>share</i> Sharing">
+		title="<i class='material-icons'>share</i> {{ t_sharing }}">
 		{{ shared_notice }}
 
 		<button dojoType='dijit.form.Button' class='alt-primary'
 			onclick="CommonDialogs.generatedFeed(-2, false)">
 			<i class="material-icons">share</i>
-			Display URL
+			{{ t_display_url }}
 		</button>
 
 		<button class='alt-danger' dojoType='dijit.form.Button'
 			onclick='return Helpers.Feeds.clearFeedAccessKeys()'>
 			<i class="material-icons">delete</i>
-			Clear all generated URLs
+			{{ t_clear_all_urls }}
 		</button>
 		{{ pref_feeds_shared }}
 	</div>

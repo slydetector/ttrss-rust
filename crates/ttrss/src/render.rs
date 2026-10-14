@@ -203,7 +203,41 @@ pub fn render_prefs_page(
     plugin_css: &str,
     prefs_tabs_hooks: &str,
 ) -> String {
+    // The `{{ __(...) }}` calls in the template are evaluated here (the .tpl
+    // engine is plain string replacement, not minijinja), in this request's
+    // i18n scope.
     let mut html = PREFS_TEMPLATE
+        .replace(
+            "{{ __(\"Javascript is disabled. Please enable it.\") }}",
+            &__("Javascript is disabled. Please enable it."),
+        )
+        .replace(
+            "{{ __(\"Loading, please wait...\") }}",
+            &__("Loading, please wait..."),
+        )
+        .replace(
+            "{{ __(\"Communication problem with server.\") }}",
+            &__("Communication problem with server."),
+        )
+        .replace(
+            "{{ __(\"Recent entries found in event log.\") }}",
+            &__("Recent entries found in event log."),
+        )
+        .replace(
+            "{{ __(\"Updates for Tiny Tiny RSS are available.\") }}",
+            &__("Updates for Tiny Tiny RSS are available."),
+        )
+        .replace(
+            "{{ __(\"Updates for some local plugins are available.\") }}",
+            &__("Updates for some local plugins are available."),
+        )
+        .replace("{{ __(\"Preferences\") }}", &__("Preferences"))
+        .replace("{{ __(\"Feeds\") }}", &__("Feeds"))
+        .replace("{{ __(\"Filters\") }}", &__("Filters"))
+        .replace("{{ __(\"Labels\") }}", &__("Labels"))
+        .replace("{{ __(\"Users\") }}", &__("Users"))
+        .replace("{{ __(\"System\") }}", &__("System"))
+        .replace("{{ __(\"Exit preferences\") }}", &__("Exit preferences"))
         .replace("@CSRF@", csrf_token)
         .replace("@CACHEBUST@", &scripts_ts.to_string())
         .replace("__THEME_CSS_LINK__", theme_css_link)

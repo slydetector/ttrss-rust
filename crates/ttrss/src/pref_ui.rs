@@ -233,9 +233,9 @@ fn pref_help() -> Vec<(&'static str, &'static str, Option<&'static str>)> {
 
 /// `get_translations()` (`include/functions.php`): the language options for
 /// the `USER_LANGUAGE` select, in declaration order.
-pub fn get_translations() -> Vec<(&'static str, &'static str)> {
-    vec![
-        ("auto", "Detect automatically"),
+pub fn get_translations() -> Vec<(String, String)> {
+    let mut v: Vec<(String, String)> = vec![("auto".to_string(), __("Detect automatically"))];
+    for (a, b) in [
         ("ar_SA", "العربيّة (Arabic)"),
         ("be", "Беларуская"),
         ("bg_BG", "Bulgarian"),
@@ -266,23 +266,29 @@ pub fn get_translations() -> Vec<(&'static str, &'static str)> {
         ("fi_FI", "Suomi"),
         ("ta", "Tamil"),
         ("tr_TR", "Türkçe"),
-    ]
+    ] {
+        v.push((a.to_string(), b.to_string()));
+    }
+    v
 }
 
 /// `$update_intervals_nodefault` (`backend.php`): the `DEFAULT_UPDATE_INTERVAL`
 /// options (the "Default interval" entry is omitted here — it is the pref
 /// default, added separately by the form).
-fn update_intervals_nodefault() -> Vec<(&'static str, &'static str)> {
-    vec![
-        ("-1", "Disable updates"),
-        ("15", "15 minutes"),
-        ("30", "30 minutes"),
-        ("60", "Hourly"),
-        ("240", "4 hours"),
-        ("720", "12 hours"),
-        ("1440", "Daily"),
-        ("10080", "Weekly"),
+fn update_intervals_nodefault() -> Vec<(String, String)> {
+    [
+        ("Disable updates", "-1"),
+        ("15 minutes", "15"),
+        ("30 minutes", "30"),
+        ("Hourly", "60"),
+        ("4 hours", "240"),
+        ("12 hours", "720"),
+        ("Daily", "1440"),
+        ("Weekly", "10080"),
     ]
+    .into_iter()
+    .map(|(label, val)| (__(label), val.to_string()))
+    .collect()
 }
 
 /// The `USER_TIMEZONE` options: the exact PHP
@@ -312,7 +318,7 @@ fn theme_options(state: &AppState) -> Vec<(String, String)> {
         }
     }
     files.sort();
-    let mut themes: Vec<(String, String)> = vec![(String::new(), "default".to_string())];
+    let mut themes: Vec<(String, String)> = vec![(String::new(), __("default"))];
     for file in files {
         let label = file
             .strip_suffix(".css")
@@ -360,19 +366,22 @@ fn build_control(name: &str, value: &str, ty: prefs::Type, ctx: &RenderCtx) -> S
             &ctx.timezones,
             &[("dojoType", "dijit.form.FilteringSelect".to_string())],
         ),
-        prefs::BLACKLISTED_TAGS => format!(
-            "<div><textarea dojoType='dijit.form.SimpleTextarea' rows='4'\n\t\t\t\t\t\t\t\tstyle='width: 500px; font-size : 12px;'\n\t\t\t\t\t\t\t\tname='{}'>{}</textarea><br/>\n<div class='help-text-bottom text-muted'>Never apply these tags automatically (comma-separated list).</div>\n</div>",
-            name, value
-        ),
+        prefs::BLACKLISTED_TAGS => {
+            let help = __("Never apply these tags automatically (comma-separated list).");
+            format!(
+                "<div><textarea dojoType='dijit.form.SimpleTextarea' rows='4'\n\t\t\t\t\t\t\t\tstyle='width: 500px; font-size : 12px;'\n\t\t\t\t\t\t\t\tname='{}'>{}</textarea><br/>\n{help}\n</div>",
+                name, value
+            )
+        }
         prefs::USER_CSS_THEME => {
             let select = controls::select_hash(name, value, &ctx.theme_opts, &[], "");
             let btn_customize = controls::button_tag(
-                &format!("{} Customize", controls::icon("palette")),
+                &format!("{} {}", controls::icon("palette"), __("Customize")),
                 "",
                 &[("onclick", "Helpers.Prefs.customizeCSS()".to_string())],
             );
             let btn_more = controls::button_tag(
-                &format!("{} More themes...", controls::icon("open_in_new")),
+                &format!("{} {}", controls::icon("open_in_new"), __("More themes...")),
                 "",
                 &[
                     ("class", "alt-info".to_string()),
@@ -396,7 +405,7 @@ fn build_control(name: &str, value: &str, ty: prefs::Type, ctx: &RenderCtx) -> S
             let mut control = controls::checkbox_tag(name, is_checked, "true", &attrs);
             if name == "DIGEST_ENABLE" {
                 control.push_str(&controls::button_tag(
-                    &format!("{} Preview", controls::icon("info")),
+                    &format!("{} {}", controls::icon("info"), __("Preview")),
                     "",
                     &[
                         ("onclick", "Helpers.Digest.preview()".to_string()),
@@ -437,7 +446,7 @@ fn build_control(name: &str, value: &str, ty: prefs::Type, ctx: &RenderCtx) -> S
             );
             // `_get_ssl_certificate_id()` is omitted (no serial → Register disabled).
             let btn_register = controls::button_tag(
-                &format!("{} Register", controls::icon("security")),
+                &format!("{} {}", controls::icon("security"), __("Register")),
                 "",
                 &[
                     ("disabled", "1".to_string()),
@@ -448,7 +457,7 @@ fn build_control(name: &str, value: &str, ty: prefs::Type, ctx: &RenderCtx) -> S
                 ],
             );
             let btn_clear = controls::button_tag(
-                &format!("{} Clear", controls::icon("clear")),
+                &format!("{} {}", controls::icon("clear"), __("Clear")),
                 "",
                 &[
                     ("class", "alt-danger".to_string()),
@@ -459,7 +468,7 @@ fn build_control(name: &str, value: &str, ty: prefs::Type, ctx: &RenderCtx) -> S
                 ],
             );
             let btn_more = controls::button_tag(
-                &format!("{} More info...", controls::icon("help")),
+                &format!("{} {}", controls::icon("help"), __("More info...")),
                 "",
                 &[
                     ("class", "alt-info".to_string()),

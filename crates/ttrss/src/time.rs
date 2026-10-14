@@ -10,7 +10,7 @@
 //! The M2 callers never pass `no_smart_dt`, so only the smart-date path is
 //! ported here.
 
-use crate::i18n::__;
+use crate::i18n::{__, t_sprintf};
 use crate::prefs;
 
 use chrono::{DateTime, Datelike, NaiveDateTime, Timelike, Utc};
@@ -126,7 +126,7 @@ fn smart_date_time(user_ts: i64, tz_offset: i64, eta_min: bool, ctx: &TzCtx) -> 
 
     if eta_min && now_user - user_ts < 3600 {
         // `T_sprintf("%d min", date("i", $diff))` — whole minutes, no padding.
-        return format!("{} min", (now_user - user_ts) / 60);
+        return t_sprintf("%d min", &[&((now_user - user_ts) / 60).to_string()]);
     }
 
     if same_day(user_ts, now_user) {

@@ -70,7 +70,16 @@ const INDEX_POST: &str = r#"">
 // M7.22 item 7 — the `HOOK_PREFS_TAB_SECTION` ("prefUsersToolbar") site:
 // PHP prints the chain's output here, inside the toolbar after the
 // "Reset password" button. The placeholder is spliced in `index`.
-const INDEX_POST_SECTION: &str = r#"[__pref_users_toolbar__]
+fn index_post_section() -> String {
+    let (login, access, feeds, registered, last_login) = (
+        __("Login"),
+        __("Access level"),
+        __("Subscribed feeds"),
+        __("Registered"),
+        __("Last login"),
+    );
+    format!(
+        r#"[__pref_users_toolbar__]
 						
 					</div>
 				</div>
@@ -80,12 +89,14 @@ const INDEX_POST_SECTION: &str = r#"[__pref_users_toolbar__]
 
 						<tr>
 							<th></th>
-							<th><a href='#' onclick="Users.reload('login')">Login</a></th>
-							<th><a href='#' onclick="Users.reload('access_level')">Access level</a></th>
-							<th><a href='#' onclick="Users.reload('num_feeds')">Subscribed feeds</a></th>
-							<th><a href='#' onclick="Users.reload('created')">Registered</a></th>
-							<th><a href='#' onclick="Users.reload('last_login')">Last login</a></th>
-						</tr>"#;
+							<th><a href='#' onclick="Users.reload('login')">{login}</a></th>
+							<th><a href='#' onclick="Users.reload('access_level')">{access}</a></th>
+							<th><a href='#' onclick="Users.reload('num_feeds')">{feeds}</a></th>
+							<th><a href='#' onclick="Users.reload('created')">{registered}</a></th>
+							<th><a href='#' onclick="Users.reload('last_login')">{last_login}</a></th>
+						</tr>"#
+    )
+}
 
 const INDEX_ROW: &str = r#"<tr data-row-id='@ID@' onclick='Users.edit(@ID@)' title="@CLICK_EDIT@">
 									<td class='checkbox'>
@@ -213,7 +224,7 @@ pub async fn index(
     // The `prefUsersToolbar` hook site (`HOOK_PREFS_TAB_SECTION`) sits at the
     // start of INDEX_POST_SECTION (after the "Reset password" button); splice
     // the hook chain's output in there.
-    out.push_str(&INDEX_POST_SECTION.replace("[__pref_users_toolbar__]", &toolbar));
+    out.push_str(&index_post_section().replace("[__pref_users_toolbar__]", &toolbar));
 
     for r in &rows {
         let id: i32 = r.get(0);
@@ -290,11 +301,17 @@ pub async fn user_details(
     .unwrap_or_default();
 
     let mut out = String::new();
+    let (registered_l, last_logged_l, feeds_l, stored_l) = (
+        __("Registered"),
+        __("Last logged in"),
+        __("Subscribed feeds"),
+        __("Stored articles"),
+    );
     out.push_str(&format!(
-        "<fieldset>\n<label>Registered:</label>\n{}\n</fieldset>\n\
-         <fieldset>\n<label>Last logged in:</label>\n{}\n</fieldset>\n\
-         <fieldset>\n<label>Subscribed feeds:</label>\n{}\n</fieldset>\n\
-         <fieldset>\n<label>Stored articles:</label>\n{}\n</fieldset>\n\
+        "<fieldset>\n<label>{registered_l}:</label>\n{0}\n</fieldset>\n\
+         <fieldset>\n<label>{last_logged_l}:</label>\n{1}\n</fieldset>\n\
+         <fieldset>\n<label>{feeds_l}:</label>\n{2}\n</fieldset>\n\
+         <fieldset>\n<label>{stored_l}:</label>\n{3}\n</fieldset>\n\
          <ul class=\"panel panel-scrollable list list-unstyled\">",
         make_local_datetime(created.as_deref(), false, &tz),
         make_local_datetime(last_login.as_deref(), false, &tz),

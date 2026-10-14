@@ -234,9 +234,9 @@ pub async fn search_to_sql_cached(
                 // with a warning.
                 None => {
                     query_keywords.push("( will generate an error )".to_string());
-                    search_words.push(format!(
-                        "The date keyword \"{}\" was not recognized.",
-                        php_htmlspecialchars(&query_date)
+                    search_words.push(t_sprintf(
+                        "The date keyword \"%s\" was not recognized.",
+                        &[php_htmlspecialchars(&query_date).as_str()],
                     ));
                 }
             }

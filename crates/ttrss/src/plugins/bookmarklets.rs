@@ -15,7 +15,7 @@
 //! multiple-feed-URLs select form) was un-deferred at M7.14 when `HostCtx`
 //! started carrying `&Config`.
 
-use crate::i18n::__;
+use crate::i18n::{__, t_sprintf};
 use crate::pluginhost::HOOK_PREFS_TAB;
 use crate::pluginhost::host::{HostCtx, PluginHost};
 use crate::pluginhost::plugin::{About, MethodOutput, Plugin, PluginError};
@@ -382,13 +382,14 @@ impl Bookmarklets {
                  <input type=\"hidden\" name=\"op\" value=\"bookmarklets--subscribe\">\n\
                  <input type=\"hidden\" name=\"csrf_token\" value=\"{csrf}\">\n\
                  <fieldset><label>Feed or site URL:</label><input style=\"width: 300px\" name=\"feed_url\" value=\"{feed_url_esc}\"></fieldset>\n\
-                 <button class=\"alt-primary\" type=\"submit\">Subscribe</button>\n\
+                 <button class=\"alt-primary\" type=\"submit\">{subscribe_btn}</button>\n\
                  <a href=\"index.php\">{return_to_ttrss}</a>\n\
                  </form>\n\
                  </div>\n\
                  </body></html>",
                 csrf = csrf,
                 feed_url_esc = util::htmlspecialchars(&feed_url),
+                subscribe_btn = __("Subscribe"),
             )
         } else {
             // Subscribe to the feed.
@@ -413,21 +414,21 @@ impl Bookmarklets {
 
             let mut out = String::new();
             match code {
-                0 => out.push_str(&controls::format_warning(&format!(
-                    "Already subscribed to <b>{}</b>.",
-                    util::htmlspecialchars(&feed_url)
+                0 => out.push_str(&controls::format_warning(&t_sprintf(
+                    "Already subscribed to <b>%s</b>.",
+                    &[util::htmlspecialchars(&feed_url).as_str()],
                 ))),
-                1 => out.push_str(&controls::format_notice(&format!(
-                    "Subscribed to <b>{}</b>.",
-                    util::htmlspecialchars(&feed_url)
+                1 => out.push_str(&controls::format_notice(&t_sprintf(
+                    "Subscribed to <b>%s</b>.",
+                    &[util::htmlspecialchars(&feed_url).as_str()],
                 ))),
-                2 => out.push_str(&controls::format_error(&format!(
-                    "Could not subscribe to <b>{}</b>.",
-                    util::htmlspecialchars(&feed_url)
+                2 => out.push_str(&controls::format_error(&t_sprintf(
+                    "Could not subscribe to <b>%s</b>.",
+                    &[util::htmlspecialchars(&feed_url).as_str()],
                 ))),
-                3 => out.push_str(&controls::format_error(&format!(
-                    "No feeds found in <b>{}</b>.",
-                    util::htmlspecialchars(&feed_url)
+                3 => out.push_str(&controls::format_error(&t_sprintf(
+                    "No feeds found in <b>%s</b>.",
+                    &[util::htmlspecialchars(&feed_url).as_str()],
                 ))),
                 4 => {
                     // Multiple feed URLs found — the select form.
@@ -455,9 +456,9 @@ impl Bookmarklets {
                         ));
                     }
                 }
-                5 => out.push_str(&controls::format_error(&format!(
-                    "Could not subscribe to <b>{}</b>.<br>Can't download the Feed URL.",
-                    util::htmlspecialchars(&feed_url)
+                5 => out.push_str(&controls::format_error(&t_sprintf(
+                    "Could not subscribe to <b>%s</b>.<br>Can't download the Feed URL.",
+                    &[util::htmlspecialchars(&feed_url).as_str()],
                 ))),
                 _ => {}
             }

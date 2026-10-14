@@ -72,14 +72,14 @@ __PREFS_PLUGIN_JS__
 
 <body class="flat ttrss_main ttrss_prefs css_loading">
 
-<noscript class="alert alert-error">Javascript is disabled. Please enable it.</noscript>
+<noscript class="alert alert-error">{{ __("Javascript is disabled. Please enable it.") }}</noscript>
 
 <div id="notify" class="notify"></div>
 <div id="cmdline" style="display : none"></div>
 
 <div id="overlay">
 	<div id="overlay_inner">
-		Loading, please wait...		<div dojoType="dijit.ProgressBar" places="0" style="width : 300px" id="loading_bar"
+		{{ __("Loading, please wait...") }}		<div dojoType="dijit.ProgressBar" places="0" style="width : 300px" id="loading_bar"
 	     progress="0" maximum="100">
 		</div>
 	</div>
@@ -87,41 +87,41 @@ __PREFS_PLUGIN_JS__
 
 <div id="header">
 	<i class="material-icons net-alert" style="display: none"
-		title="Communication problem with server.">error_outline</i>
+		title="{{ __("Communication problem with server.") }}">error_outline</i>
 	<i class="material-icons log-alert" style="display: none"
-		 title="Recent entries found in event log." onclick="App.openPreferences('system')">warning</i>
+		 title="{{ __("Recent entries found in event log.") }}" onclick="App.openPreferences('system')">warning</i>
 	<a id="updates-available" target="_blank" rel="noopener noreferrer" href="" style="display: none">
-		<i class="material-icons icon-new-version" title="Updates for Tiny Tiny RSS are available.">new_releases</i>
+		<i class="material-icons icon-new-version" title="{{ __("Updates for Tiny Tiny RSS are available.") }}">new_releases</i>
 	</a>
 	<a id="plugin-updates-available" href="prefs.php" onclick="dijit.byId('pref-tabs').selectChild(dijit.byId('prefsTab')); return false" style="display: none">
-		<i class="material-icons icon-new-version" title="Updates for some local plugins are available.">new_releases</i>
+		<i class="material-icons icon-new-version" title="{{ __("Updates for some local plugins are available.") }}">new_releases</i>
 	</a>
-	<a href="#" onclick="document.location.href = 'index.php'">Exit preferences</a>
+	<a href="#" onclick="document.location.href = 'index.php'">{{ __("Exit preferences") }}</a>
 </div>
 
 <div id="main" dojoType="dijit.layout.BorderContainer">
     <div dojoType="dijit.layout.TabContainer" region="center" id="pref-tabs">
         <div id="prefsTab" dojoType="dijit.layout.ContentPane"
             href="backend.php?op=Pref_Prefs"
-            title="<i class='material-icons'>settings</i> Preferences"></div>
+            title="<i class='material-icons'>settings</i> {{ __("Preferences") }}"></div>
         <div id="feedsTab" dojoType="dijit.layout.ContentPane"
             href="backend.php?op=Pref_Feeds"
-            title="<i class='material-icons'>rss_feed</i>  Feeds"></div>
+            title="<i class='material-icons'>rss_feed</i>  {{ __("Feeds") }}"></div>
         <div id="filtersTab" dojoType="dijit.layout.ContentPane"
             style="padding : 0px"
             href="backend.php?op=Pref_Filters"
-            title="<i class='material-icons'>filter_list1</i> Filters"></div>
+            title="<i class='material-icons'>filter_list1</i> {{ __("Filters") }}"></div>
         <div id="labelsTab" dojoType="dijit.layout.ContentPane"
             style="padding : 0px"
             href="backend.php?op=Pref_Labels"
-            title="<i class='material-icons'>label_outline1</i> Labels"></div>
+            title="<i class='material-icons'>label_outline1</i> {{ __("Labels") }}"></div>
                     <div id="usersTab" dojoType="dijit.layout.ContentPane"
                 style="padding : 0px"
                 href="backend.php?op=Pref_Users"
-                title="<i class='material-icons'>person</i> Users"></div>
+                title="<i class='material-icons'>person</i> {{ __("Users") }}"></div>
             <div id="systemTab" dojoType="dijit.layout.ContentPane"
                 href="backend.php?op=Pref_System"
-                title="<i class='material-icons'>info_outline</i> System"></div>
+                title="<i class='material-icons'>info_outline</i> {{ __("System") }}"></div>
         __PREFS_TABS_HOOKS__
                         </div>
 		<div id="footer" dojoType="dijit.layout.ContentPane" region="bottom">

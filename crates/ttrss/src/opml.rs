@@ -864,14 +864,14 @@ async fn opml_import_filter(db: &Db, uid: i64, node: &XmlNode, body: &mut String
         .get("inverse")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
-    let title = filter.get("title").and_then(|v| v.as_str()).unwrap_or("");
+    let title: &str = filter.get("title").and_then(|v| v.as_str()).unwrap_or("");
     let filter_id: i64 = match sqlx::query_scalar::<_, i32>(
         "INSERT INTO ttrss_filters2 (match_any_rule, enabled, inverse, title, owner_uid) VALUES ($1, $2, $3, $4, $5) RETURNING id")
         .bind(match_any_rule).bind(enabled).bind(inverse).bind(title).bind(uid)
         .fetch_optional(pool).await.ok().flatten()
     {
         Some(id) => {
-            opml_notice(body, &format!("Adding filter {title}..."), depth);
+            opml_notice(body, &t_sprintf("Adding filter %s...", &[title]), depth);
             id as i64
         }
         None => return,

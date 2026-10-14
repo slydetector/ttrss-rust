@@ -2,7 +2,7 @@
 //! `backend.php?op=Pref_Prefs`).
 
 use crate::core::phpser::Value as PValue;
-use crate::i18n::__;
+use crate::i18n::{__, t_sprintf};
 
 use minijinja::Environment;
 use serde_json::{Map, Value, json};
@@ -266,6 +266,16 @@ pub async fn app_password_list(state: &AppState, sess: &Sess) -> Result<String, 
 
     let mut map: Map<String, Value> = Map::new();
     map.insert("passwords".into(), Value::Array(passwords));
+    for (k, label) in [
+        ("t_select", "Select"),
+        ("t_all", "All"),
+        ("t_none", "None"),
+        ("t_description", "Description"),
+        ("t_created", "Created"),
+        ("t_last_used", "Last used"),
+    ] {
+        map.insert(k.into(), Value::String(__(label)));
+    }
     app_password_list_env()
         .get_template("app_password_list")
         .expect("app_password_list template")
@@ -302,10 +312,11 @@ pub async fn generate_app_password(
     .await?;
 
     let list = app_password_list(state, sess).await?;
-    let msg = format!(
-        "<div class=\"alert\" id=\"\">Generated password <strong>{new_password}</strong> \
-         for {title}. Please remember it for future reference.</div>"
+    let inner = t_sprintf(
+        "Generated password <strong>%s</strong> for %s. Please remember it for future reference.",
+        &[new_password.as_str(), title.as_str()],
     );
+    let msg = format!("<div class=\"alert\" id=\"\">{inner}</div>");
     Ok(format!("{msg}{list}"))
 }
 

@@ -9,7 +9,7 @@
 use std::collections::HashMap;
 
 use crate::core::db::Db;
-use crate::i18n::__;
+use crate::i18n::{__, t_sprintf};
 
 use minijinja::Environment;
 use serde_json::{Map, Value, json};
@@ -36,6 +36,8 @@ pub async fn index(state: &AppState, sess: &Sess, _extra: &Map<String, Value>) -
     .await;
     let mut ctx = Map::new();
     ctx.insert("pref_labels_tabs".into(), Value::String(pref_labels_tabs));
+    ctx.insert("t_create_label".into(), Value::String(__("Create label")));
+    ctx.insert("t_clear_colors".into(), Value::String(__("Clear colors")));
     labels_index_env()
         .get_template("labels_index")
         .expect("labels_index template")
@@ -666,9 +668,9 @@ pub async fn add_label(
             .is_some()
         && !util::php_str_truthy(Some(&output))
     {
-        return Ok(format!(
-            "Created label <b>{}</b>",
-            util::htmlspecialchars(&caption)
+        return Ok(t_sprintf(
+            "Created label <b>%s</b>",
+            &[util::htmlspecialchars(&caption).as_str()],
         ));
     }
     Ok(String::new())

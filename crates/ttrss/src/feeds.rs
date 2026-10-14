@@ -384,7 +384,39 @@ pub async fn index(state: &AppState, sess: &Sess, extra: &Map<String, Value>) ->
         "true"
     };
 
+    // The template's user-facing labels (PHP `Pref_Feeds.php` `__()` calls),
+    // translated here in the request's i18n scope and passed as variables.
+    let labels = [
+        ("t_my_feeds", "My feeds"),
+        ("t_search", "Search"),
+        ("t_select", "Select"),
+        ("t_all", "All"),
+        ("t_none", "None"),
+        ("t_feeds", "Feeds"),
+        ("t_subscribe_to_feed", "Subscribe to feed"),
+        ("t_edit_selected_feeds", "Edit selected feeds"),
+        ("t_reset_sort_order", "Reset sort order"),
+        ("t_batch_subscribe", "Batch subscribe"),
+        ("t_unsubscribe", "Unsubscribe"),
+        ("t_categories", "Categories"),
+        ("t_add_category", "Add category"),
+        ("t_remove_selected", "Remove selected"),
+        ("t_feeds_with_errors", "Feeds with errors"),
+        ("t_inactive_feeds", "Inactive feeds"),
+        ("t_opml", "OPML"),
+        ("t_choose_file", "Choose file..."),
+        ("t_import_opml", "Import OPML"),
+        ("t_export_opml", "Export OPML"),
+        ("t_include_settings", "Include tt-rss settings"),
+        ("t_sharing", "Sharing"),
+        ("t_display_url", "Display URL"),
+        ("t_clear_all_urls", "Clear all generated URLs"),
+    ];
+
     let mut ctx: Map<String, Value> = Map::new();
+    for (k, label) in labels {
+        ctx.insert(k.into(), Value::String(__(label)));
+    }
     ctx.insert(
         "feed_search".into(),
         Value::String(util::htmlspecialchars(&feed_search)),

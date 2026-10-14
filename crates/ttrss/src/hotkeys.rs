@@ -249,8 +249,8 @@ fn hotkey_display(seq: &str) -> String {
             if k.len() > 1 {
                 k.chars()
                     .map(|c| match c {
-                        '*' => "Shift+".to_string(),
-                        '^' => "Ctrl+".to_string(),
+                        '*' => __("Shift") + "+",
+                        '^' => __("Ctrl") + "+",
                         c => c.to_string(),
                     })
                     .collect()
@@ -284,9 +284,9 @@ pub async fn hotkey_help(host: &mut crate::pluginhost::host::HostCtx) -> String 
     for &(section, actions) in HOTKEY_INFO {
         let mut a = serde_json::Map::new();
         for &(action, desc) in actions {
-            a.insert(action.to_string(), Value::from(desc.to_string()));
+            a.insert(action.to_string(), Value::from(__(desc)));
         }
-        info.insert(section.to_string(), Value::Object(a));
+        info.insert(__(section), Value::Object(a));
     }
     let mut info_val = Value::Object(info);
     if !host

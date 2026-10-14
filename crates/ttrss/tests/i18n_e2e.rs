@@ -331,7 +331,10 @@ fn test_plural_forms() {
 /// `USER_LANGUAGE` select options). Order included (declaration order).
 #[test]
 fn test_get_translations_matches_php() {
-    let keys: Vec<&str> = get_translations().iter().map(|(k, _)| *k).collect();
+    let keys: Vec<String> = get_translations()
+        .iter()
+        .map(|(k, _)| k.to_string())
+        .collect();
     // The PHP's keys (include/functions.php `get_translations()`), in order.
     let php_keys = [
         "auto", "ar_SA", "be", "bg_BG", "da_DA", "ca_CA", "cs_CZ", "en_US", "el_GR", "es", "de_DE",
@@ -340,7 +343,7 @@ fn test_get_translations_matches_php() {
     ];
     assert_eq!(
         keys,
-        php_keys.to_vec(),
+        php_keys.map(str::to_string).to_vec(),
         "the get_translations() keys must match the PHP's, in order"
     );
 }
