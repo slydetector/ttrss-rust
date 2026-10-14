@@ -36,6 +36,10 @@ pub async fn index(state: &AppState, sess: &Sess, _extra: &Map<String, Value>) -
     .await;
     let mut ctx = Map::new();
     ctx.insert("pref_labels_tabs".into(), Value::String(pref_labels_tabs));
+    ctx.insert("t_select".into(), Value::String(__("Select")));
+    ctx.insert("t_all".into(), Value::String(__("All")));
+    ctx.insert("t_none".into(), Value::String(__("None")));
+    ctx.insert("t_remove".into(), Value::String(__("Remove")));
     ctx.insert("t_create_label".into(), Value::String(__("Create label")));
     ctx.insert("t_clear_colors".into(), Value::String(__("Clear colors")));
     labels_index_env()

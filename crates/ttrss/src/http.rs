@@ -537,24 +537,45 @@ async fn public_handler(
         })
         .collect();
     // `$_REQUEST['op']` merges GET + POST, so `op` may arrive in either.
-    let op = query.op.as_deref().or_else(|| form.op.as_deref());
+    // `public.php`: `$method = clean($_REQUEST['op'] ?? '')` — strip tags and
+    // trim before dispatch.
+    let op = query
+        .op
+        .as_deref()
+        .or_else(|| form.op.as_deref())
+        .map(crate::util::clean_str)
+        .unwrap_or_default();
     // `public.php` shortcut: `?op=<plugin>--<pmethod>` is rewritten to
     // `op=pluginhandler` with `plugin`/`pmethod` injected into `$_REQUEST`
     // (`PluginHost::PUBLIC_METHOD_DELIMITER`).
-    let (op, shortcut) = match op.and_then(|o| o.split_once("--")) {
+    let (op, shortcut) = match op.as_str().split_once("--") {
         Some((plugin, pmethod)) => (
-            "pluginhandler",
+            "pluginhandler".to_string(),
             Some((plugin.to_string(), pmethod.to_string())),
         ),
-        None => (op.unwrap_or(""), None),
+        None => (op, None),
     };
+    // `public.php`: methods starting with an underscore are refused
+    // (private-handler namespace) — E_UNAUTHORIZED JSON, logged as a warning.
+    if op.starts_with('_') {
+        tracing::warn!("Refusing to invoke method {op} which starts with underscore.");
+        let mut res = axum::http::Response::builder()
+            .status(StatusCode::OK)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(
+                r#"{"error":{"code":"E_UNAUTHORIZED","params":[]}}"#,
+            ))
+            .expect("valid response");
+        nocache_headers(res.headers_mut());
+        return res;
+    }
     // The request's `Accept-Language` (M10.3): threaded to the syndication
     // handler, which resolves it into the UI locale for the feed titles.
     let accept_language = headers
         .get(axum::http::header::ACCEPT_LANGUAGE)
         .and_then(|v| v.to_str().ok());
     let self_url = sess.self_url();
-    let mut res = match op {
+    let mut res = match op.as_str() {
         "login" => {
             let env: Vec<(String, String)> = basic_auth_env(&server_env)
                 .into_iter()

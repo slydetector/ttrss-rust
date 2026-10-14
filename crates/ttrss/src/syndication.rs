@@ -419,23 +419,8 @@ async fn generate_feed(
                     Value::Array(tags.iter().map(|t| json!(t)).collect()),
                 );
             }
-            if !enclosures.is_empty() {
-                a.insert(
-                    "enclosures".into(),
-                    Value::Array(
-                        enclosures
-                            .iter()
-                            .map(|e| {
-                                json!({
-                                    "url": e.get("content_url").cloned().unwrap_or(Value::Null),
-                                    "type": e.get("content_type").cloned().unwrap_or(Value::Null),
-                                    "length": e.get("duration").cloned().unwrap_or(Value::Null),
-                                })
-                            })
-                            .collect(),
-                    ),
-                );
-            }
+            // PHP's JSON article has no enclosures (the Atom template does);
+            // keep the two variants distinct as in the reference.
             articles_json.push(Value::Object(a));
         }
     }

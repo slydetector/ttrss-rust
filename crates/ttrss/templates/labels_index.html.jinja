@@ -2,19 +2,19 @@
 	<div style='padding : 0px' dojoType='dijit.layout.ContentPane' region='top'>
 		<div dojoType='fox.Toolbar'>
 			<div dojoType='fox.form.DropDownButton'>
-				<span>Select</span>
+				<span>{{ t_select }}</span>
 				<div dojoType='dijit.Menu' style='display: none'>
 					<div onclick="dijit.byId('labelTree').model.setAllChecked(true)"
-						dojoType='dijit.MenuItem'>All</div>
+						dojoType='dijit.MenuItem'>{{ t_all }}</div>
 					<div onclick="dijit.byId('labelTree').model.setAllChecked(false)"
-						dojoType='dijit.MenuItem'>None</div>
+						dojoType='dijit.MenuItem'>{{ t_none }}</div>
 				</div>
 			</div>
 
 			<button dojoType='dijit.form.Button' onclick='CommonDialogs.addLabel()'>
 				{{ t_create_label }}</button>
 			<button dojoType='dijit.form.Button' onclick="dijit.byId('labelTree').removeSelected()">
-				Remove</button>
+				{{ t_remove }}</button>
 			<button dojoType='dijit.form.Button' onclick="dijit.byId('labelTree').resetColors()">
 				{{ t_clear_colors }}</button>
 		</div>
