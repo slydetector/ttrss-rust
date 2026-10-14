@@ -1,126 +1,52 @@
 # Project Instructions
 
-Standing working agreements for **ttrss** (a Rust re-implementation of the
-Tiny Tiny RSS server backend); they apply to every session in this directory.
-The PHP reference in `tt-rss/` is a git submodule (pinned by the superproject)
-— it is the spec. After a fresh clone, run `make bootstrap` to initialize it.
+Working agreements for **ttrss** (a Rust re-implementation of the Tiny Tiny RSS server backend). The PHP reference in `tt-rss/` (git submodule) is the spec. Fresh clone: `make bootstrap`.
 
 ## Load-bearing rules
 
-- **The PHP reference is the spec.** At feature parity, treat the PHP as the
-  default, not an absolute authority — deliberate deviations are fine when they
-  are a better architectural fit, more modern, or strategically motivated;
-  surface them.
-- **Assume the port is wrong:** consult `tt-rss/` for canonical behavior before
-  treating it as correct.
-- **Verify APIs against the toolchain and vendored sources, not memory.** This
-  is a **future-dated Rust** (`rustc 1.98.0`, 2026); `std` and crate APIs may
-  differ from training data. Before relying on any `std`/crate API, grep the
-  vendored source or sysroot: vendored crates under
-  `~/.cargo/registry/src/index.crates.io-*/<crate>-<version>/`, `std` under
-  `$(rustc --print sysroot)/lib/rustlib/src/rust/`. Versions come from
-  `Cargo.lock` — check the matching copy, not the latest release.
-- **sqlx 0.7 decodes strictly — match the column width.** id/uid columns are
-  `integer` (INT4) → decode as `i32` (widen at the boundary); `COUNT(*)` is
-  `bigint` → `i64`. Never `query_scalar::<_, i64>` an INT4 column (runtime
-  `ColumnDecode` mismatch). Keep `statement_cache_capacity(0)` in
-  `make_db`/`Db::connect_url` for the same reason — do not re-enable it.
-- **Stay on the approved dependency versions** (e.g. sqlx 0.7) unless told
-  otherwise. Docker is an acceptable requirement.
-- **Keep the repo relocatable: no absolute paths.** Everything under the repo (scripts, build files, docs) references paths **relative to the repo base directory** — resolve them from the script's own location (`$(dirname "$0")/…`) or the current working dir. Never hardcode an absolute path like `/home/<user>/…`; that's what lets the repo be renamed or moved without breakage.
+- **The PHP reference is the spec.** Assume the port is wrong — check `tt-rss/` before treating the port as canonical. Deliberate deviations are fine (better fit, more modern, strategic); surface them.
+- **Verify APIs against the toolchain, not memory.** Future-dated Rust (`rustc 1.98.0`); `std`/crate APIs may differ from training data. Grep the vendored source: crates under `~/.cargo/registry/src/index.crates.io-*/<crate>-<version>/`, `std` under `$(rustc --print sysroot)/lib/rustlib/src/rust/`. Use the `Cargo.lock` version.
+- **sqlx decodes strictly.** INT4 columns → `i32` (widen at the boundary); `COUNT(*)` → `i64`. Never `query_scalar::<_, i64>` an INT4 column. Keep `statement_cache_capacity(0)` in `make_db`/`Db::connect_url`.
+- **Stay on the approved dependency versions** (e.g. sqlx 0.9). Docker is acceptable.
+- **No absolute paths in the repo.** Resolve from the script's location (`$(dirname "$0")/…`) or the CWD.
 
 ## Working style
 
-- **Surface your own decisions; report them at turn end.** For judgment calls
-  the spec doesn't pin down (a behavior detail, a formatting/structural choice,
-  a scoping call, an optimization, a "clean up while I'm here" tweak), don't
-  silently pick one. Flag it in-line — especially anything that deviates from
-  the spec — and end the turn with a short **Decisions to revisit** list (each
-  with a one-line rationale and concrete effect).
-- **Get to root cause; no whack-a-mole** — when a fix reveals another symptom,
-  find the underlying cause rather than patching one at a time.
-- **i18n helpers: import bare, no space before the paren.** Call the i18n
-  helpers unqualified — `use crate::i18n::__;` (and `t_sprintf`/`t_nsprintf`
-  as needed) at the top of the module, then `__("…")` — mirroring PHP's global
-  `__()`. Never write the fully-qualified `crate::i18n::__ (…)` form, and never
-  put a space between the name and `(` (Rust permits `f (x)`, but the port
-  disallows it). Verify inserted `__` by byte/hexdump, not the terminal echo:
-  a pipeline quirk mangles `__`'s *display* (and the str_replace tool can
-  rewrite `__` to `translate`), so build/replace them via Python `chr(95)*2`.
-- **Prefer iterative over recursive.** Refactor recursion into an explicit
-  `Vec` work stack (or loop); keep it only where recursion is clearly the most
-  readable form (a trivial constant-bounded case). In Rust recursion —
-  especially `async fn` (forces `Box::pin`) — hides control flow and risks deep
-  stacks.
-- **Write in small, verifiable blocks** — one function or test at a time,
-  checking in (`cargo check`/`cargo test`) between steps so a failure points at
-  a small, isolated change.
-- **make fmt before committing; never cargo fmt with file args (loses edition → tree-wide churn).**
-- **Run expensive commands once, grep the saved output many times** — capture
-  stdout (`tee /tmp/test_out.txt`) and grep it for follow-ups instead of
-  re-running `cargo test`.
-- **`cargo test --lib` for unit tests — never bare `cargo test`.** A bare
-  `cargo test -p ttrss` compiles + links ~50 integration test binaries
-  (testcontainers, sqlx, etc.) before the runtime filter applies: ~5 min wall
-  time. `cargo test -p ttrss --lib <filter>` compiles only the lib test binary:
-  ~1 second. Use `--test <name>` for a single integration test.
-- **Keep the workspace green**: `cargo test` passes and the tree is clean
-  before committing.
-- **Address processes by PID, not by name.** Never `pkill`/`killall` unless
-  absolutely necessary: names/patterns aren't unique and are susceptible to
-  grep misinformation (the shell running the command matches its own pattern).
-- **Don't delete outside the working directory without permission.** Only remove files inside the repo (and `/tmp` files you created). Anything outside the repo — other dirs, `~/Downloads`, system paths, etc. — needs explicit permission first.
-- **Mark incomplete work:** leave a `// TODO(scope): …` and a `tracing::warn!`
-  of the same text at the site — never a placeholder that looks done.
-- **Trust the code, not the ✅:** a "done" in the plan is a claim — verify
-  against the code before relying on it.
+- **Do not commit (or push) without the user's review.** Green is a precondition, not a substitute: stop with a diff summary + proposed message; commit only on approval.
+- **Surface your own decisions.** Flag judgment calls inline — especially spec deviations — and end the turn with a short **Decisions to revisit** list (one-line rationale + effect).
+- **Root cause, no whack-a-mole.**
+- **i18n helpers: import bare, no space before the paren.** `use crate::i18n::__;` then `__("…")`. No qualified `crate::i18n::__ (…)` form, no `f (x)` space. The pipeline mangles `__` in *display* (and str_replace can rewrite it) — build/replace via Python `chr(95)*2`, verify by bytes.
+- **Prefer iterative over recursive.** Explicit `Vec` work stack; recursion only for trivial constant-bounded cases.
+- **Write in small, verifiable blocks.** One function/test at a time; `cargo check`/`cargo test` between steps.
+- **`make fmt` before committing; never `cargo fmt` with file args** (loses edition → tree-wide churn).
+- **Run expensive commands once.** `tee` the output; grep it for follow-ups.
+- **`cargo test --lib` for unit tests; never bare `cargo test`** (compiles ~50 integration binaries, ~5 min). `--test <name>` for one integration test.
+- **Keep the workspace green:** `cargo test` passes and the tree is clean before committing.
+- **Address processes by PID, not by name.** No `pkill`/`killall` — patterns match the invoking shell itself.
+- **Don't delete outside the working directory without permission.** The repo and your own `/tmp` files are fine.
+- **Mark incomplete work:** `// TODO(scope): …` plus a `tracing::warn!` of the same text. No placeholders that look done.
+- **Trust the code, not the ✅.** Verify plan "done"s against the code.
 
 ## Build on existing libraries
 
-- Prefer a maintained crate over hand-rolling; if you're writing boilerplate a
-  library already provides, stop and find the crate.
-- **Choosing among candidates: best fit, not "already in the workspace."** When you reach for a crate, compare the real options against the task (API shape, how faithful it keeps you to the reference, what it's built on, and new-dependency cost) and pick the best fit. Already being a workspace dependency is *one* input among several — never the deciding factor on its own. If the best fit is a new crate, add it and surface it as a decision.
-- To learn a library, clone its repo and read in this order: docs → examples →
-  tests (they lay out expected behavior) → source. Web-scraping is brittle;
-  use it only to locate, then read the cloned source.
+- Prefer a maintained crate over hand-rolled boilerplate.
+- **Best fit, not "already in the workspace."** Compare API shape, faithfulness to the reference, foundations, and new-dependency cost. Adding a new crate is a decision to surface.
+- Learn a library by cloning its repo: docs → examples → tests → source.
 
-## Cloning repos reliably
+## Cloning repos
 
-- Don't guess repo names — read the `repository` field of the vendored crate's
-  `Cargo.toml` (exact version in use). E.g. `sqlx 0.7.4` → `launchbadge/sqlx`
-  (→ `transact-rs/sqlx`).
-- GitHub's git endpoint returns **401 "Repository not found"** for any
-  nonexistent/private repo; a **200** means public and cloneable with no auth.
-  Verify 200 before cloning.
-- Set `GIT_TERMINAL_PROMPT=0` so an auth wall fails fast instead of a headless
-  askpass hang. No PAT is needed to read public repos.
+- Don't guess repo names — read the vendored crate's `Cargo.toml` `repository` field (exact version in use).
+- GitHub git endpoint: **200** = public, cloneable without auth; **401** = nonexistent/private. Verify 200 first.
+- `GIT_TERMINAL_PROMPT=0` so an auth wall fails fast. No PAT needed for public repos.
 
-## Harness verification: ask before assuming byte-exact
+## Harness verification
 
-- When a target has more than one defensible bar (**byte-exact** vs
-  **functionally equivalent**, e.g. syndication feeds), lay out the options and
-  get direction before committing — surface the choice, don't assume it.
-- **Frontend HTML forms: match structure + visible text, not whitespace.** The
-  read-side dialog HTML is fed to a Dojo `dijit.Dialog` via innerHTML, so the
-  browser normalizes whitespace before the JS runs; the JS works on the DOM,
-  never the raw string. Match element/attribute structure and visible text
-  (option labels, captions, the U+2003 em-space indent and U+2015 separator in
-  `select_feeds_cats`); tabs/newlines/indent depth are irrelevant. Prefer clean,
-  consistently-indented HTML. (Confirmed from `tt-rss/js/PrefFeedTree.js`
-  editMultiple + `SingleUseDialog.js`.)
+- More than one defensible bar (**byte-exact** vs **functionally equivalent**) → lay out the options, get direction.
+- **Frontend HTML forms: match structure + visible text, not whitespace.** Dialog HTML is fed to Dojo via innerHTML; the browser normalizes whitespace. Match elements/attributes and visible text (the U+2003 indent and U+2015 separator in `select_feeds_cats`); tabs/newlines/indent depth are irrelevant.
 
 ## Debugging the live UI
 
-For UX-level truth (rendered DOM, XHR bodies, JS errors), drive the app in a
-real browser with the MCP `mcp_chrome_*` tools — snapshot for stable node
-`uid`s, act by `uid`, read ground truth from the network log and console. The
-response **body** (not the HTTP status) is the source of truth. See
-`docs/07-browser-debugging.md`; `browser/diff_rpc_surface.py` diffs the app's RPC
-surface against the backend dispatch to spot unhandled (op, method) without
-clicking every path.
-
-Interactive MCP chrome session (launch Chrome yourself; `mcp_chrome_*` connects
-to :9222):
+Drive the app with MCP `mcp_chrome_*` (connects to :9222):
 
 ```sh
 google-chrome --remote-debugging-port=9222 --user-data-dir=/tmp/chrome-mcp-profile \
@@ -129,44 +55,26 @@ google-chrome --remote-debugging-port=9222 --user-data-dir=/tmp/chrome-mcp-profi
 ```
 
 One-time per profile: merge `{"credentials_enable_service": false,
-"profile": {"password_manager_enabled": false}}` (via python) into
-`/tmp/chrome-mcp-profile/Default/Preferences` while Chrome is stopped, to kill
-the save-password popup. The a11y `take_snapshot` gives `uid`s to act on;
-`evaluate_script` gives DOM ground truth. Dojo caveats: dijit widgets hide the
-native form controls (drive them with `dijit.byId(id).set('value', …)`); the
-codemode sandbox has no `setTimeout` — do delays inside the page (promise +
-`setTimeout` in the evaluated function).
+"profile": {"password_manager_enabled": false}}` into
+`/tmp/chrome-mcp-profile/Default/Preferences` while Chrome is stopped.
+Snapshot for stable node `uid`s, act by `uid`; ground truth is the network log and
+console — the response **body**, not the status. Dojo: drive widgets via
+`dijit.byId(id).set('value', …)`; the codemode sandbox has no `setTimeout` — delay
+in-page. See `docs/07-browser-debugging.md`; `browser/diff_rpc_surface.py` diffs
+the app's RPC surface against the backend dispatch.
 
 ## Test harness / oracle (retired 2026-09-19)
 
-- The record/replay corpus (`oracle/` + `crates/harness` + the `harness*`
-  Makefile targets) is **retired**: it is no longer part of the "green"
-  definition for any milestone or increment. The bar is the Rust test suite
-  (unit/DB tests, PHP test-parity per the next section) + the demo-able
-  server. Do not re-add corpus steps to increment verify bars.
-- Why: it covered read-only paths only, and its fixtures decay with
-  wall-clock age (the 24 h FEED_FRESH window, relative timestamps, live-feed
-  re-fetches) — the maintenance cost outgrew the signal.
-- The machinery is kept in-tree, unwired from the gate, in case the
-  differential approach is revived; `oracle/README.md` carries the note.
+- The record/replay corpus (`oracle/`, `crates/harness`, the `harness*` targets) is **retired** — not part of the "green" bar. Do not re-add it. Kept in-tree, unwired, in case the approach is revived.
 
-## Test parity (port the tests, not just the code)
+## Test parity
 
-When porting a PHP module, **replicate its PHP test cases 1:1** — the PHP suite
-is the spec and lands *with* the code, not after. Mirror each matching PHP
-`#[test]` into Rust (same inputs, same expected values):
+Porting a PHP module means **mirroring its test cases 1:1** — same inputs, same expectations, landing with the code.
 
-- PHP tests: `tt-rss/{tests,tests_functional,tests_integration,tests/integration,tests/mocked}/`;
-  `docs/01-plan.md` (the test-parity board) tracks the PHP-suite → Rust-module map.
-- A PHP case the port omits is kept as `// TODO(port): …` or a named `NOTE`,
-  never silently dropped. A broken PHP test is ported with the corrected
-  expectation + a `NOTE`.
-- DB-backed tests must **not** depend on the mutable golden dump
-  (`oracle/data/golden-db.sql`); use the stable schema + fixtures
-  (`crates/test-db`). The golden dump is reserved for the end-to-end oracle.
+- PHP tests: `tt-rss/{tests,tests_functional,tests_integration,tests/integration,tests/mocked}/`; the board is `docs/01-plan.md`.
+- A case the port omits → `// TODO(port): …` or a named `NOTE`, never silently dropped. A broken PHP test → corrected expectation + `NOTE`.
+- DB tests use the stable schema + fixtures (`crates/test-db`), not the mutable golden dump.
 
 ## Context management
 
-If you find a session dump in the local filesystem (probably `~/.pi/`), you can
-read the full pre-compaction thread — useful to recover exact steps lost in
-summarisation.
+Session dumps live under `~/.pi/` — read the full pre-compaction thread to recover steps lost to summarisation.
