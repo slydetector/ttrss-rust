@@ -136,12 +136,27 @@ fn move_attr(html: &str, from: &str, to: &str) -> String {
     re.replace_all(html, &format!(r#"{to}="$1""#)).into_owned()
 }
 
+/// Insert a `title` attribute into a serialized `<a …>` node (the PHP's
+/// `$basenode->setAttribute("title", …)`; the read-only `scraper` tree has no
+/// in-place attribute mutation).
+fn insert_title_attr(html: &str, title: &str) -> String {
+    let title = title.replace('&', "&amp;").replace('"', "&quot;");
+    match html.find('>') {
+        Some(i) if html.starts_with('<') => {
+            let mut out = html.to_string();
+            out.insert_str(i, &format!(" title=\"{title}\""));
+            out
+        }
+        _ => html.to_string(),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // The 12 filters. Each matches on a link/`guid` substring, fetches the article
 // page, and rewrites the stored `content` (and, for Dilbert, `title`/`tags`).
 // ---------------------------------------------------------------------------
 
-/// `Af_Comics_Cad` — The Order of the Stick.
+/// `Af_Comics_Cad` — Ctrl+Alt+Del (cad-comic.com).
 pub struct Cad {
     sel: Selector,
 }
@@ -152,12 +167,16 @@ impl Cad {
         }
     }
     async fn do_process(&self, article: &mut Value) -> bool {
-        if !s(article, "link").contains("orderofthestick.org") {
+        if !s(article, "link").contains("cad-comic.com") {
             return false;
         }
-        let link = s(article, "link").to_string();
-        if let Some(html) = fetch_first(&link, Some(IE_UA), &self.sel).await {
-            article["content"] = Value::String(html);
+        // The PHP skips the fetch for "News:" items (the chain still consumes
+        // the article — `return true` in both branches).
+        if !s(article, "title").contains("News:") {
+            let link = s(article, "link").to_string();
+            if let Some(html) = fetch_first(&link, Some(FF_UA), &self.sel).await {
+                article["content"] = Value::String(html);
+            }
         }
         true
     }
@@ -188,42 +207,49 @@ impl Dilbert {
         }
     }
     async fn do_process(&self, article: &mut Value) -> bool {
-        if !s(article, "link").contains("understood.org") {
+        let link = s(article, "link");
+        if !link.contains("dilbert.com") && !link.contains("/DilbertDailyStrip") {
             return false;
         }
-        let link = s(article, "link").to_string();
-        let Some(doc) = fetch_doc(&link, Some(IE_UA)).await else {
+        let link = link.to_string();
+        let Some(doc) = fetch_doc(&link, Some(FF_UA)).await else {
             return true; // matched the site; nothing to fetch (the PHP returns true here too)
         };
-        // Title: append the comic's own title to the article title.
+        // Title: append " - " + the comic's title (the PHP appends only when
+        // the extracted title is non-empty — mostly Sunday strips).
         if let Some(node) = doc.select(&self.title_sel).next() {
             let comic_title = node.text().collect::<String>();
-            let new_title = format!("{} {}", s(article, "title"), comic_title);
-            article["title"] = Value::String(new_title);
+            if !comic_title.is_empty() {
+                let new_title = format!("{} - {}", s(article, "title"), comic_title);
+                article["title"] = Value::String(new_title);
+            }
         }
-        // Tags: href query + visible text of each `#tags` link, comma-joined.
+        // Tags: the text of each `p.comic-tags a` starting with `#`, lowercased
+        // without the `#` — replaces the existing tags (the PHP's
+        // `array_unique`). A JSON array: the pipeline re-reads `article["tags"]`
+        // with `as_array`.
         let mut tags: Vec<String> = Vec::new();
         for a in doc.select(&self.tags_sel) {
-            let Some(href) = a.attr("href") else { continue };
-            let Some(query) = href.split('?').nth(1) else {
-                continue;
-            };
-            if query.is_empty() {
-                continue;
+            let text: String = a.text().collect();
+            if let Some(tag) = text.strip_prefix('#') {
+                let tag = tag.to_lowercase();
+                if !tags.contains(&tag) {
+                    tags.push(tag);
+                }
             }
-            let title = a.text().collect::<String>();
-            tags.push(format!("{query} {title}"));
         }
         if !tags.is_empty() {
-            article["tags"] = Value::String(tags.join(","));
+            article["tags"] = Value::Array(tags.into_iter().map(Value::String).collect());
         }
-        // Content: the comic image, else the first transcript `<p>`.
-        let node = doc
-            .select(&self.img_sel)
-            .next()
-            .or_else(|| doc.select(&self.transcript_sel).next());
-        if let Some(node) = node {
-            article["content"] = Value::String(node.html());
+        // Content: the comic's `<a>` container; the first transcript `<p>`'s
+        // text becomes its `title` attribute (the PHP's `setAttribute`).
+        if let Some(node) = doc.select(&self.img_sel).next() {
+            let mut html = node.html();
+            if let Some(p) = doc.select(&self.transcript_sel).next() {
+                let transcript: String = p.text().collect();
+                html = insert_title_attr(&html, &transcript);
+            }
+            article["content"] = Value::String(html);
         }
         true
     }
@@ -317,7 +343,7 @@ pub struct DumbingOfAge {
 impl DumbingOfAge {
     pub fn new() -> Self {
         DumbingOfAge {
-            sel: parse_sel("div#comic"),
+            sel: parse_sel("div#comic-1"),
         }
     }
     async fn do_process(&self, article: &mut Value) -> bool {
@@ -325,8 +351,10 @@ impl DumbingOfAge {
             return false;
         }
         let link = s(article, "link").to_string();
+        // The PHP PREPENDS the comic node to the existing content.
         if let Some(html) = fetch_first(&link, Some(FF_UA), &self.sel).await {
-            article["content"] = Value::String(html);
+            let prev = s(article, "content").to_string();
+            article["content"] = Value::String(format!("{html}{prev}"));
         }
         true
     }
@@ -450,18 +478,19 @@ impl ComicFilter for TheOatmeal {
     }
 }
 
-/// `Af_Comics_Twp` — The Web of Pretense? (`td/center/img`).
+/// `Af_Comics_Twp` — Three Word Phrase (threewordphrase.com).
 pub struct Twp {
     sel: Selector,
 }
 impl Twp {
     pub fn new() -> Self {
         Twp {
-            sel: parse_sel("td center img"),
+            // The PHP's XPath `//td/center/img` is child-axis.
+            sel: parse_sel("td > center > img"),
         }
     }
     async fn do_process(&self, article: &mut Value) -> bool {
-        if !s(article, "link").contains("twistedpretty.net") {
+        if !s(article, "link").contains("threewordphrase.com") {
             return false;
         }
         let link = s(article, "link").to_string();
@@ -734,10 +763,10 @@ impl Plugin for AfComics {
             .map(|c| format!("<li>{}</li>", crate::util::htmlspecialchars(c)))
             .collect();
         let notice_gocomics = crate::controls::format_notice(
-            "To subscribe to GoComics use the comic's regular web page as the                  feed URL (e.g. for the <em>Garfield</em> comic use                  <code>http://www.gocomics.com/garfield</code>).",
+            "To subscribe to GoComics use the comic's regular web page as the feed URL (e.g. for the <em>Garfield</em> comic use <code>http://www.gocomics.com/garfield</code>).",
         );
         let notice_filters = crate::controls::format_notice(
-            "Drop any updated filters into <code>filters.local</code> in plugin                  directory.",
+            "Drop any updated filters into <code>filters.local</code> in plugin directory.",
         );
         let comics_header = __("The following comics are currently supported:");
         let feeds_title = __("Feeds supported by af_comics");
@@ -871,6 +900,32 @@ mod tests {
                 .process(&mut json!({"guid": "https://example.com/x"}))
                 .await
         );
+    }
+
+    /// Cad's `News:` title guard: a matching link with a `News:` title is
+    /// consumed (returns `true`) without a fetch (the PHP's inner guard).
+    #[tokio::test]
+    async fn cad_news_title_guard_skips_fetch() {
+        let mut article = json!({
+            "link": "https://www.cad-comic.com/comic/1",
+            "title": "News: site migration",
+            "content": "orig"
+        });
+        assert!(Cad::new().process(&mut article).await);
+        assert_eq!(article["content"], "orig", "no fetch → content untouched");
+    }
+
+    /// Dilbert's match guard: a `dilbert.com` link that fails to fetch is
+    /// consumed without a rewrite (the PHP's fetch-fail branch returns true).
+    #[tokio::test]
+    async fn dilbert_fetch_fail_returns_true() {
+        let mut article = json!({
+            "link": "http://127.0.0.1:9/dilbert.com",
+            "title": "t",
+            "content": "orig"
+        });
+        assert!(Dilbert::new().process(&mut article).await);
+        assert_eq!(article["content"], "orig");
     }
 
     /// The prefs tab lists the supported comics; a non-`prefFeeds` tab is empty.
