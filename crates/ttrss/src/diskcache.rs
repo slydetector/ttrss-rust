@@ -36,9 +36,35 @@ pub fn sniff_mime(bytes: &[u8]) -> &'static str {
     if bytes.len() >= 4 && bytes.starts_with(&[0x00, 0x00, 0x01, 0x00]) {
         return "image/vnd.microsoft.icon";
     }
-    // WEBP: RIFF....WEBP
-    if bytes.len() >= 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
-        return "image/webp";
+    // WEBP: RIFF....WEBP; WAV: RIFF....WAVE (libmagic: audio/wav).
+    if bytes.len() >= 12 && &bytes[0..4] == b"RIFF" {
+        if &bytes[8..12] == b"WEBP" {
+            return "image/webp";
+        }
+        if &bytes[8..12] == b"WAVE" {
+            return "audio/wav";
+        }
+    }
+    // MP4/MOV: 4-byte size + "ftyp" (libmagic: video/mp4, or
+    // video/quicktime for the "qt  " major brand).
+    if bytes.len() >= 12 && &bytes[4..8] == b"ftyp" {
+        return if &bytes[8..12] == b"qt  " {
+            "video/quicktime"
+        } else {
+            "video/mp4"
+        };
+    }
+    // OGG: "OggS"; FLAC: "fLaC"; MP3: "ID3" tag or a frame-sync header.
+    if bytes.starts_with(b"OggS") {
+        return "audio/ogg";
+    }
+    if bytes.starts_with(b"fLaC") {
+        return "audio/flac";
+    }
+    if bytes.len() >= 3
+        && (bytes.starts_with(b"ID3") || (bytes[0] == 0xFF && (bytes[1] & 0xE0) == 0xE0))
+    {
+        return "audio/mpeg";
     }
     // SVG: leading XML/SVG markup (inspected over a small prefix).
     let head = &bytes[..bytes.len().min(512)];
@@ -52,7 +78,9 @@ pub fn sniff_mime(bytes: &[u8]) -> &'static str {
 }
 
 /// `DiskCache::$mimeMap` (media subset): MIME type → canonical extension used
-/// for the `Content-Disposition` filename.
+/// for the `Content-Disposition` filename. `send_file` passes the *pre-substitution*
+/// mime (the reference re-detects the file for the lookup, so a file served under
+/// the `video/mp4` fallback looks up `application/octet-stream`).
 pub fn fake_extension(mime: &str) -> &'static str {
     match mime {
         "image/png" => "png",
@@ -61,6 +89,15 @@ pub fn fake_extension(mime: &str) -> &'static str {
         "image/vnd.microsoft.icon" => "ico",
         "image/webp" => "webp",
         "image/svg+xml" => "svg",
+        "video/mp4" => "mp4",
+        "video/quicktime" => "mov",
+        "audio/mpeg" => "mp3",
+        "audio/ogg" => "ogg",
+        "audio/flac" => "flac",
+        "audio/wav" => "wav",
+        // PHP's map entry verbatim: files served under the `video/mp4`
+        // fallback keep the `.pdf` name (the reference's quirk).
+        "application/octet-stream" => "pdf",
         _ => "",
     }
 }
@@ -117,9 +154,9 @@ pub fn send_file(path: &Path, req: &HeaderMap) -> Response {
         mime
     };
 
-    // Only serve image/audio/video. SVG is served like any other image:
-    // it renders in `<img>` context, which sandboxes embedded scripts —
-    // the same exposure the reference's bare `readfile()` has always had.
+    // Only serve image/audio/video. Deliberate deviation: the reference
+    // blacklists `image/svg+xml` here (400); the port serves SVG like any
+    // other image (it is a supported port feature).
     let is_media = effective
         .split('/')
         .next()
@@ -138,7 +175,9 @@ pub fn send_file(path: &Path, req: &HeaderMap) -> Response {
         .file_name()
         .map(|s| s.to_string_lossy().into_owned())
         .unwrap_or_default();
-    let ext = fake_extension(effective);
+    // The reference looks up the mimeMap with the freshly re-detected (i.e.
+    // pre-substitution) mime.
+    let ext = fake_extension(mime);
     let disp = if ext.is_empty() {
         filename.clone()
     } else {
@@ -469,6 +508,21 @@ mod tests {
             sniff_mime(b"<?xml version=\"1.0\"?>\n<svg/>"),
             "image/svg+xml"
         );
+        // Media: MP4/MOV (ftyp box), MP3 (ID3 + frame sync), OGG, FLAC, WAV.
+        let mut mp4 = vec![0, 0, 0, 28];
+        mp4.extend_from_slice(b"ftypisom");
+        assert_eq!(sniff_mime(&mp4), "video/mp4");
+        let mut mov = vec![0, 0, 0, 28];
+        mov.extend_from_slice(b"ftypqt  ");
+        assert_eq!(sniff_mime(&mov), "video/quicktime");
+        assert_eq!(sniff_mime(b"ID3\x04\x00\x00\x00\x00\x00"), "audio/mpeg");
+        assert_eq!(sniff_mime(&[0xFF, 0xFB, 0x90, 0x00, 0, 0]), "audio/mpeg");
+        assert_eq!(sniff_mime(b"OggS\x00\x02\x00\x00"), "audio/ogg");
+        assert_eq!(sniff_mime(b"fLaC\x00\x00\x00\x00"), "audio/flac");
+        let mut wav = vec![0u8; 12];
+        wav[0..4].copy_from_slice(b"RIFF");
+        wav[8..12].copy_from_slice(b"WAVE");
+        assert_eq!(sniff_mime(&wav), "audio/wav");
         assert_eq!(
             sniff_mime(b"\x00\x01\x02random"),
             "application/octet-stream"
@@ -481,7 +535,15 @@ mod tests {
         assert_eq!(fake_extension("image/jpeg"), "jpg");
         assert_eq!(fake_extension("image/vnd.microsoft.icon"), "ico");
         assert_eq!(fake_extension("image/svg+xml"), "svg");
-        assert_eq!(fake_extension("video/mp4"), "");
+        assert_eq!(fake_extension("video/mp4"), "mp4");
+        assert_eq!(fake_extension("video/quicktime"), "mov");
+        assert_eq!(fake_extension("audio/mpeg"), "mp3");
+        assert_eq!(fake_extension("audio/ogg"), "ogg");
+        assert_eq!(fake_extension("audio/flac"), "flac");
+        assert_eq!(fake_extension("audio/wav"), "wav");
+        // The reference's map quirk: the `video/mp4` fallback serves `.pdf`.
+        assert_eq!(fake_extension("application/octet-stream"), "pdf");
+        assert_eq!(fake_extension("text/plain"), "");
     }
 
     #[test]

@@ -30,11 +30,16 @@ pub async fn getscheduledtasks(state: &AppState, sess: &Sess) -> String {
     .unwrap_or_default();
 
     let mut out = String::new();
-    out.push_str(
+    out.push_str(&format!(
         "<table width='100%' class='event-log'>\n<tr>\n\
-         <th>Task name</th>\n<th>Schedule</th>\n<th>Last executed</th>\n\
-         <th>Duration (seconds)</th>\n<th>Return code</th>\n</tr>\n",
-    );
+         <th>{}</th>\n<th>{}</th>\n<th>{}</th>\n\
+         <th>{}</th>\n<th>{}</th>\n</tr>\n",
+        __("Task name"),
+        __("Schedule"),
+        __("Last executed"),
+        __("Duration (seconds)"),
+        __("Return code"),
+    ));
     for r in &rows {
         let task_name: String = r.get(0);
         let cron: String = r.get(1);
@@ -61,6 +66,12 @@ pub async fn getscheduledtasks(state: &AppState, sess: &Sess) -> String {
 
 /// `Pref_System::LOG_PAGE_LIMIT` — rows per event-log page.
 const LOG_PAGE_LIMIT: i64 = 15;
+
+/// `json_encode($str)` for a JS string literal (the reference embeds
+/// `json_encode(__("Email sent."))` in the pane's inline script).
+fn js_string(s: &str) -> String {
+    format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""))
+}
 
 /// `Logger::ERROR_NAMES` — a PHP errno → its symbolic name.
 fn error_name(errno: i32) -> &'static str {
@@ -142,10 +153,12 @@ async fn log_viewer(state: &AppState, sess: &Sess, page: i64, severity: i64) -> 
     let prev_disabled = if page <= 0 { "disabled" } else { "" };
     let next_disabled = if page >= total_pages { "disabled" } else { "" };
 
+    // PHP's "Everything" option is keyed on E_USER_NOTICE (8) — any value
+    // outside the 256/512 match arms means "no filter".
     let sev_values = [
         (256.to_string(), __("Errors")),
         (512.to_string(), __("Warnings")),
-        (1024.to_string(), __("Everything")),
+        (8.to_string(), __("Everything")),
     ];
     let severity_select = crate::controls::select_hash(
         "severity",
@@ -159,28 +172,38 @@ async fn log_viewer(state: &AppState, sess: &Sess, page: i64, severity: i64) -> 
     out.push_str("<div dojoType='dijit.layout.BorderContainer' gutters='false'>\n");
     out.push_str("\t\t<div region='top' dojoType='fox.Toolbar'>\n");
     out.push_str(&format!(
-        "\t\t\t<button dojoType='dijit.form.Button' onclick='Helpers.EventLog.refresh()'>Refresh</button>\n\
-         \t\t\t<button dojoType='dijit.form.Button' {prev_disabled} onclick='Helpers.EventLog.prevPage()'>&lt;&lt;</button>\n\
+        "\t\t\t<button dojoType='dijit.form.Button' onclick='Helpers.EventLog.refresh()'>{refresh}</button>\n\
+         \t\t\t<button dojoType='dijit.form.Button' {prev_disabled} onclick='Helpers.EventLog.prevPage()'>{prev}</button>\n\
          \t\t\t<button dojoType='dijit.form.Button' disabled>{page_label}</button>\n\
-         \t\t\t<button dojoType='dijit.form.Button' {next_disabled} onclick='Helpers.EventLog.nextPage()'>&gt;&gt;</button>\n\
-         \t\t\t<button dojoType='dijit.form.Button' onclick='Helpers.EventLog.clear()'>Clear</button>\n\
+         \t\t\t<button dojoType='dijit.form.Button' {next_disabled} onclick='Helpers.EventLog.nextPage()'>{next}</button>\n\
+         \t\t\t<button dojoType='dijit.form.Button' onclick='Helpers.EventLog.clear()'>{clear}</button>\n\
          \t\t\t<div class='pull-right'>\n\
-         \t\t\t\t<label>Severity:</label>\n\
+         \t\t\t\t<label>{severity_label}</label>\n\
          \t\t\t\t{severity_select}\n\
          \t\t\t</div>\n\
-         \t\t</div>\n"
+         \t\t</div>\n",
+        refresh = __("Refresh"),
+        prev = __("&lt;&lt;"),
+        next = __("&gt;&gt;"),
+        clear = __("Clear"),
+        severity_label = __("Severity:"),
     ));
-    out.push_str(
+    out.push_str(&format!(
         "\t\t<div style=\"padding : 0px\" dojoType=\"dijit.layout.ContentPane\" region=\"center\">\n\
          \t\t\t<table width='100%' class='event-log'>\n\
          \t\t\t\t<tr>\n\
-         \t\t\t\t\t<th width='5%'>Error</th>\n\
-         \t\t\t\t\t<th>Filename</th>\n\
-         \t\t\t\t\t<th>Message</th>\n\
-         \t\t\t\t\t<th width='5%'>User</th>\n\
-         \t\t\t\t\t<th width='5%'>Date</th>\n\
+         \t\t\t\t\t<th width='5%'>{}</th>\n\
+         \t\t\t\t\t<th>{}</th>\n\
+         \t\t\t\t\t<th>{}</th>\n\
+         \t\t\t\t\t<th width='5%'>{}</th>\n\
+         \t\t\t\t\t<th width='5%'>{}</th>\n\
          \t\t\t\t</tr>\n",
-    );
+        __("Error"),
+        __("Filename"),
+        __("Message"),
+        __("User"),
+        __("Date"),
+    ));
     for r in &rows {
         let errno: i32 = r.get(0);
         let errstr: String = r.get(1);
@@ -240,18 +263,24 @@ pub async fn index(state: &AppState, sess: &Sess, extra: &Map<String, Value>) ->
     out.push_str("<div dojoType='dijit.layout.AccordionContainer' region='center'>\n");
 
     // Event log pane (assumes SQL logging — the port's default).
-    out.push_str(
-        "<div dojoType='dijit.layout.AccordionPane' style='padding : 0' title='<i class=\"material-icons\">report</i> Event log'>\n",
-    );
+    out.push_str(&format!(
+        "<div dojoType='dijit.layout.AccordionPane' style='padding : 0' title='<i class=\"material-icons\">report</i> {}'>\n",
+        __("Event log"),
+    ));
     out.push_str(&log_html);
     out.push_str("</div>\n");
 
     // Email configuration pane (the mailer is a no-op — see send_test_email).
-    out.push_str(
-        "<div dojoType='dijit.layout.AccordionPane' style='padding : 0' title='<i class=\"material-icons\">mail</i> Email configuration'>\n",
-    );
+    out.push_str(&format!(
+        "<div dojoType='dijit.layout.AccordionPane' style='padding : 0' title='<i class=\"material-icons\">mail</i> {}'>\n",
+        __("Email configuration"),
+    ));
     out.push_str("\t<div dojoType=\"dijit.layout.ContentPane\">\n");
     out.push_str("\t\t<form dojoType=\"dijit.form.Form\">\n");
+    // The success message is injected after the fact (the inline script's JS
+    // braces would need `{{`/`}}` escaping in a `format!`): the reference
+    // embeds `json_encode(__('Email sent.'))`.
+    let email_sent = js_string(&__("Email sent."));
     out.push_str(
         "\t\t\t<script type=\"dojo/method\" event=\"onSubmit\" args=\"evt\">\n\
          \t\t\t\tevt.preventDefault();\n\
@@ -259,7 +288,7 @@ pub async fn index(state: &AppState, sess: &Sess, extra: &Map<String, Value>) ->
          \t\t\t\t\txhr.json(\"backend.php\", this.getValues(), (reply) => {\n\
          \t\t\t\t\t\tconst msg = document.getElementById(\"mail-test-result\");\n\
          \t\t\t\t\t\tif (reply.rc) {\n\
-         \t\t\t\t\t\t\tmsg.innerHTML = \"Email sent.\";\n\
+         \t\t\t\t\t\t\tmsg.innerHTML = \"EMAIL_SENT_PLACEHOLDER\";\n\
          \t\t\t\t\t\t\tmsg.className = 'alert alert-success';\n\
          \t\t\t\t\t\t} else {\n\
          \t\t\t\t\t\t\tmsg.innerHTML = reply.error;\n\
@@ -268,12 +297,14 @@ pub async fn index(state: &AppState, sess: &Sess, extra: &Map<String, Value>) ->
          \t\t\t\t\t\tmsg.show();\n\
          \t\t\t\t\t})\n\
          \t\t\t\t}\n\
-         \t\t\t</script>\n",
+         \t\t\t</script>\n"
+            .replace("\"EMAIL_SENT_PLACEHOLDER\"", &email_sent)
+            .as_str(),
     );
     out.push_str(&crate::controls::hidden_tag("op", "Pref_System"));
     out.push_str(&crate::controls::hidden_tag("method", "sendTestEmail"));
     out.push_str("\t\t\t<fieldset>\n");
-    out.push_str("\t\t\t\t<label>To:</label>\n");
+    out.push_str(&format!("\t\t\t\t<label>{}</label>\n", __("To:")));
     out.push_str(&crate::controls::input_tag(
         "mail_address",
         &email,
@@ -291,9 +322,10 @@ pub async fn index(state: &AppState, sess: &Sess, extra: &Map<String, Value>) ->
     out.push_str("</div>\n");
 
     // Scheduled tasks pane (lazy — loads getscheduledtasks on select).
-    out.push_str(
-        "<div dojoType='dijit.layout.AccordionPane' title='<i class=\"material-icons\">alarm</i> Scheduled tasks'>\n",
-    );
+    out.push_str(&format!(
+        "<div dojoType='dijit.layout.AccordionPane' title='<i class=\"material-icons\">alarm</i> {}'>\n",
+        __("Scheduled tasks"),
+    ));
     out.push_str(
         "<script type='dojo/method' event='onSelected' args='evt'>\n\
          if (this.domNode.querySelector('.loading'))\n\
@@ -304,13 +336,21 @@ pub async fn index(state: &AppState, sess: &Sess, extra: &Map<String, Value>) ->
          }, 200);\n\
          </script>\n",
     );
-    out.push_str("<span class='loading'>Loading, please wait...</span>\n");
+    out.push_str(&format!(
+        "<span class='loading'>{}</span>\n",
+        __("Loading, please wait..."),
+    ));
     out.push_str("</div>\n");
 
     // Server Information pane (lazy — the port surfaces Rust/server diagnostics
     // via get_php_info in place of phpinfo()).
+    // Deliberate rename of the reference's "PHP Information" pane (the port
+    // surfaces Rust/server diagnostics via `get_php_info` instead of `phpinfo()`).
     out.push_str(
-        "<div dojoType='dijit.layout.AccordionPane' title='<i class=\"material-icons\">info</i> Server Information'>\n",
+        &format!(
+            "<div dojoType='dijit.layout.AccordionPane' title='<i class=\"material-icons\">info</i> {}'>\n",
+            __("Server Information"),
+        ),
     );
     out.push_str(
         "<script type='dojo/method' event='onSelected' args='evt'>\n\
@@ -322,7 +362,10 @@ pub async fn index(state: &AppState, sess: &Sess, extra: &Map<String, Value>) ->
          }, 200);\n\
          </script>\n",
     );
-    out.push_str("<span class='loading'>Loading, please wait...</span>\n");
+    out.push_str(&format!(
+        "<span class='loading'>{}</span>\n",
+        __("Loading, please wait..."),
+    ));
     out.push_str("</div>\n");
 
     // M7.22 item 7 — the `Pref_System::index` plugin chain (PHP site after

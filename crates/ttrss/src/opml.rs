@@ -730,10 +730,10 @@ async fn opml_import_feed(
         feed_title.as_str()
     };
     if exists {
-        opml_notice(body, &format!("Duplicate feed: {display}"), depth);
+        opml_notice(body, &t_sprintf("Duplicate feed: %s", &[&display]), depth);
         return;
     }
-    opml_notice(body, &format!("Adding feed: {display}"), depth);
+    opml_notice(body, &t_sprintf("Adding feed: %s", &[&display]), depth);
     let feed_title = if feed_title.is_empty() {
         "[Unknown]".to_string()
     } else {
@@ -780,7 +780,10 @@ async fn opml_import_preference(
     let pref_value = attr(node, "value").unwrap_or("");
     opml_notice(
         body,
-        &format!("Setting preference key {pref_name} to {pref_value}"),
+        &t_sprintf(
+            "Setting preference key %s to %s",
+            &[&pref_name.to_string(), &pref_value.to_string()],
+        ),
         depth,
     );
     crate::prefs::set(db, pref_name, pref_value, uid, profile, true).await;
@@ -796,14 +799,14 @@ async fn opml_import_label(db: &Db, uid: i64, node: &XmlNode, body: &mut String,
     if crate::labels::find_id(db.pool(), label_name, uid).await != 0 {
         opml_notice(
             body,
-            &format!("Duplicate label: {}", htmlspecialchars(label_name)),
+            &t_sprintf("Duplicate label: %s", &[&htmlspecialchars(label_name)]),
             depth,
         );
         return;
     }
     opml_notice(
         body,
-        &format!("Adding label {}", htmlspecialchars(label_name)),
+        &t_sprintf("Adding label %s", &[&htmlspecialchars(label_name)]),
         depth,
     );
     crate::labels::create(
@@ -942,10 +945,11 @@ async fn opml_import_filter(db: &Db, uid: i64, node: &XmlNode, body: &mut String
     }
     if let Some(actions) = filter.get("actions").and_then(|v| v.as_array()) {
         for action in actions {
+            // PHP `(int)$action["action_id"]` — a missing key casts null to 0.
             let action_id = action
                 .get("action_id")
                 .and_then(|v| v.as_i64())
-                .unwrap_or(1);
+                .unwrap_or(0);
             let action_param = action
                 .get("action_param")
                 .and_then(|v| v.as_str())
@@ -1042,7 +1046,8 @@ pub async fn import(state: &AppState, sess: &Sess, file: Option<&[u8]>) -> Strin
         return String::new();
     }
     let Some(bytes) = file else {
-        return format_error("Upload failed with error code 4", "");
+        // PHP `$_FILES['opml_file']['error']` = 4 (UPLOAD_ERR_NO_FILE).
+        return format_error(&t_sprintf("Upload failed with error code %d", &[&"4"]), "");
     };
     // PHP `OPML::opml_import_preference` writes to `$_SESSION['profile'] ?? null`.
     let profile = sess.data().profile().map(|p| p as i32);

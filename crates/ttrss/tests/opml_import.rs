@@ -383,6 +383,42 @@ async fn test_import_filter() {
     })).await.unwrap();
 }
 
+/// PHP `(int)$action["action_id"]` casts a missing key (null) to 0; the
+/// `action_id` FK (`ttrss_filter_actions`, no id-0 row) then rejects the
+/// insert — the port swallows the error (like its other import inserts) and
+/// continues. The filter itself must still be created.
+#[tokio::test]
+async fn test_import_filter_action_missing_id_rejected_by_fk() {
+    with_test_db(|url| Box::pin(async move {
+    let state = common::make_app_state(&url).await;
+    let sess = sess_for(1);
+    let opml = r#"<opml version="1.0"><body>
+      <outline text="tt-rss-filters">
+        <outline filter-type="2"><![CDATA[{"match_any_rule":false,"enabled":true,"inverse":false,"title":"NoId Filter","rules":[],"actions":[{"action_param":"5"}]}]]></outline>
+      </outline>
+    </body></opml>"#;
+    let _ = ttrss::opml::import(&state, &sess, Some(opml.as_bytes())).await;
+
+    let filter: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM ttrss_filters2 WHERE title = 'NoId Filter'",
+    )
+    .fetch_one(state.db.pool())
+    .await
+    .expect("filter query");
+    assert_eq!(filter, 1, "filter created");
+
+    let actions: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM ttrss_filters2_actions a \
+         JOIN ttrss_filters2 f ON f.id = a.filter_id WHERE f.title = 'NoId Filter'",
+    )
+    .fetch_one(state.db.pool())
+    .await
+    .expect("action query");
+    assert_eq!(actions, 0, "action_id 0 fails the FK (PHP parity)");
+        Ok(())
+    })).await.unwrap();
+}
+
 #[tokio::test]
 async fn test_import_no_file_reports_upload_error() {
     with_test_db(|url| {
