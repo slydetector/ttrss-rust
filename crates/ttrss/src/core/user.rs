@@ -150,15 +150,17 @@ pub fn totp_with(secret: &[u8], t_secs: u64, digits: u32) -> String {
 }
 
 /// Verify a user-supplied OTP string against the current time (no window).
+///
+/// PHP `UserHelper::check_otp` compares with a loose `==` against an `int`
+/// parameter — a purely numeric comparison, so leading zeros are irrelevant
+/// (`"81804"` verifies a code of `"081804"`). We mirror that: numeric
+/// equality when the input is all digits, string equality otherwise.
 pub fn check_otp(secret: &[u8], otp: &str, t_secs: u64) -> bool {
     let expected = totp_at(secret, t_secs);
-    // tt-rss uses `==` on the 6-digit strings; we match on the numeric value
-    // to be tolerant of leading-zero input forms, then confirm equal length.
-    let a: Option<u64> = otp.trim().parse().ok();
-    let b: u64 = expected.parse().unwrap_or(0);
-    match a {
-        Some(x) if x == b => x.to_string().len() == expected.len() || otp.trim() == expected,
-        _ => otp.trim() == expected,
+    let o = otp.trim();
+    match (o.parse::<u64>().ok(), expected.parse::<u64>().ok()) {
+        (Some(a), Some(b)) => a == b,
+        _ => o == expected,
     }
 }
 
@@ -243,5 +245,17 @@ mod tests {
         let code = totp_at(secret, now);
         assert!(check_otp(secret, &code, now));
         assert!(!check_otp(secret, "000000", now) || code == "000000");
+    }
+
+    #[test]
+    fn check_otp_leading_zero_is_numeric() {
+        // A code of "081804": PHP's loose `==` against an int accepts the
+        // zero-dropped form; the port must too.
+        let (secret, t) = (b"12345678901234567890", 1_111_111_109u64);
+        assert_eq!(totp_at(secret, t), "081804");
+        assert!(check_otp(secret, "081804", t));
+        assert!(check_otp(secret, "81804", t), "dropped leading zero");
+        assert!(check_otp(secret, "0081804", t), "extra leading zeros");
+        assert!(!check_otp(secret, "081805", t));
     }
 }

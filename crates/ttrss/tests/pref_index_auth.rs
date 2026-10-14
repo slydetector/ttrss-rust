@@ -157,3 +157,79 @@ async fn test_index_auth_otp_enabled() {
     .await
     .unwrap();
 }
+
+/// `index_auth` under a `de_DE` scope — the pane titles and form labels the
+/// PHP wraps in `__()` render from the German catalog (regression: the port
+/// had them as bare literals, so they stayed English under a locale).
+#[tokio::test]
+async fn test_index_auth_localizes_de_de() {
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            let ctx = ttrss::i18n::I18nCtx {
+                locale: Some("de_DE".to_string()),
+                cache: state.i18n.clone(),
+            };
+            let html = ttrss::i18n::I18N
+                .scope(ctx, async {
+                    ttrss::pref_ui::index_auth(&state, &sess).await
+                })
+                .await
+                .expect("render");
+
+            // Pane titles (the German catalog).
+            assert!(
+                html.contains("title=\"Persönliche Daten\""),
+                "German pane title"
+            );
+            assert!(html.contains("title=\"Passwort\""), "German pane title");
+            assert!(
+                html.contains("title=\"App-Passwörter\""),
+                "German pane title"
+            );
+            assert!(
+                html.contains("title=\"Authentifizierung (OTP)\""),
+                "German pane title"
+            );
+
+            // Personal data pane labels + button.
+            assert!(
+                html.contains("Vollständiger Name:"),
+                "German full-name label"
+            );
+            assert!(html.contains("Speichern"), "German save button");
+
+            // Password pane labels + button.
+            assert!(
+                html.contains("Altes Passwort:"),
+                "German old-password label"
+            );
+            assert!(
+                html.contains("Neues Passwort:"),
+                "German new-password label"
+            );
+            assert!(
+                html.contains("Passwort bestätigen:"),
+                "German confirm label"
+            );
+            assert!(html.contains("Passwort ändern"), "German change button");
+
+            // App passwords pane buttons.
+            assert!(
+                html.contains("Passwort generieren"),
+                "German generate button"
+            );
+
+            // OTP pane (disabled branch): labels + enable button.
+            assert!(html.contains("OTP Geheimnis:"), "German secret label");
+            assert!(html.contains("Verifizierungscode:"), "German code label");
+            assert!(
+                html.contains("Einmalpasswörter einschalten"),
+                "German enable button"
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
+}

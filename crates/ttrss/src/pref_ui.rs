@@ -782,9 +782,9 @@ pub async fn index_auth(state: &AppState, sess: &Sess) -> Result<String, sqlx::E
     let password_pane = if auth_internal {
         index_auth_password()
     } else {
-        controls::format_notice(&format!(
-            "Authentication module used for this session (<b>{}</b>) does not provide an ability to set passwords.",
-            auth_module
+        controls::format_notice(&t_sprintf(
+            "Authentication module used for this session (<b>%s</b>) does not provide an ability to set passwords.",
+            &[auth_module],
         ))
     };
     let app_passwords_pane = match app_passwords {
@@ -802,19 +802,23 @@ pub async fn index_auth(state: &AppState, sess: &Sess) -> Result<String, sqlx::E
 
     Ok(format!(
         r#"<div dojoType='dijit.layout.TabContainer'>
-    <div dojoType='dijit.layout.ContentPane' title="Personal data">
+    <div dojoType='dijit.layout.ContentPane' title="{t_personal}">
         {personal}
     </div>
-    <div dojoType='dijit.layout.ContentPane' title="Password">
+    <div dojoType='dijit.layout.ContentPane' title="{t_password}">
         {password}
     </div>
-    <div dojoType='dijit.layout.ContentPane' title="App passwords">
+    <div dojoType='dijit.layout.ContentPane' title="{t_app}">
         {app_passwords}
     </div>
-    <div dojoType='dijit.layout.ContentPane' title="Authenticator (OTP)">
+    <div dojoType='dijit.layout.ContentPane' title="{t_otp}">
         {otp}
     </div>
 </div>"#,
+        t_personal = __("Personal data"),
+        t_password = __("Password"),
+        t_app = __("App passwords"),
+        t_otp = __("Authenticator (OTP)"),
         personal = index_auth_personal(&full_name, &email),
         password = password_pane,
         app_passwords = app_passwords_pane,
@@ -892,23 +896,25 @@ fn index_auth_personal(full_name: &str, email: &str) -> String {
     {method}
     {script}
     <fieldset>
-        <label>Full name:</label>
+        <label>{l_full}</label>
         <input dojoType='dijit.form.ValidationTextBox' name='full_name' required='1' value="{fn}">
     </fieldset>
     <fieldset>
-        <label>Email:</label>
+        <label>{l_email}</label>
         <input dojoType='dijit.form.ValidationTextBox' name='email' required='1' value="{em}">
     </fieldset>
     <hr/>
     {save}
 </form>"#,
+        l_full = __("Full name:"),
+        l_email = __("Email:"),
         op = controls::hidden_tag("op", "Pref_Prefs"),
         method = controls::hidden_tag("method", "changePersonalData"),
         script = SCRIPT_PERSONAL,
         fn = util::htmlspecialchars(full_name),
         em = util::htmlspecialchars(email),
         save = controls::button_tag(
-            &format!("{} Save", controls::icon("save")),
+            &format!("{} {}", controls::icon("save"), __("Save")),
             "submit",
             &[("class", "alt-primary".into())],
         ),
@@ -924,25 +930,28 @@ fn index_auth_password() -> String {
     {method}
     {script}
     <fieldset>
-        <label>Old password:</label>
+        <label>{l_old}</label>
         <input dojoType='dijit.form.ValidationTextBox' type='password' required='1' name='old_password'>
     </fieldset>
     <fieldset>
-        <label>New password:</label>
+        <label>{l_new}</label>
         <input dojoType='dijit.form.ValidationTextBox' type='password' regexp='^[^<>]+' required='1' name='new_password'>
     </fieldset>
     <fieldset>
-        <label>Confirm password:</label>
+        <label>{l_confirm}</label>
         <input dojoType='dijit.form.ValidationTextBox' type='password' regexp='^[^<>]+' required='1' name='confirm_password'>
     </fieldset>
     <hr/>
     {btn}
 </form>"#,
+        l_old = __("Old password:"),
+        l_new = __("New password:"),
+        l_confirm = __("Confirm password:"),
         op = controls::hidden_tag("op", "Pref_Prefs"),
         method = controls::hidden_tag("method", "changepassword"),
         script = SCRIPT_PASSWORD,
         btn = controls::button_tag(
-            &format!("{} Change password", controls::icon("security")),
+            &format!("{} {}", controls::icon("security"), __("Change password")),
             "submit",
             &[("class", "alt-primary".into())],
         ),
@@ -958,15 +967,17 @@ fn index_auth_app_passwords(app_passwords_html: &str) -> String {
 </div>
 <hr>
 <button style='float : left' class='alt-primary' dojoType='dijit.form.Button' onclick="Helpers.AppPasswords.generate()">{add}
-    Generate password</button>
+    {gen}</button>
 <button style='float : left' class='alt-danger' dojoType='dijit.form.Button' onclick="Helpers.AppPasswords.removeSelected()">{del}
-    Remove selected</button>"#,
+    {rem}</button>"#,
         notice = controls::format_notice(
             "Separate passwords used for API clients. Required if you enable OTP."
         ),
         list = app_passwords_html,
         add = controls::icon("add"),
+        gen = __("Generate password"),
         del = controls::icon("delete"),
+        rem = __("Remove selected"),
     )
 }
 
@@ -990,7 +1001,7 @@ fn index_auth_2fa(
     {method}
     {script}
     <fieldset>
-        <label>Your password:</label>
+        <label>{l_pw}</label>
         <input dojoType='dijit.form.ValidationTextBox' type='password' required='1' name='password'>
     </fieldset>
     <hr/>
@@ -999,11 +1010,12 @@ fn index_auth_2fa(
             warning = controls::format_warning(
                 "One time passwords are currently enabled. Enter your current password below to disable.",
             ),
+            l_pw = __("Your password:"),
             op = controls::hidden_tag("op", "Pref_Prefs"),
             method = controls::hidden_tag("method", "otpdisable"),
             script = SCRIPT_OTP_DISABLE,
             btn = controls::button_tag(
-                &format!("{} Disable OTP", controls::icon("lock_open")),
+                &format!("{} {}", controls::icon("lock_open"), __("Disable OTP")),
                 "submit",
                 &[("class", "alt-danger".into())],
             ),
@@ -1016,16 +1028,16 @@ fn index_auth_2fa(
     {op}
     {method}
     <fieldset>
-        <label>OTP secret:</label>
+        <label>{l_secret}</label>
         <code>{secret}</code>
     </fieldset>
     {script}
     <fieldset>
-        <label>Your password:</label>
+        <label>{l_pw}</label>
         <input dojoType='dijit.form.ValidationTextBox' type='password' required='1' name='password'>
     </fieldset>
     <fieldset>
-        <label>Verification code:</label>
+        <label>{l_code}</label>
         <input dojoType='dijit.form.ValidationTextBox' autocomplete='off' required='1' name='otp'>
     </fieldset>
     <hr/>
@@ -1035,12 +1047,15 @@ fn index_auth_2fa(
         notice = controls::format_notice(
             "You will need to generate app passwords for API clients if you enable OTP.",
         ),
+        l_secret = __("OTP secret:"),
+        l_pw = __("Your password:"),
+        l_code = __("Verification code:"),
         op = controls::hidden_tag("op", "Pref_Prefs"),
         method = controls::hidden_tag("method", "otpenable"),
         script = SCRIPT_OTP_ENABLE,
         secret = otp_secret_fmt.unwrap_or(""),
         btn = controls::button_tag(
-            &format!("{} Enable OTP", controls::icon("lock")),
+            &format!("{} {}", controls::icon("lock"), __("Enable OTP")),
             "submit",
             &[("class", "alt-primary".into())],
         ),

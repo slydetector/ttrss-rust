@@ -112,10 +112,11 @@ fn random_password(len: usize) -> String {
         .collect()
 }
 
-/// The reference's star banner, verbatim (76 asterisks, its own ragged
+/// The reference's star banner, verbatim (77 asterisks, its own ragged
 /// trailing-star spacing included).
 fn star_banner(password: &str) -> String {
-    const STARS: &str = "************************************************************************";
+    const STARS: &str =
+        "*****************************************************************************";
     format!(
         "{STARS}\n\
          * Setting initial built-in admin user password to '{password}'        *\n\
@@ -247,7 +248,7 @@ mod tests {
     fn star_banner_is_verbatim() {
         let b = star_banner("abc");
         let mut lines = b.lines();
-        let stars = "************************************************************************";
+        let stars = "*****************************************************************************";
         assert_eq!(lines.next().unwrap(), stars);
         assert_eq!(
             lines.next().unwrap(),
