@@ -3,17 +3,17 @@
 {{ hidden_op }}
 {{ hidden_method }}
 <div dojoType="dijit.layout.TabContainer" style="height : 450px">
-  <div dojoType="dijit.layout.ContentPane" title="General">
+  <div dojoType="dijit.layout.ContentPane" title="{{ lang_general }}">
     <section>
 {% if enable_feed_cats %}
       <fieldset>
-        <label>Place in category:</label>
+        <label>{{ lang_place_in_category }}</label>
 {{ cat_select }}
 {{ toggle_cat }}
       </fieldset>
 {% endif %}
       <fieldset>
-        <label>Language:</label>
+        <label>{{ lang_language }}</label>
 {{ lang_select }}
 {{ toggle_lang }}
       </fieldset>
@@ -21,34 +21,34 @@
     <hr/>
     <section>
       <fieldset>
-        <label>Update interval:</label>
+        <label>{{ lang_update_interval }}</label>
 {{ update_select }}
 {{ toggle_update }}
       </fieldset>
 {% if not force_purge %}
       <fieldset>
-        <label>Article purging:</label>
+        <label>{{ lang_article_purging }}</label>
 {{ purge_select }}
 {{ toggle_purge }}
       </fieldset>
 {% endif %}
     </section>
   </div>
-  <div dojoType="dijit.layout.ContentPane" title="Authentication">
+  <div dojoType="dijit.layout.ContentPane" title="{{ lang_authentication }}">
     <section>
       <fieldset>
-        <label>Login:</label>
+        <label>{{ lang_login }}</label>
         <input dojoType='dijit.form.TextBox' disabled='1' autocomplete='new-password' name='auth_login' value=''>
 {{ toggle_login }}
       </fieldset>
       <fieldset>
-        <label>Password:</label>
+        <label>{{ lang_password }}</label>
         <input dojoType='dijit.form.TextBox' type='password' name='auth_pass' autocomplete='new-password' disabled='1' value=''>
 {{ toggle_pass }}
       </fieldset>
     </section>
   </div>
-  <div dojoType="dijit.layout.ContentPane" title="Options">
+  <div dojoType="dijit.layout.ContentPane" title="{{ lang_options }}">
 {% for opt in options %}
     <fieldset class='narrow'>
       <label class="checkbox text-muted">

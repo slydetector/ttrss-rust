@@ -1184,6 +1184,26 @@ pub async fn index(state: &AppState, sess: &Sess, extra: &Map<String, Value>) ->
     );
     // M7.22 item 7 — the `Pref_Filters::index` plugin chain (PHP site after
     // the tree panes, before the page's closing tag).
+    // `Pref_Filters::index` button / menu labels — `__()` in the PHP.
+    ctx.insert("lang_search".into(), Value::String(__("Search")));
+    ctx.insert("lang_select".into(), Value::String(__("Select")));
+    ctx.insert("lang_all".into(), Value::String(__("All")));
+    ctx.insert("lang_none".into(), Value::String(__("None")));
+    ctx.insert(
+        "lang_create_filter".into(),
+        Value::String(__("Create filter")),
+    );
+    ctx.insert("lang_clone".into(), Value::String(__("Clone")));
+    ctx.insert("lang_combine".into(), Value::String(__("Combine")));
+    ctx.insert("lang_remove".into(), Value::String(__("Remove")));
+    ctx.insert(
+        "lang_reset_sort_order".into(),
+        Value::String(__("Reset sort order")),
+    );
+    ctx.insert(
+        "lang_toggle_rule_display".into(),
+        Value::String(__("Toggle rule display")),
+    );
     ctx.insert(
         "pref_filters_tabs".into(),
         Value::String(
@@ -1569,7 +1589,7 @@ pub async fn clone_filters(
         let src_inverse: bool = s.get(3);
         let title = new_title
             .clone()
-            .unwrap_or_else(|| format!("Clone of {src_title}"));
+            .unwrap_or_else(|| t_sprintf("Clone of %s", &[&src_title]));
         let mut tx = pool.begin().await?;
         do_add(
             &mut tx,

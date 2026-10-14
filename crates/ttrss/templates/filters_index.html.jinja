@@ -7,32 +7,32 @@
 					<input dojoType="dijit.form.TextBox" id="filter_search" size="20" type="search"
 						value="{{ filter_search }}">
 					<button dojoType="dijit.form.Button" type="submit">
-						Search</button>
+						{{ lang_search }}</button>
 				</form>
 			</div>
 
 			<div dojoType="fox.form.DropDownButton">
-				<span>Select</span>
+				<span>{{ lang_select }}</span>
 				<div dojoType="dijit.Menu" style="display: none;">
 					<div onclick="dijit.byId('filterTree').model.setAllChecked(true)"
-						dojoType="dijit.MenuItem">All</div>
+						dojoType="dijit.MenuItem">{{ lang_all }}</div>
 					<div onclick="dijit.byId('filterTree').model.setAllChecked(false)"
-						dojoType="dijit.MenuItem">None</div>
+						dojoType="dijit.MenuItem">{{ lang_none }}</div>
 				</div>
 			</div>
 
 			<button dojoType="dijit.form.Button" onclick="return Filters.edit()">
-				Create filter</button>
+				{{ lang_create_filter }}</button>
 			<button dojoType="dijit.form.Button" onclick="return dijit.byId('filterTree').cloneSelectedFilters()">
-				Clone</button>
+				{{ lang_clone }}</button>
 			<button dojoType="dijit.form.Button" onclick="return dijit.byId('filterTree').joinSelectedFilters()">
-				Combine</button>
+				{{ lang_combine }}</button>
 			<button dojoType="dijit.form.Button" onclick="return dijit.byId('filterTree').removeSelectedFilters()">
-				Remove</button>
+				{{ lang_remove }}</button>
 			<button dojoType="dijit.form.Button" onclick="return dijit.byId('filterTree').resetFilterOrder()">
-				Reset sort order</button>
+				{{ lang_reset_sort_order }}</button>
 			<button dojoType="dijit.form.Button" onclick="return dijit.byId('filterTree').toggleRules()">
-				Toggle rule display</button>
+				{{ lang_toggle_rule_display }}</button>
 
 		</div>
 	</div>

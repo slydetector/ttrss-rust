@@ -492,6 +492,11 @@ fn is_ipv6(host: &str) -> bool {
 /// and directory. Returns the validated URL, or `None` if it cannot be resolved
 /// (mirrors the PHP `false`).
 pub(crate) fn rewrite_relative(base_url: &str, rel_url: &str) -> Option<String> {
+    // PHP: `if (!$rel_url) return $base_url;` — an empty relative URL is the
+    // base itself (not the base's origin).
+    if rel_url.is_empty() {
+        return Some(base_url.to_string());
+    }
     let mut rel_parts = parse_url(rel_url)?;
 
     // Absolute URL (has both a scheme and a host) → validate and return as-is.

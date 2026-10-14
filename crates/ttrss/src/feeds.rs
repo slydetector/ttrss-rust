@@ -201,8 +201,19 @@ pub async fn getfeedtree(state: &AppState, sess: &Sess, extra: &Map<String, Valu
                 .push(special_feed(pool, uid, feed_id, fresh_max_age).await);
         }
         // (Plugin feeds for CATEGORY_SPECIAL — none for this deployment.)
+        // PHP: `if ($enable_cats) $root['items'][] = $cat;
+        // else array_push($root['items'], ...$cat['items']);`
         if enable_cats {
             root_items.push(Value::Object(special));
+        } else {
+            root_items.extend(
+                special
+                    .get("items")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .cloned(),
+            );
         }
 
         // Labels category.
@@ -249,8 +260,18 @@ pub async fn getfeedtree(state: &AppState, sess: &Sess, extra: &Map<String, Valu
                     .unwrap()
                     .push(feed);
             }
+            // Same flatten for labels with cats disabled (PHP: `array_push($root['items'], ...$cat['items'])`).
             if enable_cats {
                 root_items.push(Value::Object(label_cat));
+            } else {
+                root_items.extend(
+                    label_cat
+                        .get("items")
+                        .and_then(Value::as_array)
+                        .into_iter()
+                        .flatten()
+                        .cloned(),
+                );
             }
         }
     }
@@ -294,7 +315,7 @@ pub async fn getfeedtree(state: &AppState, sess: &Sess, extra: &Map<String, Valu
             unc.insert("id".into(), json!("CAT:0"));
             unc.insert("bare_id".into(), json!(0i64));
             unc.insert("auxcounter".into(), json!(-1));
-            unc.insert("name".into(), json!("Uncategorized"));
+            unc.insert("name".into(), json!(__("Uncategorized")));
             unc.insert("items".into(), Value::Array(items));
             unc.insert("type".into(), json!("category"));
             unc.insert("checkbox".into(), json!(false));
@@ -304,12 +325,12 @@ pub async fn getfeedtree(state: &AppState, sess: &Sess, extra: &Map<String, Valu
             root_items.push(Value::Object(unc));
         }
     } else {
-        // Cats disabled: every feed directly under the root.
-        root_items = feeds
-            .iter()
-            .map(|f| feed_node(state, f, &tz, &self_url))
-            .collect();
-        root_children = feeds.len() as i64;
+        // Cats disabled: every feed directly under the root (appended after
+        // the flattened mode-2 special/label items — PHP appends to
+        // `$root['items']`, never replaces it).
+        let n = feeds.len() as i64;
+        root_items.extend(feeds.iter().map(|f| feed_node(state, f, &tz, &self_url)));
+        root_children += n;
     }
 
     let items = if mode_is_2 {
@@ -317,7 +338,7 @@ pub async fn getfeedtree(state: &AppState, sess: &Sess, extra: &Map<String, Valu
     } else {
         let mut root = Map::new();
         root.insert("id".into(), json!("root"));
-        root.insert("name".into(), json!("Feeds"));
+        root.insert("name".into(), json!(__("Feeds")));
         root.insert("items".into(), Value::Array(root_items));
         root.insert("param".into(), json!(nfeeds(root_children)));
         root.insert("type".into(), json!("category"));
@@ -1189,11 +1210,21 @@ pub async fn subscribe(
         }
     }
 
-    // `if (empty($contents)) return ["code" => 5, "message" => …]`.
+    // `if (empty($contents)) return ["code" => 5, "message" => …]`. The PHP
+    // appends " (feed behind Cloudflare)" to the error text (and thus the
+    // message) when the failed response body mentions cloudflare.com.
     if contents.is_empty() {
+        let mut err = res.error.clone();
+        if res
+            .body
+            .as_deref()
+            .is_some_and(|b| b.windows(14).any(|w| w == b"cloudflare.com"))
+        {
+            err.push_str(" (feed behind Cloudflare)");
+        }
         return json!({
             "code": 5,
-            "message": util::truncate_string(&util::clean_str(&res.error), 250, "…"),
+            "message": util::truncate_string(&util::clean_str(&err), 250, "…"),
         });
     }
 
@@ -1209,19 +1240,33 @@ pub async fn subscribe(
             };
             return json!({ "code": 3, "message": message });
         } else if feed_urls.len() > 1 {
-            let feeds: Vec<String> = feed_urls.iter().map(|(u, _)| u.clone()).collect();
+            // The dialog iterates `for (const feedUrl in feeds)` with
+            // `feeds[feedUrl]` as the label (CommonDialogs.js) — an
+            // object of url => title, as the PHP's associative array.
+            let feeds = serde_json::Map::from_iter(
+                feed_urls
+                    .iter()
+                    .map(|(u, t)| (u.clone(), serde_json::json!(t))),
+            );
             return json!({ "code": 4, "feeds": feeds });
         }
         url = feed_urls.into_iter().next().expect("non-empty").0;
     }
 
-    // `Don't allow subscribing if the content is invalid`.
+    // `Don't allow subscribing if the content is invalid` — the PHP checks
+    // the constructor's `$fp->error()` first (code 6 with the error text),
+    // then `get_type() === FEED_UNKNOWN` (code 6 with an admin-gated
+    // 250-char content snippet; empty for non-admins).
     let mut parser = crate::core::feed::FeedParser::new(&contents);
     let parse_error = parser.error();
-    if !parser.init() {
-        let message = if !parse_error.is_empty() {
-            util::truncate_string(&util::clean_str(&parse_error), 250, "…")
-        } else if access_level >= crate::core::user::ACCESS_LEVEL_ADMIN {
+    if !parse_error.is_empty() {
+        return json!({
+            "code": 6,
+            "message": util::truncate_string(&util::clean_str(&parse_error), 250, "…"),
+        });
+    }
+    if parser.get_type() == crate::core::feed::FEED_UNKNOWN {
+        let message = if access_level >= crate::core::user::ACCESS_LEVEL_ADMIN {
             util::truncate_string(&util::clean_str(&contents), 250, "…")
         } else {
             String::new()
@@ -1583,9 +1628,9 @@ fn render_debug_log(log: &crate::updates::FeedDebugLog, xdebug: i64) -> String {
 /// `Feeds::_get_cat_title($cat_id, $owner_uid)`.
 pub async fn category_title(pool: &sqlx::PgPool, cat_id: i64, owner_uid: i64) -> String {
     match cat_id {
-        0 => "Uncategorized".to_string(),
-        -1 => "Special".to_string(),
-        -2 => "Labels".to_string(),
+        0 => __("Uncategorized"),
+        -1 => __("Special"),
+        -2 => __("Labels"),
         _ => sqlx::query_scalar::<_, String>(
             "SELECT title FROM ttrss_feed_categories \n             WHERE id = $1 AND owner_uid = $2 LIMIT 1",
         )
@@ -1713,14 +1758,18 @@ fn calculate_children_count(items: &[Value]) -> i64 {
 
 /// `_ngettext("(%d article / %s)", "(%d articles / %s)", n)` + the datetime.
 fn articles_param(n: i64, hm: &str) -> String {
-    let unit = if n == 1 { "article" } else { "articles" };
-    format!("({n} {unit} / {hm})")
+    t_nsprintf(
+        "(%d article / %s)",
+        "(%d articles / %s)",
+        n,
+        &[&n.to_string(), hm],
+    )
 }
 
 /// `_ngettext("(%d feed)", "(%d feeds)", n)`.
+/// `_ngettext("(%d feed)", "(%d feeds)", n)`.
 fn nfeeds(n: i64) -> String {
-    let unit = if n == 1 { "feed" } else { "feeds" };
-    format!("({n} {unit})")
+    t_nsprintf("(%d feed)", "(%d feeds)", n, &[&n.to_string()])
 }
 
 /// All of the user's feed categories, ordered `(order_id, title)`.
@@ -2908,7 +2957,8 @@ pub async fn select_feeds_cats(
         ""
     };
     ret.push_str(&format!(
-        "<option {is_selected} value=\"0\">Uncategorized</option>"
+        "<option {is_selected} value=\"0\">{unc}</option>",
+        unc = __("Uncategorized"),
     ));
     ret.push_str("</select>");
     ret
@@ -3056,9 +3106,11 @@ pub async fn editfeed(state: &AppState, sess: &Sess, extra: &Map<String, Value>)
         Value::Object(m)
     } else {
         let fp = state.config.force_article_purge;
-        Value::Array(vec![Value::String(format!(
-            "{fp} day{}",
-            if fp == 1 { "" } else { "s" }
+        Value::Array(vec![Value::String(t_nsprintf(
+            "%d day",
+            "%d days",
+            fp as i64,
+            &[&fp.to_string()],
         ))])
     };
 
@@ -3216,6 +3268,19 @@ pub async fn editfeeds(state: &AppState, sess: &Sess, extra: &Map<String, Value>
         json!(controls::hidden_tag("method", "batchEditSave")),
     );
     ctx.insert("enable_feed_cats".into(), json!(enable_feed_cats));
+    // `editfeeds` pane titles / fieldset labels — `__()` in the PHP.
+    ctx.insert("lang_general".into(), json!(__("General")));
+    ctx.insert("lang_authentication".into(), json!(__("Authentication")));
+    ctx.insert("lang_options".into(), json!(__("Options")));
+    ctx.insert(
+        "lang_place_in_category".into(),
+        json!(__("Place in category:")),
+    );
+    ctx.insert("lang_language".into(), json!(__("Language:")));
+    ctx.insert("lang_update_interval".into(), json!(__("Update interval:")));
+    ctx.insert("lang_article_purging".into(), json!(__("Article purging:")));
+    ctx.insert("lang_login".into(), json!(__("Login:")));
+    ctx.insert("lang_password".into(), json!(__("Password:")));
     ctx.insert(
         "force_purge".into(),
         json!(state.config.force_article_purge != 0),

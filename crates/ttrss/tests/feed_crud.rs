@@ -1286,7 +1286,7 @@ fn feed_ids(node: &Value, out: &mut Vec<i64>) {
 /// `getfeedtree` (mode 2) with an optional `search` term → the sorted
 /// deduped feed ids in the reply.
 async fn fetch_ids(url: &str, search: Option<&str>) -> Vec<i64> {
-    let (state, sess) = setup_from_url(url).await;
+    let (state, sess) = setup_from_url(&url).await;
     let mut req: Vec<(&str, Value)> = vec![("mode", json!("2"))];
     if let Some(s) = search {
         req.push(("search", json!(s)));
@@ -1324,6 +1324,55 @@ async fn test_getfeedtree_search_filters_feeds() {
             assert_eq!(fetch_ids(&url, Some("tech_review")).await, vec![4]);
             // No search term → unfiltered (all four fixture feeds).
             assert_eq!(fetch_ids(&url, None).await, vec![1, 2, 3, 4]);
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
+}
+
+/// Mode 2 with `ENABLE_FEED_CATS` off: PHP flattens the special and label
+/// feeds directly into the root items (`array_push($root['items'],
+/// ...$cat['items'])`) — no category wrapper. Rust-only regression: before
+/// the fix the port dropped them entirely in that configuration.
+#[tokio::test]
+async fn test_getfeedtree_mode2_cats_disabled_flattens_specials() {
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup_from_url(&url).await;
+            let db = &state.db;
+            sqlx::query(
+                "INSERT INTO ttrss_user_prefs2 (owner_uid, pref_name, profile, value) \
+         VALUES (1, 'ENABLE_FEED_CATS', NULL, '0')",
+            )
+            .execute(db.pool())
+            .await
+            .expect("set pref");
+            let v =
+                ttrss::feeds::getfeedtree(&state, &sess, &request(&[("mode", json!("2"))])).await;
+            let items = v
+                .get("items")
+                .and_then(Value::as_array)
+                .expect("mode-2 root items");
+            // No category wrappers at the root in this configuration.
+            assert!(
+                items
+                    .iter()
+                    .all(|i| i.get("type").and_then(Value::as_str) != Some("category"))
+            );
+            // The six special feeds are present directly (bare ids -4, -3, -1,
+            // -2, 0, -6).
+            let bare: Vec<i64> = items
+                .iter()
+                .filter_map(|i| i.get("bare_id").and_then(Value::as_i64))
+                .collect();
+            for special in [-4i64, -3, -1, -2, 0, -6] {
+                assert!(bare.contains(&special), "missing special {special}");
+            }
+            // The two fixture labels are present directly (label_to_feed_id:
+            // 1 → -1026, 2 → -1027).
+            assert!(bare.contains(&-1026), "missing label feed 1");
+            assert!(bare.contains(&-1027), "missing label feed 2");
             Ok(())
         })
     })
