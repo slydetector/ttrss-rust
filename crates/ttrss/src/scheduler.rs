@@ -239,10 +239,17 @@ async fn run_task_inner(pool: &PgPool, cfg: &Config, name: &str) -> Result<i32> 
             tracing::debug!("purged {deleted} orphaned posts");
             Ok(0)
         }
-        // NOTE(M6c.4): the PHP's `DiskCache::instance(""); expire_all()` expires
-        // the 30-second feed-XML cache, which was dropped (D5 = c). There is no
-        // such cache in this port, so the task is a no-op.
-        "disk_cache_expire_all" => Ok(0),
+        // `RSSUtils::init_housekeeping_tasks` → `DiskCache::instance("");
+        // expire_all()` — sweep every `CACHE_DIR` subdirectory (the 30s
+        // feed-XML cache itself was dropped by D5 = c; the `images`/plugin
+        // caches remain and are swept here, `.no-auto-expiry` dirs exempt).
+        "disk_cache_expire_all" => {
+            let removed = crate::diskcache::expire_all(&cfg.cache_dir, cfg.cache_max_days as i64);
+            if removed > 0 {
+                tracing::info!("expired {removed} stale cache files");
+            }
+            Ok(0)
+        }
         "disable_failed_feeds" => {
             let disabled = disable_failed_feeds(pool, cfg).await?;
             if disabled > 0 {

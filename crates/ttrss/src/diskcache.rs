@@ -14,8 +14,13 @@ use kuchikiki::traits::TendrilSink;
 use std::path::{Path, PathBuf};
 
 /// `Config::CACHE_MAX_DAYS` (T_INT, default 7): the `Expires` stamp is the
-/// file mtime plus this many days.
+/// file mtime plus this many days, and the [`expire_all`] sweep's age cutoff.
 pub const CACHE_MAX_DAYS: i64 = 7;
+
+/// The per-directory opt-out marker: its presence exempts the directory from
+/// the [`expire_all`] sweep and the on-serve mtime refresh (the reference's
+/// `Cache_Local` checks `$cache_dir/.no-auto-expiry`).
+pub const NO_AUTO_EXPIRY: &str = ".no-auto-expiry";
 
 /// `mime_content_type()` — detect the media type from magic bytes, matching
 /// libmagic's result for the types that appear in the cache.
@@ -114,6 +119,18 @@ fn http_date(unix_secs: i64) -> String {
 /// mtime ETag, and answers 304 (no body, cache headers only) when either
 /// matches.
 pub fn send_file(path: &Path, req: &HeaderMap) -> Response {
+    // `Cache_Local::send_local_file`: refresh the mtime on access (LRU — an
+    // actively-viewed file stays inside the expiry window), unless the
+    // directory opted out via `.no-auto-expiry`.
+    if let Some(dir) = path.parent()
+        && !dir.join(NO_AUTO_EXPIRY).exists()
+    {
+        let _ = std::fs::OpenOptions::new()
+            .write(true)
+            .open(path)
+            .and_then(|f| f.set_modified(std::time::SystemTime::now()));
+    }
+
     let (Ok(meta), Ok(bytes)) = (std::fs::metadata(path), std::fs::read(path)) else {
         return Response::builder()
             .status(StatusCode::NOT_FOUND)
@@ -218,6 +235,56 @@ pub fn resolve_cached(cache_dir: &Path, file: &str) -> Option<PathBuf> {
     // PHP `set_dir`: `basename(clean($dir))` — `clean()` = strip_tags + trim.
     let subdir = crate::util::clean_str(subdir);
     Some(cache_dir.join(php_basename(&subdir)).join(name))
+}
+
+/// `Cache_Local::expire_all()` — the housekeeping sweep (the
+/// `disk_cache_expire_all` scheduled task): for every subdirectory of the
+/// app `CACHE_DIR` that has no `.no-auto-expiry` marker, unlink the files
+/// older than `CACHE_MAX_DAYS` days. Dotfiles are never candidates (the
+/// reference's `glob("$dir/*")` does not match them, so the marker itself
+/// survives). Returns the number of files removed.
+pub fn expire_all(cache_dir: &Path, max_days: i64) -> i64 {
+    let max_age = 86400u64 * max_days.max(1) as u64;
+    let now = std::time::SystemTime::now();
+    let mut removed = 0i64;
+    let entries = match std::fs::read_dir(cache_dir) {
+        Ok(r) => r,
+        Err(_) => return 0,
+    };
+    for entry in entries.flatten() {
+        let dir = entry.path();
+        if !dir.is_dir() || dir.join(NO_AUTO_EXPIRY).exists() {
+            continue;
+        }
+        let Ok(files) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for file in files.flatten() {
+            let path = file.path();
+            if !path.is_file() {
+                continue;
+            }
+            let name = file.file_name();
+            if name.to_string_lossy().starts_with('.') {
+                continue;
+            }
+            let mtime = match file
+                .metadata()
+                .ok()
+                .and_then(|m| m.modified().ok())
+            {
+                Some(t) => t,
+                None => continue,
+            };
+            let age = now.duration_since(mtime).map(|d| d.as_secs()).unwrap_or(0);
+            // PHP: `time() - filemtime($file) > 86400 * CACHE_MAX_DAYS` (strict).
+            if age > max_age && std::fs::remove_file(&path).is_ok() {
+                removed += 1;
+                tracing::debug!(dir = %dir.display(), "expired cache file");
+            }
+        }
+    }
+    removed
 }
 
 /// PHP `basename()`: the last path component — unlike `Path::file_name`,
@@ -544,6 +611,88 @@ mod tests {
         // The reference's map quirk: the `video/mp4` fallback serves `.pdf`.
         assert_eq!(fake_extension("application/octet-stream"), "pdf");
         assert_eq!(fake_extension("text/plain"), "");
+    }
+
+    /// Set a file's mtime back `$secs` seconds (the test needs controllable
+    /// file ages).
+    fn age_file(path: &Path, secs: u64) {
+        let past = std::time::SystemTime::now() - std::time::Duration::from_secs(secs);
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(path)
+            .and_then(|f| f.set_modified(past))
+            .expect("set mtime");
+    }
+
+    #[test]
+    fn expire_all_sweeps_stale_files_only() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let images = root.path().join("images");
+        std::fs::create_dir_all(&images).expect("mkdir");
+        // Stale + fresh files in a plain dir.
+        let stale = images.join("old");
+        let fresh = images.join("new");
+        std::fs::write(&stale, b"x").expect("write");
+        std::fs::write(&fresh, b"x").expect("write");
+        age_file(&stale, 86400 * 8); // older than the 7-day cutoff
+        // A subdir with the `.no-auto-expiry` marker: stale files survive.
+        let exempt = root.path().join("starred-images");
+        std::fs::create_dir_all(&exempt).expect("mkdir");
+        let exempt_stale = exempt.join("old");
+        std::fs::write(&exempt_stale, b"x").expect("write");
+        std::fs::write(exempt.join(NO_AUTO_EXPIRY), b"").expect("marker");
+        age_file(&exempt_stale, 86400 * 8);
+        // A dotfile in the plain dir: never a candidate (glob skips dotfiles).
+        std::fs::write(images.join(".keep"), b"x").expect("write");
+        age_file(&images.join(".keep"), 86400 * 8);
+
+        let removed = expire_all(root.path(), 7);
+
+        assert_eq!(removed, 1, "only the stale plain-dir file is removed");
+        assert!(!stale.exists(), "stale file removed");
+        assert!(fresh.exists(), "fresh file kept");
+        assert!(exempt_stale.exists(), "marker dir exempt");
+        assert!(images.join(".keep").exists(), "dotfile kept");
+    }
+
+    #[test]
+    fn send_file_touches_served_file_unless_exempt() {
+        let root = tempfile::tempdir().expect("tempdir");
+        // A minimal PNG.
+        let png = images_dir_file(&root.path().join("images"), "a", &[
+            0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 0, 0,
+        ]);
+        age_file(&png, 3600);
+        let before: u64 = mtime_secs(&png);
+
+        let req = HeaderMap::new();
+        let resp = send_file(&png, &req);
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert!(mtime_secs(&png) > before, "on-serve touch refreshes the mtime");
+
+        // With the `.no-auto-expiry` marker the mtime is left alone.
+        std::fs::write(root.path().join("images").join(NO_AUTO_EXPIRY), b"").expect("marker");
+        age_file(&png, 3600);
+        let before: u64 = mtime_secs(&png);
+        let resp = send_file(&png, &req);
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(mtime_secs(&png), before, "marker dir: no touch");
+    }
+
+    fn images_dir_file(dir: &Path, name: &str, bytes: &[u8]) -> PathBuf {
+        std::fs::create_dir_all(dir).expect("mkdir");
+        let p = dir.join(name);
+        std::fs::write(&p, bytes).expect("write");
+        p
+    }
+
+    fn mtime_secs(path: &Path) -> u64 {
+        std::fs::metadata(path)
+            .ok()
+            .and_then(|m| m.modified().ok())
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs())
+            .expect("mtime")
     }
 
     #[test]

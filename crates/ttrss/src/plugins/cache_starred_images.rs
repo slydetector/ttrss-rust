@@ -20,6 +20,10 @@
 //!   `is_writable` before writing — safe either way).
 //! - The PHP reads the schedules from `Config::get(SCHEDULE_*)` (overridable); the port
 //!   pins them to the defaults (`@hourly` / `@daily`).
+//! - The PHP puts `.no-auto-expiry` markers into both cache dirs at plugin init;
+//!   the port's `init` has no `Config` (the substrate contract), so the markers
+//!   are written at the start of the `cache_starred_images` task (before any
+//!   download, so the housekeeping sweep can never see marker-less media).
 
 use async_trait::async_trait;
 use std::path::PathBuf;
@@ -143,6 +147,15 @@ fn run_cache_starred_images(
         let cache_dir = config.cache_dir.clone();
         let cache = DiskCache::new(&cache_dir, CACHE_NAME, &config.self_url);
         let cache_status = DiskCache::new(&cache_dir, CACHE_STATUS_NAME, &config.self_url);
+
+        // PHP `init`: exempt both dirs from the housekeeping sweep (the port
+        // writes them here, before any download — see the module docs).
+        if !cache.exists(crate::diskcache::NO_AUTO_EXPIRY) {
+            cache.put(crate::diskcache::NO_AUTO_EXPIRY, b"");
+        }
+        if !cache_status.exists(crate::diskcache::NO_AUTO_EXPIRY) {
+            cache_status.put(crate::diskcache::NO_AUTO_EXPIRY, b"");
+        }
 
         // PHP's scan: starred, has a site_url, this owner, not yet marked cached.
         let rows: Vec<(String, String, i32, i32, Option<String>)> = sqlx::query_as(
