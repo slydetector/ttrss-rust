@@ -185,14 +185,6 @@ pub fn serialize_into(out: &mut Vec<u8>, v: &Value) {
 /// always carry at least one digit after the decimal point (`1.0E+17`,
 /// `2.5E-7`, `5.0E-324`). Non-finite values use PHP's exact tokens
 /// (`d:NAN;`, `d:INF;`, `d:-INF;` — what `serialize(NAN)` emits).
-/// Format an `f64` exactly as PHP's `serialize()` does
-/// (`zend_gcvt(val, -1, '.', 'E', ...)`, `Zend/zend_strtod.c`): the shortest
-/// round-trip digit sequence, with E-notation only when the first digit's
-/// position `decpt` (value = 0.d₁d₂… × 10^decpt) satisfies
-/// `decpt > 17 || decpt < -3`, and E-forms always carrying at least one
-/// digit after the decimal point (`1.0E+17`, `2.5E-7`, `5.0E-324`).
-/// Non-finite values use PHP's exact tokens (`d:NAN;`, `d:INF;`,
-/// `d:-INF;` — what `serialize(NAN)` emits).
 ///
 /// The digit source is Rust's `{:e}` (shortest round-trip, always
 /// scientific, one digit before the decimal point) — the same digits PHP's

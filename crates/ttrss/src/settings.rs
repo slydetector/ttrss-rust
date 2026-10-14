@@ -522,10 +522,11 @@ pub async fn otp_enable(state: &AppState, sess: &Sess, extra: &Map<String, Value
     if auth::check_password(pool, uid as i32, &password).await {
         match otp::enable_otp(pool, uid, &otp_code, util::now_unix() as u64).await {
             Ok(true) => "OK".to_string(),
-            _ => "ERROR:Incorrect one time password".to_string(),
+            // PHP: `"ERROR:".__(…)` — no space after the colon.
+            _ => format!("ERROR:{}", __("Incorrect one time password")),
         }
     } else {
-        "ERROR:Incorrect password".to_string()
+        format!("ERROR:{}", __("Incorrect password"))
     }
 }
 
@@ -539,7 +540,8 @@ pub async fn otp_disable(state: &AppState, sess: &Sess, extra: &Map<String, Valu
         let _ = otp::disable_otp(pool, uid).await;
         "OK".to_string()
     } else {
-        "ERROR: Incorrect password".to_string()
+        // PHP: `"ERROR: ".__(…)` — with a space after the colon.
+        format!("ERROR: {}", __("Incorrect password"))
     }
 }
 
