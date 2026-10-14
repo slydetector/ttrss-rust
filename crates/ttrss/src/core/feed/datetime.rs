@@ -29,7 +29,9 @@ use chrono::{NaiveDate, NaiveDateTime, NaiveTime, Utc};
 /// - a bare epoch string like `"1704110400"` parses here, `false` in PHP;
 /// - time-only strings (`"12:30:45"`) anchor to *today* in both;
 /// - date-only + named zone (`"2021-02-21 PST"`) — `dateparser` ignores the
-///   zone and anchors the time to now; PHP gives midnight PST.
+///   zone and anchors the time to now; PHP gives midnight PST;
+/// - two-digit year `69` in `mm/dd/yy`: chrono's `%y` pivots 69–99 to 19xx
+///   while PHP pivots 70–99, so `1/1/69` is 1969 here, 2069 in PHP.
 pub fn parse_date(s: &str) -> Option<i64> {
     let t = s.trim();
     if t.is_empty() {

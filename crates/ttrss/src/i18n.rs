@@ -292,8 +292,10 @@ pub fn translate(locale: Option<&str>, cache: &I18nCache, msg: &str) -> String {
 }
 
 /// Translate and format: `vsprintf(translate(fmt), args)`. Matches PHP's
-/// `T_sprintf()`. Internal primitive (the bare [`t_sprintf`] reads the locale
-/// from the task-local).
+/// `T_sprintf()` exactly — the same `vsprintf` the English fallback uses
+/// (PHP `T_sprintf` is `vsprintf(__(fmt), $args)`; a hand-rolled
+/// first-`%s`/`%d` swap would mis-handle `%%` escapes and a `%s` literal
+/// inside a substituted argument).
 pub fn translate_sprintf(
     locale: Option<&str>,
     cache: &I18nCache,
@@ -301,19 +303,7 @@ pub fn translate_sprintf(
     args: &[&str],
 ) -> String {
     let translated = translate(locale, cache, fmt);
-    // Replace the first %s or %d in order of appearance with each arg.
-    let mut result = translated;
-    for arg in args {
-        let s_pos = result.find("%s").unwrap_or(usize::MAX);
-        let d_pos = result.find("%d").unwrap_or(usize::MAX);
-        let pos = s_pos.min(d_pos);
-        if pos == usize::MAX {
-            break;
-        }
-        let fmt_char = if s_pos <= d_pos { "%s" } else { "%d" };
-        result = result.replacen(fmt_char, arg, 1);
-    }
-    result
+    crate::util::vsprintf(&translated, args)
 }
 
 /// Plural-aware translation: picks singular or plural form based on `n`,
@@ -597,6 +587,10 @@ mod tests {
         let result =
             translate_sprintf(None, &cache, "Hello %s, you have %d items", &["world", "5"]);
         assert_eq!(result, "Hello world, you have 5 items");
+        // `%%` collapses and a `%s` literal inside an argument survives
+        // (PHP `vsprintf` semantics).
+        let result = translate_sprintf(None, &cache, "100%% %s done: %s", &["50% %s left", "tail"]);
+        assert_eq!(result, "100% 50% %s left done: tail");
     }
 
     #[test]

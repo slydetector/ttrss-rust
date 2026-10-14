@@ -308,6 +308,20 @@ async fn test_get_public_route() {
                 "content_type: {content_type}"
             );
             assert!(body.contains("<!DOCTYPE html>"), "body: {body}");
+            // The head parity (share/init.php:201-221): the app scripts,
+            // the dark-mode/css_loading style block, the favicon links.
+            assert!(
+                body.contains(r#"src="js/common.js""#) && body.contains(r#"src="js/utility.js""#),
+                "body: {body}"
+            );
+            assert!(
+                body.contains("body.css_loading * {{") || body.contains("body.css_loading * {"),
+                "body: {body}"
+            );
+            assert!(
+                body.contains("images/favicon.png") && body.contains("images/favicon-72px.png"),
+                "body: {body}"
+            );
             Ok(())
         })
     })

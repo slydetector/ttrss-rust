@@ -300,6 +300,96 @@ pub fn htmlspecialchars(s: &str) -> String {
         .replace('\'', "&#039;")
 }
 
+/// `html_entity_decode($str, ENT_NOQUOTES | ENT_HTML401)` — decode numeric
+/// (`&#38;`, `&#x26;`) and named entities. The named set comes from
+/// `html5ever::data::NAMED_ENTITIES` (the WHATWG named-character-reference
+/// table, the same spec data the sanitizer's parser decodes with) — a
+/// superset of PHP's HTML 4.01 set: every HTML4 name decodes identically,
+/// and the HTML5-only names (`hearts`, `gtr`, …) also decode where PHP
+/// leaves them (the port's content pipeline already decodes them per
+/// HTML5). Unknown names pass through, as in PHP.
+pub fn html_entity_decode(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut rest = s;
+    loop {
+        let Some(i) = rest.find('&') else {
+            break;
+        };
+        out.push_str(&rest[..i]);
+        let after = &rest[i + 1..];
+        if let Some(hash) = after.strip_prefix('#') {
+            let hex = hash.starts_with('x') || hash.starts_with('X');
+            let body = &hash[hex as usize..];
+            let Some(end) = body.find(';') else {
+                // No ';' — PHP leaves it alone.
+                out.push('&');
+                rest = after;
+                continue;
+            };
+            let num = &body[..end];
+            let ok = (if hex {
+                u32::from_str_radix(num, 16).ok()
+            } else {
+                num.parse::<u32>().ok()
+            })
+            .and_then(char::from_u32);
+            match ok {
+                Some(c) => {
+                    out.push(c);
+                    // 1 = the '#' we stripped, then the optional x/X, the
+                    // digits, and the ';'.
+                    rest = &after[1 + hex as usize + num.len() + 1..];
+                }
+                None => {
+                    out.push('&');
+                    rest = after;
+                }
+            }
+            continue;
+        }
+        // The name is the alphanumeric run (PHP's `[a-zA-Z][a-zA-Z0-9]*`);
+        // the `;` is optional — the bare form is the legacy HTML4/HTML5 set.
+        let name_end = after
+            .bytes()
+            .position(|b| !b.is_ascii_alphanumeric())
+            .unwrap_or(after.len());
+        let name = &after[..name_end];
+        let semi = name_end < after.len() && after.as_bytes()[name_end] == b';';
+        use html5ever::data::NAMED_ENTITIES;
+        // A codepoint of 0 marks a *prefix* entry (the tokenizer's
+        // match-continuation markers) — only a real codepoint decodes.
+        // Primary key first; the legacy bare key only for the `;` form.
+        let key = if semi {
+            format!("{name};")
+        } else {
+            name.to_string()
+        };
+        let mut cp = NAMED_ENTITIES
+            .get(&key)
+            .map(|(c, _)| *c)
+            .filter(|c| *c != 0);
+        if semi
+            && let Some(v) = NAMED_ENTITIES.get(name)
+            && v.0 != 0
+        {
+            cp = Some(v.0);
+        }
+        match cp.and_then(char::from_u32) {
+            Some(c) => {
+                out.push(c);
+                rest = &after[name_end + semi as usize..];
+            }
+            None => {
+                out.push('&');
+                rest = after;
+            }
+        }
+        continue;
+    }
+    out.push_str(rest);
+    out
+}
+
 /// PHP `truncate_string($str, $max_len, $suffix = '&hellip;')`: when the char
 /// count exceeds `$max_len`, keep the first `$max_len` chars and append
 /// `$suffix`.
@@ -811,5 +901,46 @@ mod tests {
         // 250-char cap (chars, not bytes)
         let long = normalize_categories(&["é".repeat(300)]);
         assert_eq!(long[0].chars().count(), 250);
+    }
+
+    #[test]
+    fn html_entity_decode_numeric_and_named() {
+        assert_eq!(html_entity_decode("Tom &amp; Jerry"), "Tom & Jerry");
+        assert_eq!(html_entity_decode("a &#65; b &#x42; c"), "a A b B c");
+        assert_eq!(
+            html_entity_decode("no&nbsp;spaces here"),
+            "no\u{a0}spaces here"
+        );
+        assert_eq!(html_entity_decode("1 &mdash; 2"), "1 \u{2014} 2");
+        // Not an entity (no ';') / unknown name / invalid code point: left alone.
+        assert_eq!(html_entity_decode("5 & 6"), "5 & 6");
+        assert_eq!(html_entity_decode("&unknownent;"), "&unknownent;");
+        assert_eq!(html_entity_decode("&#999999999;"), "&#999999999;");
+        assert_eq!(html_entity_decode("&"), "&");
+        assert_eq!(html_entity_decode(""), "");
+    }
+
+    #[test]
+    fn html_entity_decode_full_spec_table() {
+        // The WHATWG table (html5ever) covers the full HTML 4.01 set —
+        // every one of these decodes where PHP's ENT_HTML401 does.
+        for (src, want) in [
+            ("&Aacute;", "\u{00c1}"),
+            ("&weierp;", "\u{2118}"),
+            ("&frac34;", "\u{00be}"),
+            ("&zwnj;", "\u{200c}"),
+            ("&larr;", "\u{2190}"),
+            ("&there4;", "\u{2234}"),
+            ("&circledR;", "\u{00ae}"),
+        ] {
+            assert_eq!(html_entity_decode(src), want, "{src}");
+        }
+        // Legacy no-semicolon forms (PHP `ENT_HTML401` decodes them).
+        assert_eq!(html_entity_decode("&amp&copy"), "&\u{00a9}");
+        assert_eq!(html_entity_decode("&not"), "\u{00ac}");
+        // HTML5-only names decode (PHP's ENT_HTML401 leaves them; the port's
+        // content pipeline already decodes them per HTML5).
+        assert_eq!(html_entity_decode("&hearts;"), "\u{2665}");
+        assert_eq!(html_entity_decode("&hearts"), "&hearts");
     }
 }

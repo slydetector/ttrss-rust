@@ -115,6 +115,39 @@ pub fn make_local_datetime(timestamp: Option<&str>, eta_min: bool, ctx: &TzCtx) 
     smart_date_time(user_ts, tz_offset, eta_min, ctx)
 }
 
+/// `TimeHelper::make_local_datetime($ts, $long, $uid, $no_smart_dt = true)` —
+/// the fixed-format path: `date($format, $utc + $owner_offset)` with the
+/// owner's LONG/SHORT_DATE_FORMAT. Accepts the 19-char (`Y-m-d H:i:s`) and
+/// 16-char (`Y-m-d H:i`, PHP `SUBSTRING_FOR_DATE(…, 1, 16)` — the share
+/// page) forms; a shorter/empty input is the epoch, mirroring the smart
+/// path.
+pub fn make_local_datetime_fixed(timestamp: Option<&str>, long: bool, ctx: &TzCtx) -> String {
+    let ts = match timestamp {
+        Some(s) if !s.is_empty() => s,
+        _ => "1970-01-01 0:00",
+    };
+    let Some(ts19) = ts.get(..19.min(ts.len())) else {
+        return __("Never");
+    };
+    let Ok(dt) = (if ts19.len() >= 19 {
+        NaiveDateTime::parse_from_str(ts19, "%Y-%m-%d %H:%M:%S")
+    } else {
+        NaiveDateTime::parse_from_str(ts19, "%Y-%m-%d %H:%M")
+    }) else {
+        return __("Never");
+    };
+    let utc_ts = dt.and_utc().timestamp();
+    let tz_offset = ctx.offset_at(utc_ts);
+    date_fmt(
+        if long {
+            &ctx.long_date_format
+        } else {
+            &ctx.short_date_format
+        },
+        utc_ts + tz_offset,
+    )
+}
+
 /// `TimeHelper::smart_date_time($timestamp, $tz_offset, $owner_uid, $eta_min)`.
 fn smart_date_time(user_ts: i64, tz_offset: i64, eta_min: bool, ctx: &TzCtx) -> String {
     // `if ($timestamp - $tz_offset === 0) return __('Never');` (the epoch)
@@ -300,6 +333,38 @@ mod tests {
         assert_eq!(date_fmt("g:i a", ts3), "3:05 am");
         assert_eq!(date_fmt("j M, G:i", ts), "20 Aug, 13:00");
         assert_eq!(date_fmt("D, M d Y - G:i", ts), "Thu, Aug 20 2026 - 13:00");
+    }
+
+    #[test]
+    fn fixed_format_path_uses_owner_tz_and_long_format() {
+        // 2024-01-15 08:30 UTC, owner tz Europe/Paris (UTC+1 in January):
+        // local 09:30, LONG_DATE_FORMAT "D, M d Y - G:i".
+        let mut c = ctx();
+        c.user_tz = "Europe/Paris".into();
+        assert_eq!(
+            make_local_datetime_fixed(Some("2024-01-15 08:30"), true, &c),
+            "Mon, Jan 15 2024 - 9:30"
+        );
+        // The 19-char form (seconds zeroed by the 16-char PHP input).
+        assert_eq!(
+            make_local_datetime_fixed(Some("2024-01-15 08:30:42"), true, &c),
+            "Mon, Jan 15 2024 - 9:30"
+        );
+        // Automatic + no session offset → UTC.
+        assert_eq!(
+            make_local_datetime_fixed(Some("2024-01-15 08:30"), true, &ctx()),
+            "Mon, Jan 15 2024 - 8:30"
+        );
+        // short variant
+        assert_eq!(
+            make_local_datetime_fixed(Some("2024-01-15 08:30"), false, &ctx()),
+            "15 Jan, 8:30"
+        );
+        // unparseable → "Never" (mirrors the smart path).
+        assert_eq!(
+            make_local_datetime_fixed(Some("garbage"), true, &ctx()),
+            "Never"
+        );
     }
 
     #[test]

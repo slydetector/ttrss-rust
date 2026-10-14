@@ -606,11 +606,22 @@ async fn public_handler(
                 ),
             };
             let request = public_request_map(&query, &form);
-            match crate::pluginhost::dispatch::public_dispatch(
-                &state, &plugin, &pmethod, &request, &self_url,
-            )
-            .await
-            {
+            // PHP `public.php:7` — `startup_gettext()` before dispatch: the
+            // public route's `__()` resolves via `Accept-Language` (no
+            // session, so no pref).
+            let i18n_ctx = crate::i18n::I18nCtx {
+                locale: crate::i18n::resolve_request_locale(&state.i18n, accept_language, None),
+                cache: state.i18n.clone(),
+            };
+            let out = crate::i18n::I18N
+                .scope(i18n_ctx, async {
+                    crate::pluginhost::dispatch::public_dispatch(
+                        &state, &plugin, &pmethod, &request, &self_url,
+                    )
+                    .await
+                })
+                .await;
+            match out {
                 Ok(crate::pluginhost::plugin::MethodOutput::Json(v)) => {
                     (StatusCode::OK, v.to_string()).into_response()
                 }
@@ -646,7 +657,7 @@ async fn public_handler(
                 csrf_token: form.csrf_token.as_deref(),
                 method: form.method.as_deref(),
             };
-            forgotpass::forgotpass(&state, &sess.0, &p).await
+            forgotpass::forgotpass(&state, &sess.0, &p, accept_language).await
         }
         // `Handler_Public::cached` — serve `<CACHE_DIR>/<subdir>/<file>`.
         "cached" => cached_file(&state, query.file.as_deref(), &headers),

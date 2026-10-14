@@ -18,6 +18,13 @@
 //!
 //! The PHP has no unit tests for this plugin; the port's DB tests are new
 //! behavior coverage (key lifecycle, profile scoping, public route).
+//!
+//! Deliberate deltas: the 404 body is translated (PHP prints the literal),
+//! the article page's `Content-Type` carries `; charset=utf-8` (PHP omits
+//! it), the `<title>` is escaped (PHP's is an unescaped echo), the asset
+//! tags carry no `?mtime` cache-buster, and `Config::get_override_links()`
+//! (theme-override assets) is omitted — the port has no LOCAL_OVERRIDE_*
+//! config.
 
 use async_trait::async_trait;
 use serde_json::{Value, json};
@@ -354,10 +361,19 @@ async fn format_article(
         return Err(PluginError::Other("article not found".to_string()));
     };
 
+    // `Sanitizer::sanitize($content, $hide_images, $owner_uid, $site_url, …)`:
+    // PHP's 3rd arg is the *owner* — the sanitizer resolves the owner's
+    // `STRIP_IMAGES` pref from it (Sanitizer.php:222). No session here, so
+    // the pref resolves on the default profile.
+    let pref_rows = crate::prefs::load_rows_pool(host.pool(), owner_uid as i64, None).await;
+    let strip_images = matches!(
+        crate::prefs::resolve(crate::prefs::STRIP_IMAGES, &pref_rows, None),
+        crate::prefs::Pref::Bool(true)
+    );
     let sanitized = crate::sanitizer::sanitize(
         &content,
         hide_images.unwrap_or(false),
-        hide_images.unwrap_or(false),
+        strip_images,
         true,
         false,
         site_url.as_deref(),
@@ -441,7 +457,11 @@ async fn format_article(
         og_image
     };
 
-    let (author, updated): (String, String) =
+    // `TimeHelper::make_local_datetime($line["updated"], true, $owner_uid,
+    // true)` — the *owner's* timezone and LONG_DATE_FORMAT (no session on
+    // the public route, so `Automatic` resolves to a zero offset, as in
+    // PHP's `$_SESSION["clientTzOffset"] ?? 0`).
+    let (author, updated_raw): (String, String) =
         sqlx::query(
             "SELECT COALESCE(author, ''), TO_CHAR(updated AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI') FROM ttrss_entries WHERE id = $1",
         )
@@ -451,11 +471,45 @@ async fn format_article(
         .map_err(|e| PluginError::Other(e.to_string()))?
         .try_get::<(String, String), _>(0)
         .unwrap_or((String::new(), String::new()));
+    let updated = {
+        let ctx = crate::time::TzCtx {
+            user_tz: crate::prefs::resolve(crate::prefs::USER_TIMEZONE, &pref_rows, None)
+                .as_str()
+                .to_string(),
+            client_tz_offset: 0,
+            short_date_format: crate::prefs::resolve(
+                crate::prefs::SHORT_DATE_FORMAT,
+                &pref_rows,
+                None,
+            )
+            .as_str()
+            .to_string(),
+            long_date_format: crate::prefs::resolve(
+                crate::prefs::LONG_DATE_FORMAT,
+                &pref_rows,
+                None,
+            )
+            .as_str()
+            .to_string(),
+        };
+        crate::time::make_local_datetime_fixed(Some(&updated_raw), true, &ctx)
+    };
 
+    // PHP's `$content_decoded` — the title with entities decoded
+    // (`ENT_NOQUOTES | ENT_HTML401`), used for BOTH og: meta values;
+    // the description additionally drops tags and collapses whitespace.
+    // The `<title>`/`<h1>` render the RAW title (PHP escapes only the h1
+    // text; the `<title>` is an unescaped echo — a reference flaw the port
+    // keeps for the h1 and escapes for the `<title>`).
+    let title_decoded = crate::util::html_entity_decode(&title);
+    let og_desc = {
+        let stripped = collapse_ws(&crate::util::strip_tags(&title_decoded));
+        crate::util::truncate_string(&stripped, 500, "...")
+    };
     let title_esc = crate::util::htmlspecialchars(&title);
+    let og_title_esc = crate::util::htmlspecialchars(&title_decoded);
     let link_esc = crate::util::htmlspecialchars(&link);
     let og_image_esc = crate::util::htmlspecialchars(&og_image);
-    let og_desc = crate::util::truncate_string(&crate::util::strip_tags(&title), 500, "...");
     let og_desc_esc = crate::util::htmlspecialchars(&og_desc);
 
     let header = if !link.is_empty() {
@@ -467,11 +521,32 @@ async fn format_article(
         format!("<h1>{}</h1>", title_esc)
     };
 
+    // The head mirrors PHP's (share/init.php:201-221): the two app scripts
+    // (`utility.js` sets up the night-mode theme and removes `css_loading`),
+    // the dark-mode/`css_loading` style block, and the favicon links. PHP
+    // appends a `?mtime` cache-buster when the file exists (deployment
+    // detail; omitted) and `Config::get_override_links()` (theme-override
+    // assets — the port has no LOCAL_OVERRIDE_* config, consistently
+    // omitted).
     let mut rv = format!(
         "<!DOCTYPE html>\n<html>\n<head>\n\
          <meta http-equiv='Content-Type' content='text/html; charset=utf-8'/>\n\
          <title>{title_esc}</title>\n\
-         <meta property='og:title' content=\"{title_esc}\">\n\
+         <script src=\"js/common.js\" type=\"text/javascript\" charset=\"utf-8\"></script>\n\
+         <script src=\"js/utility.js\" type=\"text/javascript\" charset=\"utf-8\"></script>\n\
+         <style type='text/css'>\n\
+         @media (prefers-color-scheme: dark) {{\n\
+         body {{\n\
+         background : #222;\n\
+         }}\n\
+         }}\n\
+         body.css_loading * {{\n\
+         display : none;\n\
+         }}\n\
+         </style>\n\
+         <link rel='shortcut icon' type='image/png' href='images/favicon.png'>\n\
+         <link rel='icon' type='image/png' sizes='72x72' href='images/favicon-72px.png'>\n\
+         <meta property='og:title' content=\"{og_title_esc}\">\n\
          <meta property='og:description' content=\"{og_desc_esc}\">\n\
          <meta property='og:image' content=\"{og_image_esc}\">\n\
          </head>\n\
@@ -512,6 +587,29 @@ async fn format_article(
     }
 
     Ok(rv)
+}
+
+/// PHP's `preg_replace("/[\r\n\t]/", "", preg_replace("/ {1,}/", " ", …))`
+/// — drop CR/LF/TAB, then collapse space runs.
+fn collapse_ws(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut prev_space = false;
+    for c in s.chars() {
+        match c {
+            '\r' | '\n' | '\t' => {}
+            ' ' => {
+                if !prev_space {
+                    out.push(' ');
+                }
+                prev_space = true;
+            }
+            _ => {
+                out.push(c);
+                prev_space = false;
+            }
+        }
+    }
+    out
 }
 
 /// PHP's `(int)` cast: the leading numeric run (sign + digits), else 0.

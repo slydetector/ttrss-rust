@@ -52,7 +52,15 @@ pub struct Params<'a> {
 }
 
 /// `Handler_Public::forgotpass`: render the password-recovery page (or 403).
-pub async fn forgotpass(state: &AppState, sess: &session::Sess, p: &Params<'_>) -> Response {
+/// `Handler_Public::forgotpass` — the public password-recovery page.
+/// `accept_language` scopes `I18N` the way PHP's `public.php:7`
+/// `startup_gettext()` does (header only — no session, so no pref).
+pub async fn forgotpass(
+    state: &AppState,
+    sess: &session::Sess,
+    p: &Params<'_>,
+    accept_language: Option<&str>,
+) -> Response {
     // `Config::get(Config::DISABLE_LOGIN_FORM) || !str_contains(Config::PLUGINS, "auth_internal")`.
     if state.config.disable_login_form || !state.config.plugins.contains("auth_internal") {
         return Response::builder()
@@ -88,21 +96,31 @@ pub async fn forgotpass(state: &AppState, sess: &session::Sess, p: &Params<'_>) 
     let hash = p.hash.map(util::clean_str);
     let login = util::clean_str(p.login);
 
-    let content = if hash.as_deref().is_some_and(|h| !h.is_empty()) {
-        // The reset link: `?op=forgotpass&hash=…&login=…`.
-        let c = reset_link(pool, hash.as_deref().unwrap(), &login, now).await;
-        format!(
-            "{c}<a href='index.php'>{}</a>",
-            __("Return to Tiny Tiny RSS")
+    let content = crate::i18n::I18N
+        .scope(
+            crate::i18n::I18nCtx {
+                locale: crate::i18n::resolve_request_locale(&state.i18n, accept_language, None),
+                cache: state.i18n.clone(),
+            },
+            async {
+                if hash.as_deref().is_some_and(|h| !h.is_empty()) {
+                    // The reset link: `?op=forgotpass&hash=…&login=…`.
+                    let c = reset_link(pool, hash.as_deref().unwrap(), &login, now).await;
+                    format!(
+                        "{c}<a href='index.php'>{}</a>",
+                        __("Return to Tiny Tiny RSS")
+                    )
+                } else if p.method.is_none() {
+                    initial_form(sess)
+                } else if p.method.is_some_and(|m| m == "do") {
+                    do_reset(sess, pool, p, now).await
+                } else {
+                    // `method` present but not `"do"` (and no hash): PHP prints nothing.
+                    String::new()
+                }
+            },
         )
-    } else if p.method.is_none() {
-        initial_form(sess)
-    } else if p.method.is_some_and(|m| m == "do") {
-        do_reset(sess, pool, p, now).await
-    } else {
-        // `method` present but not `"do"` (and no hash): PHP prints nothing.
-        String::new()
-    };
+        .await;
 
     let html = render_shell(&state.config, &content);
     Response::builder()

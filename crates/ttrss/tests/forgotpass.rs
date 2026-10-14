@@ -72,6 +72,7 @@ async fn test_forgotpass_full_flow() {
                         csrf_token: None,
                         method: None,
                     },
+                    None,
                 )
                 .await,
             )
@@ -118,6 +119,7 @@ async fn test_forgotpass_full_flow() {
                         csrf_token: Some("wrong"),
                         method: Some("do"),
                     },
+                    None,
                 )
                 .await,
             )
@@ -141,6 +143,7 @@ async fn test_forgotpass_full_flow() {
                         csrf_token: Some(csrf.as_str()),
                         method: Some("do"),
                     },
+                    None,
                 )
                 .await,
             )
@@ -166,6 +169,7 @@ async fn test_forgotpass_full_flow() {
                         csrf_token: None,
                         method: None,
                     },
+                    None,
                 )
                 .await,
             )
@@ -202,6 +206,7 @@ async fn test_forgotpass_unknown_user() {
                         csrf_token: None,
                         method: None,
                     },
+                    None,
                 )
                 .await,
             )
@@ -223,6 +228,7 @@ async fn test_forgotpass_unknown_user() {
                         csrf_token: Some(csrf.as_str()),
                         method: Some("do"),
                     },
+                    None,
                 )
                 .await,
             )
@@ -261,6 +267,7 @@ async fn test_forgotpass_forbidden() {
                     csrf_token: None,
                     method: None,
                 },
+                None,
             )
             .await;
             assert_eq!(res.status(), axum::http::StatusCode::FORBIDDEN);
