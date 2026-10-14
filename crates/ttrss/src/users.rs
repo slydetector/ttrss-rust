@@ -116,14 +116,56 @@ pub async fn index(
     let pool = state.db.pool();
     let tz = TzCtx::for_session(state, &sess.data()).await;
 
-    let user_search = extra
-        .get("search")
+    // `$user_search = clean($_REQUEST["search"] ?? "")` + the session
+    // persistence: the reference stores the cleaned term when the `search`
+    // key is *present* (even empty — that clears the filter) and re-reads
+    // `$_SESSION["prefs_user_search"]` when it is absent.
+    let user_search = match extra.get("search").and_then(|v| v.as_str()) {
+        Some(raw) => {
+            let cleaned = clean_str(raw);
+            sess.with_mut(|d| {
+                d.set(
+                    "prefs_user_search",
+                    crate::core::phpser::Value::Bytes(cleaned.as_bytes().to_vec()),
+                );
+            });
+            cleaned
+        }
+        None => sess
+            .data()
+            .get_str("prefs_user_search")
+            .unwrap_or("")
+            .to_string(),
+    };
+
+    // `$sort = clean($_REQUEST["sort"] ?? "")` — the column headers sort
+    // via `Users.reload(col)`; the reference whitelists the five column
+    // names (its list repeats "created") and sorts everything but `login`
+    // DESC. The whitelist makes the interpolated clause safe.
+    let sort = extra
+        .get("sort")
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
+    let sort = clean_str(&sort);
+    let sort = if sort.is_empty() || sort == "undefined" {
+        "login".to_string()
+    } else if matches!(
+        sort.as_str(),
+        "login" | "access_level" | "created" | "num_feeds" | "last_login"
+    ) {
+        sort
+    } else {
+        "login".to_string()
+    };
+    let order_by = if sort == "login" {
+        "u.login".to_string()
+    } else {
+        format!("{sort} DESC")
+    };
 
     let like = format!("%{}%", user_search);
-    let rows = sqlx::query(
+    let rows = sqlx::query(AssertSqlSafe(format!(
         "SELECT u.id, u.login, u.access_level, COUNT(f.id) AS num_feeds, \
                to_char(u.created, 'YYYY-MM-DD HH24:MI:SS') AS created, \
                to_char(u.last_login, 'YYYY-MM-DD HH24:MI:SS') AS last_login \
@@ -131,8 +173,8 @@ pub async fn index(
          LEFT JOIN ttrss_feeds f ON f.owner_uid = u.id \
          WHERE u.login LIKE $1 \
          GROUP BY u.id \
-         ORDER BY u.login",
-    )
+         ORDER BY {order_by}"
+    )))
     .bind(like)
     .fetch_all(pool)
     .await

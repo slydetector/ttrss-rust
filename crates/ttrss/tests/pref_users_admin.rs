@@ -486,6 +486,107 @@ async fn test_index_localizes_de_de() {
     .unwrap();
 }
 
+/// `Pref_Users::index` column sorting: the `sort` param whitelists the five
+/// column names (non-login → DESC), unknown/missing/`"undefined"` → `login`
+/// ASC — the PHP's `$_REQUEST["sort"]` handling (Pref_Users.php).
+#[tokio::test]
+async fn test_index_sort_param() {
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            let pool = state.db.pool();
+
+            // admin (uid 1, level 10) + bob (0) + carol (5): the login-order
+            // and access-level-order are distinct.
+            for (login, level) in [("bob", 0i32), ("carol", 5)] {
+                let (hash, salt) = test_db::ssha512_password(login, "password");
+                test_db::seed_user(pool, login, &hash, &salt, level)
+                    .await
+                    .expect("seed user");
+            }
+
+            /// Row order of the three logins (positions in the rendered HTML).
+            fn order(html: &str) -> (usize, usize, usize) {
+                (
+                    html.find("<strong>admin</strong>").unwrap(),
+                    html.find("<strong>bob</strong>").unwrap(),
+                    html.find("<strong>carol</strong>").unwrap(),
+                )
+            }
+
+            // Default (no param): login ASC — admin, bob, carol.
+            let html = ttrss::users::index(&state, &sess, &serde_json::Map::new()).await;
+            let (a, b, c) = order(&html);
+            assert!(a < b && b < c, "login ASC expected: {a} {b} {c}");
+
+            // `sort=access_level`: DESC — admin (10), carol (5), bob (0).
+            let html = ttrss::users::index(&state, &sess, &form(&[("sort", "access_level")])).await;
+            let (a, b, c) = order(&html);
+            assert!(a < c && c < b, "access_level DESC expected: {a} {c} {b}");
+
+            // Unknown param → login ASC again.
+            let html = ttrss::users::index(&state, &sess, &form(&[("sort", "bogus")])).await;
+            let (a, b, c) = order(&html);
+            assert!(a < b && b < c, "bogus → login ASC: {a} {b} {c}");
+
+            // The JS guard value `"undefined"` → login ASC.
+            let html = ttrss::users::index(&state, &sess, &form(&[("sort", "undefined")])).await;
+            let (a, b, c) = order(&html);
+            assert!(a < b && b < c, "undefined → login ASC: {a} {b} {c}");
+
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
+}
+
+/// `Pref_Users::index` search persistence: a posted `search` (even empty)
+/// lands in `$_SESSION["prefs_user_search"]`; absent `search` re-reads it —
+/// the filter sticks until an empty search clears it.
+#[tokio::test]
+async fn test_index_search_persistence() {
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            let pool = state.db.pool();
+            for login in ["bob", "carol"] {
+                let (hash, salt) = test_db::ssha512_password(login, "password");
+                test_db::seed_user(pool, login, &hash, &salt, 0)
+                    .await
+                    .expect("seed user");
+            }
+
+            // Baseline (fresh session, no param): all three users.
+            let html = ttrss::users::index(&state, &sess, &serde_json::Map::new()).await;
+            for login in ["admin", "bob", "carol"] {
+                assert!(html.contains(&format!("<strong>{login}</strong>")));
+            }
+
+            // `search=bob` filters to bob and stores the term in the session.
+            let html = ttrss::users::index(&state, &sess, &form(&[("search", "bob")])).await;
+            assert!(html.contains("<strong>bob</strong>"));
+            assert!(!html.contains("<strong>admin</strong>"));
+            assert!(!html.contains("<strong>carol</strong>"));
+
+            // No param: the session filter re-applies (PHP `prefs_user_search`).
+            let html = ttrss::users::index(&state, &sess, &serde_json::Map::new()).await;
+            assert!(html.contains("<strong>bob</strong>"), "filter must persist");
+            assert!(!html.contains("<strong>carol</strong>"));
+
+            // `search` present but empty: clears the stored filter.
+            let html = ttrss::users::index(&state, &sess, &form(&[("search", "")])).await;
+            for login in ["admin", "bob", "carol"] {
+                assert!(html.contains(&format!("<strong>{login}</strong>")));
+            }
+
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
+}
+
 /// Without a locale scope, the index page stays English (identity `__`).
 #[tokio::test]
 async fn test_index_english_without_scope() {
