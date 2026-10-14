@@ -71,13 +71,7 @@ pub fn urlencode(s: &str) -> String {
 
 const OTP_TEMPLATE: &str = include_str!("../templates/otp_challenge.html.tpl");
 const SHELL_TEMPLATE: &str = include_str!("../templates/shell.html.tpl");
-const PREFS_TEMPLATE: &str = include_str!("../templates/prefs.html");
-
-/// The admin-only prefs tabs (Users + System) plus the tab-container close. For
-/// non-admins the `if` in prefs.php is false, so the tabs are skipped and the
-/// close is preceded by four 8-space PHP-tag lines (32 spaces total).
-const PREFS_ADMIN_TABS: &str = "\n                    <div id=\"usersTab\" dojoType=\"dijit.layout.ContentPane\"\n                style=\"padding : 0px\"\n                href=\"backend.php?op=Pref_Users\"\n                title=\"<i class='material-icons'>person</i> Users\"></div>\n            <div id=\"systemTab\" dojoType=\"dijit.layout.ContentPane\"\n                href=\"backend.php?op=Pref_System\"\n                title=\"<i class='material-icons'>info_outline</i> System\"></div>\n                        </div>\n";
-const PREFS_NONADMIN_CLOSE: &str = "\n                                    </div>\n";
+const PREFS_TEMPLATE: &str = include_str!("../templates/prefs.html.tpl");
 
 /// Minimal HTML-escape for attribute values (PHP escapes these in `hidden_tag`).
 fn html_escape(s: &str) -> String {
@@ -190,8 +184,8 @@ pub fn render_shell(
 /// prefs assets (PHP `prefs.php`: `get_prefs_css()` in the `<style>` block,
 /// each `get_prefs_js()` in a named try/catch), and the Users/System tabs
 /// (admin-only).
-// #[allow]: the 8 params are the template's substitution slots, mirroring the
-// PHP page's inputs 1:1; a param struct would hide the parity surface.
+// #[allow]: the 8 params are the template's variables, mirroring the PHP
+// page's inputs 1:1; a param struct would hide the parity surface.
 #[allow(clippy::too_many_arguments)]
 pub fn render_prefs_page(
     csrf_token: &str,
@@ -203,52 +197,25 @@ pub fn render_prefs_page(
     plugin_css: &str,
     prefs_tabs_hooks: &str,
 ) -> String {
-    // The `{{ __(...) }}` calls in the template are evaluated here (the .tpl
-    // engine is plain string replacement, not minijinja), in this request's
-    // i18n scope.
-    let mut html = PREFS_TEMPLATE
-        .replace(
-            "{{ __(\"Javascript is disabled. Please enable it.\") }}",
-            &__("Javascript is disabled. Please enable it."),
-        )
-        .replace(
-            "{{ __(\"Loading, please wait...\") }}",
-            &__("Loading, please wait..."),
-        )
-        .replace(
-            "{{ __(\"Communication problem with server.\") }}",
-            &__("Communication problem with server."),
-        )
-        .replace(
-            "{{ __(\"Recent entries found in event log.\") }}",
-            &__("Recent entries found in event log."),
-        )
-        .replace(
-            "{{ __(\"Updates for Tiny Tiny RSS are available.\") }}",
-            &__("Updates for Tiny Tiny RSS are available."),
-        )
-        .replace(
-            "{{ __(\"Updates for some local plugins are available.\") }}",
-            &__("Updates for some local plugins are available."),
-        )
-        .replace("{{ __(\"Preferences\") }}", &__("Preferences"))
-        .replace("{{ __(\"Feeds\") }}", &__("Feeds"))
-        .replace("{{ __(\"Filters\") }}", &__("Filters"))
-        .replace("{{ __(\"Labels\") }}", &__("Labels"))
-        .replace("{{ __(\"Users\") }}", &__("Users"))
-        .replace("{{ __(\"System\") }}", &__("System"))
-        .replace("{{ __(\"Exit preferences\") }}", &__("Exit preferences"))
-        .replace("@CSRF@", csrf_token)
-        .replace("@CACHEBUST@", &scripts_ts.to_string())
-        .replace("__THEME_CSS_LINK__", theme_css_link)
-        .replace("__USER_CSS_STYLE__", user_css_style)
-        .replace("__PREFS_PLUGIN_CSS__", plugin_css)
-        .replace("__PREFS_PLUGIN_JS__", plugin_js)
-        .replace("__PREFS_TABS_HOOKS__", prefs_tabs_hooks);
-    if access_level < crate::core::user::ACCESS_LEVEL_ADMIN as i64 {
-        html = html.replace(PREFS_ADMIN_TABS, PREFS_NONADMIN_CLOSE);
-    }
-    html
+    let mut env = minijinja::Environment::new();
+    env.add_function("__", |msg: String| -> String { __(&msg) });
+    let template = env
+        .template_from_named_str("prefs.html.tpl", PREFS_TEMPLATE)
+        .unwrap();
+    // The HTML-valued slots are raw markup (the PHP page inlines them
+    // unescaped); `from_safe_string` opts them out of auto-escaping.
+    template
+        .render(minijinja::context! {
+            csrf_token,
+            scripts_ts,
+            theme_css_link => minijinja::Value::from_safe_string(theme_css_link.to_string()),
+            user_css_style => minijinja::Value::from_safe_string(user_css_style.to_string()),
+            plugin_js => minijinja::Value::from_safe_string(plugin_js.to_string()),
+            plugin_css => minijinja::Value::from_safe_string(plugin_css.to_string()),
+            prefs_tabs_hooks => minijinja::Value::from_safe_string(prefs_tabs_hooks.to_string()),
+            is_admin => access_level >= crate::core::user::ACCESS_LEVEL_ADMIN as i64,
+        })
+        .unwrap_or_default()
 }
 
 /// Render the not-authenticated login page. `self_url` is the per-request
@@ -418,6 +385,55 @@ mod tests {
                 .contains("user_css_style")
         );
         assert!(!render_prefs_page("tok", 123, 3, "", "", "", "", "").contains("user_css_style"));
+    }
+
+    #[test]
+    fn prefs_migration_smoke() {
+        let admin = render_prefs_page(
+            "tok",
+            123,
+            10,
+            "",
+            "",
+            "js-asset",
+            "css-asset",
+            "hooks-asset",
+        );
+        assert!(admin.contains("usersTab"), "admin page must have usersTab");
+        assert!(
+            admin.contains("systemTab"),
+            "admin page must have systemTab"
+        );
+        assert!(!admin.contains("is_admin"));
+        let nonadmin = render_prefs_page(
+            "tok",
+            123,
+            1,
+            "",
+            "",
+            "js-asset",
+            "css-asset",
+            "hooks-asset",
+        );
+        assert!(
+            !nonadmin.contains("usersTab"),
+            "non-admin page must not have usersTab"
+        );
+        assert!(
+            !nonadmin.contains("systemTab"),
+            "non-admin page must not have systemTab"
+        );
+        for page in [&admin, &nonadmin] {
+            assert!(page.contains("js-asset"), "plugin js missing");
+            assert!(page.contains("css-asset"), "plugin css missing");
+            assert!(page.contains("hooks-asset"), "tabs hooks missing");
+            assert!(page.contains("tok"), "csrf missing");
+            assert!(page.contains("123"), "cachebust missing");
+            assert!(
+                page.contains("Loading, please wait"),
+                "__(...) not evaluated"
+            );
+        }
     }
 
     /// Plugin CSS/JS appear in the shell when provided, and are absent when
