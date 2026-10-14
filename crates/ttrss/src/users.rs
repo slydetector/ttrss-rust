@@ -12,7 +12,7 @@ use sqlx::Row;
 
 use crate::AppState;
 use crate::core::user;
-use crate::i18n::__;
+use crate::i18n::{__, t_sprintf};
 use crate::session::Sess;
 use crate::time::{TzCtx, make_local_datetime};
 use crate::util::{
@@ -373,7 +373,14 @@ pub(crate) async fn reset_password(pool: &sqlx::PgPool, uid: i32, new_password: 
         .bind(uid)
         .execute(pool)
         .await;
-    format!("Changed password of user <strong>{login}</strong> to <strong>{tmp_pwd}</strong>")
+    // `T_sprintf("Changed password of user %s to %s", "<strong>…</strong>", …)`
+    // — the `<strong>` tags are part of the args, as in the reference.
+    let strong_login = format!("<strong>{login}</strong>");
+    let strong_pwd = format!("<strong>{tmp_pwd}</strong>");
+    t_sprintf(
+        "Changed password of user %s to %s",
+        &[&strong_login, &strong_pwd],
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -673,7 +680,7 @@ pub async fn add(state: &AppState, _sess: &Sess, extra: &Map<String, Value>) -> 
     }
     // `UserHelper::find_user_by_login`: `LOWER(login) = LOWER(?)`.
     if find_user_by_login(pool, &login).await.is_some() {
-        return format!("User {login} already exists.");
+        return t_sprintf("User %s already exists.", &[&login]);
     }
     let new_password = make_password(12);
     let salt = user::get_salt();
@@ -690,9 +697,9 @@ pub async fn add(state: &AppState, _sess: &Sess, extra: &Map<String, Value>) -> 
     .await;
     // Re-check (the PHP re-runs `find_user_by_login` to confirm the insert).
     if find_user_by_login(pool, &login).await.is_some() {
-        format!("Added user {login} with password {new_password}")
+        t_sprintf("Added user %s with password %s", &[&login, &new_password])
     } else {
-        format!("Could not create user {login}")
+        t_sprintf("Could not create user %s", &[&login])
     }
 }
 

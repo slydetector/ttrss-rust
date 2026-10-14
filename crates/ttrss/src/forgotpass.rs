@@ -22,7 +22,7 @@ use axum::response::Response;
 use sqlx::PgPool;
 
 use crate::AppState;
-use crate::i18n::__;
+use crate::i18n::{__, t_sprintf};
 use crate::render;
 use crate::session;
 use crate::users;
@@ -91,7 +91,10 @@ pub async fn forgotpass(state: &AppState, sess: &session::Sess, p: &Params<'_>) 
     let content = if hash.as_deref().is_some_and(|h| !h.is_empty()) {
         // The reset link: `?op=forgotpass&hash=…&login=…`.
         let c = reset_link(pool, hash.as_deref().unwrap(), &login, now).await;
-        format!("{c}<a href='index.php'>Return to Tiny Tiny RSS</a>")
+        format!(
+            "{c}<a href='index.php'>{}</a>",
+            __("Return to Tiny Tiny RSS")
+        )
     } else if p.method.is_none() {
         initial_form(sess)
     } else if p.method.is_some_and(|m| m == "do") {
@@ -127,9 +130,9 @@ fn initial_form(sess: &session::Sess) -> String {
     let csrf = sess.data().csrf_token().unwrap_or("").to_string();
 
     let mut out = String::new();
-    out.push_str(&notice_html(
+    out.push_str(&notice_html(&__(
         "You will need to provide valid account name and email. Password reset link will be sent to your email address.",
-    ));
+    )));
     out.push_str("<form method='POST' action='public.php'>");
     out.push_str("<input type='hidden' name='method' value='do'>");
     out.push_str("<input type='hidden' name='op' value='forgotpass'>");
@@ -137,25 +140,34 @@ fn initial_form(sess: &session::Sess) -> String {
         "<input type='hidden' name='csrf_token' value='{csrf}'>"
     ));
     out.push_str("<fieldset>");
-    out.push_str("<label>Login:</label>");
+    out.push_str(&format!("<label>{}</label>", __("Login:")));
     out.push_str(
         "<input dojoType='dijit.form.TextBox' type='text' name='login' value='' required>",
     );
     out.push_str("</fieldset>");
     out.push_str("<fieldset>");
-    out.push_str("<label>Email:</label>");
+    out.push_str(&format!("<label>{}</label>", __("Email:")));
     out.push_str(
         "<input dojoType='dijit.form.TextBox' type='email' name='email' value='' required>",
     );
     out.push_str("</fieldset>");
     out.push_str("<fieldset>");
-    out.push_str(&format!("<label>How much is {v1} + {v2}:</label>"));
+    out.push_str(&format!(
+        "<label>{}</label>",
+        t_sprintf("How much is %d + %d:", &[&v1.to_string(), &v2.to_string()])
+    ));
     out.push_str("<input dojoType='dijit.form.TextBox' type='text' name='test' value='' required>");
     out.push_str("</fieldset>");
     out.push_str("<hr/>");
     out.push_str("<fieldset>");
-    out.push_str("<button dojoType='dijit.form.Button' type='submit' class='alt-danger'>Reset password</button>");
-    out.push_str("<a href='index.php'>Return to Tiny Tiny RSS</a>");
+    out.push_str(&format!(
+        "<button dojoType='dijit.form.Button' type='submit' class='alt-danger'>{}</button>",
+        __("Reset password")
+    ));
+    out.push_str(&format!(
+        "<a href='index.php'>{}</a>",
+        __("Return to Tiny Tiny RSS")
+    ));
     out.push_str("</fieldset>");
     out.push_str("</form>");
     out
@@ -226,8 +238,11 @@ async fn do_reset(sess: &session::Sess, pool: &PgPool, p: &Params<'_>, now: i64)
                 .execute(pool)
                 .await;
             format!(
-                "{}<a href='index.php'>Return to Tiny Tiny RSS</a>",
-                notice_html("Password reset instructions are being sent to your email address.")
+                "{}<a href='index.php'>{}</a>",
+                notice_html(&__(
+                    "Password reset instructions are being sent to your email address."
+                )),
+                __("Return to Tiny Tiny RSS")
             )
         }
         None => format!(
@@ -314,17 +329,19 @@ fn error_html(msg: &str) -> String {
 /// The "Go back" GET form (the `alt-primary` class is only on the invalid-params
 /// variant; the not-found variant has no class).
 fn go_back_form(class: &str) -> String {
+    let go_back = __("Go back");
     if class.is_empty() {
-        "<form method='GET' action='public.php'>\
-         <input type='hidden' name='op' value='forgotpass'>\
-         <button dojoType='dijit.form.Button' type='submit'>Go back</button>\
-         </form>"
-            .to_string()
+        format!(
+            "<form method='GET' action='public.php'>\
+             <input type='hidden' name='op' value='forgotpass'>\
+             <button dojoType='dijit.form.Button' type='submit'>{go_back}</button>\
+             </form>"
+        )
     } else {
         format!(
             "<form method='GET' action='public.php'>\
              <input type='hidden' name='op' value='forgotpass'>\
-             <button dojoType='dijit.form.Button' type='submit' class='{class}'>Go back</button>\
+             <button dojoType='dijit.form.Button' type='submit' class='{class}'>{go_back}</button>\
              </form>"
         )
     }

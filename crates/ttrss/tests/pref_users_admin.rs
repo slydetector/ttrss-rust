@@ -486,6 +486,48 @@ async fn test_index_localizes_de_de() {
     .unwrap();
 }
 
+/// Round-2 i18n: the admin user-management messages are translated
+/// (`t_sprintf`) under a `de_DE` scope — `add`'s duplicate-login message and
+/// the password-reset notice.
+#[tokio::test]
+async fn test_admin_messages_localize_de_de() {
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            let ctx = ttrss::i18n::I18nCtx {
+                locale: Some("de_DE".to_string()),
+                cache: state.i18n.clone(),
+            };
+
+            // `add` with an existing login → the German duplicate message.
+            let s = ttrss::i18n::I18N
+                .scope(ctx, async {
+                    ttrss::users::add(&state, &sess, &form(&[("login", "admin")])).await
+                })
+                .await;
+            assert!(
+                s.contains("existiert bereits"),
+                "German duplicate message expected: {s}"
+            );
+
+            // `resetPass` → the German changed-password message.
+            let ctx = ttrss::i18n::I18nCtx {
+                locale: Some("de_DE".to_string()),
+                cache: state.i18n.clone(),
+            };
+            let s = ttrss::i18n::I18N
+                .scope(ctx, async {
+                    ttrss::users::reset_pass(&state, &sess, &form(&[("id", "1")])).await
+                })
+                .await;
+            assert!(s.contains("Passwort"), "German reset message expected: {s}");
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
+}
+
 /// `Pref_Users::index` column sorting: the `sort` param whitelists the five
 /// column names (non-login → DESC), unknown/missing/`"undefined"` → `login`
 /// ASC — the PHP's `$_REQUEST["sort"]` handling (Pref_Users.php).
