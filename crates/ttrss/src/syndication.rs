@@ -217,7 +217,7 @@ async fn generate_feed(
 
         let tags =
             article::get_tags(pool, owner_uid, id, Some(owner_uid), tag_cache.as_deref()).await;
-        let enclosures = article::get_enclosures(pool, id).await;
+        let enclosures = article::get_enclosures(pool, id, &state.config.cache_dir, self_url).await;
 
         // `date('c', strtotime($line["updated"] ?? ''))` — `strtotime('')` is
         // `false` → the epoch.

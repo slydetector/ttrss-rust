@@ -1138,7 +1138,7 @@ async fn api_headline_row(
     // PHP always fetches enclosures for the flavor image; it emits them only
     // when `include_attachments` is set.
     let enclosures = if show_content || include_attachments {
-        article::get_enclosures(pool, id).await
+        article::get_enclosures(pool, id, &pctx.cache_dir, &pctx.self_url).await
     } else {
         Vec::new()
     };
@@ -1241,6 +1241,19 @@ async fn api_headline_row(
         |_r, _p| false,
     )
     .await;
+    // `$article['content'] = DiskCache::rewrite_urls($article['content'])`
+    // (API.php:368).
+    if let Some(c) = article_val
+        .get_mut("content")
+        .and_then(|v| v.as_str())
+        .map(str::to_string)
+    {
+        let rewritten =
+            crate::diskcache::rewrite_urls(&c, &pctx.cache_dir.join("images"), &pctx.self_url);
+        if let Some(slot) = article_val.get_mut("content") {
+            *slot = Value::from(rewritten);
+        }
+    }
     article_val
 }
 
@@ -1367,7 +1380,7 @@ async fn get_article(
         m.insert(
             "attachments".into(),
             Value::Array(
-                article::get_enclosures(pool, id)
+                article::get_enclosures(pool, id, &pctx.cache_dir, &pctx.self_url)
                     .await
                     .into_iter()
                     .map(Value::Object)
@@ -1426,6 +1439,19 @@ async fn get_article(
             |_r, _p| false,
         )
         .await;
+
+        // `$headline_row["content"] = DiskCache::rewrite_urls(…)` (API.php:835).
+        if let Some(c) = article_val
+            .get_mut("content")
+            .and_then(|v| v.as_str())
+            .map(str::to_string)
+        {
+            let rewritten =
+                crate::diskcache::rewrite_urls(&c, &pctx.cache_dir.join("images"), &pctx.self_url);
+            if let Some(slot) = article_val.get_mut("content") {
+                *slot = Value::from(rewritten);
+            }
+        }
 
         out.push(article_val);
     }

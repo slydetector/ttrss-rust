@@ -268,11 +268,7 @@ pub fn expire_all(cache_dir: &Path, max_days: i64) -> i64 {
             if name.to_string_lossy().starts_with('.') {
                 continue;
             }
-            let mtime = match file
-                .metadata()
-                .ok()
-                .and_then(|m| m.modified().ok())
-            {
+            let mtime = match file.metadata().ok().and_then(|m| m.modified().ok()) {
                 Some(t) => t,
                 None => continue,
             };
@@ -529,12 +525,15 @@ impl DiskCache {
 
     /// `DiskCache::download($url, $local_filename, $force)` — fetch `$url` and
     /// store it if absent (or `$force`d). `max_size` caps the download
-    /// (`Config::MAX_CACHE_FILE_SIZE`).
+    /// (`Config::MAX_CACHE_FILE_SIZE`); `http_referrer` is sent as the
+    /// `Referer` header (PHP `cache_media_url`/`cache_enclosures` pass the
+    /// URL itself).
     pub async fn download(
         &self,
         url: &str,
         local_filename: &str,
         max_size: u64,
+        http_referrer: Option<&str>,
         force: bool,
     ) -> bool {
         if self.exists(local_filename) && !force {
@@ -543,6 +542,7 @@ impl DiskCache {
         let result = crate::urlhelper::fetch(&crate::urlhelper::FetchOptions {
             url: url.to_string(),
             max_size: Some(max_size),
+            http_referrer: http_referrer.map(str::to_string),
             ..Default::default()
         })
         .await;
@@ -659,16 +659,21 @@ mod tests {
     fn send_file_touches_served_file_unless_exempt() {
         let root = tempfile::tempdir().expect("tempdir");
         // A minimal PNG.
-        let png = images_dir_file(&root.path().join("images"), "a", &[
-            0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 0, 0,
-        ]);
+        let png = images_dir_file(
+            &root.path().join("images"),
+            "a",
+            &[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 0, 0],
+        );
         age_file(&png, 3600);
         let before: u64 = mtime_secs(&png);
 
         let req = HeaderMap::new();
         let resp = send_file(&png, &req);
         assert_eq!(resp.status(), StatusCode::OK);
-        assert!(mtime_secs(&png) > before, "on-serve touch refreshes the mtime");
+        assert!(
+            mtime_secs(&png) > before,
+            "on-serve touch refreshes the mtime"
+        );
 
         // With the `.no-auto-expiry` marker the mtime is left alone.
         std::fs::write(root.path().join("images").join(NO_AUTO_EXPIRY), b"").expect("marker");
@@ -926,7 +931,7 @@ mod tests {
         // for an unreachable URL (proving no network is attempted).
         assert!(
             cache
-                .download("http://unreachable.invalid/x", "abc", 1024, false)
+                .download("http://unreachable.invalid/x", "abc", 1024, None, false)
                 .await
         );
     }

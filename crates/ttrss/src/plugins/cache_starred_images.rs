@@ -35,7 +35,6 @@ use crate::diskcache::DiskCache;
 use crate::pluginhost::host::{HostCtx, PluginHost};
 use crate::pluginhost::plugin::{About, BoxFuture, Plugin};
 use crate::pluginhost::{HOOK_ENCLOSURE_ENTRY, HOOK_SANITIZE};
-use crate::rss_utils::decode_srcset;
 use crate::urlhelper::{self, FetchOptions};
 use crate::util::sha1_hex;
 
@@ -302,7 +301,7 @@ async fn cache_article_images(
     // Cache the content's media.
     let mut has_media = false;
     let mut success = false;
-    for url in extract_media_urls(content, site_url) {
+    for url in crate::rss_utils::media_urls(content, site_url) {
         has_media = true;
         if cache_url(
             cache,
@@ -372,43 +371,6 @@ async fn cache_url(
         Some(bytes) if !bytes.is_empty() => cache.put(&local, &bytes),
         _ => false,
     }
-}
-
-/// PHP's XPath `(//img[@src]|//source[@src|@srcset]|//video[@poster|@src])` over the
-/// article content — the media URLs (absolutized via `rewrite_relative`; `data:` skipped).
-fn extract_media_urls(content: &str, site_url: &str) -> Vec<String> {
-    let mut urls = Vec::new();
-    let doc = kuchikiki::parse_html().one(content);
-    for node in doc.descendants() {
-        let Some(el) = node.as_element() else {
-            continue;
-        };
-        let name = el.name.local.to_string();
-        if !matches!(name.as_str(), "img" | "source" | "video") {
-            continue;
-        }
-        // `src` / `poster` (not `data:`).
-        for attr in ["src", "poster"] {
-            let Some(raw) = el.attributes.borrow().get(attr).map(str::to_string) else {
-                continue;
-            };
-            if raw.starts_with("data:") {
-                continue;
-            }
-            if let Some(url) = urlhelper::rewrite_relative(site_url, &raw) {
-                urls.push(url);
-            }
-        }
-        // `srcset`.
-        if let Some(srcset) = el.attributes.borrow().get("srcset").map(str::to_string) {
-            for item in decode_srcset(&srcset) {
-                if let Some(url) = urlhelper::rewrite_relative(site_url, &item.url) {
-                    urls.push(url);
-                }
-            }
-        }
-    }
-    urls
 }
 
 /// The `hook_sanitize` body — rewrite `<img>`/`<source>`/`<video>` `src` to the local

@@ -282,3 +282,20 @@ fn test_get_type_caches_result() {
     let t2 = parser.get_type();
     assert_eq!(t1, t2);
 }
+
+/// PHP `nodeValue` parity: a feed title containing mixed content (text around a
+/// child element) must concatenate *all* descendant text — roxmltree's `text()`
+/// would return only the first text node.
+#[test]
+fn test_feed_title_mixed_content_uses_node_value() {
+    let xml = r#"<?xml version="1.0"?>
+    <rss version="2.0">
+        <channel>
+            <title>Mixed<b>bold</b>title</title>
+            <link>https://example.com</link>
+        </channel>
+    </rss>"#;
+    let mut parser = FeedParser::new(xml);
+    assert!(parser.init());
+    assert_eq!(parser.get_title(), "Mixedboldtitle");
+}

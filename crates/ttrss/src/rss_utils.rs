@@ -17,17 +17,19 @@
 use std::io::Read;
 use std::sync::Arc;
 
+use kuchikiki::traits::TendrilSink;
 use regex::Regex;
 use serde_json::Value;
 
 use sqlx::{PgPool, Row};
 
 use crate::core::config::Config;
-use crate::core::feed::FeedParser;
+use crate::core::feed::{FeedEnclosure, FeedParser};
+use crate::diskcache::DiskCache;
 use crate::feeds::decrypt_feed_pass;
 use crate::pluginhost::PluginHost;
 use crate::urlhelper::{FetchOptions, fetch, rewrite_relative};
-use crate::util::clean_str;
+use crate::util::{clean_str, sha1_hex};
 
 /// PHP `RSSUtils::is_gzipped($feed_data)` — true if the data begins with the
 /// gzip magic header `\x1f\x8b\x08`.
@@ -143,6 +145,93 @@ pub fn encode_srcset(items: &[SourceItem]) -> String {
 /// (mirrors the test expectations).
 pub fn function_enabled(_func: &str) -> bool {
     true
+}
+
+// =========================================================================
+// Media disk caching (the per-feed `cache_images` feature)
+// =========================================================================
+
+/// The media URLs of `$html` — PHP's XPath
+/// `(//img[@src]|//source[@src|@srcset]|//video[@poster|@src])`: the
+/// `src`/`poster` attributes (non-`data:`) and every `srcset` item,
+/// absolutized against `$site_url` (`rewrite_relative`; unresolvable URLs
+/// are dropped).
+pub fn media_urls(html: &str, site_url: &str) -> Vec<String> {
+    let mut urls = Vec::new();
+    let doc = kuchikiki::parse_html().one(html);
+    for node in doc.descendants() {
+        let Some(el) = node.as_element() else {
+            continue;
+        };
+        let name = el.name.local.to_string();
+        if !matches!(name.as_str(), "img" | "source" | "video") {
+            continue;
+        }
+        for attr in ["src", "poster"] {
+            let Some(raw) = el.attributes.borrow().get(attr).map(str::to_string) else {
+                continue;
+            };
+            if raw.starts_with("data:") {
+                continue;
+            }
+            if let Some(url) = rewrite_relative(site_url, &raw) {
+                urls.push(url);
+            }
+        }
+        if let Some(srcset) = el.attributes.borrow().get("srcset").map(str::to_string) {
+            for item in decode_srcset(&srcset) {
+                if let Some(url) = rewrite_relative(site_url, &item.url) {
+                    urls.push(url);
+                }
+            }
+        }
+    }
+    urls
+}
+
+/// PHP `RSSUtils::cache_media_url($cache, $url, $site_url)` — absolutize
+/// `$url`, and download it (referrer = the URL itself, `MAX_CACHE_FILE_SIZE`
+/// cap) to the cache as `sha1($abs)` if absent.
+pub async fn cache_media_url(cache: &DiskCache, raw_url: &str, site_url: &str, max_size: u64) {
+    let Some(abs) = rewrite_relative(site_url, raw_url) else {
+        return;
+    };
+    let local = sha1_hex(&abs);
+    let _ = cache
+        .download(&abs, &local, max_size, Some(&abs), false)
+        .await;
+}
+
+/// PHP `RSSUtils::cache_media($html, $site_url)` — download every media URL
+/// in the article content to the shared `images` cache.
+pub async fn cache_media(cache: &DiskCache, html: &str, site_url: &str, max_size: u64) {
+    if html.is_empty() {
+        return;
+    }
+    for url in media_urls(html, site_url) {
+        cache_media_url(cache, &url, site_url, max_size).await;
+    }
+}
+
+/// PHP `RSSUtils::cache_enclosures($enclosures, $site_url)` — download the
+/// image/audio/video enclosure media to the shared `images` cache (the
+/// type gate is PHP's `preg_match("/(image|audio|video)/", $enc->type)`).
+pub async fn cache_enclosures(
+    cache: &DiskCache,
+    enclosures: &[FeedEnclosure],
+    site_url: &str,
+    max_size: u64,
+) {
+    for enc in enclosures {
+        // PHP: `preg_match("/(image|audio|video)/", $enc->type)` — a bare
+        // substring gate (no slash).
+        if ["image", "audio", "video"]
+            .iter()
+            .any(|k| enc.enc_type.contains(k))
+        {
+            cache_media_url(cache, &enc.link, site_url, max_size).await;
+        }
+    }
 }
 
 /// PHP `RSSUtils::labels_contains_caption($labels, $caption)` — true if any
@@ -688,6 +777,99 @@ mod tests {
     // ------------------------------------------------------------------------
     // function_enabled() — PHP disable_functions check
     // ------------------------------------------------------------------------
+
+    // ------------------------------------------------------------------------
+    // media_urls() — the media disk-caching extraction (PHP XPath)
+    // ------------------------------------------------------------------------
+
+    #[test]
+    fn test_media_urls_img_src_and_data_skip() {
+        let html = "<img src=\"http://ex.com/a.png\">\
+                    <img src=\"data:image/png;base64,xx\">\
+                    <img src=\"rel/b.png\">";
+        let urls = media_urls(html, "http://ex.com/x/");
+        assert_eq!(
+            urls,
+            vec![
+                "http://ex.com/a.png".to_string(),
+                "http://ex.com/x/rel/b.png".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_media_urls_source_srcset_video_poster() {
+        let html = "<video poster=\"http://ex.com/p.jpg\">\
+                    <source src=\"http://ex.com/v.mp4\">\
+                    <source srcset=\"http://ex.com/s1.jpg 1x, http://ex.com/s2.jpg 2x\">\
+                   </video>";
+        let urls = media_urls(html, "http://ex.com/");
+        assert_eq!(
+            urls,
+            vec![
+                "http://ex.com/p.jpg".to_string(),
+                "http://ex.com/v.mp4".to_string(),
+                "http://ex.com/s1.jpg".to_string(),
+                "http://ex.com/s2.jpg".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_media_urls_empty_html() {
+        assert_eq!(media_urls("", "http://ex.com/"), Vec::<String>::new());
+    }
+
+    #[tokio::test]
+    async fn test_cache_media_url_hit_short_circuits() {
+        let base = tempfile::tempdir().expect("tempdir");
+        let cache = DiskCache::new(base.path(), "images", "http://self");
+        let url = "http://unreachable.invalid/a.png";
+        cache.put(&sha1_hex(url), b"x");
+        // An existing file short-circuits (no fetch is attempted).
+        cache_media_url(&cache, url, "http://self", 1024).await;
+        assert!(cache.exists(&sha1_hex(url)));
+        // No file for a URL that is not cached (the fetch fails — the
+        // unreachable host — so nothing is stored).
+        cache_media_url(
+            &cache,
+            "http://unreachable.invalid/b.png",
+            "http://self",
+            1024,
+        )
+        .await;
+        assert!(!cache.exists(&sha1_hex("http://unreachable.invalid/b.png")));
+    }
+
+    #[tokio::test]
+    async fn test_cache_enclosure_type_gate() {
+        let base = tempfile::tempdir().expect("tempdir");
+        let cache = DiskCache::new(base.path(), "images", "http://self");
+        // A `text/plain` enclosure is not media: no download is attempted
+        // (unlike the image/audio/video gate), so nothing is stored even
+        // though the (unreachable) URL would have been a no-op fetch.
+        let encs = vec![
+            FeedEnclosure {
+                link: "http://unreachable.invalid/t.txt".into(),
+                enc_type: "text/plain".into(),
+                length: "1".into(),
+                title: String::new(),
+                height: "0".into(),
+                width: "0".into(),
+            },
+            FeedEnclosure {
+                link: "http://unreachable.invalid/v.mp4".into(),
+                enc_type: "video/mp4".into(),
+                length: "1".into(),
+                title: String::new(),
+                height: "0".into(),
+                width: "0".into(),
+            },
+        ];
+        cache_enclosures(&cache, &encs, "http://self", 1024).await;
+        assert!(!cache.exists(&sha1_hex("http://unreachable.invalid/t.txt")));
+        assert!(!cache.exists(&sha1_hex("http://unreachable.invalid/v.mp4")));
+    }
 
     #[test]
     fn test_function_enabled_common_functions() {

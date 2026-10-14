@@ -456,7 +456,9 @@ async fn test_get_enclosures_returns_enclosures_for_article() {
         Box::pin(async move {
             let db = setup(&url).await;
             // seed.sql adds 2 enclosures for article id=1
-            let enclosures = article::get_enclosures(db.pool(), 1).await;
+            // (no disk cache in this test — empty dir, empty self URL)
+            let enclosures =
+                article::get_enclosures(db.pool(), 1, std::path::Path::new(""), "").await;
             assert_eq!(enclosures.len(), 2);
 
             // Check that we have the expected content types
@@ -480,7 +482,8 @@ async fn test_get_enclosures_returns_empty_for_no_enclosures() {
         Box::pin(async move {
             let db = setup(&url).await;
             // Article 2 has no enclosures in seed.sql
-            let enclosures = article::get_enclosures(db.pool(), 2).await;
+            let enclosures =
+                article::get_enclosures(db.pool(), 2, std::path::Path::new(""), "").await;
             assert!(enclosures.is_empty());
             Ok(())
         })

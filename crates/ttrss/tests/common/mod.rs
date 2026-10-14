@@ -176,6 +176,7 @@ pub struct Canned {
 #[allow(dead_code)]
 pub struct MockServer {
     port: u16,
+    responses: Arc<std::sync::Mutex<Vec<Canned>>>,
     _thread: std::thread::JoinHandle<()>,
 }
 
@@ -231,8 +232,15 @@ impl MockServer {
         });
         Self {
             port,
+            responses,
             _thread: thread,
         }
+    }
+
+    /// Replace the canned response at `idx` (before any request is served).
+    pub fn set_response(&self, idx: usize, resp: Canned) {
+        let mut r = self.responses.lock().unwrap();
+        r[idx] = resp;
     }
 
     pub fn url(&self, path: &str) -> String {

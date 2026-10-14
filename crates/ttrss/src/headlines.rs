@@ -1186,6 +1186,20 @@ async fn format_headlines_list(
             |_r, _p| false,
         )
         .await;
+        // `$line['content'] = DiskCache::rewrite_urls($line['content'])`
+        // (Feeds.php:357) — cached media URLs rewrite to the local
+        // `op=cached` serve path.
+        if let Some(c) = line_val
+            .get_mut("content")
+            .and_then(|v| v.as_str())
+            .map(str::to_string)
+        {
+            let rewritten =
+                crate::diskcache::rewrite_urls(&c, &pctx.cache_dir.join("images"), &pctx.self_url);
+            if let Some(slot) = line_val.get_mut("content") {
+                *slot = Value::from(rewritten);
+            }
+        }
         content_list.push(line_val);
     }
 
@@ -1476,13 +1490,25 @@ async fn format_enclosures(
     .await
     .unwrap_or_default();
 
+    // `Article::_get_enclosures`: a locally cached media copy rewrites
+    // `content_url` to the `op=cached` serve path (PHP's
+    // `DiskCache::instance("images")` wrap) before the hook chains.
+    let cache = crate::diskcache::DiskCache::new(&host.cache_dir, "images", &host.self_url);
+
     // The raw rows (PHP adds `filename` later, per enclosure).
     let mut enclosures: Vec<Value> = encs
         .iter()
         .map(|r| {
+            let url = r.get::<String, _>(1);
+            let key = crate::util::sha1_hex(&url);
+            let content_url = if cache.exists(&key) {
+                cache.get_url(&key)
+            } else {
+                url
+            };
             json!({
                 "id": r.get::<i32, _>(0),
-                "content_url": r.get::<String, _>(1),
+                "content_url": content_url,
                 "content_type": r.get::<String, _>(2),
                 "title": r.get::<String, _>(3),
                 "duration": r.get::<String, _>(4),

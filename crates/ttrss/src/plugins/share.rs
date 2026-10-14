@@ -408,13 +408,25 @@ async fn format_article(
         |_r, _p| false,
     )
     .await;
-    let content_out = article_val
-        .get("content")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or("")
-        .to_string();
+    // `$line['content'] = DiskCache::rewrite_urls($line['content'])`
+    // (share/init.php:161) — cached media URLs rewrite to the local
+    // `op=cached` serve path.
+    let content_out = {
+        let raw = article_val
+            .get("content")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let rewritten =
+            crate::diskcache::rewrite_urls(&raw, &host.cache_dir.join("images"), &host.self_url);
+        if let Some(slot) = article_val.get_mut("content") {
+            *slot = serde_json::Value::from(rewritten.clone());
+        }
+        rewritten
+    };
 
-    let enclosures = crate::article::get_enclosures(host.pool(), id).await;
+    let enclosures =
+        crate::article::get_enclosures(host.pool(), id, &host.cache_dir, &host.self_url).await;
     let (og_image, _og_stream, _og_kind) = crate::article::get_image(
         host,
         &enclosures,

@@ -22,9 +22,11 @@
 //! - Enclosures are parsed (`FeedItem::get_enclosures`), link-rewritten and
 //!   persisted to `ttrss_enclosures` (deduped on content_url/content_type/post_id)
 //!   and fed into the article hash — the PHP's `update_rss_feed` enclosure pass.
-//!   Only `cache_enclosures` / `cache_media` (the network + disk-cache image
-//!   download, gated on the feed's `cache_images`) and the favicon fetch remain
-//!   out of scope (M6c).
+//!   `cache_media` / `cache_enclosures` (the network + disk-cache media
+//!   download to the shared `images` cache, gated on the feed's `cache_images`)
+//!   run via `rss_utils::cache_media` / `cache_enclosures` at the PHP's
+//!   `update_rss_feed` positions. Only the favicon fetch remains out of scope
+//!   (M6c).
 //! - The per-feed purge (`Feeds::_purge`, M6c.4) runs before the success
 //!   stamp, matching the PHP's `update_rss_feed` order (commit → purge →
 //!   stamp the success metadata).
@@ -433,6 +435,7 @@ pub async fn process_feed(
         );
         new_articles += upsert_article(
             pool,
+            cfg,
             feed,
             &site_url,
             &feed_language,
@@ -1297,6 +1300,7 @@ fn enclosure_to_string(enc: &FeedEnclosure) -> String {
 #[allow(clippy::too_many_arguments)] // the per-article upsert context (mirrors the PHP's many locals)
 async fn upsert_article(
     pool: &PgPool,
+    cfg: &Config,
     feed: &FeedRow,
     site_url: &str,
     feed_language: &str,
@@ -1873,6 +1877,21 @@ async fn upsert_article(
         "force catchup: false".into(),
     );
 
+    // `if ($feed_obj->cache_images) cache_media($entry_content, ...)`
+    // (RSSUtils:1002) — download the article's media to the shared
+    // `images` disk cache (runs for every article in the payload, before
+    // the `filter`-action drop).
+    if feed.cache_images {
+        let image_cache = crate::diskcache::DiskCache::new(&cfg.cache_dir, "images", &cfg.self_url);
+        crate::rss_utils::cache_media(
+            &image_cache,
+            &entry_content,
+            site_url,
+            cfg.max_cache_file_size as u64,
+        )
+        .await;
+    }
+
     // A `filter` action drops the article: the base record is kept, but no user
     // entry is created (PHP `continue`s here).
     if has_article_filter_action(&outcome.actions, "filter") {
@@ -2081,6 +2100,21 @@ async fn upsert_article(
             crate::labels::add_article(pool, ref_id as i64, param, owner as i64).await;
         }
     }
+
+    // `if ($feed_obj->cache_images) cache_enclosures($enclosures, ...)`
+    // (RSSUtils:1215) — the image/audio/video enclosure media, after the
+    // label assignment, per article.
+    if feed.cache_images {
+        let image_cache = crate::diskcache::DiskCache::new(&cfg.cache_dir, "images", &cfg.self_url);
+        crate::rss_utils::cache_enclosures(
+            &image_cache,
+            &enclosures,
+            site_url,
+            cfg.max_cache_file_size as u64,
+        )
+        .await;
+    }
+
     // The PHP's `LOG_EXTENDED` "article enclosures:" dump — `print_r` of the
     // parsed enclosures (the established `{:?}`-for-`print_r` approximation;
     // empty is the PHP's `print_r([])` body).
@@ -2102,9 +2136,9 @@ async fn upsert_article(
     // Persist the enclosures (PHP lines 1221–1234): dedupe on
     // (content_url, content_type, post_id) and INSERT the rest. `post_id` is the
     // base entry id (`ttrss_entries.id` = `ref_id`), matching the read side's
-    // `num_enclosures` / `_get_enclosures` subqueries. (`cache_enclosures` is
-    // gated on the feed's `cache_images`, off by default, and is out of scope —
-    // network + disk-cache, like `cache_media`.)
+    // `num_enclosures` / `_get_enclosures` subqueries. (The `cache_enclosures`
+    // disk-cache download ran above, after the label assignment, gated on the
+    // feed's `cache_images` — the PHP's `update_rss_feed` order.)
     for enc in &enclosures {
         let exists: Option<i32> = sqlx::query_scalar(
             "SELECT id FROM ttrss_enclosures \

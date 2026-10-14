@@ -13,6 +13,7 @@ use std::sync::Arc;
 
 use roxmltree::{Document, Node};
 
+use super::item::text_content;
 use super::{
     FEED_ATOM, FEED_RDF, FEED_RSS, FEED_UNKNOWN, FeedItem, FeedKind, NS_ATOM, NS_ATOM03, NS_RDF,
     NS_RSS10,
@@ -100,6 +101,14 @@ impl<'input> FeedParser<'input> {
 
     /// PHP `FeedParser::get_type()` — detect (and cache) the feed type from the
     /// document root.
+    ///
+    /// NOTE: the reference matches on the `tagName` *string* (prefix included,
+    /// case-insensitive), so exotic prefixes (`a:feed` for an Atom-ns feed, a
+    /// prefixed `channel`, an RDF-ns root with a non-`rdf` prefix) map to
+    /// `FEED_UNKNOWN` in PHP. roxmltree expands tag names and does not expose
+    /// prefixes, so the port matches by namespace + local name (prefix-agnostic).
+    /// Standard documents (unprefixed `channel`, `rdf:rdf`, `feed`/`atom:feed`)
+    /// classify identically in both.
     pub fn get_type(&mut self) -> i32 {
         if self.ftype != FEED_UNKNOWN || self.error.is_some() {
             return self.ftype;
@@ -176,7 +185,7 @@ impl<'input> FeedParser<'input> {
         // title: //atom:feed/atom:title ?? //atom03:feed/atom03:title
         let title = feed_child(d, NS_ATOM, "title").or_else(|| feed_child(d, NS_ATOM03, "title"));
         if let Some(t) = title {
-            self.title = Some(t.text().unwrap_or("").to_string());
+            self.title = Some(text_content(t));
         }
         // link: first <link> without rel, else rel="alternate" (atom, then atom03)
         let atom_links = feed_links(d, NS_ATOM);
@@ -229,11 +238,11 @@ impl<'input> FeedParser<'input> {
         let d = doc.as_ref();
         // title: //channel/title
         if let Some(t) = child_of(d, "channel", "title") {
-            self.title = Some(t.text().unwrap_or("").to_string());
+            self.title = Some(text_content(t));
         }
         // link: //channel/link — href attribute, else node value
         if let Some(link) = child_of(d, "channel", "link") {
-            let value = link.text().unwrap_or("");
+            let value = text_content(link);
             match link.attribute("href") {
                 Some(h) if !h.is_empty() => self.link = Some(h.to_string()),
                 _ if !value.is_empty() => self.link = Some(value.to_string()),
@@ -257,13 +266,11 @@ impl<'input> FeedParser<'input> {
         let d = doc.as_ref();
         // title: //rssfake:channel/rssfake:title
         if let Some(t) = child_of_ns(d, NS_RSS10, "channel", "title") {
-            self.title = Some(t.text().unwrap_or("").to_string());
+            self.title = Some(text_content(t));
         }
         // link: //rssfake:channel/rssfake:link -> nodeValue
-        if let Some(l) = child_of_ns(d, NS_RSS10, "channel", "link")
-            && let Some(text) = l.text()
-        {
-            self.link = Some(text.to_string());
+        if let Some(l) = child_of_ns(d, NS_RSS10, "channel", "link") {
+            self.link = Some(text_content(l));
         }
         // items: //rssfake:item
         for n in d.descendants() {

@@ -306,10 +306,15 @@ pub async fn purge_orphans(pool: &sqlx::PgPool) {
 }
 
 /// `Article::_get_enclosures`: the article's enclosure rows as
-/// associative arrays (PHP `as_array()`). PHP wraps cached URLs via
-/// `DiskCache::get_url`; the Rust server has no disk cache, so URLs are
-/// returned as stored.
-pub async fn get_enclosures(pool: &sqlx::PgPool, id: i32) -> Vec<Map<String, Value>> {
+/// associative arrays (PHP `as_array()`). A locally cached media copy
+/// rewrites `content_url` to the `op=cached` serve path (PHP's
+/// `DiskCache::instance("images")` wrap).
+pub async fn get_enclosures(
+    pool: &sqlx::PgPool,
+    id: i32,
+    cache_dir: &std::path::Path,
+    self_url: &str,
+) -> Vec<Map<String, Value>> {
     type EnclosureRow = (i32, String, String, String, String, i32, i32, i32);
     let rows: Vec<EnclosureRow> = sqlx::query_as(
         "SELECT id, content_url, content_type, title, duration, width, height, post_id
@@ -320,12 +325,20 @@ pub async fn get_enclosures(pool: &sqlx::PgPool, id: i32) -> Vec<Map<String, Val
     .await
     .unwrap_or_default();
 
+    let cache = crate::diskcache::DiskCache::new(cache_dir, "images", self_url);
     rows.into_iter()
         .map(
             |(enc_id, url, ctype, title, duration, width, height, post_id)| {
+                // PHP: `$cache->exists(sha1($content_url))` → `get_url(…)`.
+                let key = crate::util::sha1_hex(&url);
+                let content_url = if cache.exists(&key) {
+                    cache.get_url(&key)
+                } else {
+                    url
+                };
                 json!({
                     "id": enc_id,
-                    "content_url": url,
+                    "content_url": content_url,
                     "content_type": ctype,
                     "title": title,
                     "duration": duration,
@@ -487,7 +500,23 @@ pub async fn get_image(
         }
     }
 
-    // (PHP DiskCache::get_url wrapping: no disk cache in the Rust server.)
+    // `DiskCache::instance("images")` — a locally cached copy rewrites the
+    // URL to the `op=cached` serve path (the feed-update
+    // `cache_media`/`cache_enclosures` populate the dir).
+    let cache = crate::diskcache::DiskCache::new(&host.cache_dir, "images", &host.self_url);
+    if !article_image.is_empty() {
+        let key = crate::util::sha1_hex(&article_image);
+        if cache.exists(&key) {
+            article_image = cache.get_url(&key);
+        }
+    }
+    if !article_stream.is_empty() {
+        let key = crate::util::sha1_hex(&article_stream);
+        if cache.exists(&key) {
+            article_stream = cache.get_url(&key);
+        }
+    }
+
     (article_image, article_stream, article_kind)
 }
 
