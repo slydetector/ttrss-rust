@@ -384,3 +384,62 @@ async fn test_user_remove() {
     .await
     .unwrap();
 }
+
+// ── user_has_password ──────────────────────────────────────────────────────
+
+/// `UserHelper::user_has_password` → `Auth_Internal::check_password`: a
+/// matching legacy-algo password is re-hashed to SSHA-512 (same salt) on the
+/// successful check — the port must upgrade, not just verify.
+#[tokio::test]
+async fn test_user_has_password_upgrades_legacy_hash() {
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = make_db(&url).await;
+            // A legacy SHA1X-format password (a pre-SSHA-512 installation).
+            let salt = "legacy-salt";
+            let hash = user::hash_password("legacy123", salt, user::ALGO_SHA1X).unwrap();
+            let uid = test_db::seed_user(db.pool(), "legacyuser", &hash, salt, 0)
+                .await
+                .expect("seed legacy user");
+
+            // Wrong password: no match, no upgrade.
+            assert!(
+                !ttrss::users::user_has_password(db.pool(), uid, "nope")
+                    .await
+                    .unwrap()
+            );
+            let row: (String, String) =
+                sqlx::query_as("SELECT pwd_hash, salt FROM ttrss_users WHERE id = $1")
+                    .bind(uid)
+                    .fetch_one(db.pool())
+                    .await
+                    .expect("row");
+            assert!(row.0.starts_with("SHA1X:"), "untouched: {}", row.0);
+
+            // Right password: match + upgrade to SSHA-512 (same salt).
+            assert!(
+                ttrss::users::user_has_password(db.pool(), uid, "legacy123")
+                    .await
+                    .unwrap()
+            );
+            let row: (String, String) =
+                sqlx::query_as("SELECT pwd_hash, salt FROM ttrss_users WHERE id = $1")
+                    .bind(uid)
+                    .fetch_one(db.pool())
+                    .await
+                    .expect("row");
+            assert!(row.0.starts_with("SSHA-512:"), "upgraded: {}", row.0);
+            assert_eq!(row.1, salt, "salt preserved");
+
+            // The upgraded hash still verifies (and is a no-op upgrade now).
+            assert!(
+                ttrss::users::user_has_password(db.pool(), uid, "legacy123")
+                    .await
+                    .unwrap()
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
+}

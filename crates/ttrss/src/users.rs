@@ -469,20 +469,16 @@ pub async fn user_modify(
 }
 
 /// `UserHelper::user_has_password` — verify `$password` against `$uid`'s
-/// stored hash (false when the user does not exist).
+/// stored hash (false when the user does not exist). PHP delegates to
+/// `Auth_Internal::check_password`, which also re-hashes an out-of-date algo
+/// to `HASH_ALGOS[0]` on a match — the port's `auth::check_password` is the
+/// same delegation target.
 pub async fn user_has_password(
     pool: &sqlx::PgPool,
     uid: i32,
     password: &str,
 ) -> sqlx::Result<bool> {
-    let row: Option<(String, String)> =
-        sqlx::query_as("SELECT pwd_hash, salt FROM ttrss_users WHERE id = $1")
-            .bind(uid)
-            .fetch_optional(pool)
-            .await?;
-    Ok(row
-        .as_ref()
-        .is_some_and(|(hash, salt)| user::verify_password(hash, password, salt)))
+    Ok(crate::auth::check_password(pool, uid, password).await)
 }
 
 /// `update.php` `user-exists` — does `$login` exist (case-insensitive)?
