@@ -24,6 +24,10 @@ struct Row {
     feed_title: String,
     link: String,
     updated: String,
+    /// `&hellip;` ellipsis (the default) — rendered by the HTML template. The
+    /// plain-text template only emits title/updated/link, so no `...` variant
+    /// is needed (PHP sets one on the text Templator, but
+    /// `digest_template.txt` never references `ARTICLE_EXCERPT`).
     excerpt: String,
     labels: String,
     ref_id: i64,
@@ -65,7 +69,7 @@ pub async fn prepare_headlines_digest(
                 ttrss_entries.link,
                 ttrss_user_entries.score,
                 ttrss_entries.content,
-                SUBSTRING_FOR_DATE(ttrss_entries.last_updated, 1, 19) AS last_updated
+                SUBSTRING_FOR_DATE(ttrss_feeds.last_updated, 1, 19) AS last_updated
          FROM ttrss_user_entries, ttrss_entries, ttrss_feeds
          LEFT JOIN ttrss_feed_categories ON (cat_id = ttrss_feed_categories.id)
          WHERE ref_id = ttrss_entries.id
@@ -83,7 +87,7 @@ pub async fn prepare_headlines_digest(
     .bind(limit)
     .fetch_all(db)
     .await
-    .unwrap_or_default();
+    .expect("digest headline query");
 
     let mut articles: Vec<Row> = Vec::new();
     let tz = TzCtx {
@@ -100,10 +104,15 @@ pub async fn prepare_headlines_digest(
         let title = l.get::<String, _>(0);
         let feed_title = l.get::<String, _>(1);
         let cat_title = l.get::<String, _>(2);
-        let date_updated = l.get::<String, _>(3);
-        let ref_id = l.try_get::<i64, _>(4).unwrap_or(0);
+        let date_updated = l.get::<chrono::NaiveDateTime, _>(3);
+        let date_updated = date_updated.format("%Y-%m-%d %H:%M:%S").to_string();
+        // ref_id/score are INT4 — decode as i32 (strict decoding), widen at
+        // the boundary. (The old i64 decode errored on every row, and the
+        // query's `unwrap_or_default()` turned that into an always-empty
+        // digest — now the query `.expect()`s.)
+        let ref_id = l.get::<i32, _>(4) as i64;
         let link = l.get::<String, _>(5);
-        let score = l.try_get::<i64, _>(6).unwrap_or(0);
+        let score = l.get::<i32, _>(6) as i64;
         let content = l.get::<String, _>(7);
         let last_updated = l.get::<String, _>(8);
 
@@ -114,13 +123,21 @@ pub async fn prepare_headlines_digest(
         let updated = crate::time::make_local_datetime(Some(&last_updated), false, &tz);
         let excerpt =
             crate::util::truncate_string(&crate::util::strip_tags(&content), 300, "&hellip;");
+        // `Article::_get_labels(ref_id, user_id)` — the digest shows the
+        // comma-joined label captions in both templates.
+        let labels = crate::article::get_labels(db, uid as i64, ref_id, Some(uid as i64))
+            .await
+            .iter()
+            .filter_map(|row| row.get(1).and_then(Value::as_str))
+            .collect::<Vec<_>>()
+            .join(", ");
         articles.push(Row {
             title,
             feed_title,
             link,
             updated,
             excerpt,
-            labels: String::new(), // Article::_get_labels — empty for the corpus
+            labels,
             ref_id,
             score,
             date_updated,

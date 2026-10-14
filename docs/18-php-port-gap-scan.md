@@ -193,6 +193,14 @@ dispatch). It is inherently tied to the schema-migration engine, which is M8 (sk
 All the other public ops (`login`, `logout`, `rss`/syndication, `feed_icon`,
 `cached`, `healthcheck`, `forgotpass`, `pluginhandler`) are handled.
 
+**NOTE (i18n audit, 2026-10-14):** the route is deliberately absent, not a
+residual — the port applies schema migrations at server startup (M8), so a
+pending migration no longer needs a human to click through the page. The
+admin-only gate and its message ("Your access level is insufficient to run
+this script.", `Handler_Public.php:623`) are part of this one omission, not a
+separate gap. A frontend `E_SCHEMA_MISMATCH` redirect (`App.js:638`) 404s on
+the port; in practice the boot check applies the migration first.
+
 ### G5 — ~~`HOOK_VALIDATE_SESSION` chain not run~~ — closed *(low)*
 
 Covered by G1, called out separately because it is a *core-behavior* hook (not a
