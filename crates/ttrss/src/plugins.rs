@@ -36,10 +36,13 @@ use crate::session::Sess;
 
 /// Static `about()` metadata for the bundled plugins, in the order the
 /// `PluginHost` loads them (before the final name-sort). Fields:
-/// `(name, is_local, is_system, version, author, description, more_info)`.
-const PLUGIN_META: &[(&str, bool, bool, &str, &str, &str, &str)] = &[
+/// `(name, class_name, is_local, is_system, version, author, description,
+/// more_info)` — `class_name` is the PHP class (the
+/// `ttrss_plugin_storage.name` key).
+const PLUGIN_META: &[(&str, &str, bool, bool, &str, &str, &str, &str)] = &[
     (
         "af_comics",
+        "Af_Comics",
         false,
         false,
         "",
@@ -49,6 +52,7 @@ const PLUGIN_META: &[(&str, bool, bool, &str, &str, &str, &str)] = &[
     ),
     (
         "af_psql_trgm",
+        "Af_Psql_Trgm",
         false,
         false,
         "",
@@ -58,6 +62,7 @@ const PLUGIN_META: &[(&str, bool, bool, &str, &str, &str, &str)] = &[
     ),
     (
         "af_youtube_embed",
+        "Af_Youtube_Embed",
         false,
         false,
         "",
@@ -67,6 +72,7 @@ const PLUGIN_META: &[(&str, bool, bool, &str, &str, &str, &str)] = &[
     ),
     (
         "af_zz_vidmute",
+        "Af_Zz_Vidmute",
         false,
         false,
         "",
@@ -76,6 +82,7 @@ const PLUGIN_META: &[(&str, bool, bool, &str, &str, &str, &str)] = &[
     ),
     (
         "auth_internal",
+        "Auth_Internal",
         false,
         true,
         "",
@@ -85,6 +92,7 @@ const PLUGIN_META: &[(&str, bool, bool, &str, &str, &str, &str)] = &[
     ),
     (
         "auth_remote",
+        "Auth_Remote",
         false,
         true,
         "",
@@ -94,6 +102,7 @@ const PLUGIN_META: &[(&str, bool, bool, &str, &str, &str, &str)] = &[
     ),
     (
         "auto_assign_labels",
+        "Auto_Assign_Labels",
         false,
         false,
         "",
@@ -103,6 +112,7 @@ const PLUGIN_META: &[(&str, bool, bool, &str, &str, &str, &str)] = &[
     ),
     (
         "bookmarklets",
+        "Bookmarklets",
         false,
         false,
         "",
@@ -112,6 +122,7 @@ const PLUGIN_META: &[(&str, bool, bool, &str, &str, &str, &str)] = &[
     ),
     (
         "cache_starred_images",
+        "Cache_Starred_Images",
         false,
         false,
         "",
@@ -121,6 +132,7 @@ const PLUGIN_META: &[(&str, bool, bool, &str, &str, &str, &str)] = &[
     ),
     (
         "hotkeys_force_top",
+        "Hotkeys_Force_Top",
         false,
         false,
         "",
@@ -130,6 +142,7 @@ const PLUGIN_META: &[(&str, bool, bool, &str, &str, &str, &str)] = &[
     ),
     (
         "hotkeys_noscroll",
+        "Hotkeys_Noscroll",
         false,
         false,
         "",
@@ -139,6 +152,7 @@ const PLUGIN_META: &[(&str, bool, bool, &str, &str, &str, &str)] = &[
     ),
     (
         "hotkeys_swap_jk",
+        "Hotkeys_Swap_JK",
         false,
         false,
         "",
@@ -148,6 +162,7 @@ const PLUGIN_META: &[(&str, bool, bool, &str, &str, &str, &str)] = &[
     ),
     (
         "nginx_xaccel",
+        "Nginx_XAccel",
         true,
         true,
         "v25.12-6c1afee1, by fox",
@@ -157,6 +172,7 @@ const PLUGIN_META: &[(&str, bool, bool, &str, &str, &str, &str)] = &[
     ),
     (
         "no_iframes",
+        "No_Iframes",
         false,
         false,
         "",
@@ -166,6 +182,7 @@ const PLUGIN_META: &[(&str, bool, bool, &str, &str, &str, &str)] = &[
     ),
     (
         "note",
+        "Note",
         false,
         false,
         "",
@@ -175,6 +192,7 @@ const PLUGIN_META: &[(&str, bool, bool, &str, &str, &str, &str)] = &[
     ),
     (
         "nsfw",
+        "NSFW",
         false,
         false,
         "",
@@ -184,6 +202,7 @@ const PLUGIN_META: &[(&str, bool, bool, &str, &str, &str, &str)] = &[
     ),
     (
         "share",
+        "Share",
         false,
         false,
         "",
@@ -193,6 +212,7 @@ const PLUGIN_META: &[(&str, bool, bool, &str, &str, &str, &str)] = &[
     ),
     (
         "shorten_expanded",
+        "Shorten_Expanded",
         false,
         false,
         "",
@@ -202,6 +222,7 @@ const PLUGIN_META: &[(&str, bool, bool, &str, &str, &str, &str)] = &[
     ),
     (
         "toggle_sidebar",
+        "Toggle_Sidebar",
         false,
         false,
         "",
@@ -211,6 +232,7 @@ const PLUGIN_META: &[(&str, bool, bool, &str, &str, &str, &str)] = &[
     ),
     (
         "tweak_article_header",
+        "Tweak_Article_Header",
         false,
         false,
         "",
@@ -249,15 +271,24 @@ pub async fn get_plugins_list(state: &AppState, sess: &Sess) -> Value {
         .filter(|s| !s.is_empty())
         .collect();
 
+    // `has_data` — `count(PluginHost::get_all($plugin)) > 0`: the owner's
+    // `ttrss_plugin_storage` rows, keyed by the PHP class name.
+    let storage_names: Vec<String> =
+        sqlx::query_scalar("SELECT name FROM ttrss_plugin_storage WHERE owner_uid = $1")
+            .bind(uid)
+            .fetch_all(state.db.pool())
+            .await
+            .unwrap_or_default();
+
     let mut rv: Vec<Value> = Vec::new();
-    for (name, is_local, is_system, version, author, description, more_info) in PLUGIN_META {
+    for (name, class, is_local, is_system, version, author, description, more_info) in PLUGIN_META {
         let version = crate::util::htmlspecialchars(version);
         rv.push(json!({
             "name": name,
             "is_local": is_local,
             "system_enabled": system_enabled.contains(name),
             "user_enabled": user_enabled.contains(name),
-            "has_data": false,
+            "has_data": storage_names.iter().any(|n| n == class),
             "is_system": is_system,
             "version": version,
             "author": author,

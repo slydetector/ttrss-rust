@@ -42,7 +42,7 @@ use crate::{AppState, diskcache, nocache_headers};
 
 /// `Config::get_version()` — TODO(port): derive from the docroot git
 /// metadata (PHP `Config::get_version()`), like the frozen reference
-/// `26.08-2f7d831f`.
+/// `27.10-270fcc71`.
 const VERSION: &str = crate::core::config::VERSION;
 
 /// `$_REQUEST` params for `op=rss` (`Handler_Public::rss`).

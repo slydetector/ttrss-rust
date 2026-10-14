@@ -20,9 +20,10 @@ use url::Url;
 pub const SCHEMA_VERSION: i64 = 151;
 
 /// `Config::get_version()` — the tt-rss version string for this checkout (the
-/// frozen reference's `Ym-commit`, e.g. `26.08-2f7d831f`). The PHP computes it
-/// from git/CI at runtime; the port pins the frozen reference's value.
-pub const VERSION: &str = "26.08-2f7d831f";
+/// pinned `tt-rss/` submodule's `Ym-commit`: `git log --pretty=version-%ct-%h`
+/// on the pinned HEAD → `27.10-270fcc71`). The PHP computes it from git/CI at
+/// runtime; the port pins the pinned-submodule value.
+pub const VERSION: &str = "27.10-270fcc71";
 
 /// `Config::PLUGINS` (T_STRING, default "auth_internal"): the built-in
 /// `auth_internal` auth module is the only *system* plugin enabled by default;

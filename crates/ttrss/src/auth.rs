@@ -77,6 +77,9 @@ pub async fn authenticate(
     .flatten();
 
     let Some(r) = row else {
+        // `UserHelper::authenticate`: a logged failure for a non-empty login
+        // with no matching user.
+        tracing::warn!("Failed login attempt for {login}");
         return AuthOutcome::Failure {
             message: __(ERR_BAD_CREDENTIALS),
         };
@@ -120,6 +123,7 @@ pub async fn authenticate(
         if user::verify_password(&user.pwd_hash, password, &user.salt) {
             success(pool, &user, password).await
         } else {
+            tracing::warn!("Failed login attempt for {}", user.login);
             let _ = stamp_last_attempt(pool, user.id).await;
             AuthOutcome::Failure {
                 message: __(ERR_BAD_CREDENTIALS),

@@ -479,7 +479,9 @@ pub async fn get_image(
         }
 
         if !article_image.is_empty() {
-            match rewrite_relative(site_url, &article_image, "a", "href", "") {
+            // PHP `_get_image` uses the rewrite defaults (owner
+            // element/attribute empty) — no `EXTRA_HREF_SCHEMES` passthrough.
+            match rewrite_relative(site_url, &article_image, "", "", "") {
                 Some(abs) => {
                     article_image = abs;
                     if article_kind == 0 && (enclosures.len() > 1 || elems.len() > 1) {
@@ -492,7 +494,7 @@ pub async fn get_image(
         }
 
         if !article_stream.is_empty() {
-            if let Some(abs) = rewrite_relative(site_url, &article_stream, "a", "href", "") {
+            if let Some(abs) = rewrite_relative(site_url, &article_stream, "", "", "") {
                 article_stream = abs;
             } else {
                 article_stream.clear();

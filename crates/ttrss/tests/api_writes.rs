@@ -59,7 +59,7 @@ async fn test_get_version() {
             let (status, content) =
                 api::before_and_dispatch(&state, &sess, "getversion", &request(&[]), None).await;
             assert_eq!(status, 0);
-            assert_eq!(content["version"], "26.08-2f7d831f");
+            assert_eq!(content["version"], "27.10-270fcc71");
             Ok(())
         })
     })
