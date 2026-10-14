@@ -815,6 +815,7 @@ async fn format_headlines_list(
         std::collections::HashMap::new();
 
     let show_content_preview = prefs::resolve("SHOW_CONTENT_PREVIEW", rows, profile).as_bool();
+    let cdm_expanded = prefs::resolve("CDM_EXPANDED", rows, profile).as_bool();
     let strip_images = prefs::resolve(prefs::STRIP_IMAGES, rows, profile).as_bool();
     let bw_limit = data.get_bool("bw_limit").unwrap_or(false);
     let has_sandbox = data.get_bool("hasSandbox").unwrap_or(false);
@@ -1140,6 +1141,22 @@ async fn format_headlines_list(
             let line_v = Value::Object(line.clone());
             let buttons = article_buttons(pctx, &line_v).await;
             line.insert("buttons".into(), Value::from(buttons));
+        }
+        // `cdm_excerpt` (Feeds.php:329-338): only when `CDM_EXPANDED` is
+        // off — the collapsed-CDM close button, plus the preview text when
+        // `SHOW_CONTENT_PREVIEW` is on (the frontend ternary handles the
+        // key's absence).
+        if !cdm_expanded {
+            let mut cdm_excerpt = format!(
+                "<span class='collapse'><i class='material-icons' \
+                 onclick='return Article.cdmUnsetActive(event)' \
+                 title=\"{}\">remove_circle</i></span>",
+                __("Collapse article")
+            );
+            if show_content_preview {
+                cdm_excerpt.push_str(&format!("<span class='excerpt'>{content_preview}</span>"));
+            }
+            line.insert("cdm_excerpt".into(), Value::from(cdm_excerpt));
         }
         line.insert("enclosures".into(), enclosures);
         line.insert(

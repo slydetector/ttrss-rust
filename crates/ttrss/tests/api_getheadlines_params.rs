@@ -359,3 +359,118 @@ async fn test_force_update_cache_images_feed_resets_stamps() {
     .await
     .unwrap();
 }
+
+/// Web-RPC session (`op=Feeds&method=view` gate: auth + CSRF token).
+fn view_sess() -> Sess {
+    let mut d = Session::new();
+    d.set("uid", PValue::Int(1));
+    d.set(
+        "access_level",
+        PValue::Int(ttrss::core::user::ACCESS_LEVEL_ADMIN as i64),
+    );
+    d.set(
+        "pwd_hash",
+        PValue::Bytes(b"SHA1:5baa61e4c9b93f3f0682250b6cf8331b7ee68fd8".to_vec()),
+    );
+    d.set("auth_module", PValue::Bytes(b"auth_internal".to_vec()));
+    d.set("name", PValue::Bytes(b"admin".to_vec()));
+    d.set("csrf_token", PValue::Bytes(b"tok".to_vec()));
+    let s = Sess::new("cdm-view".into());
+    s.replace("cdm-view".into(), d);
+    s
+}
+
+/// `op=Feeds&method=view&feed=5` → the response's `headlines.content` rows.
+async fn view_rows(state: &AppState) -> Vec<Value> {
+    let req = axum::http::Request::builder()
+        .method(axum::http::Method::POST)
+        .uri("/backend.php")
+        .header(
+            axum::http::header::CONTENT_TYPE,
+            "application/x-www-form-urlencoded",
+        )
+        .body(axum::body::Body::from(
+            "op=Feeds&method=view&feed=5&csrf_token=tok".to_string(),
+        ))
+        .unwrap();
+    let res = ttrss::rpc::handler(
+        axum::extract::State(state.clone()),
+        axum::extract::Extension(view_sess()),
+        req,
+    )
+    .await;
+    let bytes = axum::body::to_bytes(res.into_body(), 10 * 1024 * 1024)
+        .await
+        .unwrap();
+    let v: Value = serde_json::from_slice(&bytes).unwrap();
+    v.pointer("/headlines/content")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+}
+
+/// `cdm_excerpt` (Feeds.php:329-338): the collapsed-CDM close button, the
+/// optional preview span, and the key's absence when `CDM_EXPANDED` is on.
+/// Pinned on the WEB RPC path — the API path builds its own row shape and
+/// (like PHP's `API::_api_get_headlines`) has no `cdm_excerpt` key.
+#[tokio::test]
+async fn test_cdm_excerpt_states() {
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, _sess) = setup(&url).await;
+            let pool = state.db.pool();
+            add_search_fixtures(pool).await;
+
+            // Default (`CDM_EXPANDED` = true, auto-expand): no key at all.
+            let row = &view_rows(&state).await[0];
+            assert!(
+                row.get("cdm_excerpt").is_none(),
+                "CDM_EXPANDED on (default) → no cdm_excerpt key"
+            );
+
+            // `CDM_EXPANDED` off → the close-button span; `SHOW_CONTENT_PREVIEW`
+            // defaults on (PHP `Prefs.php:74`), so the excerpt span is present
+            // too (the fixture entry's content is "body").
+            sqlx::query(
+                "INSERT INTO ttrss_user_prefs2 (owner_uid, pref_name, profile, value)
+                 VALUES (1, 'CDM_EXPANDED', NULL, 'false')",
+            )
+            .execute(pool)
+            .await
+            .expect("expanded pref off");
+            let row = &view_rows(&state).await[0];
+            assert_eq!(
+                row["cdm_excerpt"].as_str(),
+                Some(
+                    "<span class='collapse'><i class='material-icons' \
+                     onclick='return Article.cdmUnsetActive(event)' \
+                     title=\"Collapse article\">remove_circle</i></span>\
+                     <span class='excerpt'>&mdash; body</span>"
+                ),
+                "CDM_EXPANDED off → close button + default-on excerpt"
+            );
+
+            // `SHOW_CONTENT_PREVIEW` off → the button only.
+            sqlx::query(
+                "INSERT INTO ttrss_user_prefs2 (owner_uid, pref_name, profile, value)
+                 VALUES (1, 'SHOW_CONTENT_PREVIEW', NULL, 'false')",
+            )
+            .execute(pool)
+            .await
+            .expect("preview pref off");
+            let row = &view_rows(&state).await[0];
+            assert_eq!(
+                row["cdm_excerpt"].as_str(),
+                Some(
+                    "<span class='collapse'><i class='material-icons' \
+                     onclick='return Article.cdmUnsetActive(event)' \
+                     title=\"Collapse article\">remove_circle</i></span>"
+                ),
+                "preview off → close button only"
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
+}
