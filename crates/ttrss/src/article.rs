@@ -15,7 +15,7 @@ use axum::http::StatusCode;
 use std::collections::HashSet;
 use std::sync::OnceLock;
 
-use crate::util::{param_int_array, scalar_str};
+use crate::util::{html_to_text, mb_substr, param_int_array, scalar_str};
 use scraper::{Html, Node};
 
 type NodeRef<'a> = ego_tree::NodeRef<'a, Node>;
@@ -597,35 +597,6 @@ fn first_source_src(root: &NodeRef<'_>) -> Option<String> {
     None
 }
 
-/// `Html2Text::convert` (approximated): the visible text of an HTML fragment,
-/// with `<script>`/`<style>`/`<head>` subtrees dropped and whitespace
-/// collapsed. Used for the `tsvector_combined` full-text column.
-fn html_to_text(content: &str) -> String {
-    let html = Html::parse_document(&content);
-    let doc = html.tree.root();
-    let mut out = String::new();
-    let mut stack = vec![doc];
-    while let Some(node) = stack.pop() {
-        if let Some(el) = node.value().as_element() {
-            let tag = el.name.local.to_string().to_ascii_lowercase();
-            if matches!(
-                tag.as_str(),
-                "script" | "style" | "noscript" | "template" | "head"
-            ) {
-                continue;
-            }
-        }
-        if let Some(text) = node.value().as_text() {
-            out.push_str(&text.text);
-        }
-        let children: Vec<NodeRef> = node.children().collect();
-        for child in children.into_iter().rev() {
-            stack.push(child);
-        }
-    }
-    out.split_whitespace().collect::<Vec<_>>().join(" ")
-}
-
 /// `INSERT INTO ttrss_user_entries (…published=true, unread=false,
 /// last_published=NOW(), last_read=NOW())` for a shared article.
 async fn insert_shared_user_entry(tx: &mut sqlx::PgConnection, ref_id: i32, owner_uid: i64) {
@@ -722,7 +693,7 @@ pub async fn create_published_article(
         let _ = sqlx::query(
             "UPDATE ttrss_entries SET tsvector_combined = to_tsvector($1) WHERE id = $2",
         )
-        .bind(html_to_text(&content))
+        .bind(mb_substr(&html_to_text(&content), 900_000))
         .bind(ref_id)
         .execute(&mut *tx)
         .await;
@@ -783,7 +754,7 @@ pub async fn create_published_article(
             let _ = sqlx::query(
                 "UPDATE ttrss_entries SET tsvector_combined = to_tsvector($1) WHERE id = $2",
             )
-            .bind(html_to_text(&content))
+            .bind(mb_substr(&html_to_text(&content), 900_000))
             .bind(ref_id)
             .execute(&mut *tx)
             .await;

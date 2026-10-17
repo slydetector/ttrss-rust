@@ -38,6 +38,7 @@ tower-http = { version = "0.7", features = ["compression-gzip", "compression-br"
 testcontainers = { version = "0.27", features = ["reusable-containers"] }
 testcontainers-modules = { version = "0.15", features = ["postgres"] }
 scraper = { version = "0.27", features = ["deterministic"] }
+html2text = "0.17"
 html5ever = "0.39"
 ego-tree = "0.11"
 serde = { version = "1", features = ["derive"] }

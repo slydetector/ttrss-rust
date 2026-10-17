@@ -84,6 +84,31 @@ pub fn strip_tags(s: &str) -> String {
     out
 }
 
+/// `\Soundasleep\Html2Text::convert` — HTML to plain text, via the maintained
+/// `html2text` crate (jugglerchris/rust-html2text) instead of a hand port.
+///
+/// Used to build the `tsvector_combined` full-text column. Token-level parity
+/// with the PHP reference is ~95%: link hrefs are kept (as footnotes) and
+/// `<img alt>` is rendered, and script/style/head are dropped. Known gaps:
+/// `<a><img></a>` with no link text drops the href, `title`-only images are
+/// dropped, `<tfoot>` rows are dropped, `<img>` without a `src` drops its alt,
+/// and `<ol>`/footnote markers add digit
+/// tokens. All of these only change the search index marginally.
+///
+/// Infallible for in-memory input with a non-zero width; the `Result` is
+/// `TooNarrow` (width 0) or an I/O error (impossible for a byte slice).
+pub fn html_to_text(content: &str) -> String {
+    html2text::from_read(&mut content.as_bytes(), 70)
+        .expect("html2text on in-memory input with width 70")
+}
+
+/// PHP `mb_substr($s, 0, $max)` — truncate to at most `$max` **chars**
+/// (UTF-8 safe). The PHP call sites clamp the full-text column input to
+/// 900,000 chars.
+pub fn mb_substr(s: &str, max: usize) -> String {
+    s.chars().take(max).collect()
+}
+
 /// PHP built-in `trim()` (default character list ` "\t\n\r\0\x0B`).
 ///
 /// Unlike `str::trim`, does *not* strip Unicode whitespace such as `\u{A0}`.
@@ -877,6 +902,97 @@ mod tests {
         assert_eq!(strip_tags("<!-- comment -->text"), "text");
         assert_eq!(strip_tags("a < 5"), "a < 5");
         assert_eq!(strip_tags("<div>multi\n  line</div>"), "multi\n  line");
+    }
+
+    #[test]
+    fn html_to_text_basics() {
+        // script/style/head content is dropped, text is kept.
+        let out =
+            html_to_text("<head><title>t</title></head><p>hello</p><script>var x = 1;</script>");
+        assert!(out.contains("hello"));
+        assert!(!out.contains("var"));
+        assert!(!out.contains("x = 1"));
+        // img alt is rendered; link href appears (footnote section).
+        let out = html_to_text(
+            r#"<p><a href="http://foo.com">visit</a></p><p><img src="x.png" alt="a cat"></p>"#,
+        );
+        assert!(out.contains("visit"));
+        assert!(out.contains("foo.com"));
+        assert!(out.contains("a cat"));
+        // empty input.
+        assert_eq!(html_to_text(""), "");
+    }
+
+    #[test]
+    fn mb_substr_truncates_by_char() {
+        assert_eq!(mb_substr("abcdef", 3), "abc");
+        assert_eq!(mb_substr("abc", 10), "abc");
+        assert_eq!(mb_substr("", 5), "");
+        // UTF-8 safe: cuts on a char boundary, never mid-codepoint.
+        assert_eq!(mb_substr("ééééé", 3), "ééé");
+        assert_eq!(mb_substr("abécd", 3), "abé");
+    }
+
+    /// Token-bag parity with the PHP reference: for the fixture set where the
+    /// `html2text` crate loses no content (no `<a><img></a>` textless links,
+    /// no title-only images, no `<tfoot>`, no ZWNJ), every token PHP's
+    /// Soundasleep emits must appear in our output. The fixtures are the
+    /// vendor's own test corpus — the same one the PHP class is tested with.
+    #[test]
+    fn html_to_text_token_parity_with_php() {
+        let base = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../tt-rss/vendor/soundasleep/html2text/tests"
+        );
+        let cases = [
+            "basic",
+            "anchors",
+            "more-anchors",
+            "test3",
+            "test4",
+            "nbsp",
+            "lists",
+            "pre",
+            "newlines",
+            "nested-divs",
+            "blockquotes",
+            "non-breaking-spaces",
+            "utf8-example",
+            "msoffice",
+            "dom-processing",
+            "empty",
+            "huge-msoffice",
+        ];
+        let tokens = |s: &str| -> std::collections::BTreeMap<String, usize> {
+            let mut m = std::collections::BTreeMap::new();
+            for t in s.split(|c: char| !c.is_alphanumeric()) {
+                if !t.is_empty() {
+                    *m.entry(t.to_string()).or_insert(0) += 1;
+                }
+            }
+            m
+        };
+        // PHP's `fixNewlines` — the expected .txt files are compared post-normalization.
+        let fix_newlines = |s: &str| -> String { s.replace("\r\n", "\n").replace('\r', "\n") };
+        for c in cases {
+            let html = std::fs::read_to_string(format!("{base}/html/{c}.html"))
+                .unwrap_or_else(|e| panic!("{c}: {e}"));
+            let expected = fix_newlines(
+                &std::fs::read_to_string(format!("{base}/txt/{c}.txt"))
+                    .unwrap_or_else(|e| panic!("{c}: {e}")),
+            );
+            let out = html_to_text(&html);
+            let (exp, got) = (tokens(&expected), tokens(&out));
+            let missing: Vec<_> = exp
+                .iter()
+                .filter(|(k, v)| got.get(*k).copied().unwrap_or(0) < **v)
+                .map(|(k, v)| format!("{k} x{v}"))
+                .collect();
+            assert!(
+                missing.is_empty(),
+                "{c}: tokens PHP has that we lack: {missing:?}"
+            );
+        }
     }
 
     #[test]

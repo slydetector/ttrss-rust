@@ -16,9 +16,12 @@
 //!   ingested article scores `0` (no filter actions, `score_modifier` 0), so
 //!   it is unread / unmarked / unpublished — matching the PHP exactly for a
 //!   feed with no filters.
-//! - `tsvector_combined` uses `strip_tags(title) . " " . strip_tags(content)`
-//!   in place of PHP's `Soundasleep\Html2Text::convert(content)` — functionally
-//!   equivalent for full-text search; the frozen suite does not assert on it.
+//! - `tsvector_combined` uses `strip_tags(title) . " " . html_to_text(content)`
+//!   clamped to 900,000 chars, mirroring PHP's
+//!   `mb_substr(strip_tags($title) . " " . Html2Text::convert($content), 0, 900000)`.
+//!   `html_to_text` is the `html2text` crate (not a hand port) — token parity
+//!   with Soundasleep is ~95%; the known gaps are documented on
+//!   `util::html_to_text`.
 //! - Enclosures are parsed (`FeedItem::get_enclosures`), link-rewritten and
 //!   persisted to `ttrss_enclosures` (deduped on content_url/content_type/post_id)
 //!   and fed into the article hash — the PHP's `update_rss_feed` enclosure pass.
@@ -59,7 +62,9 @@ use crate::pluginhost::{
 };
 use crate::rss_utils::{calculate_article_hash, make_guid_from_title, make_guid_hashed};
 use crate::urlhelper::{FetchOptions, fetch, rewrite_relative};
-use crate::util::{clean_str, normalize_categories, php_int_cast, sha1_hex, strip_tags};
+use crate::util::{
+    clean_str, html_to_text, mb_substr, normalize_categories, php_int_cast, sha1_hex, strip_tags,
+};
 
 /// The subset of `ttrss_feeds` the pipeline reads.
 #[derive(Debug, Clone)]
@@ -1688,10 +1693,14 @@ async fn upsert_article(
                 format!("base guid [{entry_guid} or {guid_hashed}] not found, creating..."),
             );
             let updated = ts_to_naive(entry_timestamp);
-            let ts_content = format!(
-                "{} {}",
-                strip_tags(&entry_title),
-                strip_tags(&entry_content)
+            // `mb_substr(strip_tags($title) . " " . Html2Text::convert($content), 0, 900000)`
+            let ts_content = mb_substr(
+                &format!(
+                    "{} {}",
+                    strip_tags(&entry_title),
+                    html_to_text(&entry_content)
+                ),
+                900_000,
             );
             let id: i32 = sqlx::query_scalar(
                 "INSERT INTO ttrss_entries (title, tsvector_combined, guid, link, updated, content, content_hash, no_orig_date, date_updated, date_entered, comments, num_comments, plugin_data, lang, author) VALUES ($1, to_tsvector($12::regconfig, $13), $2, $3, $4, $5, $6, false, NOW(), $7::timestamp, $8, $9, $14, $10, $11) RETURNING id",
@@ -2020,10 +2029,14 @@ async fn upsert_article(
     // --- update the base entry's mutable fields (only when not just created) ---
     if !base_record_created {
         let updated = ts_to_naive(entry_timestamp);
-        let ts_content = format!(
-            "{} {}",
-            strip_tags(&entry_title),
-            strip_tags(&entry_content)
+        // `mb_substr(strip_tags($title) . " " . Html2Text::convert($content), 0, 900000)`
+        let ts_content = mb_substr(
+            &format!(
+                "{} {}",
+                strip_tags(&entry_title),
+                html_to_text(&entry_content)
+            ),
+            900_000,
         );
         let _ = sqlx::query(
             "UPDATE ttrss_entries SET title = $1, tsvector_combined = to_tsvector($9::regconfig, $10), content = $2, content_hash = $3, updated = $4, date_updated = NOW(), num_comments = $5, plugin_data = $11, author = $6, lang = $7 WHERE id = $8",
