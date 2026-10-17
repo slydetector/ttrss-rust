@@ -14,8 +14,8 @@ tempfile = "3"
 test-db = { path = "../test-db" }
 tower.workspace = true
 # Decoders for the response-compression tests (same versions the encoders use)
-brotli = "8"
-zstd = "0.13"
+brotli = "9"
+zstd = "0.14"
 
 [dependencies]
 anyhow.workspace = true
@@ -46,7 +46,7 @@ regex.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 chacha20poly1305.workspace = true
-aead = "0.5"
+aead = "0.6"
 hex.workspace = true
 hmac.workspace = true
 libc.workspace = true

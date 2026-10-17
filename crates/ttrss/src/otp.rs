@@ -71,8 +71,8 @@ async fn otp_state(db: &PgPool, uid: i64) -> Result<Option<(bool, String)>, sqlx
             salt_based[..12].to_string()
         } else {
             let mut bytes = [0u8; 10];
-            let mut rng = rand::thread_rng();
-            rand::RngCore::fill_bytes(&mut rng, &mut bytes);
+            use rand::Rng;
+            rand::rng().fill_bytes(&mut bytes);
             bytes.iter().map(|b| format!("{:02x}", b)).collect()
         };
         sqlx::query("UPDATE ttrss_users SET otp_secret = $1 WHERE id = $2")

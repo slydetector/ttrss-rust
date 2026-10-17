@@ -714,7 +714,7 @@ pub async fn index(state: &AppState, sess: &Sess) -> Result<String, sqlx::Error>
     let rendered = index_env()
         .get_template("index")
         .expect("index template")
-        .render(json!({
+        .render(crate::render::mj_value(json!({
             "profile_notice": profile.is_some(),
             "profile_notice_text": __("Some preferences are only available in default profile."),
             "sections": sections,
@@ -733,7 +733,7 @@ pub async fn index(state: &AppState, sess: &Sess) -> Result<String, sqlx::Error>
             "save_exit": __("Save and exit"),
             "manage_profiles": __("Manage profiles"),
             "reset_defaults": __("Reset to defaults"),
-        }))
+        })))
         .map_err(sqlx::Error::config)?;
     Ok(rendered)
 }

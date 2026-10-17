@@ -367,8 +367,7 @@ fn go_back_form(class: &str) -> String {
 
 /// `random_int(1, n)`-style uniform integer in `[lo, hi]` (inclusive).
 fn rand_range(lo: i64, hi: i64) -> i64 {
-    use rand::Rng;
-    rand::thread_rng().gen_range(lo..=hi)
+    { use rand::RngExt; rand::rng().random_range(lo..=hi) }
 }
 
 #[cfg(test)]

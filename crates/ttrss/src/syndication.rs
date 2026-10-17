@@ -439,7 +439,7 @@ async fn generate_feed(
         let body = atom_env()
             .get_template("feed_atom")
             .expect("atom template")
-            .render(ctx)
+            .render(crate::render::mj_value(serde_json::Value::Object(ctx)))
             .expect("atom template render");
         let content_type = if req.noxml {
             "text/plain; charset=utf-8"

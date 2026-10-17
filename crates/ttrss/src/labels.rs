@@ -45,7 +45,7 @@ pub async fn index(state: &AppState, sess: &Sess, _extra: &Map<String, Value>) -
     labels_index_env()
         .get_template("labels_index")
         .expect("labels_index template")
-        .render(ctx)
+        .render(crate::render::mj_value(serde_json::Value::Object(ctx)))
         .expect("labels_index template render")
 }
 

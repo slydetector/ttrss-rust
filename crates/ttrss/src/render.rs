@@ -9,6 +9,13 @@ use std::path::Path;
 use crate::core::config::Config;
 use crate::i18n::__;
 
+/// minijinja 3's `render` takes `impl Into<Value>` (2.x took any `Serialize`),
+/// so serde_json contexts hop through `Value`'s `Deserialize` impl (the
+/// `serde` feature). Infallible for values that came out of serde_json.
+pub fn mj_value(json: serde_json::Value) -> minijinja::Value {
+    serde_json::from_value(json).expect("serde_json::Value deserializes into minijinja::Value")
+}
+
 /// Max mtime (unix secs) of top-level `js/*.js` — mirrors
 /// `get_scripts_timestamp()`.
 pub fn scripts_timestamp(docroot: &Path) -> i64 {

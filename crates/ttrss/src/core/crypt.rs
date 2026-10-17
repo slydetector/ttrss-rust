@@ -6,10 +6,14 @@
 //! (`algo`, `nonce`, `payload`), which the caller is responsible for
 //! (de)serializing via [`crate::core::phpser`].
 
-use aead::{Aead, KeyInit};
+use aead::{AeadInOut, KeyInit};
 use anyhow::{Result, anyhow};
 use chacha20poly1305::{XChaCha20Poly1305, XNonce};
-use rand::RngCore;
+use rand::Rng;
+
+/// AEAD tag length — 16 bytes, fixed by Poly1305 (the `AeadCore::TagSize`
+/// of the chacha20poly1305 crate).
+const TAG_LEN: usize = 16;
 
 pub const ALGO: &str = "xchacha20poly1305_ietf";
 
@@ -39,34 +43,44 @@ pub fn hex_key(hex: &str) -> Result<[u8; KEY_LEN]> {
 }
 
 /// Random 24-byte nonce.
-pub fn random_nonce(rng: &mut impl RngCore) -> Vec<u8> {
+pub fn random_nonce(rng: &mut impl Rng) -> Vec<u8> {
     let mut n = vec![0u8; NONCE_LEN];
     rng.fill_bytes(&mut n);
     n
 }
 
 /// Encrypt `plaintext` with a fresh nonce, returning the envelope.
+///
+/// aead 0.6 dropped the allocating `Aead` trait; the equivalent is the
+/// in-place API with a caller-provided buffer (ciphertext = plaintext
+/// length + 16-byte Poly1305 tag).
 pub fn encrypt(key: &[u8; KEY_LEN], plaintext: &[u8]) -> Result<EncryptedData> {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     let nonce = random_nonce(&mut rng);
     let cipher = XChaCha20Poly1305::new_from_slice(key).map_err(|e| anyhow!("invalid key: {e}"))?;
-    let payload = cipher
-        .encrypt(XNonce::from_slice(&nonce), plaintext)
+    let mut buf = plaintext.to_vec();
+    buf.resize(buf.len() + TAG_LEN, 0);
+    let xnonce = XNonce::try_from(nonce.as_slice()).map_err(|_| anyhow!("bad nonce"))?;
+    cipher
+        .encrypt_in_place(&xnonce, &[], &mut buf)
         .map_err(|e| anyhow!("encrypt failed: {e}"))?;
     Ok(EncryptedData {
         algo: ALGO,
         nonce,
-        payload,
+        payload: buf,
     })
 }
 
 /// Decrypt an envelope's payload back to plaintext.
 pub fn decrypt(key: &[u8; KEY_LEN], nonce: &[u8], payload: &[u8]) -> Result<Vec<u8>> {
     let cipher = XChaCha20Poly1305::new_from_slice(key).map_err(|e| anyhow!("invalid key: {e}"))?;
-    let out = cipher
-        .decrypt(XNonce::from_slice(nonce), payload)
+    let mut buf = payload.to_vec();
+    let xnonce = XNonce::try_from(nonce).map_err(|_| anyhow!("bad nonce"))?;
+    cipher
+        .decrypt_in_place(&xnonce, &[], &mut buf)
         .map_err(|e| anyhow!("decrypt failed: {e}"))?;
-    Ok(out)
+    buf.truncate(buf.len() - TAG_LEN);
+    Ok(buf)
 }
 
 #[cfg(test)]
@@ -107,11 +121,13 @@ mod tests {
         // Our wrappers must agree with the raw chacha20poly1305 API (the same
         // xchacha20poly1305_ietf primitive PHP sodium uses).
         let key = hex_key(KEY).unwrap();
-        let nonce = random_nonce(&mut rand::thread_rng());
+        let nonce = random_nonce(&mut rand::rng());
         let plain: &[u8] = b"The quick brown fox jumps over the lazy dog";
-        let raw = XChaCha20Poly1305::new_from_slice(&key)
+        let mut raw = plain.to_vec();
+        raw.resize(raw.len() + TAG_LEN, 0);
+        XChaCha20Poly1305::new_from_slice(&key)
             .unwrap()
-            .encrypt(XNonce::from_slice(&nonce), plain)
+            .encrypt_in_place(&XNonce::try_from(nonce.as_slice()).unwrap(), &[], &mut raw)
             .unwrap();
         // decrypt() recovers ciphertext produced directly by the raw crate.
         assert_eq!(decrypt(&key, &nonce, &raw).unwrap(), plain);
@@ -215,13 +231,18 @@ mod tests {
         let other = hex_key(KEY2).unwrap();
         let nonce = [42u8; NONCE_LEN];
         let data: &[u8] = b"same data";
-        let c1 = XChaCha20Poly1305::new_from_slice(&key)
+        let xnonce = XNonce::try_from(&nonce[..]).unwrap();
+        let mut c1 = data.to_vec();
+        c1.resize(c1.len() + TAG_LEN, 0);
+        XChaCha20Poly1305::new_from_slice(&key)
             .unwrap()
-            .encrypt(XNonce::from_slice(&nonce), data)
+            .encrypt_in_place(&xnonce, &[], &mut c1)
             .unwrap();
-        let c2 = XChaCha20Poly1305::new_from_slice(&other)
+        let mut c2 = data.to_vec();
+        c2.resize(c2.len() + TAG_LEN, 0);
+        XChaCha20Poly1305::new_from_slice(&other)
             .unwrap()
-            .encrypt(XNonce::from_slice(&nonce), data)
+            .encrypt_in_place(&xnonce, &[], &mut c2)
             .unwrap();
         assert_ne!(c1, c2);
     }

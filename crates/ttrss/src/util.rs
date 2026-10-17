@@ -4,7 +4,6 @@
 //! (sanitizer's `clean()`, `Feeds` view params, `Prefs::_set`, …); the Rust
 //! port lives here once and is reused by every module.
 
-use rand::Rng;
 use serde_json::{Map, Value};
 use sha1::Digest as _;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -129,12 +128,13 @@ pub fn ctype_digit(s: &str) -> bool {
 /// alphabet (no vowels/`l`/`o`/`u` lookalikes). Sampling without replacement is
 /// distributionally identical to the PHP's pick-and-reject-until-unique loop.
 pub fn make_password(length: usize) -> String {
+    use rand::RngExt;
     const ALPHABET: &[u8] = b"0123456789abcdfghjkmnpqrstvwxyzABCDFGHJKMNPQRSTVWXYZ*%+^";
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     let mut remaining: Vec<u8> = ALPHABET.to_vec();
     let mut out = String::with_capacity(length.min(remaining.len()));
     while out.len() < length && !remaining.is_empty() {
-        let idx = rng.gen_range(0..remaining.len());
+        let idx = rng.random_range(0..remaining.len());
         out.push(remaining.remove(idx) as char);
     }
     out
@@ -436,8 +436,9 @@ pub fn arr_qmarks(arr: &[Value]) -> String {
 /// part, no leading zeros) + `dechex(mt_rand(0, 0x7fffffff))` (0–8 hex
 /// chars, leading zeros dropped). Lowercase alphanumeric; 9–22 chars total.
 pub fn uniqid_short() -> String {
-    let mut rng = rand::thread_rng();
-    let r: u32 = rng.gen_range(0..=0x7FFF_FFFF);
+    use rand::RngExt;
+    let mut rng = rand::rng();
+    let r: u32 = rng.random_range(0..=0x7FFF_FFFF);
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default();
@@ -445,7 +446,7 @@ pub fn uniqid_short() -> String {
         "{}{:x}{:x}",
         base36(r),
         now.as_secs(),
-        rng.gen_range(0u32..=0x7FFF_FFFF)
+        rng.random_range(0u32..=0x7FFF_FFFF)
     )
 }
 
@@ -467,17 +468,18 @@ fn base36(n: u32) -> String {
 /// PHP `get_random_bytes($length)`: `$length` cryptographically random bytes
 /// (PHP's binary string → `Vec<u8>` here).
 pub fn get_random_bytes(length: usize) -> Vec<u8> {
+    use rand::Rng;
     let mut buf = vec![0u8; length];
-    rand::thread_rng().fill(&mut buf[..]);
+    rand::rng().fill_bytes(&mut buf);
     buf
 }
 
 /// Lowercase-hex encoding of `$n` cryptographically random bytes (PHP
 /// `bin2hex(random_bytes($n))`).
 pub fn random_hex(n: usize) -> String {
-    use rand::RngCore;
+    use rand::Rng;
     let mut b = vec![0u8; n];
-    rand::thread_rng().fill_bytes(&mut b);
+    rand::rng().fill_bytes(&mut b);
     b.iter().map(|x| format!("{x:02x}")).collect()
 }
 

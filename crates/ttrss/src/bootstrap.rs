@@ -39,7 +39,6 @@ use sqlx::AssertSqlSafe;
 use crate::core::db::Db;
 use crate::core::user;
 use crate::users;
-use rand::Rng;
 
 /// The six official bootstrap env vars (exactly the reference's set; a var
 /// is "set" when present and non-empty, mirroring `[ ! -z "$VAR" ]`).
@@ -104,9 +103,10 @@ fn parse_access_level(raw: &str) -> Result<i32, anyhow::Error> {
 /// `tr -dc A-Za-z0-9 </dev/urandom | head -c 16` — 16 random alphanumeric
 /// chars.
 fn random_password(len: usize) -> String {
+    use rand::RngExt;
     const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-    rand::thread_rng()
-        .sample_iter(rand::distributions::Uniform::new(0, CHARSET.len()))
+    rand::rng()
+        .sample_iter(rand::distr::Uniform::new(0, CHARSET.len()).expect("charset range"))
         .take(len)
         .map(|i| CHARSET[i] as char)
         .collect()

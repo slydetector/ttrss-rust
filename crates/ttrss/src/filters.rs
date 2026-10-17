@@ -1220,7 +1220,7 @@ pub async fn index(state: &AppState, sess: &Sess, extra: &Map<String, Value>) ->
     filters_index_env()
         .get_template("filters_index")
         .expect("filters_index template")
-        .render(ctx)
+        .render(crate::render::mj_value(serde_json::Value::Object(ctx)))
         .expect("filters_index template render")
 }
 

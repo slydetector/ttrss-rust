@@ -941,8 +941,17 @@ async fn build_and_send(
         req = req.basic_auth(login, Some(pass));
     }
 
+    // reqwest 0.13 dropped `RequestBuilder::form`; the same
+    // x-www-form-urlencoded body, built by hand.
     if let Some(post) = &opts.post_query {
-        req = req.form(post);
+        let body = post
+            .iter()
+            .map(|(k, v)| format!("{}={}", urlencoding::encode(k), urlencoding::encode(v)))
+            .collect::<Vec<_>>()
+            .join("&");
+        req = req
+            .header(reqwest::header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body(body);
     }
 
     req.send().await

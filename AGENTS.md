@@ -7,7 +7,7 @@ Working agreements for **ttrss** (a Rust re-implementation of the Tiny Tiny RSS 
 - **The PHP reference is the spec.** Assume the port is wrong — check `tt-rss/` before treating the port as canonical. Deliberate deviations are fine (better fit, more modern, strategic); surface them.
 - **Verify APIs against the toolchain, not memory.** Future-dated Rust (`rustc 1.98.0`); `std`/crate APIs may differ from training data. Grep the vendored source: crates under `~/.cargo/registry/src/index.crates.io-*/<crate>-<version>/`, `std` under `$(rustc --print sysroot)/lib/rustlib/src/rust/`. Use the `Cargo.lock` version.
 - **sqlx decodes strictly.** INT4 columns → `i32` (widen at the boundary); `COUNT(*)` → `i64`. Never `query_scalar::<_, i64>` an INT4 column. Keep `statement_cache_capacity(0)` in `make_db`/`Db::connect_url`.
-- **Stay on the approved dependency versions** (e.g. sqlx 0.9). Docker is acceptable.
+- **Keep dependency versions current.** No pinned majors: bump to the latest stable when doing dep work, and surface major bumps (API churn, re-baselined expectations) as decisions. Docker is acceptable.
 - **No absolute paths in the repo.** Resolve from the script's location (`$(dirname "$0")/…`) or the CWD.
 
 ## Working style

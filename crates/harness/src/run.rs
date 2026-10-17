@@ -218,13 +218,9 @@ async fn run_step(
     db_pool: Option<&sqlx::PgPool>,
 ) -> Result<()> {
     let method = step.method.to_ascii_uppercase();
-    let url = format!("{}{}", base_url, substitute(&step.path, vars)?);
-
-    let mut req = match method.as_str() {
-        "GET" => client.get(&url),
-        "POST" => client.post(&url),
-        other => return Err(anyhow!("unsupported method {other}")),
-    };
+    // reqwest 0.13 dropped `RequestBuilder::query`/`form`; the same query
+    // string and x-www-form-urlencoded body, built by hand.
+    let mut url = format!("{}{}", base_url, substitute(&step.path, vars)?);
 
     if !step.query.is_empty() {
         let pairs = step
@@ -232,8 +228,21 @@ async fn run_step(
             .iter()
             .map(|(k, v)| Ok((k.clone(), substitute(v, vars)?)))
             .collect::<Result<Vec<_>>>()?;
-        req = req.query(&pairs);
+        let mut u = url::Url::parse(&url).with_context(|| format!("bad url {url}"))?;
+        {
+            let mut qp = u.query_pairs_mut();
+            for (k, v) in &pairs {
+                qp.append_pair(k, v);
+            }
+        }
+        url = u.to_string();
     }
+
+    let mut req = match method.as_str() {
+        "GET" => client.get(&url),
+        "POST" => client.post(&url),
+        other => return Err(anyhow!("unsupported method {other}")),
+    };
 
     if !step.form.is_empty() {
         let pairs = step
@@ -241,7 +250,14 @@ async fn run_step(
             .iter()
             .map(|(k, v)| Ok((k.clone(), substitute(v, vars)?)))
             .collect::<Result<Vec<_>>>()?;
-        req = req.form(&pairs);
+        let body = pairs
+            .iter()
+            .map(|(k, v)| format!("{}={}", urlencoding::encode(k), urlencoding::encode(v)))
+            .collect::<Vec<_>>()
+            .join("&");
+        req = req
+            .header(reqwest::header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body(body);
     }
     if let Some(j) = &step.json {
         let mut body = j.clone();

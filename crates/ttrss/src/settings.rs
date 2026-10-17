@@ -279,7 +279,7 @@ pub async fn app_password_list(state: &AppState, sess: &Sess) -> Result<String, 
     app_password_list_env()
         .get_template("app_password_list")
         .expect("app_password_list template")
-        .render(map)
+        .render(crate::render::mj_value(serde_json::Value::Object(map)))
         .map_err(sqlx::Error::config)
 }
 

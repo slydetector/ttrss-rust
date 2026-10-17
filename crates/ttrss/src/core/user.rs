@@ -60,9 +60,9 @@ pub fn hash_password(pass: &str, salt: &str, algo: &str) -> Option<String> {
 /// `UserHelper::get_salt()`: 250 hex characters (`bin2hex` of 125 random
 /// bytes). Used for the per-app-password salt embedded in `pwd_hash`.
 pub fn get_salt() -> String {
-    use rand::RngCore;
+    use rand::Rng;
     let mut bytes = [0u8; 125];
-    rand::thread_rng().fill_bytes(&mut bytes);
+    rand::rng().fill_bytes(&mut bytes);
     let mut s = String::with_capacity(250);
     for b in bytes {
         s.push_str(&format!("{b:02x}"));

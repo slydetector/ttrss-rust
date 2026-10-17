@@ -498,7 +498,7 @@ pub async fn index(state: &AppState, sess: &Sess, extra: &Map<String, Value>) ->
     feeds_index_env()
         .get_template("feeds_index")
         .expect("feeds_index template")
-        .render(ctx)
+        .render(crate::render::mj_value(serde_json::Value::Object(ctx)))
         .expect("feeds_index template render")
 }
 
@@ -3378,7 +3378,7 @@ pub async fn editfeeds(state: &AppState, sess: &Sess, extra: &Map<String, Value>
     editfeeds_env()
         .get_template("editfeeds")
         .expect("editfeeds template")
-        .render(ctx)
+        .render(crate::render::mj_value(serde_json::Value::Object(ctx)))
         .expect("editfeeds template render")
 }
 

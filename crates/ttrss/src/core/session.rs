@@ -193,9 +193,9 @@ pub fn decrypt_envelope(inner: &[u8], key: &[u8; crypt::KEY_LEN]) -> Result<Vec<
 /// Generate a new PHP-style session id: 16 random bytes as 32 lowercase hex
 /// chars (PHP defaults `session.sid_length=32`, `sid_bits_per_character=4`).
 pub fn new_session_id() -> String {
-    use rand::RngCore;
+    use rand::Rng;
     let mut b = [0u8; 16];
-    rand::thread_rng().fill_bytes(&mut b);
+    rand::rng().fill_bytes(&mut b);
     hex::encode(b)
 }
 
