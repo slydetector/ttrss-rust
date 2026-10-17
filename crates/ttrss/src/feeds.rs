@@ -37,13 +37,13 @@ use crate::prefs;
 use crate::session::Sess;
 use crate::time::TzCtx;
 
-// `Feeds::*` virtual-feed pseudo-ids (functions.php).
-pub(crate) const FEED_ARCHIVED: i32 = 0;
-pub(crate) const FEED_STARRED: i32 = -1;
-pub(crate) const FEED_PUBLISHED: i32 = -2;
-pub(crate) const FEED_FRESH: i32 = -3;
-pub(crate) const FEED_ALL: i32 = -4;
-pub(crate) const FEED_RECENTLY_READ: i32 = -6;
+// `Feeds::*` virtual-feed pseudo-ids — defined in [`crate::cats`] (single
+// source of truth); re-exported so the existing `crate::feeds::FEED_*`
+// imports keep working.
+pub use crate::cats::{
+    FEED_ALL, FEED_ARCHIVED, FEED_ERROR, FEED_FRESH, FEED_PUBLISHED, FEED_RECENTLY_READ,
+    FEED_STARRED,
+};
 
 /// `clean($_REQUEST['mode'] ?? 0) == 2`.
 fn is_mode_2(extra: &Map<String, Value>) -> bool {

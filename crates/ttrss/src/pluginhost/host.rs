@@ -75,11 +75,11 @@ pub const API_VERSION: i32 = 2;
 pub const PUBLIC_METHOD_DELIMITER: &str = "--";
 
 /// `Feeds::CATEGORY_SPECIAL` (classes/Feeds.php:35) — the only category id
-/// accepted by [`HostCtx::add_feed`].
-pub const CATEGORY_SPECIAL: i32 = -1;
+/// accepted by [`HostCtx::add_feed`] (the port's [`crate::cats::CAT_SPECIAL`],
+/// PHP name kept at the plugin API surface).
+pub use crate::cats::CAT_SPECIAL as CATEGORY_SPECIAL;
 
-/// `functions.php:3` — base index for plugin virtual feed ids.
-pub const PLUGIN_FEED_BASE_INDEX: i32 = -128;
+use crate::cats::PLUGIN_FEED_BASE_INDEX;
 
 /// `PluginHost::pfeed_to_feed_id` (classes/PluginHost.php:803).
 pub fn pfeed_to_feed_id(pfeed: i32) -> i32 {

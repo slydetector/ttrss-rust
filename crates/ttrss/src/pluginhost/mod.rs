@@ -33,7 +33,7 @@ pub use plugin::{API_VERSION_COMPAT, About, Flags, Plugin, PluginError};
 
 /// `PluginHost::API_VERSION` — re-exported next to the registry for the
 /// startup check.
-pub const API_VERSION: i32 = host::API_VERSION;
+pub use host::API_VERSION;
 
 // -- hook name constants (PHP `PluginHost::HOOK_*`, classes/PluginHost.php) --
 

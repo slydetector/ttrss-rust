@@ -23,16 +23,15 @@ use crate::time::{self, TzCtx};
 use crate::util::{basename, param_to_bool, strip_tags, truncate_string};
 
 use crate::feeds::{
-    FEED_ALL, FEED_ARCHIVED, FEED_FRESH, FEED_PUBLISHED, FEED_RECENTLY_READ, FEED_STARRED,
+    FEED_ALL, FEED_ARCHIVED, FEED_ERROR, FEED_FRESH, FEED_PUBLISHED, FEED_RECENTLY_READ,
+    FEED_STARRED,
 };
 use crate::i18n::{__, t_sprintf};
 use crate::labels::{LABEL_BASE_INDEX, feed_to_label_id};
 
-// `Feeds::FEED_ERROR` (functions.php): the virtual "error feed" pseudo-id.
-pub(crate) const FEED_ERROR: i32 = -7;
-/// `PLUGIN_FEED_BASE_INDEX` (functions.php): virtual plugin feeds occupy
-/// `(LABEL_BASE_INDEX, PLUGIN_FEED_BASE_INDEX)`.
-pub(crate) const PLUGIN_FEED_BASE_INDEX: i32 = -128;
+// Re-exported so the existing `crate::headlines::PLUGIN_FEED_BASE_INDEX`
+// imports keep working (single definition in [`crate::cats`]).
+pub(crate) use crate::cats::PLUGIN_FEED_BASE_INDEX;
 const NEVER_GROUP_FEEDS: &[i32] = &[FEED_RECENTLY_READ, FEED_ARCHIVED];
 const NEVER_GROUP_BY_DATE: &[i32] = &[FEED_PUBLISHED, FEED_STARRED, FEED_FRESH];
 

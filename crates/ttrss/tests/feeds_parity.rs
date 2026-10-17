@@ -19,20 +19,16 @@
 mod common;
 
 use test_db::template::with_test_db;
+use ttrss::cats::{CAT_LABELS, CAT_SPECIAL, CAT_UNCATEGORIZED};
 use ttrss::feeds;
+use ttrss::feeds::{
+    FEED_ALL, FEED_ARCHIVED, FEED_ERROR, FEED_FRESH, FEED_PUBLISHED, FEED_RECENTLY_READ,
+    FEED_STARRED,
+};
 use ttrss::i18n::{I18N, I18nCache, I18nCtx};
 
-/// PHP `Feeds::*` constants (mirrors `tt-rss/classes/Feeds.php`).
-const FEED_ARCHIVED: i32 = 0;
-const FEED_STARRED: i32 = -1;
-const FEED_PUBLISHED: i32 = -2;
-const FEED_FRESH: i32 = -3;
-const FEED_ALL: i32 = -4;
-const FEED_RECENTLY_READ: i32 = -6;
-const FEED_ERROR: i32 = -7;
-const CATEGORY_UNCATEGORIZED: i32 = 0;
-const CATEGORY_SPECIAL: i32 = -1;
-const CATEGORY_LABELS: i32 = -2;
+// PHP `Feeds::CATEGORY_*` — the port's `CAT_*` (single source of truth in
+// `ttrss::cats`).
 
 // ── FeedsTest (functional: no seed data required) ───────────────────────────
 
@@ -219,7 +215,7 @@ async fn test_get_title_category_special() {
             let db = common::make_db_ref(&url).await;
             assert_eq!(
                 "Special",
-                feeds::category_title(db.pool(), CATEGORY_SPECIAL, 1).await
+                feeds::category_title(db.pool(), CAT_SPECIAL, 1).await
             );
             Ok(())
         })
@@ -236,7 +232,7 @@ async fn test_get_title_category_uncategorized() {
             let db = common::make_db_ref(&url).await;
             assert_eq!(
                 "Uncategorized",
-                feeds::category_title(db.pool(), CATEGORY_UNCATEGORIZED, 1).await
+                feeds::category_title(db.pool(), CAT_UNCATEGORIZED, 1).await
             );
             Ok(())
         })
@@ -253,7 +249,7 @@ async fn test_get_title_category_labels() {
             let db = common::make_db_ref(&url).await;
             assert_eq!(
                 "Labels",
-                feeds::category_title(db.pool(), CATEGORY_LABELS, 1).await
+                feeds::category_title(db.pool(), CAT_LABELS, 1).await
             );
             Ok(())
         })
