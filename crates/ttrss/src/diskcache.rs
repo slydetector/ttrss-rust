@@ -9,9 +9,18 @@
 use axum::body::Body;
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::Response;
-use kuchikiki::parse_html;
-use kuchikiki::traits::TendrilSink;
+use html5ever::{LocalName, QualName};
+use scraper::{Html, Node};
 use std::path::{Path, PathBuf};
+
+/// html5ever stores HTML attribute names namespaceless — lookups must match.
+fn attr_name(name: &str) -> QualName {
+    QualName::new(
+        None,
+        html5ever::Namespace::from(""),
+        LocalName::from(name.to_string()),
+    )
+}
 
 /// `Config::CACHE_MAX_DAYS` (T_INT, default 7): the `Expires` stamp is the
 /// file mtime plus this many days, and the [`expire_all`] sweep's age cutoff.
@@ -304,33 +313,45 @@ pub fn rewrite_urls(html: &str, image_cache_dir: &Path, self_url: &str) -> Strin
         return String::new();
     }
 
-    let doc = parse_html().one(res);
+    let parsed = Html::parse_document(res);
+    let mut tree = parsed.tree;
     let mut changed = false;
+    let ids: Vec<ego_tree::NodeId> = tree.root().descendants().map(|n| n.id()).collect();
 
-    for node in doc.descendants() {
-        let Some(el) = node.as_element() else {
-            continue;
+    for node_id in ids {
+        let el = match tree.get(node_id).and_then(|n| n.value().as_element()) {
+            Some(e) => e.clone(),
+            None => continue,
         };
         // `//img[@src]|//source[@src|@srcset]|//video[@poster|@src]`
         let name = el.name.local.to_string();
         if !matches!(name.as_str(), "img" | "source" | "video") {
             continue;
         }
+        // Snapshot the URL-bearing attributes (owned) so no tree borrow
+        // outlives the `get_mut` rewrites below.
+        let get =
+            |k: &str| -> Option<String> { el.attrs.get(&attr_name(k)).map(|t| t.to_string()) };
+        let src = get("src");
+        let poster = get("poster");
+        let srcset = get("srcset");
         // `src` / `poster`: a cached hit rewrites the attribute and drops
         // `srcset`.
-        for attr in ["src", "poster"] {
-            let url = el.attributes.borrow().get(attr).map(str::to_string);
+        for (attr, url) in [("src", src.as_deref()), ("poster", poster.as_deref())] {
             let Some(url) = url else {
                 continue;
             };
-            if let Some(cached) = cached_file_url(image_cache_dir, &url, self_url) {
-                el.attributes.borrow_mut().insert(attr, cached);
-                el.attributes.borrow_mut().remove("srcset");
+            if let Some(cached) = cached_file_url(image_cache_dir, url, self_url) {
+                if let Some(mut n) = tree.get_mut(node_id)
+                    && let Node::Element(el) = n.value()
+                {
+                    el.attrs.insert(attr_name(attr), cached.into());
+                    el.attrs.swap_remove(&attr_name("srcset"));
+                }
                 changed = true;
             }
         }
         // Remaining `srcset`: rewrite each entry that has a cached copy.
-        let srcset = el.attributes.borrow().get("srcset").map(str::to_string);
         if let Some(srcset) = srcset {
             let mut items = decode_srcset(&srcset);
             let mut any = false;
@@ -341,9 +362,12 @@ pub fn rewrite_urls(html: &str, image_cache_dir: &Path, self_url: &str) -> Strin
                 }
             }
             if any {
-                el.attributes
-                    .borrow_mut()
-                    .insert("srcset", encode_srcset(&items));
+                if let Some(mut n) = tree.get_mut(node_id)
+                    && let Node::Element(el) = n.value()
+                {
+                    el.attrs
+                        .insert(attr_name("srcset"), encode_srcset(&items).into());
+                }
                 changed = true;
             }
         }
@@ -355,7 +379,7 @@ pub fn rewrite_urls(html: &str, image_cache_dir: &Path, self_url: &str) -> Strin
     // Re-serialize the `<body>` contents (the sanitizer's
     // saveHTML-then-extract-`<body>` equivalent).
     let mut out = String::new();
-    if let Some(body) = crate::sanitizer::find_body(&doc) {
+    if let Some(body) = crate::sanitizer::find_body(&tree.root()) {
         for child in body.children() {
             crate::sanitizer::serialize_node(&child, &mut out);
         }
@@ -542,7 +566,7 @@ impl DiskCache {
         let result = crate::urlhelper::fetch(&crate::urlhelper::FetchOptions {
             url: url.to_string(),
             max_size: Some(max_size),
-            http_referrer: http_referrer.map(str::to_string),
+            http_referrer: http_referrer.map(|t| t.to_string()),
             ..Default::default()
         })
         .await;

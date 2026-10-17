@@ -11,8 +11,7 @@ mod common;
 
 use axum::http::StatusCode;
 use base64::Engine as _;
-use kuchikiki::parse_html;
-use kuchikiki::traits::TendrilSink;
+use scraper::{Html, Selector};
 use serde_json::{Map, Value, json};
 use test_db::template::with_test_db;
 use ttrss::AppState;
@@ -257,9 +256,9 @@ async fn test_get_icon_virtual() {
 // assert the element/attribute structure and visible text rather than a
 // byte-exact string (see AGENTS.md "Frontend HTML forms").
 
-/// Parse an HTML fragment into a `kuchikiki` document root.
-fn parse_doc(html: &str) -> kuchikiki::NodeRef {
-    parse_html().one(html)
+/// Parse an HTML fragment into a scraper document.
+fn parse_doc(html: &str) -> Html {
+    Html::parse_document(html)
 }
 
 #[tokio::test]
@@ -278,29 +277,22 @@ async fn test_editfeeds_overview() {
                 ("method", "batchEditSave"),
             ] {
                 let els = doc
-                    .select(&format!("input[name={name}]"))
-                    .unwrap()
+                    .select(&Selector::parse(&format!("input[name={name}]")).unwrap())
                     .collect::<Vec<_>>();
                 assert_eq!(els.len(), 1, "exactly one hidden field {name}");
-                assert_eq!(
-                    els[0].attributes.borrow().get("value"),
-                    Some(value),
-                    "value of {name}"
-                );
+                assert_eq!(els[0].attr("value"), Some(value), "value of {name}");
             }
 
             // The tab container and the three tabs in order.
             assert_eq!(
-                doc.select("div[dojoType='dijit.layout.TabContainer']")
-                    .unwrap()
+                doc.select(&Selector::parse("div[dojoType='dijit.layout.TabContainer']").unwrap())
                     .count(),
                 1,
                 "one tab container"
             );
             let tabs: Vec<String> = doc
-                .select("div[dojoType='dijit.layout.ContentPane']")
-                .unwrap()
-                .map(|t| t.attributes.borrow().get("title").unwrap_or("").to_string())
+                .select(&Selector::parse("div[dojoType='dijit.layout.ContentPane']").unwrap())
+                .map(|t| t.attr("title").unwrap_or("").to_string())
                 .collect();
             assert_eq!(
                 tabs,
@@ -335,31 +327,28 @@ async fn test_editfeeds_general_tab() {
                 "purge_interval",
             ] {
                 let sel = doc
-                    .select(&format!("select[name={name}]"))
-                    .unwrap()
+                    .select(&Selector::parse(&format!("select[name={name}]")).unwrap())
                     .collect::<Vec<_>>();
                 assert_eq!(sel.len(), 1, "exactly one select {name}");
 
                 let toggle = doc
-                    .select(&format!("input[data-control-for={name}]"))
-                    .unwrap()
+                    .select(&Selector::parse(&format!("input[data-control-for={name}]")).unwrap())
                     .collect::<Vec<_>>();
                 assert_eq!(toggle.len(), 1, "exactly one toggle for {name}");
-                let attrs = toggle[0].attributes.borrow();
+                let t0 = &toggle[0];
                 assert_eq!(
-                    attrs.get("onchange"),
+                    t0.attr("onchange"),
                     Some("App.dialogOf(this).toggleField(this)")
                 );
-                assert_eq!(attrs.get("title"), Some("Check to enable field"));
+                assert_eq!(t0.attr("title"), Some("Check to enable field"));
             }
 
             // The update-interval select carries the default-annotation on key 0.
             let update_options: Vec<String> = doc
-                .select("select[name=update_interval] option")
-                .unwrap()
+                .select(&Selector::parse("select[name=update_interval] option").unwrap())
                 .map(|o| {
-                    let v = o.attributes.borrow().get("value").unwrap_or("").to_string();
-                    format!("{v}={}", o.text_contents())
+                    let v = o.attr("value").unwrap_or("").to_string();
+                    format!("{v}={}", o.text().collect::<String>())
                 })
                 .collect();
             assert!(
@@ -388,28 +377,25 @@ async fn test_editfeeds_auth_tab() {
 
             // The Authentication tab's login + password inputs (disabled, autocomplete).
             let login = doc
-                .select("input[name=auth_login]")
-                .unwrap()
+                .select(&Selector::parse("input[name=auth_login]").unwrap())
                 .collect::<Vec<_>>();
             assert_eq!(login.len(), 1);
-            let la = login[0].attributes.borrow();
-            assert_eq!(la.get("disabled"), Some("1"));
-            assert_eq!(la.get("autocomplete"), Some("new-password"));
+            let l0 = &login[0];
+            assert_eq!(l0.attr("disabled"), Some("1"));
+            assert_eq!(l0.attr("autocomplete"), Some("new-password"));
             let pass = doc
-                .select("input[name=auth_pass]")
-                .unwrap()
+                .select(&Selector::parse("input[name=auth_pass]").unwrap())
                 .collect::<Vec<_>>();
             assert_eq!(pass.len(), 1);
-            let pa = pass[0].attributes.borrow();
-            assert_eq!(pa.get("type"), Some("password"));
-            assert_eq!(pa.get("disabled"), Some("1"));
-            assert_eq!(pa.get("autocomplete"), Some("new-password"));
+            let p0 = &pass[0];
+            assert_eq!(p0.attr("type"), Some("password"));
+            assert_eq!(p0.attr("disabled"), Some("1"));
+            assert_eq!(p0.attr("autocomplete"), Some("new-password"));
 
             // Each is paired with a toggle.
             for name in ["auth_login", "auth_pass"] {
                 let toggle = doc
-                    .select(&format!("input[data-control-for={name}]"))
-                    .unwrap()
+                    .select(&Selector::parse(&format!("input[data-control-for={name}]")).unwrap())
                     .collect::<Vec<_>>();
                 assert_eq!(toggle.len(), 1, "exactly one toggle for {name}");
             }
@@ -442,22 +428,21 @@ async fn test_editfeeds_options_tab() {
             ];
             for (name, caption) in expected {
                 let cb = doc
-                    .select(&format!("input[name={name}]"))
-                    .unwrap()
+                    .select(&Selector::parse(&format!("input[name={name}]")).unwrap())
                     .collect::<Vec<_>>();
                 assert_eq!(cb.len(), 1, "exactly one checkbox {name}");
-                assert_eq!(cb[0].attributes.borrow().get("disabled"), Some("1"));
+                assert_eq!(cb[0].attr("disabled"), Some("1"));
                 assert!(html.contains(caption), "caption {caption} present");
                 let toggle = doc
-                    .select(&format!("input[data-control-for={name}]"))
-                    .unwrap()
+                    .select(&Selector::parse(&format!("input[data-control-for={name}]")).unwrap())
                     .collect::<Vec<_>>();
                 assert_eq!(toggle.len(), 1, "exactly one toggle for {name}");
             }
 
             // The footer has the Save (submit) button.
             assert_eq!(
-                doc.select("button[type=submit]").unwrap().count(),
+                doc.select(&Selector::parse("button[type=submit]").unwrap())
+                    .count(),
                 1,
                 "one submit button"
             );
@@ -478,14 +463,12 @@ async fn test_editfeeds_category_options() {
             let doc = parse_doc(&html);
 
             let options: Vec<(String, bool, bool)> = doc
-                .select("select[name=cat_id] option")
-                .unwrap()
+                .select(&Selector::parse("select[name=cat_id] option").unwrap())
                 .map(|o| {
-                    let a = o.attributes.borrow();
                     (
-                        o.text_contents(),
-                        a.get("disabled").is_some(),
-                        a.get("selected").is_some(),
+                        o.text().collect::<String>(),
+                        o.attr("disabled").is_some(),
+                        o.attr("selected").is_some(),
                     )
                 })
                 .collect();

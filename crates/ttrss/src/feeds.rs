@@ -15,9 +15,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use axum::http::StatusCode;
 use base64::Engine as _;
-use kuchikiki::parse_html;
-use kuchikiki::traits::TendrilSink;
 use minijinja::Environment;
+use scraper::Html;
 use serde::Serialize;
 use serde_json::{Map, Value, json};
 use sqlx::AssertSqlSafe;
@@ -1083,19 +1082,15 @@ pub fn get_feeds_from_html(url: &str, content: &str) -> Vec<(String, String)> {
         None => url.clone(),
     };
 
-    let doc = parse_html().one(content);
-    let Ok(select_iter) = doc.select("html head link, html body link") else {
-        return Vec::new();
-    };
+    let doc = Html::parse_document(content);
+    let link_sel = scraper::Selector::parse("html head link, html body link").unwrap();
 
     let mut feed_urls: Vec<(String, String)> = Vec::new();
-    for link in select_iter {
-        let attrs = link.attributes.borrow();
-        let href = attrs.get("href").unwrap_or("").trim().to_string();
-        let rel = attrs.get("rel").unwrap_or("").to_string();
-        let type_ = attrs.get("type").unwrap_or("").to_string();
-        let title = attrs.get("title").unwrap_or("").to_string();
-        drop(attrs);
+    for link in doc.select(&link_sel) {
+        let href = link.attr("href").unwrap_or("").trim().to_string();
+        let rel = link.attr("rel").unwrap_or("").to_string();
+        let type_ = link.attr("type").unwrap_or("").to_string();
+        let title = link.attr("title").unwrap_or("").to_string();
 
         if href.is_empty() {
             continue;

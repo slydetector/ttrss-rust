@@ -38,7 +38,18 @@ use crate::pluginhost::{HOOK_ENCLOSURE_ENTRY, HOOK_SANITIZE};
 use crate::urlhelper::{self, FetchOptions};
 use crate::util::sha1_hex;
 
-use kuchikiki::traits::TendrilSink;
+use html5ever::{LocalName, QualName};
+use scraper::Html;
+use scraper::node::Node;
+
+/// html5ever stores HTML attribute names namespaceless — lookups must match.
+fn attr_name(name: &str) -> QualName {
+    QualName::new(
+        None,
+        html5ever::Namespace::from(""),
+        LocalName::from(name.to_string()),
+    )
+}
 
 /// PHP's `add_scheduled_task` task names (the bare `$task_name` args).
 const TASK_CACHE: &str = "cache_starred_images";
@@ -382,26 +393,31 @@ fn rewrite_sanitized_media(
     article_id: i32,
     cache: &DiskCache,
 ) -> String {
-    let doc = kuchikiki::parse_html().one(html);
+    let parsed = Html::parse_document(html);
+    let mut tree = parsed.tree;
     let mut changed = false;
-    for node in doc.descendants() {
-        let Some(el) = node.as_element() else {
+    let ids: Vec<ego_tree::NodeId> = tree.root().descendants().map(|n| n.id()).collect();
+    for node_id in ids {
+        let Some(el) = tree.get(node_id).and_then(|n| n.value().as_element()) else {
             continue;
         };
         let name = el.name.local.to_string();
         if !matches!(name.as_str(), "img" | "source" | "video") {
             continue;
         }
-        let Some(src) = el.attributes.borrow().get("src").map(str::to_string) else {
+        let Some(src) = el.attrs.get(&attr_name("src")).map(|t| t.to_string()) else {
             continue;
         };
         if let Some(abs) = urlhelper::rewrite_relative(site_url, &src) {
             let local = format!("{}-{}", article_id, sha1_hex(&abs));
             if cache.exists(&local) {
-                el.attributes
-                    .borrow_mut()
-                    .insert("src", cache.get_url(&local));
-                el.attributes.borrow_mut().remove("srcset");
+                if let Some(mut n) = tree.get_mut(node_id)
+                    && let Node::Element(el) = n.value()
+                {
+                    el.attrs
+                        .insert(attr_name("src"), cache.get_url(&local).into());
+                    el.attrs.swap_remove(&attr_name("srcset"));
+                }
                 changed = true;
             }
         }
@@ -410,7 +426,7 @@ fn rewrite_sanitized_media(
         return html.to_string();
     }
     let mut out = String::new();
-    if let Some(body) = crate::sanitizer::find_body(&doc) {
+    if let Some(body) = crate::sanitizer::find_body(&tree.root()) {
         for child in body.children() {
             crate::sanitizer::serialize_node(&child, &mut out);
         }

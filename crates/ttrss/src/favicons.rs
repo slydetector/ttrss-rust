@@ -6,8 +6,7 @@
 
 use crate::core::config::Config;
 use crate::urlhelper::{self, FetchOptions};
-use kuchikiki::parse_html;
-use kuchikiki::traits::TendrilSink;
+use scraper::Html;
 use std::path::Path;
 
 /// `RSSUtils::FAVICON_ALLOWED_MIME_TYPES` (RSSUtils.php:9-15) — plus
@@ -46,31 +45,26 @@ pub async fn get_favicon_urls(site_url: &str) -> Vec<String> {
     if let Some(html_bytes) = result.body {
         // The PHP's `loadHTML` is lenient about encoding; we do the same.
         let html = String::from_utf8_lossy(&html_bytes).to_string();
-        let doc = parse_html().one(html);
+        let doc = Html::parse_document(&html);
 
         // Resolve the `<base href>` (if present).
+        let base_sel = scraper::Selector::parse("head > base[href]").unwrap();
         base = doc
-            .select("head > base[href]")
-            .ok()
-            .and_then(|mut sel| sel.next())
-            .and_then(|el| el.attributes.borrow().get("href").map(|s| s.to_string()))
+            .select(&base_sel)
+            .next()
+            .and_then(|el| el.attr("href").map(|s| s.to_string()))
             .and_then(|href| urlhelper::rewrite_relative(site_url, &href))
             .unwrap_or(base);
 
         // Collect `<link rel="shortcut icon|icon|alternate icon">` entries.
-        if let Ok(sel) = doc.select("head > link[rel]") {
-            for el in sel {
-                let attrs = el.attributes.borrow();
-                let rel = attrs
-                    .get("rel")
-                    .map(|r| r.to_lowercase())
-                    .unwrap_or_default();
-                if (rel == "shortcut icon" || rel == "icon" || rel == "alternate icon")
-                    && let Some(href) = attrs.get("href")
-                    && let Some(abs) = urlhelper::rewrite_relative(&base, href)
-                {
-                    urls.push(abs);
-                }
+        let link_sel = scraper::Selector::parse("head > link[rel]").unwrap();
+        for el in doc.select(&link_sel) {
+            let rel = el.attr("rel").map(|r| r.to_lowercase()).unwrap_or_default();
+            if (rel == "shortcut icon" || rel == "icon" || rel == "alternate icon")
+                && let Some(href) = el.attr("href")
+                && let Some(abs) = urlhelper::rewrite_relative(&base, href)
+            {
+                urls.push(abs);
             }
         }
     }

@@ -17,11 +17,21 @@
 use std::io::Read;
 use std::sync::Arc;
 
-use kuchikiki::traits::TendrilSink;
+use html5ever::{LocalName, QualName};
 use regex::Regex;
+use scraper::Html;
 use serde_json::Value;
 
 use sqlx::{PgPool, Row};
+
+/// html5ever stores HTML attribute names namespaceless — lookups must match.
+fn attr_name(name: &str) -> QualName {
+    QualName::new(
+        None,
+        html5ever::Namespace::from(""),
+        LocalName::from(name.to_string()),
+    )
+}
 
 use crate::core::config::Config;
 use crate::core::feed::{FeedEnclosure, FeedParser};
@@ -158,9 +168,10 @@ pub fn function_enabled(_func: &str) -> bool {
 /// are dropped).
 pub fn media_urls(html: &str, site_url: &str) -> Vec<String> {
     let mut urls = Vec::new();
-    let doc = kuchikiki::parse_html().one(html);
+    let html_doc = Html::parse_document(html);
+    let doc = html_doc.tree.root();
     for node in doc.descendants() {
-        let Some(el) = node.as_element() else {
+        let Some(el) = node.value().as_element() else {
             continue;
         };
         let name = el.name.local.to_string();
@@ -168,7 +179,7 @@ pub fn media_urls(html: &str, site_url: &str) -> Vec<String> {
             continue;
         }
         for attr in ["src", "poster"] {
-            let Some(raw) = el.attributes.borrow().get(attr).map(str::to_string) else {
+            let Some(raw) = el.attrs.get(&attr_name(attr)).map(|t| t.to_string()) else {
                 continue;
             };
             if raw.starts_with("data:") {
@@ -178,7 +189,7 @@ pub fn media_urls(html: &str, site_url: &str) -> Vec<String> {
                 urls.push(url);
             }
         }
-        if let Some(srcset) = el.attributes.borrow().get("srcset").map(str::to_string) {
+        if let Some(srcset) = el.attrs.get(&attr_name("srcset")).map(|t| t.to_string()) {
             for item in decode_srcset(&srcset) {
                 if let Some(url) = rewrite_relative(site_url, &item.url) {
                     urls.push(url);
@@ -318,12 +329,12 @@ pub async fn update_basic_info(
                 .get("title")
                 .and_then(Value::as_str)
                 .filter(|s| !s.is_empty())
-                .map(str::to_string);
+                .map(|t| t.to_string());
             let s = result
                 .get("site_url")
                 .and_then(Value::as_str)
                 .filter(|s| !s.is_empty())
-                .map(str::to_string);
+                .map(|t| t.to_string());
             if t.is_some() || s.is_some() {
                 out = Some((t.unwrap_or_default(), s.unwrap_or_default()));
                 break;

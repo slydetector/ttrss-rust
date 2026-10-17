@@ -256,7 +256,10 @@ async fn run_step(
             .collect::<Vec<_>>()
             .join("&");
         req = req
-            .header(reqwest::header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .header(
+                reqwest::header::CONTENT_TYPE,
+                "application/x-www-form-urlencoded",
+            )
             .body(body);
     }
     if let Some(j) = &step.json {

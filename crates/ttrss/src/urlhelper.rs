@@ -950,7 +950,10 @@ async fn build_and_send(
             .collect::<Vec<_>>()
             .join("&");
         req = req
-            .header(reqwest::header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .header(
+                reqwest::header::CONTENT_TYPE,
+                "application/x-www-form-urlencoded",
+            )
             .body(body);
     }
 

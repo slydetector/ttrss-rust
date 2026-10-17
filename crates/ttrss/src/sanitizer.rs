@@ -12,15 +12,21 @@
 //! stacks), not recursive, so a malicious/deeply-nested feed cannot overflow
 //! the call stack.
 
-use html5ever::{LocalName, Namespace, QualName};
-use kuchikiki::traits::TendrilSink;
-use kuchikiki::{ElementData, NodeData, NodeRef, parse_html};
+use ego_tree::{NodeId, Tree};
+use html5ever::{Attribute, LocalName, Namespace, QualName};
 use regex::Regex;
+use scraper::node::{Element, Node, Text};
+use scraper::{Html, StrTendril};
 use std::collections::BTreeSet;
 
 use crate::pluginhost::host::HostCtx;
 use crate::pluginhost::{HOOK_IFRAME_WHITELISTED, HOOK_SANITIZE};
 use crate::with_trailing_slash;
+
+type NodeRef<'a> = ego_tree::NodeRef<'a, Node>;
+
+/// The sanitizer's traversal stacks carry node ids (no borrows of the tree
+/// outlive a read), so `&mut Tree` mutations interleave freely.
 
 const HTML_NS: &str = "http://www.w3.org/1999/xhtml";
 
@@ -28,13 +34,62 @@ fn html_ns() -> Namespace {
     Namespace::from(HTML_NS)
 }
 
+/// Element names: HTML namespace (the parser assigns this to HTML elements).
 fn qualname(name: &str) -> QualName {
     QualName::new(None, html_ns(), LocalName::from(name.to_string()))
 }
 
+/// Attribute names: html5ever stores HTML attribute names namespaceless
+/// (`ns: None`) — lookups/inserts must match that, or the map misses.
+fn attr_name(name: &str) -> QualName {
+    QualName::new(None, Namespace::from(""), LocalName::from(name.to_string()))
+}
+
 /// The element's local name as a String (Atom doesn't compare to &str directly).
-fn el_name(el: &ElementData) -> String {
+fn el_name(el: &Element) -> String {
     el.name.local.to_string()
+}
+
+/// A fresh orphan text node in the tree (attach it with `append_id`/
+/// `insert_id_before`, which move it).
+fn new_text_id(tree: &mut Tree<Node>, s: impl Into<StrTendril>) -> NodeId {
+    tree.orphan(Node::Text(Text { text: s.into() })).id()
+}
+
+/// A fresh orphan element with the given attributes (document order
+/// preserved).
+fn new_element_id(tree: &mut Tree<Node>, name: &str, attrs: &[(String, String)]) -> NodeId {
+    let attrs = attrs
+        .iter()
+        .map(|(k, v)| Attribute {
+            name: attr_name(k),
+            value: v.clone().into(),
+        })
+        .collect::<Vec<_>>();
+    tree.orphan(Node::Element(Element::new(qualname(name), attrs)))
+        .id()
+}
+
+/// Set an attribute on an element node (indexmap insert: an existing key
+/// keeps its position — the same semantics the old RefCell map had).
+fn set_attr(tree: &mut Tree<Node>, id: NodeId, k: &str, v: impl Into<StrTendril>) {
+    if let Some(mut n) = tree.get_mut(id)
+        && let Node::Element(el) = n.value()
+    {
+        el.attrs.insert(attr_name(k), v.into());
+    }
+}
+
+/// Remove an attribute from an element node (indexmap `remove` is a
+/// swap-remove; fine for the sanitizer — the surviving *order* that libxml
+/// parity cares about is preserved by the dedicated `shift_remove` path in
+/// `drop_disallowed_attrs`).
+fn remove_attr(tree: &mut Tree<Node>, id: NodeId, k: &str) {
+    if let Some(mut n) = tree.get_mut(id)
+        && let Node::Element(el) = n.value()
+    {
+        el.attrs.swap_remove(&attr_name(k));
+    }
 }
 
 /// `Sanitizer::$allowed_elements` (Sanitizer.php). `iframe` is added when the
@@ -166,13 +221,13 @@ fn allowed_elements(has_sandbox: bool) -> BTreeSet<String> {
 /// Find the `<body>` element of a full-document parse (the fragment is placed
 /// there, mirroring PHP's `DOMDocument::loadHTML`). Exposed for
 /// `diskcache::rewrite_urls`.
-pub(crate) fn find_body(doc: &NodeRef) -> Option<NodeRef> {
+pub(crate) fn find_body<'a>(doc: &NodeRef<'a>) -> Option<NodeRef<'a>> {
     for html in doc.children() {
-        if let Some(el) = html.as_element()
+        if let Some(el) = html.value().as_element()
             && el_name(el) == "html"
         {
             for c in html.children() {
-                if let Some(b) = c.as_element()
+                if let Some(b) = c.value().as_element()
                     && el_name(b) == "body"
                 {
                     return Some(c);
@@ -185,20 +240,6 @@ pub(crate) fn find_body(doc: &NodeRef) -> Option<NodeRef> {
 
 fn lower(s: &str) -> String {
     s.to_ascii_lowercase()
-}
-
-/// Build an element with named attributes (kuchikiki stores names as the
-/// IndexMap key; `new_element` takes bare `Attribute`s, so insert by name).
-fn build_element(name: &str, attrs: &[(String, String)]) -> NodeRef {
-    let el = NodeRef::new_element(qualname(name), vec![]);
-    for (k, v) in attrs {
-        el.as_element()
-            .unwrap()
-            .attributes
-            .borrow_mut()
-            .insert(k.clone(), v.clone());
-    }
-    el
 }
 
 /// Elements that close libxml2's implicit `<p>` (block-level, i.e. not
@@ -247,63 +288,85 @@ const IMPLICIT_P_BLOCK_ELEMENTS: &[&str] = &[
 ///    character (an entity counts as text), libxml2 opens an implicit `<p>`
 ///    (leading whitespace of that text node is trimmed) which absorbs all
 ///    following children until a block-level element starts.
-pub fn apply_libxml_implicit_p(body: &NodeRef) {
+pub fn apply_libxml_implicit_p(tree: &mut Tree<Node>, body_id: NodeId) {
     // 1. Collect leading droppable nodes.
-    let mut lead: Vec<NodeRef> = Vec::new();
-    let mut cur = body.first_child();
-    while let Some(n) = cur.clone() {
-        let drop = n
-            .as_text()
-            .map(|t| t.borrow().trim().is_empty())
-            .unwrap_or(false)
-            || n.as_comment().is_some();
-        if !drop {
-            break;
+    let mut lead: Vec<NodeId> = Vec::new();
+    let mut first_id: Option<NodeId> = None;
+    {
+        let mut cur = tree.get(body_id).and_then(|b| b.first_child());
+        while let Some(n) = cur {
+            let drop = n
+                .value()
+                .as_text()
+                .map(|t| t.text.trim().is_empty())
+                .unwrap_or(false)
+                || n.value().is_comment();
+            if !drop {
+                first_id = Some(n.id());
+                break;
+            }
+            let next = n.next_sibling();
+            lead.push(n.id());
+            cur = next;
         }
-        let next = n.next_sibling();
-        lead.push(n);
-        cur = next;
     }
-    for n in &lead {
-        n.detach();
+    for id in lead {
+        if let Some(mut n) = tree.get_mut(id) {
+            n.detach();
+        }
     }
 
     // 2. Implicit `<p>` when the first significant node is non-blank text.
-    let first = match cur {
-        Some(n) => n,
+    let first_id = match first_id {
+        Some(id) => id,
         None => return,
     };
-    let text_node = match first.as_text() {
-        Some(t) => {
-            let original = t.borrow().to_string();
-            let trimmed_start = original.trim_start_matches(char::is_whitespace);
-            if trimmed_start.is_empty() {
-                first.detach();
-                return;
+    let text_id = {
+        let original = match tree.get(first_id).and_then(|n| n.value().as_text()) {
+            Some(t) => t.text.to_string(),
+            None => return,
+        };
+        let trimmed_start = original.trim_start_matches(char::is_whitespace);
+        if trimmed_start.is_empty() {
+            if let Some(mut n) = tree.get_mut(first_id) {
+                n.detach();
             }
-            if trimmed_start != original {
-                // Drop leading whitespace only (trailing is kept).
-                *t.borrow_mut() = trimmed_start.to_string();
-            }
-            first.clone()
+            return;
         }
-        None => return,
+        if trimmed_start != original {
+            // Drop leading whitespace only (trailing is kept).
+            if let Some(mut n) = tree.get_mut(first_id)
+                && let Node::Text(t) = n.value()
+            {
+                t.text = trimmed_start.into();
+            }
+        }
+        first_id
     };
 
-    let p = NodeRef::new_element(qualname("p"), vec![]);
-    body.prepend(p.clone());
-    let mut cur = Some(text_node);
-    while let Some(n) = cur {
-        let is_block = n
-            .as_element()
-            .map(|el| IMPLICIT_P_BLOCK_ELEMENTS.contains(&lower(&el_name(el)).as_str()))
-            .unwrap_or(false);
+    let p_id = new_element_id(tree, "p", &[]);
+    if let Some(mut b) = tree.get_mut(body_id) {
+        b.prepend_id(p_id);
+    }
+    let mut cur_id: Option<NodeId> = Some(text_id);
+    while let Some(id) = cur_id {
+        let (is_block, next_id) = match tree.get(id) {
+            Some(n) => (
+                n.value()
+                    .as_element()
+                    .map(|el| IMPLICIT_P_BLOCK_ELEMENTS.contains(&lower(&el_name(el)).as_str()))
+                    .unwrap_or(false),
+                n.next_sibling().map(|c| c.id()),
+            ),
+            None => break,
+        };
         if is_block {
             break;
         }
-        cur = n.next_sibling();
-        n.detach();
-        p.append(n);
+        if let Some(mut p) = tree.get_mut(p_id) {
+            p.append_id(id);
+        }
+        cur_id = next_id;
     }
 }
 
@@ -331,32 +394,43 @@ pub(crate) fn sanitize_core(
         return String::new();
     }
 
-    let doc = parse_html().one(res);
-    let Some(body) = find_body(&doc) else {
+    let html = Html::parse_document(res);
+    let mut tree = html.tree;
+    let Some(body) = find_body(&tree.root()) else {
         return String::new();
     };
+    let body_id = body.id();
 
     // html5ever routes "head" elements (e.g. `<noscript>`) into `<head>` even
     // in fragment parses, while libxml's `loadHTML` puts the whole fragment in
     // `<body>`. Move any head children to the front of body to match. (Only
     // `<noscript>` can matter — every other head element is disallowed and
     // would be stripped anyway.)
-    for html in doc.children() {
-        let Some(html_el) = html.as_element() else {
+    let html_ids: Vec<NodeId> = tree.root().children().map(|c| c.id()).collect();
+    for html_id in html_ids {
+        let Some(html_el) = tree.get(html_id).and_then(|n| n.value().as_element()) else {
             continue;
         };
         if el_name(html_el) != "html" {
             continue;
         }
-        for c in html.children() {
-            let Some(h) = c.as_element() else {
+        let child_ids: Vec<NodeId> = tree
+            .get(html_id)
+            .map(|n| n.children().map(|c| c.id()).collect())
+            .unwrap_or_default();
+        for c in child_ids {
+            let Some(h) = tree.get(c).and_then(|n| n.value().as_element()) else {
                 continue;
             };
             if el_name(h) == "head" {
-                let kids: Vec<NodeRef> = c.children().collect();
+                let kids: Vec<NodeId> = tree
+                    .get(c)
+                    .map(|n| n.children().map(|k| k.id()).collect())
+                    .unwrap_or_default();
                 for k in kids.into_iter().rev() {
-                    k.detach();
-                    body.prepend(k);
+                    if let Some(mut b) = tree.get_mut(body_id) {
+                        b.prepend_id(k);
+                    }
                 }
             }
         }
@@ -365,13 +439,14 @@ pub(crate) fn sanitize_core(
     // 0. Emulate libxml2 (PHP `DOMDocument::loadHTML`) implicit markup:
     // drop leading whitespace/comments, open an implicit `<p>` for leading
     // bare text.
-    apply_libxml_implicit_p(&body);
+    apply_libxml_implicit_p(&mut tree, body_id);
 
     let rewrite_base = site_url.unwrap_or("http://domain.invalid/");
 
     // 1. Rewrite links/images (a[@href], img/source[src|srcset], video[poster]).
     rewrite_url_elements(
-        &body,
+        &mut tree,
+        body_id,
         rewrite_base,
         force_remove_images,
         strip_images,
@@ -379,26 +454,28 @@ pub(crate) fn sanitize_core(
     );
 
     // 2. iframes: sandbox.
-    process_iframes(&body, admitted);
+    process_iframes(&mut tree, body_id, admitted);
 
     // 3. Strip disallowed elements (whole subtree) + disallowed attributes.
-    strip_harmful_tags(&body, &allowed_elements(has_sandbox));
+    strip_harmful_tags(&mut tree, body_id, &allowed_elements(has_sandbox));
 
     // 4. Wrap surviving iframes in <div class="embed-responsive">
     // (Sanitizer.php: the second `//iframe` pass, after strip_harmful_tags).
-    wrap_iframes_in_div(&body);
+    wrap_iframes_in_div(&mut tree, body_id);
 
     // 5. Highlight words (if the feed has any).
     if let Some(words) = highlight_words_opt
         && !words.is_empty()
     {
-        highlight_words(&body, words);
+        highlight_words(&mut tree, body_id, words);
     }
 
     // Serialize the body's children (the fragment), iteratively.
     let mut out = String::new();
-    for child in body.children() {
-        serialize_node(&child, &mut out);
+    if let Some(body) = tree.get(body_id) {
+        for child in body.children() {
+            serialize_node(&child, &mut out);
+        }
     }
     out
 }
@@ -406,21 +483,21 @@ pub(crate) fn sanitize_core(
 /// Pass 1: rewrite `href`/`src`/`srcset`/`poster`, decorate `<a>`/`<img>`,
 /// replace elements whose source is invalid, and strip images on request.
 fn rewrite_url_elements(
-    root: &NodeRef,
+    tree: &mut Tree<Node>,
+    root_id: NodeId,
     base: &str,
     force_remove_images: bool,
     strip_images: bool,
     bw_limit: bool,
 ) {
-    let mut stack = vec![root.clone()];
-    while let Some(node) = stack.pop() {
-        // Compute the condition in a scoped block so the element/attribute
-        // borrows drop before we mutate the tree in rewrite_single_element.
+    let mut stack = vec![root_id];
+    while let Some(node_id) = stack.pop() {
         // The PHP xpath: (//a[@href]|//img[@src|@srcset]|//source[@src|@srcset]
         // |//video[@poster]).
-        let needs_rewrite = if let Some(el) = node.as_element() {
+        let needs_rewrite = if let Some(el) = tree.get(node_id).and_then(|n| n.value().as_element())
+        {
             let name = lower(&el_name(el));
-            let has = |k: &str| el.attributes.borrow().get(k).is_some();
+            let has = |k: &str| el.attrs.get(&attr_name(k)).is_some();
             match name.as_str() {
                 "a" => has("href"),
                 "img" | "source" => has("src") || has("srcset"),
@@ -431,57 +508,54 @@ fn rewrite_url_elements(
             false
         };
         if needs_rewrite {
-            rewrite_single_element(&node, base, force_remove_images, strip_images, bw_limit);
+            rewrite_single_element(
+                tree,
+                node_id,
+                base,
+                force_remove_images,
+                strip_images,
+                bw_limit,
+            );
         }
-        for c in node.children() {
-            stack.push(c);
+        if let Some(n) = tree.get(node_id) {
+            for c in n.children() {
+                stack.push(c.id());
+            }
         }
     }
 }
 
 /// Rewrite a single link/image element in place (or replace it).
 fn rewrite_single_element(
-    node: &NodeRef,
+    tree: &mut Tree<Node>,
+    node_id: NodeId,
     base: &str,
     force_remove_images: bool,
     strip_images: bool,
     bw_limit: bool,
 ) {
-    let el = match node.as_element() {
-        Some(e) => e,
-        None => return,
+    let Some(el) = tree.get(node_id).and_then(|n| n.value().as_element()) else {
+        return;
     };
     let name = lower(&el_name(el));
 
-    // Read all URL-bearing attributes up front (as owned Strings) so no shared
-    // Ref outlives the borrow_mut()s below.
-    let attrs = el.attributes.borrow();
-    let href = attrs.get("href").map(|s| s.to_string());
-    let src = attrs.get("src").map(|s| s.to_string());
-    let srcset = attrs.get("srcset").map(|s| s.to_string());
-    let poster = attrs.get("poster").map(|s| s.to_string());
-    drop(attrs);
+    // Read all URL-bearing attributes up front (as owned Strings).
+    let get = |k: &str| -> Option<String> { el.attrs.get(&attr_name(k)).map(|s| s.to_string()) };
+    let href = get("href");
+    let src = get("src");
+    let srcset = get("srcset");
+    let poster = get("poster");
 
     // href (a)
     if let Some(href) = href {
         // PHP: `setAttribute('href', rewrite_relative(...))` — a failed
         // rewrite coerces `false` to the empty string (href="").
         match rewrite_relative(base, &href, &name, "href", "") {
-            Some(u) => {
-                el.attributes
-                    .borrow_mut()
-                    .insert("href", libxml_space_encode(&u));
-            }
-            None => {
-                el.attributes.borrow_mut().insert("href", String::new());
-            }
+            Some(u) => set_attr(tree, node_id, "href", libxml_space_encode(&u)),
+            None => set_attr(tree, node_id, "href", String::new()),
         }
-        el.attributes
-            .borrow_mut()
-            .insert("rel", "noopener noreferrer".to_string());
-        el.attributes
-            .borrow_mut()
-            .insert("target", "_blank".to_string());
+        set_attr(tree, node_id, "rel", "noopener noreferrer".to_string());
+        set_attr(tree, node_id, "target", "_blank".to_string());
     }
 
     let mut should_replace_element = false;
@@ -490,14 +564,10 @@ fn rewrite_single_element(
     if let Some(src) = src {
         match rewrite_relative(base, &src, &name, "src", "") {
             Some(u) if u.to_lowercase().starts_with("data:") => {
-                el.attributes
-                    .borrow_mut()
-                    .insert("src", libxml_space_encode(&u));
+                set_attr(tree, node_id, "src", libxml_space_encode(&u));
             }
             Some(u) if !has_disallowed_ip(&u) => {
-                el.attributes
-                    .borrow_mut()
-                    .insert("src", libxml_space_encode(&u));
+                set_attr(tree, node_id, "src", libxml_space_encode(&u));
             }
             _ => {
                 should_replace_element = true;
@@ -516,62 +586,61 @@ fn rewrite_single_element(
             }
         }
         if !validated.is_empty() {
-            el.attributes
-                .borrow_mut()
-                .insert("srcset", encode_srcset(&validated));
+            set_attr(tree, node_id, "srcset", encode_srcset(&validated));
             should_replace_element = false;
         } else {
-            el.attributes.borrow_mut().remove("srcset");
+            remove_attr(tree, node_id, "srcset");
         }
     }
 
     // Replace with escaped text if 'src' and 'srcset' are both invalid.
     if should_replace_element {
         let mut html = String::new();
-        serialize_node(node, &mut html);
-        if node.parent().is_some() {
-            node.insert_before(NodeRef::new_text(html));
-            node.detach();
+        if let Some(n) = tree.get(node_id) {
+            serialize_node(&n, &mut html);
+        }
+        if tree.get(node_id).is_some_and(|n| n.parent().is_some()) {
+            let text_id = new_text_id(tree, html);
+            if let Some(mut n) = tree.get_mut(node_id) {
+                n.insert_id_before(text_id);
+                n.detach();
+            }
         }
         return;
     }
 
     // Drop 'src' if invalid and the element wasn't replaced.
     if !src_valid {
-        el.attributes.borrow_mut().remove("src");
+        remove_attr(tree, node_id, "src");
     }
 
     if name == "img" {
-        el.attributes
-            .borrow_mut()
-            .insert("referrerpolicy", "no-referrer".to_string());
-        el.attributes
-            .borrow_mut()
-            .insert("loading", "lazy".to_string());
+        set_attr(tree, node_id, "referrerpolicy", "no-referrer".to_string());
+        set_attr(tree, node_id, "loading", "lazy".to_string());
     }
 
     if let Some(poster) = poster {
         match rewrite_relative(base, &poster, &name, "poster", "") {
-            Some(u) if !has_disallowed_ip(&u) => {
-                el.attributes.borrow_mut().insert("poster", u);
-            }
-            _ => {
-                el.attributes.borrow_mut().remove("poster");
-            }
+            Some(u) if !has_disallowed_ip(&u) => set_attr(tree, node_id, "poster", u),
+            _ => remove_attr(tree, node_id, "poster"),
         }
     }
 
     // STRIP_IMAGES / bw_limit / force_remove_images: replace the image with a
     // <p><a href=src>src</a></p>.
-    let has_src = el.attributes.borrow().get("src").is_some();
+    let has_src = tree
+        .get(node_id)
+        .and_then(|n| n.value().as_element())
+        .is_some_and(|e| e.attrs.get(&attr_name("src")).is_some());
     if has_src && (strip_images || force_remove_images || bw_limit) {
-        let src = el
-            .attributes
-            .borrow()
-            .get("src")
+        let src = tree
+            .get(node_id)
+            .and_then(|n| n.value().as_element())
+            .and_then(|e| e.attrs.get(&attr_name("src")))
             .map(|s| s.to_string())
             .unwrap_or_default();
-        let a = build_element(
+        let a_id = new_element_id(
+            tree,
             "a",
             &[
                 ("href".into(), src.clone()),
@@ -579,27 +648,37 @@ fn rewrite_single_element(
                 ("rel".into(), "noopener noreferrer".into()),
             ],
         );
-        a.append(NodeRef::new_text(src));
-        let p = build_element("p", &[]);
-        p.append(a);
+        let text_id = new_text_id(tree, src);
+        if let Some(mut a) = tree.get_mut(a_id) {
+            a.append_id(text_id);
+        }
+        let p_id = new_element_id(tree, "p", &[]);
+        if let Some(mut p) = tree.get_mut(p_id) {
+            p.append_id(a_id);
+        }
         if name == "source" {
             // replace the parent (picture) with the <p>
-            if let Some(picture) = node.parent() {
-                picture.insert_before(p);
-                picture.detach();
+            let picture_id = tree.get(node_id).and_then(|n| n.parent()).map(|p| p.id());
+            if let Some(picture_id) = picture_id {
+                if let Some(mut picture) = tree.get_mut(picture_id) {
+                    picture.insert_id_before(p_id);
+                    picture.detach();
+                }
             }
         } else {
-            node.insert_before(p);
-            node.detach();
+            if let Some(mut n) = tree.get_mut(node_id) {
+                n.insert_id_before(p_id);
+                n.detach();
+            }
         }
     }
 }
 
 /// Pass 2: sandbox iframes.
-fn process_iframes(root: &NodeRef, admitted: Option<&BTreeSet<String>>) {
-    let mut stack = vec![root.clone()];
-    while let Some(node) = stack.pop() {
-        if let Some(el) = node.as_element()
+fn process_iframes(tree: &mut Tree<Node>, root_id: NodeId, admitted: Option<&BTreeSet<String>>) {
+    let mut stack = vec![root_id];
+    while let Some(node_id) = stack.pop() {
+        if let Some(el) = tree.get(node_id).and_then(|n| n.value().as_element())
             && el_name(el) == "iframe"
         {
             // M7.11 — an iframe whose src host a plugin admitted via
@@ -608,9 +687,8 @@ fn process_iframes(root: &NodeRef, admitted: Option<&BTreeSet<String>>) {
             // restrictive one (Sanitizer.php). The `allow` attribute the
             // reference also sets is stripped later (a disallowed attr).
             let src = el
-                .attributes
-                .borrow()
-                .get("src")
+                .attrs
+                .get(&attr_name("src"))
                 .map(|v| v.to_string())
                 .unwrap_or_default();
             let sandbox = if admitted.is_some_and(|s| s.contains(&url_host(&src))) {
@@ -618,12 +696,12 @@ fn process_iframes(root: &NodeRef, admitted: Option<&BTreeSet<String>>) {
             } else {
                 "allow-scripts"
             };
-            el.attributes
-                .borrow_mut()
-                .insert("sandbox", sandbox.to_string());
+            set_attr(tree, node_id, "sandbox", sandbox.to_string());
         }
-        for c in node.children() {
-            stack.push(c);
+        if let Some(n) = tree.get(node_id) {
+            for c in n.children() {
+                stack.push(c.id());
+            }
         }
     }
 }
@@ -656,16 +734,17 @@ pub async fn iframe_whitelisted(plugins: &mut HostCtx, src: &str) -> bool {
 /// M7.11 uses this to compute the `HOOK_IFRAME_WHITELISTED` decisions without
 /// holding a (non-`Send`) parse tree across an `await`.
 fn collect_iframe_srcs(input: &str) -> Vec<String> {
-    let doc = parse_html().one(input.trim());
+    let html = Html::parse_document(input.trim());
+    let doc = html.tree.root();
     let Some(body) = find_body(&doc) else {
         return Vec::new();
     };
     let mut stack = vec![body.clone()];
     let mut out = Vec::new();
     while let Some(node) = stack.pop() {
-        if let Some(el) = node.as_element()
+        if let Some(el) = node.value().as_element()
             && el_name(el) == "iframe"
-            && let Some(src) = el.attributes.borrow().get("src")
+            && let Some(src) = el.attrs.get(&attr_name("src"))
         {
             out.push(src.to_string());
         }
@@ -762,69 +841,92 @@ pub async fn sanitize(
 
 /// Wrap surviving iframes in `<div class="embed-responsive">` (Sanitizer.php:
 /// the second `//iframe` pass, runs after strip_harmful_tags).
-fn wrap_iframes_in_div(root: &NodeRef) {
-    let mut stack = vec![root.clone()];
-    let mut iframes: Vec<NodeRef> = Vec::new();
-    while let Some(n) = stack.pop() {
-        if n.as_element()
+fn wrap_iframes_in_div(tree: &mut Tree<Node>, root_id: NodeId) {
+    let mut stack = vec![root_id];
+    let mut iframes: Vec<NodeId> = Vec::new();
+    while let Some(id) = stack.pop() {
+        if tree
+            .get(id)
+            .and_then(|n| n.value().as_element())
             .map(|e| el_name(e) == "iframe")
             .unwrap_or(false)
         {
-            iframes.push(n.clone());
+            iframes.push(id);
         }
-        for c in n.children() {
-            stack.push(c);
+        if let Some(n) = tree.get(id) {
+            for c in n.children() {
+                stack.push(c.id());
+            }
         }
     }
     for iframe in iframes {
-        let div = build_element("div", &[("class".into(), "embed-responsive".into())]);
-        iframe.insert_before(div.clone());
-        div.append(iframe);
+        let div_id = new_element_id(tree, "div", &[("class".into(), "embed-responsive".into())]);
+        if let Some(mut n) = tree.get_mut(iframe) {
+            n.insert_id_before(div_id);
+        }
+        if let Some(mut div) = tree.get_mut(div_id) {
+            div.append_id(iframe);
+        }
     }
 }
 
 /// Pass 3: drop disallowed elements (whole subtree) and disallowed attributes.
-fn strip_harmful_tags(root: &NodeRef, allowed: &BTreeSet<String>) {
-    let mut stack = vec![root.clone()];
-    while let Some(node) = stack.pop() {
-        let is_disallowed = if let Some(el) = node.as_element() {
+fn strip_harmful_tags(tree: &mut Tree<Node>, root_id: NodeId, allowed: &BTreeSet<String>) {
+    let mut stack = vec![root_id];
+    while let Some(node_id) = stack.pop() {
+        let is_disallowed = if let Some(el) = tree.get(node_id).and_then(|n| n.value().as_element())
+        {
             let name = lower(&el_name(el));
             let disallowed = !allowed.contains(&name);
             if !disallowed {
-                drop_disallowed_attrs(el);
+                drop_disallowed_attrs(tree, node_id);
             }
             disallowed
         } else {
             false
         };
         if is_disallowed {
-            node.detach();
+            if let Some(mut n) = tree.get_mut(node_id) {
+                n.detach();
+            }
             continue; // do not descend into the removed subtree
         }
-        for c in node.children() {
-            stack.push(c);
+        if let Some(n) = tree.get(node_id) {
+            for c in n.children() {
+                stack.push(c.id());
+            }
         }
     }
 }
 
-fn drop_disallowed_attrs(el: &ElementData) {
-    let mut to_remove = Vec::new();
-    for (exp_name, attr) in el.attributes.borrow().map.iter() {
-        let lname = exp_name.local.to_string().to_ascii_lowercase();
-        let is_on = lname.starts_with("on");
-        let is_data = lname.starts_with("data-");
-        let is_js_href = lname == "href" && value_starts_with_js(&attr.value);
-        let in_list = DISALLOWED_ATTRIBUTES.contains(&lname.as_str());
-        if is_on || is_data || is_js_href || in_list {
-            to_remove.push(exp_name.clone());
+fn drop_disallowed_attrs(tree: &mut Tree<Node>, node_id: NodeId) {
+    let to_remove: Vec<QualName> = {
+        let el = match tree.get(node_id).and_then(|n| n.value().as_element()) {
+            Some(e) => e,
+            None => return,
+        };
+        let mut names = Vec::new();
+        for (exp_name, value) in el.attrs.iter() {
+            let lname = exp_name.local.to_string().to_ascii_lowercase();
+            let is_on = lname.starts_with("on");
+            let is_data = lname.starts_with("data-");
+            let is_js_href = lname == "href" && value_starts_with_js(value);
+            let in_list = DISALLOWED_ATTRIBUTES.contains(&lname.as_str());
+            if is_on || is_data || is_js_href || in_list {
+                names.push(exp_name.clone());
+            }
         }
-    }
+        names
+    };
     // IndexMap::remove is a swap-remove (it moves the last entry into the
     // vacated slot); shift_remove keeps the surviving attribute order, which
     // the PHP DOM output (and the tests) depends on.
-    let mut attrs = el.attributes.borrow_mut();
-    for name in &to_remove {
-        attrs.map.shift_remove(name);
+    if let Some(mut n) = tree.get_mut(node_id)
+        && let Node::Element(el) = n.value()
+    {
+        for name in &to_remove {
+            el.attrs.shift_remove(name);
+        }
     }
 }
 
@@ -838,14 +940,18 @@ fn value_starts_with_js(value: &str) -> bool {
 /// body content; if no text node was replaced the input is returned
 /// unchanged).
 pub fn highlight_words_str(input: &str, words: &[String]) -> String {
-    let doc = parse_html().one(format!("<span>{input}</span>"));
-    let Some(body) = find_body(&doc) else {
+    let html = Html::parse_document(&format!("<span>{input}</span>"));
+    let mut tree = html.tree;
+    let Some(body) = find_body(&tree.root()) else {
         return input.to_string();
     };
-    if highlight_words(&body, words) {
+    let body_id = body.id();
+    if highlight_words(&mut tree, body_id, words) {
         let mut out = String::new();
-        for c in body.children() {
-            serialize_node(&c, &mut out);
+        if let Some(body) = tree.get(body_id) {
+            for c in body.children() {
+                serialize_node(&c, &mut out);
+            }
         }
         out
     } else {
@@ -881,7 +987,7 @@ fn ci_find(hay: &str, needle: &str) -> Option<(usize, usize)> {
 /// occurrences of each word in each text node in `<span class="highlight">`
 /// (original case of the matched text preserved). Returns `true` if any text
 /// node was replaced (the PHP `rv`). Iterative.
-pub fn highlight_words(root: &NodeRef, words: &[String]) -> bool {
+pub fn highlight_words(tree: &mut Tree<Node>, root_id: NodeId, words: &[String]) -> bool {
     let mut rv = false;
     for word in words {
         if word.is_empty() {
@@ -890,36 +996,50 @@ pub fn highlight_words(root: &NodeRef, words: &[String]) -> bool {
         let w = word.to_lowercase();
         // Snapshot the text nodes (PHP's `//*/text()`, re-evaluated per word
         // so splits from earlier words are visible).
-        let mut stack = vec![root.clone()];
-        let mut nodes: Vec<NodeRef> = Vec::new();
-        while let Some(n) = stack.pop() {
-            if n.as_text().is_some() {
-                nodes.push(n.clone());
+        let mut stack = vec![root_id];
+        let mut nodes: Vec<NodeId> = Vec::new();
+        while let Some(id) = stack.pop() {
+            if tree.get(id).and_then(|n| n.value().as_text()).is_some() {
+                nodes.push(id);
             }
-            for c in n.children() {
-                stack.push(c);
+            if let Some(n) = tree.get(id) {
+                for c in n.children() {
+                    stack.push(c.id());
+                }
             }
         }
-        for node in nodes {
-            let text: String = node.as_text().unwrap().borrow().to_string();
-            let mut frag: Vec<NodeRef> = Vec::new();
+        for node_id in nodes {
+            let text: String = tree
+                .get(node_id)
+                .and_then(|n| n.value().as_text())
+                .map(|t| t.text.to_string())
+                .unwrap_or_default();
+            let mut frag: Vec<NodeId> = Vec::new();
             let mut rest = text;
             while let Some((pos, len)) = ci_find(&rest, &w) {
-                frag.push(NodeRef::new_text(rest[..pos].to_string()));
+                frag.push(new_text_id(tree, rest[..pos].to_string()));
                 let matched = &rest[pos..pos + len];
-                let highlight = build_element("span", &[("class".into(), "highlight".into())]);
-                highlight.append(NodeRef::new_text(matched.to_string()));
+                let highlight =
+                    new_element_id(tree, "span", &[("class".into(), "highlight".into())]);
+                let text_id = new_text_id(tree, matched.to_string());
+                if let Some(mut h) = tree.get_mut(highlight) {
+                    h.append_id(text_id);
+                }
                 frag.push(highlight);
                 rest = rest[pos + len..].to_string();
             }
             if !rest.is_empty() {
-                frag.push(NodeRef::new_text(rest));
+                frag.push(new_text_id(tree, rest));
             }
             // replace the node with the fragment's children (in order)
-            for n in &frag {
-                node.insert_before(n.clone());
+            for id in &frag {
+                if let Some(mut n) = tree.get_mut(node_id) {
+                    n.insert_id_before(*id);
+                }
             }
-            node.detach();
+            if let Some(mut n) = tree.get_mut(node_id) {
+                n.detach();
+            }
             rv = true;
         }
     }
@@ -1488,21 +1608,21 @@ fn encode_srcset(items: &[(String, String)]) -> String {
 // Iterative serializer
 // ---------------------------------------------------------------------------
 
-enum SerItem {
-    Visit(NodeRef),
+enum SerItem<'a> {
+    Visit(NodeRef<'a>),
     Close(String),
 }
 
 /// Test-only accessor for the iterative serializer.
 #[cfg(test)]
-pub(crate) fn serialize_for_tests(node: &NodeRef, out: &mut String) {
+pub(crate) fn serialize_for_tests(node: &NodeRef<'_>, out: &mut String) {
     serialize_node(node, out)
 }
 
 /// Serialize a node (and descendants) to HTML, iteratively (heap stack).
 /// Exposed for `diskcache::rewrite_urls` (same re-serialization path).
-pub(crate) fn serialize_node(node: &NodeRef, out: &mut String) {
-    let mut stack = vec![SerItem::Visit(node.clone())];
+pub(crate) fn serialize_node(node: &NodeRef<'_>, out: &mut String) {
+    let mut stack: Vec<SerItem<'_>> = vec![SerItem::Visit(node.clone())];
     while let Some(item) = stack.pop() {
         match item {
             SerItem::Close(name) => {
@@ -1510,22 +1630,22 @@ pub(crate) fn serialize_node(node: &NodeRef, out: &mut String) {
                 out.push_str(&name);
                 out.push('>');
             }
-            SerItem::Visit(n) => match n.data() {
-                NodeData::Element(el) => {
+            SerItem::Visit(n) => match n.value() {
+                Node::Element(el) => {
                     let name = el.name.local.to_string();
                     write_start_tag(el, &name, out);
                     if !VOID_ELEMENTS.contains(&name.as_str()) {
                         stack.push(SerItem::Close(name));
-                        let children: Vec<NodeRef> = n.children().collect();
+                        let children: Vec<NodeRef<'_>> = n.children().collect();
                         for c in children.into_iter().rev() {
                             stack.push(SerItem::Visit(c));
                         }
                     }
                 }
-                NodeData::Text(t) => escape_text(&t.borrow(), out),
-                NodeData::Comment(c) => {
+                Node::Text(t) => escape_text(&t.text, out),
+                Node::Comment(c) => {
                     out.push_str("<!--");
-                    out.push_str(&c.borrow());
+                    out.push_str(&c.comment);
                     out.push_str("-->");
                 }
                 _ => {}
@@ -1534,13 +1654,12 @@ pub(crate) fn serialize_node(node: &NodeRef, out: &mut String) {
     }
 }
 
-fn write_start_tag(el: &ElementData, name: &str, out: &mut String) {
+fn write_start_tag(el: &Element, name: &str, out: &mut String) {
     out.push('<');
     out.push_str(name);
-    let attrs = el.attributes.borrow();
-    for (exp_name, attr) in attrs.map.iter() {
+    for (exp_name, value) in el.attrs.iter() {
         out.push(' ');
-        if let Some(prefix) = &attr.prefix {
+        if let Some(prefix) = &exp_name.prefix {
             out.push_str(prefix);
             out.push(':');
         }
@@ -1549,7 +1668,6 @@ fn write_start_tag(el: &ElementData, name: &str, out: &mut String) {
         // libxml quote selection: a value containing `"` but not `'`
         // is single-quoted (with `"` raw); otherwise double-quoted with
         // `"` escaped as `&quot;` (`'` is never escaped).
-        let value = &attr.value;
         let single = value.contains('"') && !value.contains('\'');
         out.push(if single { '\'' } else { '"' });
         escape_attr(value, out, !single);

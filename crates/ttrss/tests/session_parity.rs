@@ -15,7 +15,7 @@
 mod common;
 
 use base64::Engine as _;
-use rand::RngCore;
+use rand::Rng;
 use test_db::template::with_test_db;
 use ttrss::auth;
 use ttrss::core::db::Db;
@@ -30,7 +30,7 @@ const ADMIN_PWD_HASH: &str = "SHA1:5baa61e4c9b93f3f0682250b6cf8331b7ee68fd8";
 /// `Crypt::generate_key()` — a fresh random 32-byte key.
 fn random_key() -> [u8; 32] {
     let mut k = [0u8; 32];
-    rand::thread_rng().fill_bytes(&mut k);
+    rand::rng().fill_bytes(&mut k);
     k
 }
 

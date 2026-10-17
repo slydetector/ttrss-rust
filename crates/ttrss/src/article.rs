@@ -16,8 +16,18 @@ use std::collections::HashSet;
 use std::sync::OnceLock;
 
 use crate::util::{param_int_array, scalar_str};
-use kuchikiki::traits::TendrilSink;
-use kuchikiki::{NodeRef, parse_html};
+use scraper::{Html, Node};
+
+type NodeRef<'a> = ego_tree::NodeRef<'a, Node>;
+
+/// html5ever stores HTML attribute names namespaceless — lookups must match.
+fn qualname_none(name: &str) -> html5ever::QualName {
+    html5ever::QualName::new(
+        None,
+        html5ever::Namespace::from(""),
+        html5ever::LocalName::from(name.to_string()),
+    )
+}
 use serde_json::{Map, Value, json};
 use sha1::Digest as _;
 use sqlx::AssertSqlSafe;
@@ -428,17 +438,18 @@ pub async fn get_image(
     if article_image.is_empty() && article_stream.is_empty() {
         // PHP: `mb_substr($content, 0, 131070)` before `loadHTML`.
         let content: String = content.chars().take(131_070).collect();
-        let doc = parse_html().one(content);
+        let html = Html::parse_document(&content);
+        let doc = html.tree.root();
         let elems = collect_image_candidates(&doc);
 
         for e in &elems {
-            let Some(el) = e.as_element() else {
+            let Some(el) = e.value().as_element() else {
                 continue;
             };
             let tag: String = el.name.local.to_string().to_ascii_lowercase();
-            let attrs = el.attributes.borrow();
+            let attrs = &el.attrs;
             if tag == "iframe" {
-                let Some(src) = attrs.get("src") else {
+                let Some(src) = attrs.get(&qualname_none("src")) else {
                     continue;
                 };
                 let Some(m) = youtube_embed_re().captures(src) else {
@@ -450,14 +461,20 @@ pub async fn get_image(
                 article_kind = ARTICLE_KIND_YOUTUBE;
                 break;
             } else if tag == "video" {
-                article_image = attrs.get("poster").unwrap_or_default().to_string();
+                article_image = attrs
+                    .get(&qualname_none("poster"))
+                    .map(|t| t.to_string())
+                    .unwrap_or_default();
                 if let Some(src) = first_source_src(e) {
                     article_stream = src;
                     article_kind = ARTICLE_KIND_VIDEO;
                 }
                 break;
             } else if tag == "img" {
-                let src = attrs.get("src").unwrap_or_default();
+                let src = attrs
+                    .get(&qualname_none("src"))
+                    .map(|t| t.to_string())
+                    .unwrap_or_default();
                 if !src.starts_with("data:") {
                     article_image = src.to_string();
                 }
@@ -530,20 +547,20 @@ fn youtube_embed_re() -> &'static regex::Regex {
 
 /// The XPath union `(//img[@src]|//video[@poster]|//iframe[contains(@src,
 /// "youtube.com/embed/")])`, in document order.
-fn collect_image_candidates(root: &NodeRef) -> Vec<NodeRef> {
+fn collect_image_candidates<'a>(root: &NodeRef<'a>) -> Vec<NodeRef<'a>> {
     let mut out = Vec::new();
     // Iterative DFS (children pushed in reverse) = document order, deep-nesting
     // safe.
     let mut stack = vec![root.clone()];
     while let Some(node) = stack.pop() {
-        if let Some(el) = node.as_element() {
+        if let Some(el) = node.value().as_element() {
             let tag: String = el.name.local.to_string().to_ascii_lowercase();
-            let attrs = el.attributes.borrow();
+            let attrs = &el.attrs;
             let match_ = match tag.as_str() {
-                "img" => attrs.get("src").is_some(),
-                "video" => attrs.get("poster").is_some(),
+                "img" => attrs.get(&qualname_none("src")).is_some(),
+                "video" => attrs.get(&qualname_none("poster")).is_some(),
                 "iframe" => attrs
-                    .get("src")
+                    .get(&qualname_none("src"))
                     .is_some_and(|s| s.contains("youtube.com/embed/")),
                 _ => false,
             };
@@ -562,13 +579,13 @@ fn collect_image_candidates(root: &NodeRef) -> Vec<NodeRef> {
 /// `$tmpxpath->query("//source[@src]", $e)->item(0)` — the first `source`
 /// descendant (document order) carrying a `src` attribute. Iterative: the
 /// parsed tree can be arbitrarily deep.
-fn first_source_src(root: &NodeRef) -> Option<String> {
+fn first_source_src(root: &NodeRef<'_>) -> Option<String> {
     // Iterative DFS = document order.
     let mut stack = vec![root.clone()];
     while let Some(node) = stack.pop() {
-        if let Some(el) = node.as_element()
+        if let Some(el) = node.value().as_element()
             && el.name.local.to_string().eq_ignore_ascii_case("source")
-            && let Some(src) = el.attributes.borrow().get("src")
+            && let Some(src) = el.attrs.get(&qualname_none("src"))
         {
             return Some(src.to_string());
         }
@@ -584,11 +601,12 @@ fn first_source_src(root: &NodeRef) -> Option<String> {
 /// with `<script>`/`<style>`/`<head>` subtrees dropped and whitespace
 /// collapsed. Used for the `tsvector_combined` full-text column.
 fn html_to_text(content: &str) -> String {
-    let doc = parse_html().one(content);
+    let html = Html::parse_document(&content);
+    let doc = html.tree.root();
     let mut out = String::new();
     let mut stack = vec![doc];
     while let Some(node) = stack.pop() {
-        if let Some(el) = node.as_element() {
+        if let Some(el) = node.value().as_element() {
             let tag = el.name.local.to_string().to_ascii_lowercase();
             if matches!(
                 tag.as_str(),
@@ -597,8 +615,8 @@ fn html_to_text(content: &str) -> String {
                 continue;
             }
         }
-        if let Some(text) = node.as_text() {
-            out.push_str(text.borrow().as_str());
+        if let Some(text) = node.value().as_text() {
+            out.push_str(&text.text);
         }
         let children: Vec<NodeRef> = node.children().collect();
         for child in children.into_iter().rev() {

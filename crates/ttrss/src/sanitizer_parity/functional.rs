@@ -2,39 +2,27 @@
 //!
 //! Pure-string/DOM tests of `highlight_words_str` / `highlight_words` — no DB.
 
-use crate::sanitizer::{highlight_words, highlight_words_str, serialize_for_tests};
+use crate::sanitizer::{find_body, highlight_words, highlight_words_str, serialize_for_tests};
 use crate::sanitizer_parity::count;
-use kuchikiki::parse_html;
-use kuchikiki::traits::TendrilSink;
-
-/// True if the element node has local name `name`.
-fn is_el(node: &kuchikiki::NodeRef, name: &str) -> bool {
-    node.as_element()
-        .map(|el| el.name.local.to_string() == name)
-        .unwrap_or(false)
-}
+use ego_tree::{NodeId, Tree};
+use scraper::Html;
+use scraper::node::Node;
 
 /// Parse a fragment, run `highlight_words` on its body (mirroring the PHP
 /// tests that call `Sanitizer::highlight_words($doc, $xpath, $words)`
 /// directly), and return (serialized body children, `rv`).
 fn highlight_fragment(fragment: &str, words: &[&str]) -> (String, bool) {
-    let doc = parse_html().one(fragment);
-    let mut body: Option<kuchikiki::NodeRef> = None;
-    for html in doc.children() {
-        if is_el(&html, "html") {
-            for c in html.children() {
-                if is_el(&c, "body") {
-                    body = Some(c.clone());
-                }
-            }
-        }
-    }
-    let body = body.expect("body");
+    let html = Html::parse_document(fragment);
+    let mut tree: Tree<Node> = html.tree;
+    let body = find_body(&tree.root()).expect("body");
+    let body_id: NodeId = body.id();
     let ws: Vec<String> = words.iter().map(|s| s.to_string()).collect();
-    let rv = highlight_words(&body, &ws);
+    let rv = highlight_words(&mut tree, body_id, &ws);
     let mut out = String::new();
-    for c in body.children() {
-        serialize_for_tests(&c, &mut out);
+    if let Some(body) = tree.get(body_id) {
+        for c in body.children() {
+            serialize_for_tests(&c, &mut out);
+        }
     }
     (out, rv)
 }

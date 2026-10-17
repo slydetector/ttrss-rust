@@ -905,7 +905,10 @@ pub async fn fetch_one_feed(
         } else if res.error_code == 429 {
             // 429: throttle (randomized `HTTP_429_THROTTLE_INTERVAL` 1-2x).
             let base = cfg.http_429_throttle_interval;
-            let interval: i64 = { use rand::RngExt; rand::rng().random_range(base..=base * 2) };
+            let interval: i64 = {
+                use rand::RngExt;
+                rand::rng().random_range(base..=base * 2)
+            };
             let future = now + chrono::Duration::seconds(interval);
             let err_msg = format!(
                 "{} (updates throttled for {} seconds.)",
