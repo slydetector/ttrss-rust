@@ -958,7 +958,7 @@ pub(crate) async fn make_runtime_info(state: &AppState, sess: &Sess) -> Value {
 }
 
 /// `RPC::_make_init_params`.
-async fn make_init_params(state: &AppState, sess: &Sess, uid: i64, profile: Option<i32>) -> Value {
+async fn make_init_params(state: &AppState, sess: &Sess, uid: i32, profile: Option<i32>) -> Value {
     let data = sess.data();
     let rows = prefs::load_rows(&state.db, uid, profile).await;
     let p = |name: &str| prefs::resolve(name, &rows, profile);
@@ -1096,7 +1096,7 @@ async fn make_init_params(state: &AppState, sess: &Sess, uid: i64, profile: Opti
 }
 
 /// `Labels::get_all` — `{id, fg_color, bg_color, caption}` ordered by caption.
-async fn labels_all(pool: &sqlx::PgPool, uid: i64) -> Value {
+async fn labels_all(pool: &sqlx::PgPool, uid: i32) -> Value {
     let rows = sqlx::query(
         "SELECT id, fg_color, bg_color, caption FROM ttrss_labels2
          WHERE owner_uid = $1 ORDER BY caption",
@@ -1120,7 +1120,7 @@ async fn labels_all(pool: &sqlx::PgPool, uid: i64) -> Value {
 }
 
 /// `SELECT MAX(id), COUNT(*) FROM ttrss_feeds WHERE owner_uid = ?`.
-async fn feed_counts(pool: &sqlx::PgPool, uid: i64) -> (i64, i64) {
+async fn feed_counts(pool: &sqlx::PgPool, uid: i32) -> (i64, i64) {
     let row = sqlx::query("SELECT MAX(id), COUNT(*) FROM ttrss_feeds WHERE owner_uid = $1")
         .bind(uid)
         .fetch_optional(pool)
@@ -1138,7 +1138,7 @@ async fn feed_counts(pool: &sqlx::PgPool, uid: i64) -> (i64, i64) {
 
 /// `UserHelper::is_default_password` — does the user's password equal the
 /// literal string "password"?
-async fn is_default_password(pool: &sqlx::PgPool, uid: i64) -> bool {
+async fn is_default_password(pool: &sqlx::PgPool, uid: i32) -> bool {
     let row = sqlx::query("SELECT pwd_hash, salt FROM ttrss_users WHERE id = $1")
         .bind(uid)
         .fetch_optional(pool)

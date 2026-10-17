@@ -139,15 +139,15 @@ impl Plugin for DispatchStub {
     async fn hook_unsubscribe_feed(
         &self,
         _host: &mut HostCtx,
-        _feed_id: i64,
-        _owner_uid: i64,
+        _feed_id: i32,
+        _owner_uid: i32,
     ) -> bool {
         true
     }
-    async fn hook_articles_mark_toggled(&self, _host: &mut HostCtx, _ids: &[i64]) -> () {
+    async fn hook_articles_mark_toggled(&self, _host: &mut HostCtx, _ids: &[i32]) -> () {
         self.flags.mark_toggled.store(true, Ordering::SeqCst);
     }
-    async fn hook_articles_publish_toggled(&self, _host: &mut HostCtx, _ids: &[i64]) -> () {
+    async fn hook_articles_publish_toggled(&self, _host: &mut HostCtx, _ids: &[i32]) -> () {
         self.flags.publish_toggled.store(true, Ordering::SeqCst);
     }
 }

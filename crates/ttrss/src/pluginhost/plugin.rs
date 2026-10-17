@@ -1317,8 +1317,8 @@ pub trait Plugin: Send + Sync {
     async fn hook_unsubscribe_feed(
         &self,
         _host: &mut HostCtx,
-        _feed_id: i64,
-        _owner_uid: i64,
+        _feed_id: i32,
+        _owner_uid: i32,
     ) -> bool {
         false
     }
@@ -1712,7 +1712,7 @@ pub trait Plugin: Send + Sync {
     /// Parameters: `article_ids` — `&[i32]`, the affected article ref_ids.
     ///
     /// Return: nothing (`()`); the hook reacts to the toggle.
-    async fn hook_articles_mark_toggled(&self, _host: &mut HostCtx, _article_ids: &[i64]) -> () {}
+    async fn hook_articles_mark_toggled(&self, _host: &mut HostCtx, _article_ids: &[i32]) -> () {}
 
     /// `hook_articles_publish_toggled($article_ids)` — articles
     /// published/unpublished. `HOOK_ARTICLES_PUBLISH_TOGGLED`.
@@ -1729,6 +1729,6 @@ pub trait Plugin: Send + Sync {
     /// Parameters: `article_ids` — `&[i32]`, the affected article ref_ids.
     ///
     /// Return: nothing (`()`); the hook reacts to the toggle.
-    async fn hook_articles_publish_toggled(&self, _host: &mut HostCtx, _article_ids: &[i64]) -> () {
+    async fn hook_articles_publish_toggled(&self, _host: &mut HostCtx, _article_ids: &[i32]) -> () {
     }
 }

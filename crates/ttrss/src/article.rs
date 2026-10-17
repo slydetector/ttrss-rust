@@ -15,7 +15,7 @@ use axum::http::StatusCode;
 use std::collections::HashSet;
 use std::sync::OnceLock;
 
-use crate::util::{html_to_text, mb_substr, param_int_array, scalar_str};
+use crate::util::{html_to_text, mb_substr, param_id_array, scalar_str};
 use scraper::{Html, Node};
 
 type NodeRef<'a> = ego_tree::NodeRef<'a, Node>;
@@ -59,7 +59,7 @@ fn cmode_of(extra: &Map<String, Value>) -> i32 {
 }
 
 /// `$n` placeholders for a `ref_id IN (…)` clause over `ids`.
-fn in_placeholders(ids: &[i64]) -> String {
+fn in_placeholders(ids: &[i32]) -> String {
     (1..=ids.len())
         .map(|i| format!("${i}"))
         .collect::<Vec<_>>()
@@ -68,7 +68,7 @@ fn in_placeholders(ids: &[i64]) -> String {
 
 fn bind_ids<'a>(
     mut q: sqlx::query::Query<'a, sqlx::Postgres, sqlx::postgres::PgArguments>,
-    ids: &[i64],
+    ids: &[i32],
 ) -> sqlx::query::Query<'a, sqlx::Postgres, sqlx::postgres::PgArguments> {
     for id in ids {
         q = q.bind(*id);
@@ -80,10 +80,10 @@ fn bind_ids<'a>(
 /// `owner_uid` (the session uid when `None` / 0).
 pub async fn catchup_by_id(
     pool: &sqlx::PgPool,
-    ids: &[i64],
+    ids: &[i32],
     cmode: i32,
-    session_uid: i64,
-    owner_uid: Option<i64>,
+    session_uid: i32,
+    owner_uid: Option<i32>,
 ) {
     if ids.is_empty() {
         return;
@@ -114,9 +114,9 @@ async fn mark_articles_by_id(
     state: &AppState,
     sess: &Sess,
     pool: &sqlx::PgPool,
-    ids: &[i64],
+    ids: &[i32],
     cmode: i32,
-    uid: i64,
+    uid: i32,
 ) {
     if ids.is_empty() {
         return;
@@ -154,9 +154,9 @@ async fn publish_articles_by_id(
     state: &AppState,
     sess: &Sess,
     pool: &sqlx::PgPool,
-    ids: &[i64],
+    ids: &[i32],
     cmode: i32,
-    uid: i64,
+    uid: i32,
 ) {
     if ids.is_empty() {
         return;
@@ -195,14 +195,14 @@ async fn publish_articles_by_id(
 /// and the cache is updated.
 pub async fn get_tags(
     pool: &sqlx::PgPool,
-    session_uid: i64,
+    session_uid: i32,
     id: i32,
-    owner_uid: Option<i64>,
+    owner_uid: Option<i32>,
     tag_cache: Option<&str>,
 ) -> Vec<String> {
     let owner = match owner_uid {
-        Some(u) if u != 0 => u as i32,
-        _ => session_uid as i32,
+        Some(u) if u != 0 => u,
+        _ => session_uid,
     };
 
     let mut cache = tag_cache.map(str::to_string);
@@ -260,19 +260,19 @@ pub async fn get_tags(
 /// `Labels::update_cache`.
 pub async fn get_labels(
     pool: &sqlx::PgPool,
-    session_uid: i64,
-    id: i64,
-    owner_uid: Option<i64>,
+    session_uid: i32,
+    id: i32,
+    owner_uid: Option<i32>,
 ) -> Vec<Value> {
     let owner = match owner_uid {
-        Some(u) if u != 0 => u as i32,
-        _ => session_uid as i32,
+        Some(u) if u != 0 => u,
+        _ => session_uid,
     };
 
     // The typed form of `labels::get_labels_json` (the same
     // `Article::_get_labels` semantics); a decodable non-array cache value
     // is treated as no labels (PHP would return the decoded scalar as-is).
-    let cached = crate::labels::get_labels_json(pool, owner as i64, id).await;
+    let cached = crate::labels::get_labels_json(pool, owner, id).await;
     match serde_json::from_str::<Value>(&cached) {
         Ok(Value::Array(arr)) => arr,
         _ => Vec::new(),
@@ -281,7 +281,7 @@ pub async fn get_labels(
 
 /// `Article::getmetadatabyid`: `{link, title}` of article `id` owned by `uid`,
 /// or `[]` if none.
-pub async fn metadata_by_id(pool: &sqlx::PgPool, uid: i64, id: i32) -> Value {
+pub async fn metadata_by_id(pool: &sqlx::PgPool, uid: i32, id: i32) -> Value {
     let row: Option<(String, String)> = sqlx::query_as(
         "SELECT e.link, e.title FROM ttrss_entries e \
          JOIN ttrss_user_entries ue ON ue.ref_id = e.id \
@@ -300,7 +300,7 @@ pub async fn metadata_by_id(pool: &sqlx::PgPool, uid: i64, id: i32) -> Value {
 }
 
 /// `Article::printArticleTags`: `{"id": <id>, "tags": [tag names]}`.
-pub async fn print_article_tags(pool: &sqlx::PgPool, session_uid: i64, id: i32) -> Value {
+pub async fn print_article_tags(pool: &sqlx::PgPool, session_uid: i32, id: i32) -> Value {
     let tags = get_tags(pool, session_uid, id, None, None).await;
     json!({ "id": id, "tags": tags })
 }
@@ -551,7 +551,7 @@ fn collect_image_candidates<'a>(root: &NodeRef<'a>) -> Vec<NodeRef<'a>> {
     let mut out = Vec::new();
     // Iterative DFS (children pushed in reverse) = document order, deep-nesting
     // safe.
-    let mut stack = vec![root.clone()];
+    let mut stack = vec![*root];
     while let Some(node) = stack.pop() {
         if let Some(el) = node.value().as_element() {
             let tag: String = el.name.local.to_string().to_ascii_lowercase();
@@ -565,7 +565,7 @@ fn collect_image_candidates<'a>(root: &NodeRef<'a>) -> Vec<NodeRef<'a>> {
                 _ => false,
             };
             if match_ {
-                out.push(node.clone());
+                out.push(node);
             }
         }
         let children: Vec<NodeRef> = node.children().collect();
@@ -581,7 +581,7 @@ fn collect_image_candidates<'a>(root: &NodeRef<'a>) -> Vec<NodeRef<'a>> {
 /// parsed tree can be arbitrarily deep.
 fn first_source_src(root: &NodeRef<'_>) -> Option<String> {
     // Iterative DFS = document order.
-    let mut stack = vec![root.clone()];
+    let mut stack = vec![*root];
     while let Some(node) = stack.pop() {
         if let Some(el) = node.value().as_element()
             && el.name.local.to_string().eq_ignore_ascii_case("source")
@@ -599,7 +599,7 @@ fn first_source_src(root: &NodeRef<'_>) -> Option<String> {
 
 /// `INSERT INTO ttrss_user_entries (…published=true, unread=false,
 /// last_published=NOW(), last_read=NOW())` for a shared article.
-async fn insert_shared_user_entry(tx: &mut sqlx::PgConnection, ref_id: i32, owner_uid: i64) {
+async fn insert_shared_user_entry(tx: &mut sqlx::PgConnection, ref_id: i32, owner_uid: i32) {
     let _ = sqlx::query(
         "INSERT INTO ttrss_user_entries (ref_id, uuid, feed_id, orig_feed_id, owner_uid, \
          published, tag_cache, label_cache, last_read, note, unread, last_published) \
@@ -620,7 +620,7 @@ pub async fn create_published_article(
     url: &str,
     content: &str,
     labels_str: &str,
-    owner_uid: i64,
+    owner_uid: i32,
     mut pctx: crate::pluginhost::host::HostCtx,
 ) -> bool {
     // `sha1("ttshared:" . $url . $owner_uid)` → `SHA1:<hex>` (owner_uid in the
@@ -723,16 +723,12 @@ pub async fn create_published_article(
         pctx.run_hooks(
             crate::pluginhost::HOOK_ARTICLES_PUBLISH_TOGGLED,
             |plugin, host| {
-                Box::pin(async move {
-                    plugin
-                        .hook_articles_publish_toggled(host, &[ref_id as i64])
-                        .await
-                })
+                Box::pin(async move { plugin.hook_articles_publish_toggled(host, &[ref_id]).await })
             },
         )
         .await;
         for label in &labels {
-            crate::labels::add_article(pool, ref_id as i64, label.trim(), owner_uid).await;
+            crate::labels::add_article(pool, ref_id, label.trim(), owner_uid).await;
         }
         rc = true;
     } else {
@@ -764,16 +760,14 @@ pub async fn create_published_article(
             pctx.run_hooks(
                 crate::pluginhost::HOOK_ARTICLES_PUBLISH_TOGGLED,
                 |plugin, host| {
-                    Box::pin(async move {
-                        plugin
-                            .hook_articles_publish_toggled(host, &[ref_id as i64])
-                            .await
-                    })
+                    Box::pin(
+                        async move { plugin.hook_articles_publish_toggled(host, &[ref_id]).await },
+                    )
                 },
             )
             .await;
             for label in &labels {
-                crate::labels::add_article(pool, ref_id as i64, label.trim(), owner_uid).await;
+                crate::labels::add_article(pool, ref_id, label.trim(), owner_uid).await;
             }
             rc = true;
         }
@@ -784,7 +778,7 @@ pub async fn create_published_article(
 }
 
 /// `Article::_labels_of`: unique label ids present in the articles' `label_cache`.
-pub async fn labels_of(pool: &sqlx::PgPool, ids: &[i64], uid: i64) -> Vec<i64> {
+pub async fn labels_of(pool: &sqlx::PgPool, ids: &[i32], uid: i32) -> Vec<i32> {
     if ids.is_empty() {
         return Vec::new();
     }
@@ -801,7 +795,7 @@ pub async fn labels_of(pool: &sqlx::PgPool, ids: &[i64], uid: i64) -> Vec<i64> {
         .await
         .unwrap_or_default();
     let mut seen = HashSet::new();
-    let mut rv: Vec<i64> = Vec::new();
+    let mut rv: Vec<i32> = Vec::new();
     for row in &rows {
         let cache: Option<String> = row.get(0);
         if let Some(cache) = cache
@@ -814,7 +808,7 @@ pub async fn labels_of(pool: &sqlx::PgPool, ids: &[i64], uid: i64) -> Vec<i64> {
                 if let Some(items) = label.as_array()
                     && let Some(first) = items.first().and_then(Value::as_i64)
                 {
-                    let lid = feed_to_label_id(first);
+                    let lid = feed_to_label_id(first as i32);
                     if seen.insert(lid) {
                         rv.push(lid);
                     }
@@ -826,7 +820,7 @@ pub async fn labels_of(pool: &sqlx::PgPool, ids: &[i64], uid: i64) -> Vec<i64> {
 }
 
 /// `Article::_feeds_of`: unique feed ids of the given articles.
-pub async fn feeds_of(pool: &sqlx::PgPool, ids: &[i64], uid: i64) -> Vec<i64> {
+pub async fn feeds_of(pool: &sqlx::PgPool, ids: &[i32], uid: i32) -> Vec<i32> {
     if ids.is_empty() {
         return Vec::new();
     }
@@ -843,19 +837,19 @@ pub async fn feeds_of(pool: &sqlx::PgPool, ids: &[i64], uid: i64) -> Vec<i64> {
         .await
         .unwrap_or_default();
     let mut seen = HashSet::new();
-    let mut rv: Vec<i64> = Vec::new();
+    let mut rv: Vec<i32> = Vec::new();
     for row in &rows {
         let feed_id: Option<i32> = row.get(0);
         if let Some(fid) = feed_id
             && seen.insert(fid as i64)
         {
-            rv.push(fid as i64);
+            rv.push(fid);
         }
     }
     rv
 }
 
-fn update_counters(labels: Vec<i64>, feeds: Vec<i64>) -> Value {
+fn update_counters(labels: Vec<i32>, feeds: Vec<i32>) -> Value {
     json!({
         "message": "UPDATE_COUNTERS",
         "labels": labels,
@@ -867,7 +861,7 @@ fn update_counters(labels: Vec<i64>, feeds: Vec<i64>) -> Value {
 pub async fn catchup_selected(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Value {
     let uid = sess.data().uid().unwrap_or(0);
     let pool = state.db.pool();
-    let ids = param_int_array(extra, "ids");
+    let ids = param_id_array(extra, "ids");
     let cmode = cmode_of(extra);
     if !ids.is_empty() {
         catchup_by_id(pool, &ids, cmode, uid, None).await;
@@ -881,7 +875,7 @@ pub async fn catchup_selected(state: &AppState, sess: &Sess, extra: &Map<String,
 pub async fn mark_selected(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Value {
     let uid = sess.data().uid().unwrap_or(0);
     let pool = state.db.pool();
-    let ids = param_int_array(extra, "ids");
+    let ids = param_id_array(extra, "ids");
     let cmode = cmode_of(extra);
     if !ids.is_empty() {
         mark_articles_by_id(state, sess, pool, &ids, cmode, uid).await;
@@ -895,7 +889,7 @@ pub async fn mark_selected(state: &AppState, sess: &Sess, extra: &Map<String, Va
 pub async fn publish_selected(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Value {
     let uid = sess.data().uid().unwrap_or(0);
     let pool = state.db.pool();
-    let ids = param_int_array(extra, "ids");
+    let ids = param_id_array(extra, "ids");
     let cmode = cmode_of(extra);
     if !ids.is_empty() {
         publish_articles_by_id(state, sess, pool, &ids, cmode, uid).await;
@@ -926,11 +920,7 @@ pub async fn mark(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> 
         pctx.run_hooks(
             crate::pluginhost::HOOK_ARTICLES_MARK_TOGGLED,
             |plugin, host| {
-                Box::pin(async move {
-                    plugin
-                        .hook_articles_mark_toggled(host, &[id_i as i64])
-                        .await
-                })
+                Box::pin(async move { plugin.hook_articles_mark_toggled(host, &[id_i]).await })
             },
         )
         .await;
@@ -958,11 +948,7 @@ pub async fn publ(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> 
         pctx.run_hooks(
             crate::pluginhost::HOOK_ARTICLES_PUBLISH_TOGGLED,
             |plugin, host| {
-                Box::pin(async move {
-                    plugin
-                        .hook_articles_publish_toggled(host, &[id_i as i64])
-                        .await
-                })
+                Box::pin(async move { plugin.hook_articles_publish_toggled(host, &[id_i]).await })
             },
         )
         .await;
@@ -974,7 +960,7 @@ pub async fn publ(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> 
 /// subscriptions. An empty id list is a no-op with no output (PHP returns
 /// before printing); [`Value::Null`] models that.
 pub async fn delete(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Value {
-    let ids = param_int_array(extra, "ids");
+    let ids = param_id_array(extra, "ids");
     if ids.is_empty() {
         return Value::Null; // PHP: `if (!$ids) return;` (no output)
     }
@@ -995,7 +981,7 @@ pub async fn delete(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -
 /// articles. `{"id": [...], "score": n}`; an empty id list is a no-op with
 /// no output (PHP returns before printing) — [`Value::Null`] models that.
 pub async fn set_score(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Value {
-    let ids = param_int_array(extra, "ids");
+    let ids = param_id_array(extra, "ids");
     if ids.is_empty() {
         return Value::Null; // PHP: `if (!$ids) return;` (no output)
     }
@@ -1022,7 +1008,7 @@ pub async fn set_score(state: &AppState, sess: &Sess, extra: &Map<String, Value>
 /// => _get_tags($id)` re-read from the database (the original `tags_str`
 /// is sometimes JSON-encoded as a hash — PHP re-reads for that reason).
 pub async fn set_article_tags(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Value {
-    let uid = sess.data().uid().unwrap_or(0) as i32;
+    let uid = sess.data().uid().unwrap_or(0);
     let id = extra
         .get("id")
         .and_then(scalar_str)
@@ -1096,14 +1082,14 @@ pub async fn set_article_tags(state: &AppState, sess: &Sess, extra: &Map<String,
         let _ = tx.commit().await;
     }
 
-    let tags = get_tags(pool, uid as i64, id, None, None).await;
+    let tags = get_tags(pool, uid, id, None, None).await;
     json!({ "id": id, "tags": tags })
 }
 
 /// `Article::completeTags`: tag-name completion for the session user
 /// (case-sensitive prefix `LIKE`, first 10, ordered by name).
 pub async fn complete_tags(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Value {
-    let uid = sess.data().uid().unwrap_or(0) as i32;
+    let uid = sess.data().uid().unwrap_or(0);
     let search = cleaned_str(extra, "search");
     let rows: Vec<String> = sqlx::query_scalar(
         "SELECT DISTINCT tag_name FROM ttrss_tags
@@ -1130,7 +1116,7 @@ pub async fn label_ops(
 ) -> Value {
     let uid = sess.data().uid().unwrap_or(0);
     let pool = state.db.pool();
-    let ids = param_int_array(extra, "ids");
+    let ids = param_id_array(extra, "ids");
     let label_id = cleaned_str(extra, "lid");
     // PHP passes the cleaned string to `Labels::find_caption` (typed `int`
     // — PHP's string→int coercion is the leading-integer prefix).

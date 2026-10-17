@@ -336,10 +336,7 @@ pub fn htmlspecialchars(s: &str) -> String {
 pub fn html_entity_decode(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut rest = s;
-    loop {
-        let Some(i) = rest.find('&') else {
-            break;
-        };
+    while let Some(i) = rest.find('&') {
         out.push_str(&rest[..i]);
         let after = &rest[i + 1..];
         if let Some(hash) = after.strip_prefix('#') {
@@ -637,6 +634,15 @@ pub fn param_int_array(extra: &Map<String, Value>, name: &str) -> Vec<i64> {
         }
     }
     out
+}
+
+/// `param_int_array` narrowed to the id domain: the JSON edge parses i64
+/// (PHP `(int)` parity), ids are INT4, so the boundary narrows to i32 here.
+pub fn param_id_array(extra: &Map<String, Value>, name: &str) -> Vec<i32> {
+    param_int_array(extra, name)
+        .into_iter()
+        .map(|v| v as i32)
+        .collect()
 }
 
 /// PHP `checkbox_to_sql_bool($val)`: a checkbox is set only when its value is

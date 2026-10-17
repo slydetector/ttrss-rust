@@ -44,7 +44,7 @@ pub fn otp_qrcode_data_uri(otpurl: &str) -> Option<String> {
 }
 
 /// `UserHelper::is_otp_enabled`.
-pub async fn is_otp_enabled(db: &PgPool, uid: i64) -> Result<bool, sqlx::Error> {
+pub async fn is_otp_enabled(db: &PgPool, uid: i32) -> Result<bool, sqlx::Error> {
     let row: Option<(bool,)> = sqlx::query_as("SELECT otp_enabled FROM ttrss_users WHERE id = $1")
         .bind(uid)
         .fetch_optional(db)
@@ -56,7 +56,7 @@ pub async fn is_otp_enabled(db: &PgPool, uid: i64) -> Result<bool, sqlx::Error> 
 /// when the column is empty — the shared core of `get_otp_secret` and
 /// `enable_otp` (the `schema_version >= 143` path). Returns `None` when the
 /// user does not exist, else `(otp_enabled, raw_secret)`.
-async fn otp_state(db: &PgPool, uid: i64) -> Result<Option<(bool, String)>, sqlx::Error> {
+async fn otp_state(db: &PgPool, uid: i32) -> Result<Option<(bool, String)>, sqlx::Error> {
     let row: Option<(bool, Option<String>, String)> =
         sqlx::query_as("SELECT otp_enabled, otp_secret, salt FROM ttrss_users WHERE id = $1")
             .bind(uid)
@@ -92,7 +92,7 @@ async fn otp_state(db: &PgPool, uid: i64) -> Result<Option<(bool, String)>, sqlx
 /// `show_if_enabled`; `None` when enabled and not shown (or no user).
 pub async fn get_otp_secret(
     db: &PgPool,
-    uid: i64,
+    uid: i32,
     show_if_enabled: bool,
 ) -> Result<Option<String>, sqlx::Error> {
     let Some((otp_enabled, secret)) = otp_state(db, uid).await? else {
@@ -110,7 +110,7 @@ pub async fn get_otp_secret(
 /// true`. Returns false when the code is wrong or the user is missing.
 pub async fn enable_otp(
     db: &PgPool,
-    uid: i64,
+    uid: i32,
     otp_code: &str,
     t_secs: u64,
 ) -> Result<bool, sqlx::Error> {
@@ -130,7 +130,7 @@ pub async fn enable_otp(
 /// `UserHelper::disable_otp`: set `otp_enabled = false` and clear the secret
 /// (schema >= 143) so a fresh one is generated on the next enable. Returns
 /// false when the user does not exist.
-pub async fn disable_otp(db: &PgPool, uid: i64) -> Result<bool, sqlx::Error> {
+pub async fn disable_otp(db: &PgPool, uid: i32) -> Result<bool, sqlx::Error> {
     let exists: Option<bool> =
         sqlx::query_scalar("SELECT otp_enabled FROM ttrss_users WHERE id = $1")
             .bind(uid)

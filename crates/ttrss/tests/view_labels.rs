@@ -32,14 +32,14 @@ use ttrss::headlines::view;
 use ttrss::labels::label_to_feed_id;
 use ttrss::session::Sess;
 
-const SESSION_UID: i64 = 1;
+const SESSION_UID: i32 = 1;
 
 /// Fresh fixtures + a session carrying `uid = 1` (owner of the fixture rows).
 async fn setup(url: &str) -> (AppState, Sess) {
     let db: Db = common::make_db_from_url(url).await.expect("test db");
     let state = AppState::new(common::test_config(), db);
     let mut data = Session::new();
-    data.set("uid", PValue::Int(SESSION_UID));
+    data.set("uid", PValue::Int(SESSION_UID as i64));
     let sess = Sess::new("test-sid".to_string());
     sess.replace("test-sid".to_string(), data);
     sess.set_self_url(&state.config.self_url_rtrim());

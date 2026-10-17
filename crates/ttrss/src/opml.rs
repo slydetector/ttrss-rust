@@ -65,37 +65,37 @@ struct Outline {
     #[serde(rename = "@xmlUrl", skip_serializing_if = "Option::is_none")]
     xml_url: Option<String>,
     #[serde(rename = "@ttrssSortOrder", skip_serializing_if = "Option::is_none")]
-    ttrss_sort: Option<i64>,
+    ttrss_sort: Option<i32>,
     #[serde(
         rename = "@ttrssPurgeInterval",
         skip_serializing_if = "Option::is_none"
     )]
-    ttrss_purge: Option<i64>,
+    ttrss_purge: Option<i32>,
     #[serde(
         rename = "@ttrssUpdateInterval",
         skip_serializing_if = "Option::is_none"
     )]
-    ttrss_update: Option<i64>,
+    ttrss_update: Option<i32>,
     #[serde(rename = "@htmlUrl", skip_serializing_if = "Option::is_none")]
     html_url: Option<String>,
     #[serde(rename = "outline")]
     children: Vec<Outline>,
 }
 struct Cat {
-    id: i64,
+    id: i32,
     title: String,
-    parent: Option<i64>,
-    order_id: i64,
+    parent: Option<i32>,
+    order_id: i32,
 }
 
 struct Feed {
     title: String,
     feed_url: String,
     site_url: String,
-    order_id: i64,
-    update_interval: i64,
-    purge_interval: i64,
-    cat_id: Option<i64>,
+    order_id: i32,
+    update_interval: i32,
+    purge_interval: i32,
+    cat_id: Option<i32>,
 }
 
 /// A feed outline. `htmlUrl` is always emitted when the site URL is set
@@ -128,7 +128,7 @@ fn cat_outline(c: &Cat, include_settings: bool, children: Vec<Outline>) -> Outli
     }
 }
 
-async fn fetch_cats(pool: &sqlx::PgPool, uid: i64) -> Vec<Cat> {
+async fn fetch_cats(pool: &sqlx::PgPool, uid: i32) -> Vec<Cat> {
     let rows = sqlx::query(
         "SELECT id, title, parent_cat, order_id FROM ttrss_feed_categories \
          WHERE owner_uid = $1 ORDER BY order_id, title",
@@ -139,15 +139,15 @@ async fn fetch_cats(pool: &sqlx::PgPool, uid: i64) -> Vec<Cat> {
     .expect("fetch categories");
     rows.iter()
         .map(|r| Cat {
-            id: r.get::<i32, _>(0) as i64,
+            id: r.get::<i32, _>(0),
             title: r.get(1),
-            parent: r.get::<Option<i32>, _>(2).map(|v| v as i64),
-            order_id: r.get::<i32, _>(3) as i64,
+            parent: r.get::<Option<i32>, _>(2),
+            order_id: r.get::<i32, _>(3),
         })
         .collect()
 }
 
-async fn fetch_feeds(pool: &sqlx::PgPool, uid: i64, hide_private: bool) -> Vec<Feed> {
+async fn fetch_feeds(pool: &sqlx::PgPool, uid: i32, hide_private: bool) -> Vec<Feed> {
     let q = if hide_private {
         "SELECT title, feed_url, site_url, order_id, update_interval, purge_interval, cat_id \
          FROM ttrss_feeds WHERE owner_uid = $1 AND (private IS false AND auth_login = '' AND auth_pass = '') \
@@ -166,10 +166,10 @@ async fn fetch_feeds(pool: &sqlx::PgPool, uid: i64, hide_private: bool) -> Vec<F
             title: r.get(0),
             feed_url: r.get(1),
             site_url: r.get(2),
-            order_id: r.get::<i32, _>(3) as i64,
-            update_interval: r.get::<i32, _>(4) as i64,
-            purge_interval: r.get::<i32, _>(5) as i64,
-            cat_id: r.get::<Option<i32>, _>(6).map(|v| v as i64),
+            order_id: r.get::<i32, _>(3),
+            update_interval: r.get::<i32, _>(4),
+            purge_interval: r.get::<i32, _>(5),
+            cat_id: r.get::<Option<i32>, _>(6),
         })
         .collect()
 }
@@ -179,21 +179,21 @@ async fn fetch_feeds(pool: &sqlx::PgPool, uid: i64, hide_private: bool) -> Vec<F
 /// category, sub-categories precede feeds, matching the PHP
 /// `opml_export_category`.
 fn build_tree(cats: &[Cat], feeds: &[Feed], include_settings: bool) -> Vec<Outline> {
-    let feeds_by_cat: HashMap<Option<i64>, Vec<&Feed>> =
+    let feeds_by_cat: HashMap<Option<i32>, Vec<&Feed>> =
         feeds.iter().fold(HashMap::new(), |mut m, f| {
             m.entry(f.cat_id).or_default().push(f);
             m
         });
-    let cat_children: HashMap<Option<i64>, Vec<&Cat>> =
+    let cat_children: HashMap<Option<i32>, Vec<&Cat>> =
         cats.iter().fold(HashMap::new(), |mut m, c| {
             m.entry(c.parent).or_default().push(c);
             m
         });
-    let cat_by_id: HashMap<i64, &Cat> = cats.iter().map(|c| (c.id, c)).collect();
+    let cat_by_id: HashMap<i32, &Cat> = cats.iter().map(|c| (c.id, c)).collect();
 
     // Post-order: build each category once its sub-categories are built.
-    let mut built: HashMap<i64, Outline> = HashMap::new();
-    let mut stack: Vec<(i64, bool)> = cat_children
+    let mut built: HashMap<i32, Outline> = HashMap::new();
+    let mut stack: Vec<(i32, bool)> = cat_children
         .get(&None)
         .map(|v| v.iter().map(|c| (c.id, false)).collect())
         .unwrap_or_default();
@@ -238,7 +238,7 @@ fn build_tree(cats: &[Cat], feeds: &[Feed], include_settings: bool) -> Vec<Outli
 }
 
 /// Build the OPML document (head + body + feed tree).
-pub async fn build_opml(pool: &sqlx::PgPool, uid: i64, include_settings: bool) -> String {
+pub async fn build_opml(pool: &sqlx::PgPool, uid: i32, include_settings: bool) -> String {
     let cats = fetch_cats(pool, uid).await;
     let feeds = fetch_feeds(pool, uid, false).await;
     let outlines = build_tree(&cats, &feeds, include_settings);
@@ -286,7 +286,7 @@ pub async fn build_opml(pool: &sqlx::PgPool, uid: i64, include_settings: bool) -
 /// model) so the filter payload can be a real CDATA section: the JSON may contain
 /// `&`/`<`/`>`, which must NOT be entity-escaped (the import reads CDATA verbatim,
 /// and `Event::Text` is not entity-decoded). `OPML.php:118-222`.
-async fn build_settings_section(pool: &sqlx::PgPool, uid: i64) -> String {
+async fn build_settings_section(pool: &sqlx::PgPool, uid: i32) -> String {
     let mut out = String::new();
 
     // tt-rss-prefs — the `profile IS NULL` user prefs, by name.
@@ -340,7 +340,7 @@ async fn build_settings_section(pool: &sqlx::PgPool, uid: i64) -> String {
         .await
         .expect("fetch filters");
     for r in &filters {
-        let filter_id: i64 = r.get::<i32, _>(0) as i64;
+        let filter_id: i32 = r.get::<i32, _>(0);
         out.push_str(&format!(
             "      <outline filter-type=\"2\"><![CDATA[{}]]></outline>\n",
             build_filter_json(pool, filter_id, uid).await
@@ -355,12 +355,12 @@ async fn build_settings_section(pool: &sqlx::PgPool, uid: i64) -> String {
 /// `rules` (feed matches rendered as portable titles) and `actions`, in the same key
 /// order as the PHP export (`OPML.php:182-215`). Native JSON types (bools/integers)
 /// so the payload round-trips losslessly.
-async fn build_filter_json(pool: &sqlx::PgPool, filter_id: i64, uid: i64) -> String {
+async fn build_filter_json(pool: &sqlx::PgPool, filter_id: i32, uid: i32) -> String {
     let f = sqlx::query(
         "SELECT match_any_rule, inverse, title, order_id, last_triggered, enabled \
          FROM ttrss_filters2 WHERE id = $1 AND owner_uid = $2",
     )
-    .bind(filter_id as i32)
+    .bind(filter_id)
     .bind(uid)
     .fetch_one(pool)
     .await
@@ -386,7 +386,7 @@ async fn build_filter_json(pool: &sqlx::PgPool, filter_id: i64, uid: i64) -> Str
         "SELECT reg_exp, inverse, filter_type, feed_id, cat_id, match_on, cat_filter \
          FROM ttrss_filters2_rules WHERE filter_id = $1",
     )
-    .bind(filter_id as i32)
+    .bind(filter_id)
     .fetch_all(pool)
     .await
     .expect("filter rules");
@@ -418,7 +418,7 @@ async fn build_filter_json(pool: &sqlx::PgPool, filter_id: i64, uid: i64) -> Str
                 if let Some(cat_part) = item.strip_prefix("CAT:") {
                     let cid: i64 = cat_part.parse().unwrap_or(0);
                     if cid != 0 {
-                        let t = category_title(pool, cid, uid).await;
+                        let t = category_title(pool, cid as i32, uid).await;
                         triples.push(Value::Array(vec![
                             Value::String(t),
                             Value::Bool(true),
@@ -434,7 +434,7 @@ async fn build_filter_json(pool: &sqlx::PgPool, filter_id: i64, uid: i64) -> Str
                 } else {
                     let fid: i64 = item.parse().unwrap_or(0);
                     if fid != 0 {
-                        let t = feed_title(pool, fid, uid).await;
+                        let t = feed_title(pool, fid as i32, uid).await;
                         triples.push(Value::Array(vec![
                             Value::String(t),
                             Value::Bool(false),
@@ -457,9 +457,9 @@ async fn build_filter_json(pool: &sqlx::PgPool, filter_id: i64, uid: i64) -> Str
                 (cat_filter && cat_id.is_some_and(|c| c != 0)) || feed_id.is_some_and(|f| f != 0);
             let title = if has {
                 if cat_filter {
-                    category_title(pool, cat_id.unwrap_or(0) as i64, uid).await
+                    category_title(pool, cat_id.unwrap_or(0), uid).await
                 } else {
-                    feed_title(pool, feed_id.unwrap_or(0) as i64, uid).await
+                    feed_title(pool, feed_id.unwrap_or(0), uid).await
                 }
             } else {
                 String::new()
@@ -475,7 +475,7 @@ async fn build_filter_json(pool: &sqlx::PgPool, filter_id: i64, uid: i64) -> Str
     let arows = sqlx::query(
         "SELECT action_id, action_param FROM ttrss_filters2_actions WHERE filter_id = $1",
     )
-    .bind(filter_id as i32)
+    .bind(filter_id)
     .fetch_all(pool)
     .await
     .expect("filter actions");
@@ -647,7 +647,7 @@ fn mb_truncate(s: &str, max: usize) -> &str {
 
 /// `OPML::get_feed_category` — id of the category with this title under
 /// `parent_cat_id` (0 = top-level, i.e. `parent_cat IS NULL`), or 0 if absent.
-async fn get_feed_category(db: &Db, title: &str, uid: i64, parent_cat_id: i64) -> i64 {
+async fn get_feed_category(db: &Db, title: &str, uid: i32, parent_cat_id: i32) -> i32 {
     let pool = db.pool();
     sqlx::query_scalar::<_, i32>(
         "SELECT id FROM ttrss_feed_categories WHERE title = $1 AND owner_uid = $2 AND (parent_cat = $3 OR ($3 = 0 AND parent_cat IS NULL))")
@@ -658,7 +658,6 @@ async fn get_feed_category(db: &Db, title: &str, uid: i64, parent_cat_id: i64) -
         .await
         .ok()
         .flatten()
-        .map(|v| v as i64)
         .unwrap_or(0)
 }
 
@@ -666,9 +665,9 @@ async fn get_feed_category(db: &Db, title: &str, uid: i64, parent_cat_id: i64) -
 async fn add_cat_low(
     db: &Db,
     title: &str,
-    uid: i64,
-    parent_cat: Option<i64>,
-    order_id: i64,
+    uid: i32,
+    parent_cat: Option<i32>,
+    order_id: i32,
 ) -> bool {
     let pool = db.pool();
     sqlx::query("INSERT INTO ttrss_feed_categories (owner_uid, parent_cat, order_id, title) VALUES ($1, $2, $3, $4)")
@@ -695,9 +694,9 @@ fn opml_notice(body: &mut String, msg: &str, nest: usize) {
 /// `OPML::opml_import_feed` — insert a feed (deduped by `feed_url` + owner).
 async fn opml_import_feed(
     db: &Db,
-    uid: i64,
+    uid: i32,
     node: &XmlNode,
-    cat_id: i64,
+    cat_id: i32,
     body: &mut String,
     depth: usize,
 ) {
@@ -730,10 +729,10 @@ async fn opml_import_feed(
         feed_title.as_str()
     };
     if exists {
-        opml_notice(body, &t_sprintf("Duplicate feed: %s", &[&display]), depth);
+        opml_notice(body, &t_sprintf("Duplicate feed: %s", &[display]), depth);
         return;
     }
-    opml_notice(body, &t_sprintf("Adding feed: %s", &[&display]), depth);
+    opml_notice(body, &t_sprintf("Adding feed: %s", &[display]), depth);
     let feed_title = if feed_title.is_empty() {
         "[Unknown]".to_string()
     } else {
@@ -743,7 +742,7 @@ async fn opml_import_feed(
     let update_interval = attr(node, "ttrssUpdateInterval")
         .map(php_int_cast)
         .unwrap_or(0);
-    let order_id = attr(node, "ttrssSortOrder").map(php_int_cast).unwrap_or(0);
+    let order_id: i32 = attr(node, "ttrssSortOrder").map(php_int_cast).unwrap_or(0) as i32;
     let purge_interval = attr(node, "ttrssPurgeInterval")
         .map(php_int_cast)
         .unwrap_or(0);
@@ -767,7 +766,7 @@ async fn opml_import_feed(
 /// (PHP writes to the active profile: `$_SESSION['profile'] ?? null`).
 async fn opml_import_preference(
     db: &Db,
-    uid: i64,
+    uid: i32,
     profile: Option<i32>,
     node: &XmlNode,
     body: &mut String,
@@ -780,10 +779,7 @@ async fn opml_import_preference(
     let pref_value = attr(node, "value").unwrap_or("");
     opml_notice(
         body,
-        &t_sprintf(
-            "Setting preference key %s to %s",
-            &[&pref_name.to_string(), &pref_value.to_string()],
-        ),
+        &t_sprintf("Setting preference key %s to %s", &[pref_name, pref_value]),
         depth,
     );
     crate::prefs::set(db, pref_name, pref_value, uid, profile, true).await;
@@ -791,7 +787,7 @@ async fn opml_import_preference(
 
 /// `OPML::opml_import_label` — create a label from `label-name` / `label-fg-color`
 /// / `label-bg-color` (skipped if a label with the caption already exists).
-async fn opml_import_label(db: &Db, uid: i64, node: &XmlNode, body: &mut String, depth: usize) {
+async fn opml_import_label(db: &Db, uid: i32, node: &XmlNode, body: &mut String, depth: usize) {
     let label_name = match attr(node, "label-name") {
         Some(n) => n,
         None => return,
@@ -823,7 +819,7 @@ async fn opml_import_label(db: &Db, uid: i64, node: &XmlNode, body: &mut String,
 
 /// `Feeds::_find_by_title` — id of the feed (or category, if `is_cat`) with this
 /// title for the owner, or 0.
-async fn find_by_title(db: &Db, title: &str, is_cat: bool, uid: i64) -> i64 {
+async fn find_by_title(db: &Db, title: &str, is_cat: bool, uid: i32) -> i32 {
     let pool = db.pool();
     let sql = if is_cat {
         "SELECT id FROM ttrss_feed_categories WHERE owner_uid = $1 AND title = $2"
@@ -837,13 +833,12 @@ async fn find_by_title(db: &Db, title: &str, is_cat: bool, uid: i64) -> i64 {
         .await
         .ok()
         .flatten()
-        .map(|v| v as i64)
         .unwrap_or(0)
 }
 
 /// `OPML::opml_import_filter` — insert a filter from a `filter-type="2"` outline
 /// whose text content is a JSON filter definition.
-async fn opml_import_filter(db: &Db, uid: i64, node: &XmlNode, body: &mut String, depth: usize) {
+async fn opml_import_filter(db: &Db, uid: i32, node: &XmlNode, body: &mut String, depth: usize) {
     let pool = db.pool();
     if attr(node, "filter-type") != Some("2") {
         return;
@@ -865,14 +860,14 @@ async fn opml_import_filter(db: &Db, uid: i64, node: &XmlNode, body: &mut String
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
     let title: &str = filter.get("title").and_then(|v| v.as_str()).unwrap_or("");
-    let filter_id: i64 = match sqlx::query_scalar::<_, i32>(
+    let filter_id: i32 = match sqlx::query_scalar::<_, i32>(
         "INSERT INTO ttrss_filters2 (match_any_rule, enabled, inverse, title, owner_uid) VALUES ($1, $2, $3, $4, $5) RETURNING id")
         .bind(match_any_rule).bind(enabled).bind(inverse).bind(title).bind(uid)
         .fetch_optional(pool).await.ok().flatten()
     {
         Some(id) => {
             opml_notice(body, &t_sprintf("Adding filter %s...", &[title]), depth);
-            id as i64
+            id
         }
         None => return,
     };
@@ -967,14 +962,14 @@ async fn opml_import_filter(db: &Db, uid: i64, node: &XmlNode, body: &mut String
 /// of the three settings sections); everything else is a feed or settings item.
 async fn opml_import_category(
     db: &Db,
-    uid: i64,
+    uid: i32,
     profile: Option<i32>,
     nodes: &[XmlNode],
     root: usize,
     body: &mut String,
 ) {
     let default_cat_id = get_feed_category(db, "Imported feeds", uid, 0).await;
-    let mut stack: Vec<(Vec<usize>, i64, Option<String>, usize)> =
+    let mut stack: Vec<(Vec<usize>, i32, Option<String>, usize)> =
         vec![(body_outlines(nodes, root), 0, None, 0)];
     while let Some((outlines, cat_id, cat_title, depth)) = stack.pop() {
         // `Processing category: …` — `Uncategorized` for the root call
@@ -1007,7 +1002,8 @@ async fn opml_import_category(
                 } else if get_feed_category(db, &title, uid, cat_id).await != 0 {
                     get_feed_category(db, &title, uid, cat_id).await
                 } else {
-                    let order_id = attr(node, "ttrssSortOrder").map(php_int_cast).unwrap_or(0);
+                    let order_id: i32 =
+                        attr(node, "ttrssSortOrder").map(php_int_cast).unwrap_or(0) as i32;
                     add_cat_low(db, &title, uid, (cat_id != 0).then_some(cat_id), order_id).await;
                     get_feed_category(db, &title, uid, cat_id).await
                 };
@@ -1047,7 +1043,7 @@ pub async fn import(state: &AppState, sess: &Sess, file: Option<&[u8]>) -> Strin
     }
     let Some(bytes) = file else {
         // PHP `$_FILES['opml_file']['error']` = 4 (UPLOAD_ERR_NO_FILE).
-        return format_error(&t_sprintf("Upload failed with error code %d", &[&"4"]), "");
+        return format_error(&t_sprintf("Upload failed with error code %d", &["4"]), "");
     };
     // PHP `OPML::opml_import_preference` writes to `$_SESSION['profile'] ?? null`.
     let profile = sess.data().profile().map(|p| p as i32);

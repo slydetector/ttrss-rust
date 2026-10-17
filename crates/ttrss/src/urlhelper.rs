@@ -337,14 +337,12 @@ fn has_disallowed_ip(tokens: &ParsedUrl, validate_resolved_ip: bool) -> bool {
         // the range checks — the PHP canonicalizes + unwraps via
         // `inet_pton`/`inet_ntop` for the same reason: without this, a
         // mapped *public* IP trips the 0000::/8 "zero bytes" reserved rule.
-        if let Some(b) = &bin {
-            if b.len() == 16 {
-                if let Ok(arr) = <[u8; 16]>::try_from(b.as_slice())
-                    && let Some(v4) = std::net::Ipv6Addr::from(arr).to_ipv4_mapped()
-                {
-                    bin = Some(v4.octets().to_vec());
-                }
-            }
+        if let Some(b) = &bin
+            && b.len() == 16
+            && let Ok(arr) = <[u8; 16]>::try_from(b.as_slice())
+            && let Some(v4) = std::net::Ipv6Addr::from(arr).to_ipv4_mapped()
+        {
+            bin = Some(v4.octets().to_vec());
         }
         // reject loopback, link-local, and reserved ranges (regardless of port)
         if !valid_ip_no_res_range(&bin) {
@@ -1006,9 +1004,7 @@ fn parse_digest_challenge(header: &str) -> Option<DigestChallenge> {
 /// digest `uri=` parameter and the server's `H(A2)` both use it.
 fn request_uri(url: &str) -> String {
     let after = url.split_once("://").map(|(_, r)| r).unwrap_or(url);
-    let idx = after
-        .find(|c| c == '/' || c == '?' || c == '#')
-        .unwrap_or(after.len());
+    let idx = after.find(['/', '?', '#']).unwrap_or(after.len());
     let uri = &after[idx..];
     if uri.is_empty() {
         "/".to_string()
@@ -1029,8 +1025,8 @@ fn digest_authorization(
     let method = if is_post { "POST" } else { "GET" };
     let uri = request_uri(url);
 
-    let ha1 = crate::util::md5_hex(&format!("{}:{}:{}", login, ch.realm, pass));
-    let ha2 = crate::util::md5_hex(&format!("{method}:{uri}"));
+    let ha1 = crate::util::md5_hex(format!("{}:{}:{}", login, ch.realm, pass));
+    let ha2 = crate::util::md5_hex(format!("{method}:{uri}"));
 
     let (qop, nc, cnonce) = match ch.qop.as_deref() {
         None => (None, None, None),
@@ -1049,9 +1045,9 @@ fn digest_authorization(
 
     let response = match (&qop, &nc, &cnonce) {
         (Some(q), Some(nc), Some(cn)) => {
-            crate::util::md5_hex(&format!("{ha1}:{}:{nc}:{cn}:{q}:{ha2}", ch.nonce))
+            crate::util::md5_hex(format!("{ha1}:{}:{nc}:{cn}:{q}:{ha2}", ch.nonce))
         }
-        _ => crate::util::md5_hex(&format!("{ha1}:{}:{ha2}", ch.nonce)),
+        _ => crate::util::md5_hex(format!("{ha1}:{}:{ha2}", ch.nonce)),
     };
 
     let mut header = format!(
@@ -1403,7 +1399,7 @@ mod tests {
             .lines()
             .find(|l| l.to_ascii_lowercase().starts_with("authorization: "))
             .unwrap();
-        let header = auth.splitn(2, ": ").nth(1).unwrap();
+        let header = auth.split_once(": ").unwrap().1;
         assert!(
             header.starts_with(
                 "Digest username=\"user\", realm=\"ttrss\", nonce=\"abc123\", uri=\"/feed\", "
@@ -1433,7 +1429,7 @@ mod tests {
         assert_eq!(field("nc"), "00000001");
         let ha1 = crate::util::md5_hex("user:ttrss:pass");
         let ha2 = crate::util::md5_hex("GET:/feed");
-        let expected = crate::util::md5_hex(&format!("{ha1}:abc123:00000001:{cnonce}:auth:{ha2}"));
+        let expected = crate::util::md5_hex(format!("{ha1}:abc123:00000001:{cnonce}:auth:{ha2}"));
         assert_eq!(response, expected);
     }
 
@@ -1493,7 +1489,7 @@ mod tests {
         assert!(auth.contains("Digest username=\"user\""));
         let ha1 = crate::util::md5_hex("user:ttrss:pass");
         let ha2 = crate::util::md5_hex("GET:/feed");
-        let expected = crate::util::md5_hex(&format!("{ha1}:n2:{ha2}"));
+        let expected = crate::util::md5_hex(format!("{ha1}:n2:{ha2}"));
         assert!(auth.contains(&format!("response=\"{expected}\"")));
         assert!(!auth.contains("qop="));
     }

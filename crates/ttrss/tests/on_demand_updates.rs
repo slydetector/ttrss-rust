@@ -76,9 +76,9 @@ fn make_state(db: Db, tc: &common::TestCfg) -> AppState {
     AppState::new(tc.cfg.clone(), db)
 }
 
-fn make_sess(uid: i64) -> Sess {
+fn make_sess(uid: i32) -> Sess {
     let mut data = Session::new();
-    data.set("uid", PValue::Int(uid));
+    data.set("uid", PValue::Int(uid as i64));
     let sess = Sess::new("test-sid".to_string());
     sess.replace("test-sid".to_string(), data);
     sess
@@ -112,7 +112,7 @@ async fn test_subscribe_first_update() {
                 db.pool(),
                 &host,
                 &cfg.self_url,
-                uid as i64,
+                uid,
                 0,
                 &mock.url("/feed"),
                 0,
@@ -155,7 +155,7 @@ async fn test_subscribe_immediate_update() {
                 db.pool(),
                 &host,
                 &cfg.self_url,
-                uid as i64,
+                uid,
                 0,
                 &mock.url("/feed"),
                 0,
@@ -200,7 +200,7 @@ async fn test_subscribe_existing_feed() {
                 db.pool(),
                 &host,
                 &cfg.self_url,
-                uid as i64,
+                uid,
                 0,
                 &mock.url("/feed"),
                 0,
@@ -235,7 +235,7 @@ async fn test_update_feed_on_demand() {
             let state = make_state(db.clone(), &tc2);
             let uid = create_user(&db, 302, 0).await;
             let feed_id = create_feed(&db, 302, uid, &mock.url("/feed")).await;
-            let sess = make_sess(uid as i64);
+            let sess = make_sess(uid);
 
             let body: Map<String, Value> =
                 json!({ "feed_id": feed_id }).as_object().unwrap().clone();
@@ -269,7 +269,7 @@ async fn test_update_feed_dedup_when_in_flight() {
                 .execute(db.pool())
                 .await
                 .expect("mark in-flight");
-            let sess = make_sess(uid as i64);
+            let sess = make_sess(uid);
 
             let body: Map<String, Value> =
                 json!({ "feed_id": feed_id }).as_object().unwrap().clone();

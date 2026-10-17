@@ -8,6 +8,7 @@
 //!   hash verify (with algo upgrade). The OTP challenge and failure
 //!   message are communicated via `HostCtx` side-channels
 //!   (`otp_challenge`, `login_error`).
+//!
 //! The core auth logic lives in [`crate::auth`] (the `UserHelper` port);
 //! this plugin wraps it in the `Plugin::authenticate` contract.
 //!

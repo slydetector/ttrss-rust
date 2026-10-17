@@ -86,7 +86,7 @@ pub async fn session_ctx(state: &AppState, sess: &Sess) -> HostCtx {
     let self_url = sess.self_url();
     let data = sess.data();
     let uid_i64 = data.uid().unwrap_or(0);
-    let uid = Some(uid_i64 as i32);
+    let uid = Some(uid_i64);
     let profile = data.profile().map(|p| p as i32);
     let access = data.access_level().unwrap_or(0) as i32;
     let system: Vec<String> = state
@@ -137,7 +137,7 @@ pub async fn owner_ctx(state: &AppState, owner_uid: i32, self_url: &str) -> Host
         .map(|s| s.trim().to_lowercase())
         .filter(|s| !s.is_empty())
         .collect();
-    let pref_rows = crate::prefs::load_rows(&state.db, owner_uid as i64, None).await;
+    let pref_rows = crate::prefs::load_rows(&state.db, owner_uid, None).await;
     let enabled = crate::prefs::resolve(crate::prefs::_ENABLED_PLUGINS, &pref_rows, None)
         .as_str()
         .to_string();
@@ -175,7 +175,7 @@ pub(crate) async fn owner_ctx_from(
     self_url: &str,
     owner_uid: i32,
 ) -> HostCtx {
-    let pref_rows = crate::prefs::load_rows_pool(&pool, owner_uid as i64, None).await;
+    let pref_rows = crate::prefs::load_rows_pool(&pool, owner_uid, None).await;
     let enabled = crate::prefs::resolve(crate::prefs::_ENABLED_PLUGINS, &pref_rows, None)
         .as_str()
         .to_string();

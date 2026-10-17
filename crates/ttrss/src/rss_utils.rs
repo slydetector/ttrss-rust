@@ -65,7 +65,7 @@ pub fn gzip_decode(data: &[u8]) -> anyhow::Result<Vec<u8>> {
 /// A user label (`Article::_get_labels()` shape: `[feed_id, caption, fg, bg]`).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Label {
-    pub feed_id: i64,
+    pub feed_id: i32,
     pub caption: String,
     pub fg_color: String,
     pub bg_color: String,
@@ -491,7 +491,7 @@ mod tests {
     // Shared test fixtures
     // ------------------------------------------------------------------------
 
-    fn make_label(feed_id: i64, caption: &str) -> Label {
+    fn make_label(feed_id: i32, caption: &str) -> Label {
         Label {
             feed_id,
             caption: caption.into(),

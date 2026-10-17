@@ -6,7 +6,7 @@ Working agreements for **ttrss** (a Rust re-implementation of the Tiny Tiny RSS 
 
 - **The PHP reference is the spec.** Assume the port is wrong — check `tt-rss/` before treating the port as canonical. Deliberate deviations are fine (better fit, more modern, strategic); surface them.
 - **Verify APIs against the toolchain, not memory.** Future-dated Rust (`rustc 1.98.0`); `std`/crate APIs may differ from training data. Grep the vendored source: crates under `~/.cargo/registry/src/index.crates.io-*/<crate>-<version>/`, `std` under `$(rustc --print sysroot)/lib/rustlib/src/rust/`. Use the `Cargo.lock` version.
-- **sqlx decodes strictly.** INT4 columns → `i32` (widen at the boundary); `COUNT(*)` → `i64`. Never `query_scalar::<_, i64>` an INT4 column. Keep `statement_cache_capacity(0)` in `make_db`/`Db::connect_url`.
+- **sqlx decodes strictly.** INT4 → `i32`, `COUNT(*)` → `i64`. IDs are i32 end to end; i64 only at the JSON/session edge. Keep `statement_cache_capacity(0)` in `make_db`/`Db::connect_url`.
 - **Keep dependency versions current.** No pinned majors: bump to the latest stable when doing dep work, and surface major bumps (API churn, re-baselined expectations) as decisions. Docker is acceptable.
 - **No absolute paths in the repo.** Resolve from the script's location (`$(dirname "$0")/…`) or the CWD.
 
@@ -17,11 +17,11 @@ Working agreements for **ttrss** (a Rust re-implementation of the Tiny Tiny RSS 
 - **Root cause, no whack-a-mole.**
 - **i18n helpers: import bare, no space before the paren.** `use crate::i18n::__;` then `__("…")`. No qualified `crate::i18n::__ (…)` form, no `f (x)` space. The pipeline mangles `__` in *display* (and str_replace can rewrite it) — build/replace via Python `chr(95)*2`, verify by bytes.
 - **Prefer iterative over recursive.** Explicit `Vec` work stack; recursion only for trivial constant-bounded cases.
-- **Write in small, verifiable blocks.** One function/test at a time; `cargo check`/`cargo test` between steps.
-- **`make fmt` before committing; never `cargo fmt` with file args** (loses edition → tree-wide churn).
+- **Write in small, verifiable blocks.** One function/test at a time; `cargo check`/`cargo nextest run` between steps.
+- **`make fmt` and `make clippy` (zero warnings) before committing; never `cargo fmt` with file args** (loses edition → tree-wide churn).
 - **Run expensive commands once.** `tee` the output; grep it for follow-ups.
-- **`cargo test --lib` for unit tests; never bare `cargo test`** (compiles ~50 integration binaries, ~5 min). `--test <name>` for one integration test.
-- **Keep the workspace green:** `cargo test` passes and the tree is clean before committing.
+- **Run tests with `cargo nextest run`** (never bare `cargo test` — compiles ~50 integration binaries, ~5 min). `-p ttrss` for one crate; `-E 'test(...)'` to filter. Fall back to `cargo test` only when nextest can't express the target (e.g. `--doc`).
+- **Keep the workspace green:** `cargo nextest run` passes and the tree is clean before committing.
 - **Address processes by PID, not by name.** No `pkill`/`killall` — patterns match the invoking shell itself.
 - **Don't delete outside the working directory without permission.** The repo and your own `/tmp` files are fine.
 - **Mark incomplete work:** `// TODO(scope): …` plus a `tracing::warn!` of the same text. No placeholders that look done.

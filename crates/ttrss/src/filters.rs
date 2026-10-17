@@ -16,12 +16,12 @@ use crate::util;
 use crate::util::htmlspecialchars;
 
 // `Pref_Filters` action / type constants.
-const ACTION_TAG: i64 = 4;
-const ACTION_SCORE: i64 = 6;
-const ACTION_LABEL: i64 = 7;
-const ACTION_PLUGIN: i64 = 9;
-const ACTION_REMOVE_TAG: i64 = 10;
-const PARAM_ACTIONS: [i64; 5] = [
+const ACTION_TAG: i32 = 4;
+const ACTION_SCORE: i32 = 6;
+const ACTION_LABEL: i32 = 7;
+const ACTION_PLUGIN: i32 = 9;
+const ACTION_REMOVE_TAG: i32 = 10;
+const PARAM_ACTIONS: [i32; 5] = [
     ACTION_TAG,
     ACTION_SCORE,
     ACTION_LABEL,
@@ -31,7 +31,7 @@ const PARAM_ACTIONS: [i64; 5] = [
 const MAX_ACTIONS_TO_DISPLAY: usize = 3;
 
 /// `Pref_Filters::$filter_actions` (action_id → description).
-fn action_description(action_id: i64) -> Option<String> {
+fn action_description(action_id: i32) -> Option<String> {
     Some(match action_id {
         1 => __("Delete article"),
         2 => __("Mark as read"),
@@ -61,7 +61,7 @@ fn filter_type_description(t: i64) -> Option<String> {
 }
 
 /// `Pref_Filters::_get_action_name`.
-fn action_name(action_id: i64, action_param: &str) -> String {
+fn action_name(action_id: i32, action_param: &str) -> String {
     let base = match action_description(action_id) {
         Some(d) => d,
         None => t_sprintf("Unknown action: %d", &[&action_id.to_string()]),
@@ -79,7 +79,7 @@ fn action_name(action_id: i64, action_param: &str) -> String {
 /// `html_format` wraps the parts in the `filterRule`/`field`/`feed` spans.
 async fn get_rule_name(
     pool: &sqlx::PgPool,
-    uid: i64,
+    uid: i32,
     rule: &Map<String, Value>,
     html_format: bool,
 ) -> String {
@@ -92,11 +92,13 @@ async fn get_rule_name(
     for feed_id in &feeds_vec {
         let s = util::scalar_str(feed_id).unwrap_or_default();
         if let Some(cat) = s.strip_prefix("CAT:") {
-            feeds_fmt.push(crate::feeds::category_title(pool, util::php_int_cast(cat), uid).await);
+            feeds_fmt.push(
+                crate::feeds::category_title(pool, util::php_int_cast(cat) as i32, uid).await,
+            );
         } else {
             let fid = util::php_int_cast(&s);
             feeds_fmt.push(if fid != 0 {
-                crate::feeds::feed_title(pool, fid, uid).await
+                crate::feeds::feed_title(pool, fid as i32, uid).await
             } else {
                 __("All feeds")
             });
@@ -165,7 +167,7 @@ async fn filter_details(pool: &sqlx::PgPool, id: i32) -> (String, String) {
     parts.push(t_nsprintf(
         "%s (%d rule)",
         "%s (%d rules)",
-        num_rules,
+        num_rules as i32,
         &[&title, &num_rules.to_string()],
     ));
     if match_any {
@@ -190,7 +192,7 @@ async fn filter_details(pool: &sqlx::PgPool, id: i32) -> (String, String) {
     let mut summary: Vec<String> = Vec::new();
     let mut cumulative_score: i64 = 0;
     for a in &actions {
-        let action_id: i64 = a.get::<i32, _>(0) as i64;
+        let action_id: i32 = a.get::<i32, _>(0);
         let action_param: String = a.get(1);
         if action_id == ACTION_SCORE {
             cumulative_score += action_param.parse::<i64>().unwrap_or(0);
@@ -218,7 +220,7 @@ async fn filter_details(pool: &sqlx::PgPool, id: i32) -> (String, String) {
             t_nsprintf(
                 "(+%d action)",
                 "(+%d actions)",
-                not_shown as i64,
+                not_shown as i32,
                 &[&not_shown.to_string()],
             )
         ));
@@ -229,7 +231,7 @@ async fn filter_details(pool: &sqlx::PgPool, id: i32) -> (String, String) {
 
 /// `Pref_Filters::_get_rules_list` — the `<li class='...'>...on ...in ...</li>`
 /// string for a filter's rules (ordered by reg_exp, id).
-async fn rules_list(pool: &sqlx::PgPool, filter_id: i32, uid: i64) -> String {
+async fn rules_list(pool: &sqlx::PgPool, filter_id: i32, uid: i32) -> String {
     let rules = sqlx::query(
         "SELECT reg_exp, filter_type, feed_id, cat_filter, cat_id, match_on, inverse \
          FROM ttrss_filters2_rules WHERE filter_id = $1 ORDER BY reg_exp, id",
@@ -243,9 +245,9 @@ async fn rules_list(pool: &sqlx::PgPool, filter_id: i32, uid: i64) -> String {
     for r in &rules {
         let reg_exp: String = r.get::<String, _>(0);
         let filter_type: i64 = r.get::<i32, _>(1) as i64;
-        let feed_id: Option<i64> = r.get::<Option<i32>, _>(2).map(|v| v as i64);
+        let feed_id: Option<i32> = r.get::<Option<i32>, _>(2);
         let cat_filter: bool = r.get::<bool, _>(3);
-        let cat_id: Option<i64> = r.get::<Option<i32>, _>(4).map(|v| v as i64);
+        let cat_id: Option<i32> = r.get::<Option<i32>, _>(4);
         let match_on: Option<String> = r.get::<Option<String>, _>(5);
         let inverse: bool = r.get::<bool, _>(6);
 
@@ -278,10 +280,10 @@ async fn rules_list(pool: &sqlx::PgPool, filter_id: i32, uid: i64) -> String {
 /// category / feed, else "All feeds".
 async fn rule_where(
     pool: &sqlx::PgPool,
-    uid: i64,
-    feed_id: Option<i64>,
+    uid: i32,
+    feed_id: Option<i32>,
     cat_filter: bool,
-    cat_id: Option<i64>,
+    cat_id: Option<i32>,
     match_on: Option<&str>,
 ) -> String {
     if let Some(mo) = match_on {
@@ -538,7 +540,7 @@ pub async fn edit(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> 
             );
             action.insert(
                 "name".into(),
-                Value::String(action_name(action_id as i64, &action_param)),
+                Value::String(action_name(action_id, &action_param)),
             );
             actions.push(Value::Object(action));
         }
@@ -599,7 +601,7 @@ pub async fn print_action_name(
     };
     match val.as_object() {
         Some(action) => {
-            let action_id = util::clean_int(action.get("action_id"));
+            let action_id: i32 = util::clean_int(action.get("action_id")) as i32;
             let action_param = action
                 .get("action_param")
                 .and_then(Value::as_str)
@@ -622,7 +624,7 @@ pub async fn print_action_name(
 /// subtree, then the category's own feeds.
 async fn feed_multi_select(
     pool: &sqlx::PgPool,
-    uid: i64,
+    uid: i32,
     id: &str,
     default_ids: &[String],
     attributes: &str,
@@ -1309,7 +1311,7 @@ pub async fn remove_filters(
 ) -> Result<(), sqlx::Error> {
     let uid = sess.data().uid().unwrap_or(0);
     let pool = state.db.pool();
-    let ids = util::param_int_array(extra, "ids");
+    let ids = util::param_id_array(extra, "ids");
     if ids.is_empty() {
         return Ok(());
     }
@@ -1422,7 +1424,7 @@ async fn save_rules_and_actions(
             .and_then(Value::as_str)
             .unwrap_or("")
             .to_string();
-        let action_param = match action_id as i64 {
+        let action_param = match action_id {
             ACTION_LABEL => action_param_label,
             ACTION_SCORE => util::php_int_cast(&action_param.replace('+', "")).to_string(),
             ACTION_TAG | ACTION_REMOVE_TAG => {
@@ -1503,7 +1505,7 @@ async fn clone_rules_and_actions(
 #[allow(clippy::too_many_arguments)]
 async fn do_add(
     tx: &mut sqlx::PgConnection,
-    uid: i64,
+    uid: i32,
     src_filter_id: Option<i32>,
     title: &str,
     enabled: bool,
@@ -1565,7 +1567,7 @@ pub async fn clone_filters(
 ) -> Result<(), sqlx::Error> {
     let uid = sess.data().uid().unwrap_or(0);
     let pool = state.db.pool();
-    let ids = util::param_int_array(extra, "ids");
+    let ids = util::param_id_array(extra, "ids");
     if ids.is_empty() {
         return Ok(());
     }
@@ -1616,7 +1618,7 @@ pub async fn join_filters(
 ) -> Result<(), sqlx::Error> {
     let uid = sess.data().uid().unwrap_or(0);
     let pool = state.db.pool();
-    let ids = util::param_int_array(extra, "ids");
+    let ids = util::param_id_array(extra, "ids");
     if ids.is_empty() {
         return Ok(());
     }
@@ -1661,7 +1663,7 @@ pub async fn join_filters(
 
 /// `Pref_Filters::_optimize` — dedupe a filter's rules and actions: keep the
 /// first occurrence (by id) of each unique row, delete the rest.
-async fn optimize(pool: &sqlx::PgPool, id: i64) -> Result<(), sqlx::Error> {
+async fn optimize(pool: &sqlx::PgPool, id: i32) -> Result<(), sqlx::Error> {
     use std::collections::HashSet;
     /// The rule dedupe signature (all non-id columns).
     type RuleSig = (

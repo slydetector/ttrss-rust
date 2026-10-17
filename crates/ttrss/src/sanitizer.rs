@@ -25,8 +25,8 @@ use crate::with_trailing_slash;
 
 type NodeRef<'a> = ego_tree::NodeRef<'a, Node>;
 
-/// The sanitizer's traversal stacks carry node ids (no borrows of the tree
-/// outlive a read), so `&mut Tree` mutations interleave freely.
+// The sanitizer's traversal stacks carry node ids (no borrows of the tree
+// outlive a read), so `&mut Tree` mutations interleave freely.
 
 const HTML_NS: &str = "http://www.w3.org/1999/xhtml";
 
@@ -659,11 +659,11 @@ fn rewrite_single_element(
         if name == "source" {
             // replace the parent (picture) with the <p>
             let picture_id = tree.get(node_id).and_then(|n| n.parent()).map(|p| p.id());
-            if let Some(picture_id) = picture_id {
-                if let Some(mut picture) = tree.get_mut(picture_id) {
-                    picture.insert_id_before(p_id);
-                    picture.detach();
-                }
+            if let Some(picture_id) = picture_id
+                && let Some(mut picture) = tree.get_mut(picture_id)
+            {
+                picture.insert_id_before(p_id);
+                picture.detach();
             }
         } else {
             if let Some(mut n) = tree.get_mut(node_id) {
@@ -739,7 +739,7 @@ fn collect_iframe_srcs(input: &str) -> Vec<String> {
     let Some(body) = find_body(&doc) else {
         return Vec::new();
     };
-    let mut stack = vec![body.clone()];
+    let mut stack = vec![body];
     let mut out = Vec::new();
     while let Some(node) = stack.pop() {
         if let Some(el) = node.value().as_element()
@@ -1622,7 +1622,7 @@ pub(crate) fn serialize_for_tests(node: &NodeRef<'_>, out: &mut String) {
 /// Serialize a node (and descendants) to HTML, iteratively (heap stack).
 /// Exposed for `diskcache::rewrite_urls` (same re-serialization path).
 pub(crate) fn serialize_node(node: &NodeRef<'_>, out: &mut String) {
-    let mut stack: Vec<SerItem<'_>> = vec![SerItem::Visit(node.clone())];
+    let mut stack: Vec<SerItem<'_>> = vec![SerItem::Visit(*node)];
     while let Some(item) = stack.pop() {
         match item {
             SerItem::Close(name) => {

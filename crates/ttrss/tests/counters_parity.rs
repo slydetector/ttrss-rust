@@ -27,7 +27,7 @@ use ttrss::counters::{self, FeedOrTag};
 use ttrss::session::Sess;
 
 /// `DbTestCase::setUp`: `$_SESSION["uid"] = 1`.
-const SESSION_UID: i64 = 1;
+const SESSION_UID: i32 = 1;
 
 /// The per-process test cache dir (see `Config::for_test`). No icons for
 /// these tests' feeds: `_has_icon` is a per-feed-id file check and the
@@ -49,12 +49,11 @@ async fn setup(url: &str) -> Db {
 }
 
 /// Seed label ids for owner 1 (ttrss_labels2: 1 'test-label-1', 2 'test-label-2').
-async fn seed_label_ids(db: &Db) -> Vec<i64> {
-    let rows = sqlx::query_scalar::<_, i32>("SELECT id FROM ttrss_labels2 WHERE owner_uid = 1")
+async fn seed_label_ids(db: &Db) -> Vec<i32> {
+    sqlx::query_scalar::<_, i32>("SELECT id FROM ttrss_labels2 WHERE owner_uid = 1")
         .fetch_all(db.pool())
         .await
-        .expect("label ids");
-    rows.into_iter().map(|i| i as i64).collect()
+        .expect("label ids")
 }
 
 /// PHP test filter: an entry with a positive int id plus feed-only keys.
@@ -581,7 +580,7 @@ async fn test_get_counters_label_id() {
         .expect("assign label");
 
     // Get the negative label reference ID
-    let label_ref = ttrss::labels::label_to_feed_id(label_id as i64);
+    let label_ref = ttrss::labels::label_to_feed_id(label_id);
 
     // Count unread articles with this label
     assert_eq!(
@@ -705,7 +704,7 @@ async fn test_get_counters_sum_per_feed() {
             let db = setup(&url).await;
             // Sum of individual feed counts should equal FEED_ALL total
             let mut total = 0;
-            for i in 1..=4i64 {
+            for i in 1..=4i32 {
                 total += counters::get_counters(
                     &db,
                     SESSION_UID,
@@ -720,7 +719,7 @@ async fn test_get_counters_sum_per_feed() {
 
             // Unread sum
             let mut unread_total = 0;
-            for i in 1..=4i64 {
+            for i in 1..=4i32 {
                 unread_total +=
                     counters::get_counters(&db, SESSION_UID, FeedOrTag::Feed(i), false, true, None)
                         .await;
@@ -914,7 +913,7 @@ async fn test_counters_get_conditional_feed_ids_category_rows() {
                 "expected labels + Technology + uncategorized, got: {cat_entries:?}"
             );
             assert!(
-                by_id.contains_key(&ttrss::cats::CAT_LABELS),
+                by_id.contains_key(&(ttrss::cats::CAT_LABELS as i64)),
                 "Labels category entry missing: {result:?}"
             );
 
@@ -1295,7 +1294,10 @@ async fn test_get_all_counters_handler_feed_ids_array() {
             // Categories of feeds 1-2: Labels + Technology (feeds 1-3: 6 unread) +
             // uncategorized (0) — not Science & Nature (feed 4).
             let cats = cat_entries(c);
-            let mut cat_ids: Vec<i64> = cats.iter().map(|v| v["id"].as_i64().unwrap()).collect();
+            let mut cat_ids: Vec<i32> = cats
+                .iter()
+                .map(|v| v["id"].as_i64().unwrap() as i32)
+                .collect();
             cat_ids.sort_unstable();
             assert_eq!(
                 vec![ttrss::cats::CAT_LABELS, 0, 1],
@@ -1327,9 +1329,9 @@ async fn test_get_all_counters_handler_no_counts_returns_all() {
             assert_eq!(v["seq"], json!(3));
             let c = v["counters"].as_array().expect("counters array");
             assert_eq!(vec![1, 2, 3, 4], feed_ids_in(c), "all seeded feeds");
-            let mut cat_ids: Vec<i64> = cat_entries(c)
+            let mut cat_ids: Vec<i32> = cat_entries(c)
                 .iter()
-                .map(|v| v["id"].as_i64().unwrap())
+                .map(|v| v["id"].as_i64().unwrap() as i32)
                 .collect();
             cat_ids.sort_unstable();
             assert_eq!(
@@ -1395,9 +1397,9 @@ async fn test_get_all_counters_handler_disable_conditional() {
                 feed_ids_in(c),
                 "pref gate → get_all() ignores the feed filter"
             );
-            let mut cat_ids: Vec<i64> = cat_entries(c)
+            let mut cat_ids: Vec<i32> = cat_entries(c)
                 .iter()
-                .map(|v| v["id"].as_i64().unwrap())
+                .map(|v| v["id"].as_i64().unwrap() as i32)
                 .collect();
             cat_ids.sort_unstable();
             assert_eq!(
@@ -1431,7 +1433,7 @@ async fn test_get_all_counters_handler_label_ids_subset() {
             assert_eq!(1, labels.len(), "only the requested label: {c:?}");
             assert_eq!(
                 ttrss::labels::label_to_feed_id(1),
-                labels[0]["id"].as_i64().unwrap()
+                labels[0]["id"].as_i64().unwrap() as i32
             );
             Ok(())
         })

@@ -1268,14 +1268,12 @@ async fn test_dispatch_case_insensitive() {
 fn feed_ids(node: &Value, out: &mut Vec<i64>) {
     let mut stack = vec![node];
     while let Some(n) = stack.pop() {
-        if let Some(id) = n.get("id").and_then(Value::as_str) {
-            if let Some(n) = id.strip_prefix("FEED:") {
-                if let Some(v) = n.parse::<i64>().ok() {
-                    if v > 0 {
-                        out.push(v);
-                    }
-                }
-            }
+        if let Some(id) = n.get("id").and_then(Value::as_str)
+            && let Some(n) = id.strip_prefix("FEED:")
+            && let Ok(v) = n.parse::<i64>()
+            && v > 0
+        {
+            out.push(v);
         }
         if let Some(items) = n.get("items").and_then(Value::as_array) {
             stack.extend(items.iter());
@@ -1286,7 +1284,7 @@ fn feed_ids(node: &Value, out: &mut Vec<i64>) {
 /// `getfeedtree` (mode 2) with an optional `search` term → the sorted
 /// deduped feed ids in the reply.
 async fn fetch_ids(url: &str, search: Option<&str>) -> Vec<i64> {
-    let (state, sess) = setup_from_url(&url).await;
+    let (state, sess) = setup_from_url(url).await;
     let mut req: Vec<(&str, Value)> = vec![("mode", json!("2"))];
     if let Some(s) = search {
         req.push(("search", json!(s)));

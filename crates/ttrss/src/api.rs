@@ -36,7 +36,7 @@ use crate::prefs;
 use crate::sanitizer;
 use crate::session::{self, Sess};
 use crate::util::{
-    clean_int, clean_str, param_int_array, param_to_bool, php_int_cast, strip_tags, truncate_string,
+    clean_int, clean_str, param_id_array, param_to_bool, php_int_cast, strip_tags, truncate_string,
 };
 
 const API_LEVEL: i64 = 23;
@@ -263,7 +263,7 @@ async fn login(state: &AppState, sess: &Sess, body: &Map<String, Value>) -> (i64
     }
 
     // `Prefs::get(Prefs::ENABLE_API_ACCESS, $uid)` (profile-blacklisted → default).
-    let rows = prefs::load_rows(&state.db, uid as i64, None).await;
+    let rows = prefs::load_rows(&state.db, uid, None).await;
     if !prefs::resolve("ENABLE_API_ACCESS", &rows, None).as_bool() {
         return (STATUS_ERR, json!({ "error": E_API_DISABLED }));
     }
@@ -305,7 +305,7 @@ async fn login(state: &AppState, sess: &Sess, body: &Map<String, Value>) -> (i64
         STATUS_OK,
         json!({
             "session_id": new_id,
-            "config": get_config(state, Some(uid as i64), &self_url).await,
+            "config": get_config(state, Some(uid), &self_url).await,
             "api_level": API_LEVEL,
         }),
     )
@@ -364,7 +364,7 @@ async fn verify_app_password(pool: &sqlx::PgPool, login: &str, password: &str) -
 }
 
 /// `API::_get_config` (+ `getConfig`).
-async fn get_config(state: &AppState, uid: Option<i64>, self_url: &str) -> Value {
+async fn get_config(state: &AppState, uid: Option<i32>, self_url: &str) -> Value {
     let uid = uid.unwrap_or(0);
     let pool = state.db.pool();
     let num_feeds =
@@ -376,7 +376,7 @@ async fn get_config(state: &AppState, uid: Option<i64>, self_url: &str) -> Value
     // `_get_custom_sort_types` (API.php:921-930): each hook's map
     // (sort_value → sort_title) is merged into the result — an object,
     // empty when no plugin contributes (PHP: `$ret = []` → `{}`).
-    let mut pctx = crate::pluginhost::dispatch::owner_ctx(state, uid as i32, self_url).await;
+    let mut pctx = crate::pluginhost::dispatch::owner_ctx(state, uid, self_url).await;
     let mut sort_types = Map::new();
     pctx.run_hooks_callback::<Value, _, _>(
         crate::pluginhost::HOOK_HEADLINES_CUSTOM_SORT_MAP,
@@ -411,7 +411,7 @@ async fn get_config(state: &AppState, uid: Option<i64>, self_url: &str) -> Value
 // ── Counters / unread ───────────────────────────────────────────────────────
 
 /// `API::getUnread` — global unread, or a feed/category counter.
-async fn get_unread(state: &AppState, uid: Option<i64>, body: &Map<String, Value>) -> (i64, Value) {
+async fn get_unread(state: &AppState, uid: Option<i32>, body: &Map<String, Value>) -> (i64, Value) {
     let uid = uid.unwrap_or(0);
     let pool = state.db.pool();
     let feed_id = clean_str(body.get("feed_id").and_then(Value::as_str).unwrap_or(""));
@@ -425,7 +425,7 @@ async fn get_unread(state: &AppState, uid: Option<i64>, body: &Map<String, Value
         counters::get_counters(
             &state.db,
             uid,
-            counters::FeedOrTag::Feed(php_int_cast(&feed_id)),
+            counters::FeedOrTag::Feed(php_int_cast(&feed_id) as i32),
             is_cat,
             true,
             None,
@@ -437,7 +437,7 @@ async fn get_unread(state: &AppState, uid: Option<i64>, body: &Map<String, Value
 }
 
 /// `Feeds::_get_global_unread`.
-async fn global_unread(pool: &sqlx::PgPool, uid: i64) -> i64 {
+async fn global_unread(pool: &sqlx::PgPool, uid: i32) -> i64 {
     sqlx::query_scalar::<_, i64>(
         "SELECT COALESCE(SUM(CASE WHEN unread THEN 1 ELSE 0 END), 0)
          FROM ttrss_user_entries WHERE owner_uid = $1",
@@ -537,10 +537,10 @@ fn detect_image_mime(bytes: &[u8]) -> &'static str {
 /// feeds, child categories (when `include_nested`), then real feeds — each
 /// block gated by `unread_only`. The exact per-entry shapes are what the
 /// Android client parses.
-async fn get_feeds(state: &AppState, uid: Option<i64>, body: &Map<String, Value>) -> (i64, Value) {
+async fn get_feeds(state: &AppState, uid: Option<i32>, body: &Map<String, Value>) -> (i64, Value) {
     let uid = uid.unwrap_or(0);
     let pool = state.db.pool();
-    let cat_id = clean_int(body.get("cat_id"));
+    let cat_id: i32 = clean_int(body.get("cat_id")) as i32;
     let unread_only = param_to_bool(body.get("unread_only"));
     let limit = clean_int(body.get("limit"));
     let offset = clean_int(body.get("offset"));
@@ -605,7 +605,7 @@ async fn get_feeds(state: &AppState, uid: Option<i64>, body: &Map<String, Value>
              WHERE parent_cat = $1 AND owner_uid = $2 \
              ORDER BY order_id ASC, title ASC",
         )
-        .bind(cat_id as i32)
+        .bind(cat_id)
         .bind(uid)
         .fetch_all(pool)
         .await
@@ -615,13 +615,13 @@ async fn get_feeds(state: &AppState, uid: Option<i64>, body: &Map<String, Value>
             let unread = counters::get_counters(
                 &state.db,
                 uid,
-                counters::FeedOrTag::Feed(cid as i64),
+                counters::FeedOrTag::Feed(cid),
                 true,
                 true,
                 None,
             )
             .await
-                + counters::cat_children_unread(pool, uid, cid as i64).await;
+                + counters::cat_children_unread(pool, uid, cid).await;
             if unread != 0 || !unread_only {
                 feeds.push(json!({
                     "id": cid,
@@ -658,7 +658,7 @@ async fn get_feeds(state: &AppState, uid: Option<i64>, body: &Map<String, Value>
     let mut query = sqlx::query(AssertSqlSafe(q));
     query = query.bind(uid);
     if !no_cat_filter {
-        query = query.bind(cat_id as i32);
+        query = query.bind(cat_id);
     }
     let rows = query.fetch_all(pool).await.unwrap_or_default();
     for r in &rows {
@@ -666,7 +666,7 @@ async fn get_feeds(state: &AppState, uid: Option<i64>, body: &Map<String, Value>
         let unread = counters::get_counters(
             &state.db,
             uid,
-            counters::FeedOrTag::Feed(feed_id as i64),
+            counters::FeedOrTag::Feed(feed_id),
             false,
             true,
             None,
@@ -696,7 +696,7 @@ async fn get_feeds(state: &AppState, uid: Option<i64>, body: &Map<String, Value>
 
 async fn get_categories(
     state: &AppState,
-    uid: Option<i64>,
+    uid: Option<i32>,
     body: &Map<String, Value>,
 ) -> (i64, Value) {
     let uid = uid.unwrap_or(0);
@@ -731,7 +731,7 @@ async fn get_categories(
             let mut unread = counters::get_counters(
                 &state.db,
                 uid,
-                counters::FeedOrTag::Feed(id as i64),
+                counters::FeedOrTag::Feed(id),
                 true,
                 true,
                 None,
@@ -740,7 +740,7 @@ async fn get_categories(
             // The base counter only covers this category's direct feeds;
             // `enable_nested` folds in every descendant's (recursive).
             if enable_nested {
-                unread += counters::cat_children_unread(pool, uid, id as i64).await;
+                unread += counters::cat_children_unread(pool, uid, id).await;
             }
             if unread != 0 || !unread_only {
                 cats.push(json!({
@@ -775,7 +775,7 @@ async fn get_categories(
     (STATUS_OK, Value::Array(cats))
 }
 
-fn cat_title(cat_id: i64) -> String {
+fn cat_title(cat_id: i32) -> String {
     match cat_id {
         CAT_UNCATEGORIZED => __("Uncategorized"),
         CAT_SPECIAL => __("Special"),
@@ -787,7 +787,7 @@ fn cat_title(cat_id: i64) -> String {
 /// `API::_is_cat_empty` — the PHP only ever answers `true` for LABELS (no
 /// labels owned) and UNCATEGORIZED (no uncategorized feeds); every other id
 /// (incl. SPECIAL) is "never empty".
-async fn cat_empty(pool: &sqlx::PgPool, uid: i64, cat_id: i64) -> bool {
+async fn cat_empty(pool: &sqlx::PgPool, uid: i32, cat_id: i32) -> bool {
     if cat_id == CAT_LABELS {
         sqlx::query_scalar::<_, i64>("SELECT COUNT(id) FROM ttrss_labels2 WHERE owner_uid = $1")
             .bind(uid)
@@ -819,12 +819,12 @@ async fn get_feed_tree(state: &AppState, sess: &Sess, body: &Map<String, Value>)
     (STATUS_OK, json!({ "categories": tree }))
 }
 
-async fn get_labels(state: &AppState, uid: Option<i64>, body: &Map<String, Value>) -> (i64, Value) {
+async fn get_labels(state: &AppState, uid: Option<i32>, body: &Map<String, Value>) -> (i64, Value) {
     let uid = uid.unwrap_or(0);
     let pool = state.db.pool();
     // `Article::_get_labels` for the requested article (none in the corpus → all
     // `checked` false).
-    let article_id = clean_int(body.get("article_id"));
+    let article_id: i32 = clean_int(body.get("article_id")) as i32;
     let article_labels: Vec<Value> = if article_id > 0 {
         article::get_labels(pool, uid, article_id, None).await
     } else {
@@ -838,11 +838,11 @@ async fn get_labels(state: &AppState, uid: Option<i64>, body: &Map<String, Value
             let checked = article_labels.iter().any(|al| {
                 al.get(0)
                     .and_then(Value::as_i64)
-                    .map(|f| labels::feed_to_label_id(f) == lid)
+                    .map(|f| labels::feed_to_label_id(f as i32) == lid as i32)
                     .unwrap_or(false)
             });
             Map::from_iter([
-                ("id".into(), json!(labels::label_to_feed_id(lid))),
+                ("id".into(), json!(labels::label_to_feed_id(lid as i32))),
                 (
                     "caption".into(),
                     l.get("caption").cloned().unwrap_or_default(),
@@ -937,13 +937,13 @@ async fn get_headlines(
         view_mode,
         cat_view: is_cat,
         offset,
-        since_id,
+        since_id: since_id as i32,
         owner_uid: uid,
         override_order,
         include_children: include_nested,
         skip_first_id_check,
         search,
-        check_first_id,
+        check_first_id: check_first_id as i32,
         ..Default::default()
     };
 
@@ -1068,7 +1068,7 @@ const H_SCORE_VF: usize = 29;
 async fn api_headline_row(
     r: &sqlx::postgres::PgRow,
     feed_title: &str,
-    uid: i64,
+    uid: i32,
     is_cat: bool,
     is_vfeed: bool,
     show_excerpt: bool,
@@ -1191,7 +1191,7 @@ async fn api_headline_row(
         }
     }
 
-    let labels = api_labels(&label_cache, pool, uid, id as i64).await;
+    let labels = api_labels(&label_cache, pool, uid, id).await;
     m.insert("labels".into(), labels);
 
     let feed_title_out = if has_line_feed_title {
@@ -1259,7 +1259,7 @@ async fn api_headline_row(
 
 /// `API` label resolution: decode `label_cache` (array of `[id, caption, fg, bg]`),
 /// falling back to `Article::_get_labels`; `no-labels` → `[]`.
-async fn api_labels(label_cache: &str, pool: &sqlx::PgPool, uid: i64, id: i64) -> Value {
+async fn api_labels(label_cache: &str, pool: &sqlx::PgPool, uid: i32, id: i32) -> Value {
     let cache = label_cache.trim();
     if cache.is_empty() {
         // Empty cache: the hard way (`Article::_get_labels` → ttrss_user_labels2).
@@ -1281,7 +1281,7 @@ async fn api_labels(label_cache: &str, pool: &sqlx::PgPool, uid: i64, id: i64) -
 async fn get_article(
     state: &AppState,
     sess: &Sess,
-    uid: Option<i64>,
+    uid: Option<i32>,
     body: &Map<String, Value>,
 ) -> (i64, Value) {
     let uid = uid.unwrap_or(0);
@@ -1357,7 +1357,7 @@ async fn get_article(
         m.insert("link".into(), Value::from(r.get::<String, _>(3)));
         m.insert(
             "labels".into(),
-            article::get_labels(pool, uid, id as i64, None).await.into(),
+            article::get_labels(pool, uid, id, None).await.into(),
         );
         let unread: bool = r.get(10);
         let marked: bool = r.get(9);
@@ -1516,7 +1516,7 @@ pub async fn unsubscribe_feed(
     .await
     .unwrap_or(0);
     if exists > 0 {
-        crate::feeds::remove_feed(state, feed_id, uid, &sess.self_url()).await;
+        crate::feeds::remove_feed(state, feed_id as i32, uid, &sess.self_url()).await;
         (STATUS_OK, json!({ "status": "OK" }))
     } else {
         (STATUS_ERR, json!({ "error": E_OPERATION_FAILED }))
@@ -1611,7 +1611,7 @@ pub async fn update_article(
 ) -> (i64, Value) {
     let uid = sess.data().uid().unwrap_or(0);
     let pool = state.db.pool();
-    let article_ids = param_int_array(body, "article_ids");
+    let article_ids = param_id_array(body, "article_ids");
     if article_ids.is_empty() {
         return (STATUS_ERR, json!({ "error": E_INCORRECT_USAGE }));
     }
@@ -1734,15 +1734,11 @@ pub async fn set_article_label(
 ) -> (i64, Value) {
     let uid = sess.data().uid().unwrap_or(0);
     let pool = state.db.pool();
-    let article_ids = param_int_array(body, "article_ids");
+    let article_ids = param_id_array(body, "article_ids");
     let label_id = clean_int(body.get("label_id")) as i32;
     let assign = param_to_bool(body.get("assign"));
-    let label = crate::labels::find_caption(
-        pool,
-        crate::labels::feed_to_label_id(label_id as i64) as i32,
-        uid,
-    )
-    .await;
+    let label =
+        crate::labels::find_caption(pool, crate::labels::feed_to_label_id(label_id), uid).await;
     let mut num_updated = 0i64;
     if !label.is_empty() {
         for &id in &article_ids {
@@ -1774,7 +1770,7 @@ pub async fn share_to_published(
     } else {
         content_raw.to_string()
     };
-    let pctx = crate::pluginhost::dispatch::owner_ctx(state, uid as i32, &sess.self_url()).await;
+    let pctx = crate::pluginhost::dispatch::owner_ctx(state, uid, &sess.self_url()).await;
     let ok = crate::article::create_published_article(
         state.db.pool(),
         &title,

@@ -64,12 +64,12 @@ fn ids(content: &Value) -> Vec<i64> {
         .collect()
 }
 
-fn unread_of(content: &Value, id: i64) -> i64 {
+fn unread_of(content: &Value, id: i32) -> i64 {
     content
         .as_array()
         .expect("array")
         .iter()
-        .find(|e| e.get("id").and_then(Value::as_i64) == Some(id))
+        .find(|e| e.get("id").and_then(Value::as_i64) == Some(id as i64))
         .and_then(|e| e.get("unread").and_then(Value::as_i64))
         .expect("entry with unread")
 }

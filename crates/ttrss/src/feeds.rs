@@ -38,12 +38,12 @@ use crate::session::Sess;
 use crate::time::TzCtx;
 
 // `Feeds::*` virtual-feed pseudo-ids (functions.php).
-pub(crate) const FEED_ARCHIVED: i64 = 0;
-pub(crate) const FEED_STARRED: i64 = -1;
-pub(crate) const FEED_PUBLISHED: i64 = -2;
-pub(crate) const FEED_FRESH: i64 = -3;
-pub(crate) const FEED_ALL: i64 = -4;
-pub(crate) const FEED_RECENTLY_READ: i64 = -6;
+pub(crate) const FEED_ARCHIVED: i32 = 0;
+pub(crate) const FEED_STARRED: i32 = -1;
+pub(crate) const FEED_PUBLISHED: i32 = -2;
+pub(crate) const FEED_FRESH: i32 = -3;
+pub(crate) const FEED_ALL: i32 = -4;
+pub(crate) const FEED_RECENTLY_READ: i32 = -6;
 
 /// `clean($_REQUEST['mode'] ?? 0) == 2`.
 fn is_mode_2(extra: &Map<String, Value>) -> bool {
@@ -82,20 +82,20 @@ pub async fn feeds_with_errors(state: &AppState, sess: &Sess) -> Value {
 
 /// A `ttrss_feed_categories` row (ordered by `order_id`, `title`).
 struct CatRow {
-    id: i64,
+    id: i32,
     title: String,
-    parent_cat: Option<i64>,
+    parent_cat: Option<i32>,
 }
 
 /// A `ttrss_feeds` row + its article count (ordered by `order_id`, `title`).
 struct FeedRow {
-    id: i64,
+    id: i32,
     title: String,
     last_error: String,
-    update_interval: i64,
+    update_interval: i32,
     last_updated: Option<String>,
     num_articles: i64,
-    cat_id: Option<i64>,
+    cat_id: Option<i32>,
 }
 
 /// `Pref_Feeds::inactiveFeeds` — the feeds whose latest article is older than
@@ -240,7 +240,7 @@ pub async fn getfeedtree(state: &AppState, sess: &Sess, extra: &Map<String, Valu
                 m
             };
             for r in &labels {
-                let label_id = r.get::<i32, _>(0) as i64;
+                let label_id = r.get::<i32, _>(0);
                 let mut feed = special_feed(
                     pool,
                     uid,
@@ -294,7 +294,7 @@ pub async fn getfeedtree(state: &AppState, sess: &Sess, extra: &Map<String, Valu
             cat.insert("type".into(), json!("category"));
             cat.insert("unread".into(), json!(-1));
             cat.insert("child_unread".into(), json!(-1));
-            cat.insert("param".into(), json!(nfeeds(n)));
+            cat.insert("param".into(), json!(nfeeds(n as i32)));
             if n > 0 || show_empty_cats {
                 root_children += n;
                 root_items.push(Value::Object(cat));
@@ -320,7 +320,7 @@ pub async fn getfeedtree(state: &AppState, sess: &Sess, extra: &Map<String, Valu
             unc.insert("checkbox".into(), json!(false));
             unc.insert("unread".into(), json!(-1));
             unc.insert("child_unread".into(), json!(-1));
-            unc.insert("param".into(), json!(nfeeds(n)));
+            unc.insert("param".into(), json!(nfeeds(n as i32)));
             root_items.push(Value::Object(unc));
         }
     } else {
@@ -339,7 +339,7 @@ pub async fn getfeedtree(state: &AppState, sess: &Sess, extra: &Map<String, Valu
         root.insert("id".into(), json!("root"));
         root.insert("name".into(), json!(__("Feeds")));
         root.insert("items".into(), Value::Array(root_items));
-        root.insert("param".into(), json!(nfeeds(root_children)));
+        root.insert("param".into(), json!(nfeeds(root_children as i32)));
         root.insert("type".into(), json!("category"));
         Value::Array(vec![Value::Object(root)])
     };
@@ -517,7 +517,7 @@ fn feeds_index_env() -> &'static Environment<'static> {
 
 /// `Feeds::_get_cat_title` for the special/uncategorized ids (real category
 /// titles come from the DB rows).
-fn cat_title(cat_id: i64) -> String {
+fn cat_title(cat_id: i32) -> String {
     match cat_id {
         CAT_SPECIAL => __("Special"),
         CAT_LABELS => __("Labels"),
@@ -526,7 +526,7 @@ fn cat_title(cat_id: i64) -> String {
 }
 
 /// A special-feed or label node: `feedlist_init_feed(feed_id)`.
-async fn special_feed(pool: &sqlx::PgPool, uid: i64, feed_id: i64, fresh_max_age: i64) -> Value {
+async fn special_feed(pool: &sqlx::PgPool, uid: i32, feed_id: i32, fresh_max_age: i64) -> Value {
     let unread = counters(pool, uid, feed_id, fresh_max_age).await;
     let mut m = Map::new();
     m.insert("id".into(), json!(format!("FEED:{feed_id}")));
@@ -542,7 +542,7 @@ async fn special_feed(pool: &sqlx::PgPool, uid: i64, feed_id: i64, fresh_max_age
 }
 
 /// `Feeds::_get_title` for the virtual feeds.
-fn special_title(feed_id: i64) -> String {
+fn special_title(feed_id: i32) -> String {
     match feed_id {
         FEED_STARRED => __("Starred articles"),
         FEED_PUBLISHED => __("Published articles"),
@@ -556,7 +556,7 @@ fn special_title(feed_id: i64) -> String {
 
 /// `Feeds::_get_title($id, $owner_uid)` (the non-cat branch): virtual feeds,
 /// labels (with the `Unknown label (n)` fallback) and real feeds.
-pub async fn feed_title(pool: &sqlx::PgPool, id: i64, owner_uid: i64) -> String {
+pub async fn feed_title(pool: &sqlx::PgPool, id: i32, owner_uid: i32) -> String {
     match id {
         FEED_STARRED => __("Starred articles"),
         FEED_PUBLISHED => __("Published articles"),
@@ -569,7 +569,7 @@ pub async fn feed_title(pool: &sqlx::PgPool, id: i64, owner_uid: i64) -> String 
             sqlx::query_scalar::<_, String>(
                 "SELECT caption FROM ttrss_labels2 WHERE id = $1 AND owner_uid = $2 LIMIT 1",
             )
-            .bind(label_id as i32)
+            .bind(label_id)
             .bind(owner_uid)
             .fetch_optional(pool)
             .await
@@ -580,7 +580,7 @@ pub async fn feed_title(pool: &sqlx::PgPool, id: i64, owner_uid: i64) -> String 
         _ if id > 0 => sqlx::query_scalar::<_, String>(
             "SELECT title FROM ttrss_feeds WHERE id = $1 AND owner_uid = $2 LIMIT 1",
         )
-        .bind(id as i32)
+        .bind(id)
         .bind(owner_uid)
         .fetch_optional(pool)
         .await
@@ -709,7 +709,7 @@ pub async fn purge_feed(
 #[allow(clippy::too_many_arguments)]
 pub async fn catchup_scope(
     pool: &sqlx::PgPool,
-    owner_uid: i64,
+    owner_uid: i32,
     profile: Option<i32>,
     rows: &[(String, Option<i32>, String)],
     feed_id_or_tag: &str,
@@ -755,7 +755,7 @@ pub async fn catchup_scope(
         return;
     }
 
-    let feed_id = crate::util::php_int_cast(feed_id_or_tag);
+    let feed_id: i32 = crate::util::php_int_cast(feed_id_or_tag) as i32;
     if is_cat {
         if feed_id >= 0 {
             let cat_qpart = if feed_id == 0 {
@@ -1130,7 +1130,7 @@ pub async fn subscribe(
     pool: &sqlx::PgPool,
     plugins: &Arc<PluginHost>,
     self_url: &str,
-    uid: i64,
+    uid: i32,
     access_level: i32,
     url: &str,
     cat_id: i32,
@@ -1171,7 +1171,7 @@ pub async fn subscribe(
             cfg.clone(),
             &system,
             self_url,
-            uid as i32,
+            uid,
         )
         .await;
         let host = ctx.host_arc();
@@ -1225,7 +1225,7 @@ pub async fn subscribe(
             cfg.clone(),
             &system,
             self_url,
-            uid as i32,
+            uid,
         )
         .await;
         let host = ctx.host_arc();
@@ -1575,7 +1575,7 @@ pub async fn updatedebugger(
         .await;
     }
 
-    let title = feed_title(pool, feed_id, uid).await;
+    let title = feed_title(pool, feed_id as i32, uid).await;
 
     UPDATE_DEBUGGER_TEMPLATE
         .replace("@CSRF@", csrf)
@@ -1653,7 +1653,7 @@ fn render_debug_log(log: &crate::updates::FeedDebugLog, xdebug: i64) -> String {
 }
 
 /// `Feeds::_get_cat_title($cat_id, $owner_uid)`.
-pub async fn category_title(pool: &sqlx::PgPool, cat_id: i64, owner_uid: i64) -> String {
+pub async fn category_title(pool: &sqlx::PgPool, cat_id: i32, owner_uid: i32) -> String {
     match cat_id {
         0 => __("Uncategorized"),
         -1 => __("Special"),
@@ -1661,7 +1661,7 @@ pub async fn category_title(pool: &sqlx::PgPool, cat_id: i64, owner_uid: i64) ->
         _ => sqlx::query_scalar::<_, String>(
             "SELECT title FROM ttrss_feed_categories \n             WHERE id = $1 AND owner_uid = $2 LIMIT 1",
         )
-        .bind(cat_id as i32)
+        .bind(cat_id)
         .bind(owner_uid)
         .fetch_optional(pool)
         .await
@@ -1671,7 +1671,7 @@ pub async fn category_title(pool: &sqlx::PgPool, cat_id: i64, owner_uid: i64) ->
     }
 }
 /// `Feeds::_get_icon` for the virtual feeds.
-fn special_icon(feed_id: i64) -> &'static str {
+fn special_icon(feed_id: i32) -> &'static str {
     match feed_id {
         FEED_ARCHIVED => "archive",
         FEED_STARRED => "star",
@@ -1692,7 +1692,7 @@ fn build_cat_items(
     cats: &[CatRow],
     feeds: &[FeedRow],
     state: &AppState,
-    cat_id: i64,
+    cat_id: i32,
     show_empty_cats: bool,
     tz: &TzCtx,
     self_url: &str,
@@ -1713,7 +1713,7 @@ fn build_cat_items(
         cat.insert("child_unread".into(), json!(-1));
         cat.insert("auxcounter".into(), json!(-1));
         cat.insert("parent_id".into(), json!(cat_id));
-        cat.insert("param".into(), json!(nfeeds(n)));
+        cat.insert("param".into(), json!(nfeeds(n as i32)));
         if n > 0 || show_empty_cats {
             items.push(Value::Object(cat));
         }
@@ -1759,7 +1759,7 @@ fn feed_node(state: &AppState, f: &FeedRow, tz: &TzCtx, self_url: &str) -> Value
 /// `Config::get_self_url()` — the static `SELF_URL_PATH` config is only the
 /// fallback PHP uses when detection has nothing, which `get_self_url` already
 /// folds in).
-fn feed_icon_url(cfg: &Config, self_url: &str, feed_id: i64) -> String {
+fn feed_icon_url(cfg: &Config, self_url: &str, feed_id: i32) -> String {
     let dir = &cfg.feed_icon_dir();
     if dir.join(feed_id.to_string()).is_file() {
         format!("{self_url}/public.php?op=feed_icon&id={feed_id}")
@@ -1788,19 +1788,19 @@ fn articles_param(n: i64, hm: &str) -> String {
     t_nsprintf(
         "(%d article / %s)",
         "(%d articles / %s)",
-        n,
+        n as i32,
         &[&n.to_string(), hm],
     )
 }
 
 /// `_ngettext("(%d feed)", "(%d feeds)", n)`.
 /// `_ngettext("(%d feed)", "(%d feeds)", n)`.
-fn nfeeds(n: i64) -> String {
+fn nfeeds(n: i32) -> String {
     t_nsprintf("(%d feed)", "(%d feeds)", n, &[&n.to_string()])
 }
 
 /// All of the user's feed categories, ordered `(order_id, title)`.
-async fn fetch_all_cats(pool: &sqlx::PgPool, uid: i64) -> Vec<CatRow> {
+async fn fetch_all_cats(pool: &sqlx::PgPool, uid: i32) -> Vec<CatRow> {
     let rows = sqlx::query(
         "SELECT id, title, parent_cat FROM ttrss_feed_categories
          WHERE owner_uid = $1 ORDER BY order_id, title",
@@ -1811,13 +1811,9 @@ async fn fetch_all_cats(pool: &sqlx::PgPool, uid: i64) -> Vec<CatRow> {
     .unwrap_or_default();
     rows.iter()
         .map(|r| CatRow {
-            id: r.get::<i32, _>(0) as i64,
+            id: r.get::<i32, _>(0),
             title: r.get::<String, _>(1),
-            parent_cat: r
-                .try_get::<Option<i32>, _>(2)
-                .ok()
-                .flatten()
-                .map(|p| p as i64),
+            parent_cat: r.try_get::<Option<i32>, _>(2).ok().flatten(),
         })
         .collect()
 }
@@ -1828,7 +1824,7 @@ async fn fetch_all_cats(pool: &sqlx::PgPool, uid: i64) -> Vec<CatRow> {
 /// `Pref_Feeds::get_category_items` `where_raw`: `(LOWER(title) LIKE %s% OR
 /// LOWER(feed_url) LIKE LOWER(%s%))`. The term is interpolated unescaped
 /// like the PHP, so `_`/`%` in it act as LIKE wildcards.
-async fn fetch_all_feeds(pool: &sqlx::PgPool, uid: i64, search: &str) -> Vec<FeedRow> {
+async fn fetch_all_feeds(pool: &sqlx::PgPool, uid: i32, search: &str) -> Vec<FeedRow> {
     let pattern = format!("%{search}%");
     let rows = if search.is_empty() {
         sqlx::query(
@@ -1865,23 +1861,19 @@ async fn fetch_all_feeds(pool: &sqlx::PgPool, uid: i64, search: &str) -> Vec<Fee
     };
     rows.iter()
         .map(|r| FeedRow {
-            id: r.get::<i32, _>(0) as i64,
+            id: r.get::<i32, _>(0),
             title: r.get::<String, _>(1),
             last_error: r.get::<String, _>(3),
-            update_interval: r.get::<i32, _>(4) as i64,
+            update_interval: r.get::<i32, _>(4),
             last_updated: r.get::<Option<String>, _>(5),
             num_articles: r.get::<i64, _>(6),
-            cat_id: r
-                .try_get::<Option<i32>, _>(7)
-                .ok()
-                .flatten()
-                .map(|c| c as i64),
+            cat_id: r.try_get::<Option<i32>, _>(7).ok().flatten(),
         })
         .collect()
 }
 
 /// `Feeds::_get_counters(feed, is_cat=false, unread_only=true, uid)`.
-async fn counters(pool: &sqlx::PgPool, uid: i64, feed_id: i64, fresh_max_age: i64) -> i64 {
+async fn counters(pool: &sqlx::PgPool, uid: i32, feed_id: i32, fresh_max_age: i64) -> i64 {
     if feed_id == FEED_RECENTLY_READ {
         return 0;
     }
@@ -1954,7 +1946,7 @@ async fn counters(pool: &sqlx::PgPool, uid: i64, feed_id: i64, fresh_max_age: i6
 async fn editsaveops(
     state: &AppState,
     sess: &Sess,
-    uid: i64,
+    uid: i32,
     profile: Option<i32>,
     extra: &Map<String, Value>,
     batch: bool,
@@ -1974,7 +1966,7 @@ async fn editsaveops(
     let purge_intl = util::php_int_cast(&s("purge_interval"));
     let feed_id = util::clean_int(extra.get("id")) as i32;
     let feed_ids = if batch {
-        util::param_int_array(extra, "ids")
+        util::param_id_array(extra, "ids")
     } else {
         Vec::new()
     };
@@ -2130,7 +2122,7 @@ async fn editsaveops(
 
 /// `UPDATE ttrss_feeds SET <set> WHERE id IN ($2..$n+1) AND owner_uid = $(n+2)`.
 /// `<set>` uses `$1` for the value.
-fn batch_update_sql(set_expr: &str, feed_ids: &[i64]) -> String {
+fn batch_update_sql(set_expr: &str, feed_ids: &[i32]) -> String {
     let ids = (2..=feed_ids.len() + 1)
         .map(|i| format!("${i}"))
         .collect::<Vec<_>>()
@@ -2143,8 +2135,8 @@ async fn run_val(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     sql: &str,
     v: i32,
-    feed_ids: &[i64],
-    uid: i64,
+    feed_ids: &[i32],
+    uid: i32,
 ) -> i64 {
     let mut q = sqlx::query(AssertSqlSafe(sql)).bind(v);
     for id in feed_ids {
@@ -2161,8 +2153,8 @@ async fn run_str(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     sql: &str,
     v: &str,
-    feed_ids: &[i64],
-    uid: i64,
+    feed_ids: &[i32],
+    uid: i32,
 ) -> i64 {
     let mut q = sqlx::query(AssertSqlSafe(sql)).bind(v);
     for id in feed_ids {
@@ -2179,8 +2171,8 @@ async fn run_bool(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     sql: &str,
     v: bool,
-    feed_ids: &[i64],
-    uid: i64,
+    feed_ids: &[i32],
+    uid: i32,
 ) -> i64 {
     let mut q = sqlx::query(AssertSqlSafe(sql)).bind(v);
     for id in feed_ids {
@@ -2197,8 +2189,8 @@ async fn run_opt(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     sql: &str,
     v: Option<i32>,
-    feed_ids: &[i64],
-    uid: i64,
+    feed_ids: &[i32],
+    uid: i32,
 ) -> i64 {
     let mut q = sqlx::query(AssertSqlSafe(sql)).bind(v);
     for id in feed_ids {
@@ -2244,19 +2236,19 @@ pub async fn batch_edit_save(state: &AppState, sess: &Sess, extra: &Map<String, 
 /// `Pref_Feeds::remove` — remove each feed/label id (no-op response).
 pub async fn remove_feeds(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Value {
     let uid = sess.data().uid().unwrap_or(0);
-    for id in util::param_int_array(extra, "ids") {
+    for id in util::param_id_array(extra, "ids") {
         remove_feed(state, id, uid, &sess.self_url()).await;
     }
     Value::Null
 }
 
 /// `Feeds::remove_feed` — delete a feed (positive id) or a label (negative id).
-pub async fn remove_feed(state: &AppState, id: i64, uid: i64, self_url: &str) {
+pub async fn remove_feed(state: &AppState, id: i32, uid: i32, self_url: &str) {
     let pool = state.db.pool();
     if id > 0 {
         // `HOOK_UNSUBSCRIBE_FEED` (Pref_Feeds.php:1149): a plugin returning
         // `true` prevents the default removal.
-        let mut pctx = crate::pluginhost::dispatch::owner_ctx(state, uid as i32, self_url).await;
+        let mut pctx = crate::pluginhost::dispatch::owner_ctx(state, uid, self_url).await;
         let feed_id = id;
         let owner_uid = uid;
         if pctx
@@ -2386,7 +2378,7 @@ pub async fn rename_cat(state: &AppState, sess: &Sess, extra: &Map<String, Value
 pub async fn remove_cat(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Value {
     let uid = sess.data().uid().unwrap_or(0);
     let pool = state.db.pool();
-    for id in util::param_int_array(extra, "ids") {
+    for id in util::param_id_array(extra, "ids") {
         // `Feeds::_remove_cat`: find the category (owner-scoped) and delete it
         // (feeds keep their rows; their `cat_id` is nulled via `ON DELETE SET NULL`).
         let found = sqlx::query_scalar::<_, i32>(
@@ -2426,7 +2418,7 @@ async fn get_access_key(
     pool: &sqlx::PgPool,
     feed_id: &str,
     is_cat: bool,
-    owner_uid: i64,
+    owner_uid: i32,
 ) -> Option<String> {
     let existing: Option<String> = sqlx::query_scalar(
         "SELECT access_key FROM ttrss_access_keys \
@@ -2462,7 +2454,7 @@ async fn update_access_key(
     pool: &sqlx::PgPool,
     feed_id: &str,
     is_cat: bool,
-    owner_uid: i64,
+    owner_uid: i32,
 ) -> Option<String> {
     let _ = sqlx::query(
         "DELETE FROM ttrss_access_keys \
@@ -2477,7 +2469,7 @@ async fn update_access_key(
 }
 
 /// `Feeds::_clear_access_keys` — delete every access key for the owner.
-async fn clear_access_keys(pool: &sqlx::PgPool, owner_uid: i64) {
+async fn clear_access_keys(pool: &sqlx::PgPool, owner_uid: i32) {
     let _ = sqlx::query("DELETE FROM ttrss_access_keys WHERE owner_uid = $1")
         .bind(owner_uid)
         .execute(pool)
@@ -2551,7 +2543,7 @@ pub async fn get_shared_url(state: &AppState, sess: &Sess, extra: &Map<String, V
     );
     let key = get_access_key(state.db.pool(), &feed_id, is_cat, uid).await;
     let is_cat_s = if is_cat { "1" } else { "0" };
-    let id = feed_id.parse::<i64>().unwrap_or(0);
+    let id = feed_id.parse::<i32>().unwrap_or(0);
     let title = if is_cat {
         category_title(state.db.pool(), id, uid).await
     } else {
@@ -2614,7 +2606,7 @@ pub async fn feedsortreset(state: &AppState, sess: &Sess, _extra: &Map<String, V
 /// feed's / category's `order_id` (and `cat_id` / `parent_cat`) for the owner.
 async fn process_category_order(
     state: &AppState,
-    uid: i64,
+    uid: i32,
     data_map: &Map<String, Value>,
     root_item: &str,
 ) {
@@ -2867,7 +2859,7 @@ pub async fn upload_icon(
         .as_secs();
     json!({
         "rc": rc,
-        "icon_url": format!("{}?ts={}", feed_icon_url(&state.config, &sess.self_url(), feed_id), ts),
+        "icon_url": format!("{}?ts={}", feed_icon_url(&state.config, &sess.self_url(), feed_id as i32), ts),
     })
 }
 
@@ -2887,7 +2879,7 @@ pub fn decrypt_feed_pass(auth_pass: &str, key: Option<&[u8; 32]>) -> String {
 
 /// `Feeds::_get_icon` — the Material icon name for a virtual feed id, or the
 /// feed's icon URL for a real feed id ("" when it has no icon).
-pub fn get_icon(state: &AppState, self_url: &str, feed_id: i64) -> String {
+pub fn get_icon(state: &AppState, self_url: &str, feed_id: i32) -> String {
     match feed_id {
         0 => "archive".to_string(),
         -1 => "star".to_string(),
@@ -2906,7 +2898,7 @@ pub fn get_icon(state: &AppState, self_url: &str, feed_id: i64) -> String {
 /// `attributes` is a raw trailing attribute string (e.g. `disabled="1"`).
 pub async fn select_feeds_cats(
     pool: &sqlx::PgPool,
-    uid: i64,
+    uid: i32,
     name: &str,
     default_id: Option<i32>,
     attributes: &str,
@@ -3093,7 +3085,7 @@ pub async fn editfeed(state: &AppState, sess: &Sess, extra: &Map<String, Value>)
         );
         obj.insert(
             "icon".into(),
-            json!(get_icon(state, &sess.self_url(), feed_id)),
+            json!(get_icon(state, &sess.self_url(), feed_id as i32)),
         );
     }
 
@@ -3120,7 +3112,7 @@ pub async fn editfeed(state: &AppState, sess: &Sess, extra: &Map<String, Value>)
             t_nsprintf(
                 "(%d day)",
                 "(%d days)",
-                default_purge,
+                default_purge as i32,
                 &[&default_purge.to_string()],
             )
         } else {
@@ -3136,7 +3128,7 @@ pub async fn editfeed(state: &AppState, sess: &Sess, extra: &Map<String, Value>)
         Value::Array(vec![Value::String(t_nsprintf(
             "%d day",
             "%d days",
-            fp as i64,
+            fp,
             &[&fp.to_string()],
         ))])
     };

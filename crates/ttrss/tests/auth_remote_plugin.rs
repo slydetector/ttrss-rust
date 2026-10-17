@@ -150,7 +150,7 @@ async fn test_remote_user_auto_creates_and_fake_login_session() {
             assert_eq!(data.get_str("fake_password"), Some("******"));
             assert_eq!(data.get_bool("hide_logout"), Some(true));
             assert_eq!(data.get_bool("hide_hello"), Some(true));
-            assert_eq!(data.uid(), Some(uid as i64));
+            assert_eq!(data.uid(), Some(uid));
             assert_eq!(
                 data.get_str("auth_module"),
                 Some("auth_remote"),

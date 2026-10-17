@@ -63,21 +63,21 @@ fn labels_index_env() -> &'static Environment<'static> {
     })
 }
 /// `LABEL_BASE_INDEX` (functions.php) — the base of the label id space.
-pub const LABEL_BASE_INDEX: i64 = -1024;
+pub const LABEL_BASE_INDEX: i32 = -1024;
 
 /// `Labels::label_to_feed_id`: a label id as its negative feed-space id.
-pub fn label_to_feed_id(label: i64) -> i64 {
+pub fn label_to_feed_id(label: i32) -> i32 {
     LABEL_BASE_INDEX - 1 - label.abs()
 }
 
 /// `Labels::feed_to_label_id`: a (label-space) feed id back to a label id.
-pub fn feed_to_label_id(feed: i64) -> i64 {
+pub fn feed_to_label_id(feed: i32) -> i32 {
     LABEL_BASE_INDEX - 1 + feed.abs()
 }
 
 /// `Labels::find_id` — the label id for a (case-insensitive) caption and
 /// owner, or 0 when it does not exist.
-pub async fn find_id(pool: &sqlx::PgPool, caption: &str, owner_uid: i64) -> i32 {
+pub async fn find_id(pool: &sqlx::PgPool, caption: &str, owner_uid: i32) -> i32 {
     let row: Option<i32> = sqlx::query_scalar(
         "SELECT id FROM ttrss_labels2 WHERE LOWER(caption) = LOWER($1)
          AND owner_uid = $2 LIMIT 1",
@@ -92,7 +92,7 @@ pub async fn find_id(pool: &sqlx::PgPool, caption: &str, owner_uid: i64) -> i32 
 }
 
 /// `Labels::find_caption` — the caption for a label id and owner, or `""`.
-pub async fn find_caption(pool: &sqlx::PgPool, label: i32, owner_uid: i64) -> String {
+pub async fn find_caption(pool: &sqlx::PgPool, label: i32, owner_uid: i32) -> String {
     let row: Option<String> = sqlx::query_scalar(
         "SELECT caption FROM ttrss_labels2 WHERE id = $1 AND owner_uid = $2 LIMIT 1",
     )
@@ -107,7 +107,7 @@ pub async fn find_caption(pool: &sqlx::PgPool, label: i32, owner_uid: i64) -> St
 
 /// `Labels::get_all` — `{id, fg_color, bg_color, caption}` rows for the
 /// owner, ordered by caption.
-pub async fn get_all(pool: &sqlx::PgPool, owner_uid: i64) -> Vec<Map<String, Value>> {
+pub async fn get_all(pool: &sqlx::PgPool, owner_uid: i32) -> Vec<Map<String, Value>> {
     let rows = sqlx::query(
         "SELECT id, fg_color, bg_color, caption FROM ttrss_labels2
          WHERE owner_uid = $1 ORDER BY caption",
@@ -131,7 +131,7 @@ pub async fn get_all(pool: &sqlx::PgPool, owner_uid: i64) -> Vec<Map<String, Val
 /// `Pref_Labels::getlabeltree` — a single `root` node ("Labels") whose children
 /// are the owner's labels, each wrapped as `{type, id:"LABEL:n", bare_id, name,
 /// fg_color, bg_color, checkbox:false}`, ordered by caption.
-pub async fn get_label_tree(pool: &sqlx::PgPool, owner_uid: i64) -> Value {
+pub async fn get_label_tree(pool: &sqlx::PgPool, owner_uid: i32) -> Value {
     let labels = get_all(pool, owner_uid).await;
     let items: Vec<Value> = labels
         .iter()
@@ -160,7 +160,7 @@ pub async fn get_label_tree(pool: &sqlx::PgPool, owner_uid: i64) -> Value {
 }
 
 /// `Labels::get_as_hash` — `get_all` keyed by label id.
-pub async fn get_as_hash(pool: &sqlx::PgPool, owner_uid: i64) -> HashMap<i32, Map<String, Value>> {
+pub async fn get_as_hash(pool: &sqlx::PgPool, owner_uid: i32) -> HashMap<i32, Map<String, Value>> {
     get_all(pool, owner_uid)
         .await
         .into_iter()
@@ -178,9 +178,9 @@ pub async fn get_as_hash(pool: &sqlx::PgPool, owner_uid: i64) -> HashMap<i32, Ma
 /// cache first.
 pub async fn update_cache(
     db: &Db,
-    session_uid: i64,
-    owner_uid: i64,
-    id: i64,
+    session_uid: i32,
+    owner_uid: i32,
+    id: i32,
     labels: &[Value],
     force: bool,
 ) {
@@ -225,7 +225,7 @@ pub(crate) fn php_empty_value(v: &Value) -> bool {
 /// the hard path runs and the rows or the `{"no-labels": 1}` marker is
 /// written back. (This is the string-level form; `article::get_labels` is
 /// the typed `Vec<Value>` form on top of it.)
-pub async fn get_labels_json(pool: &sqlx::PgPool, owner_uid: i64, id: i64) -> String {
+pub async fn get_labels_json(pool: &sqlx::PgPool, owner_uid: i32, id: i32) -> String {
     let cache: Option<String> = sqlx::query_scalar(
         "SELECT label_cache FROM ttrss_user_entries WHERE ref_id = $1 AND owner_uid = $2",
     )
@@ -271,7 +271,7 @@ pub async fn get_labels_json(pool: &sqlx::PgPool, owner_uid: i64, id: i64) -> St
         let fg_color: String = row.get(2);
         let bg_color: String = row.get(3);
         rv.push(json!([
-            label_to_feed_id(label_id as i64),
+            label_to_feed_id(label_id),
             caption,
             fg_color,
             bg_color
@@ -298,7 +298,7 @@ pub async fn get_labels_json(pool: &sqlx::PgPool, owner_uid: i64, id: i64) -> St
 }
 
 /// `Labels::clear_cache`: blank the label cache of article `id`.
-pub async fn clear_cache(pool: &sqlx::PgPool, id: i64) {
+pub async fn clear_cache(pool: &sqlx::PgPool, id: i32) {
     let _ = sqlx::query("UPDATE ttrss_user_entries SET label_cache = '' WHERE ref_id = $1")
         .bind(id)
         .execute(pool)
@@ -307,7 +307,7 @@ pub async fn clear_cache(pool: &sqlx::PgPool, id: i64) {
 
 /// `Labels::remove_article`: detach article `id` from the label `caption`
 /// (no-op when the label does not exist), then clear the article's cache.
-pub async fn remove_article(pool: &sqlx::PgPool, id: i64, label: &str, owner_uid: i64) {
+pub async fn remove_article(pool: &sqlx::PgPool, id: i32, label: &str, owner_uid: i32) {
     let label_id = find_id(pool, label, owner_uid).await;
     if label_id == 0 {
         return;
@@ -326,7 +326,7 @@ pub async fn remove_article(pool: &sqlx::PgPool, id: i64, label: &str, owner_uid
 /// `Labels::add_article`: attach article `id` to the label `caption`
 /// (idempotent; no-op when the label does not exist), then clear the
 /// article's cache.
-pub async fn add_article(pool: &sqlx::PgPool, id: i64, label: &str, owner_uid: i64) {
+pub async fn add_article(pool: &sqlx::PgPool, id: i32, label: &str, owner_uid: i32) {
     let label_id = find_id(pool, label, owner_uid).await;
     if label_id == 0 {
         return;
@@ -359,9 +359,9 @@ pub async fn add_article(pool: &sqlx::PgPool, id: i64, label: &str, owner_uid: i
 /// `owner_uid` is the session uid when `None`/0.
 pub async fn remove(
     db: &Db,
-    id: i64,
-    session_uid: i64,
-    owner_uid: Option<i64>,
+    id: i32,
+    session_uid: i32,
+    owner_uid: Option<i32>,
 ) -> Result<(), sqlx::Error> {
     let owner = match owner_uid {
         Some(u) if u != 0 => u,
@@ -414,8 +414,8 @@ pub async fn create(
     caption: &str,
     fg_color: Option<&str>,
     bg_color: Option<&str>,
-    session_uid: i64,
-    owner_uid: Option<i64>,
+    session_uid: i32,
+    owner_uid: Option<i32>,
 ) -> Result<Option<i64>, sqlx::Error> {
     let owner = match owner_uid {
         Some(u) if u != 0 => u,
@@ -582,7 +582,7 @@ pub async fn colorset(
     let uid = sess.data().uid().unwrap_or(0);
     let pool = state.db.pool();
     let kind = req_str(extra, "kind");
-    let ids = util::param_int_array(extra, "ids");
+    let ids = util::param_id_array(extra, "ids");
     let color = req_str(extra, "color");
     let fg = req_str(extra, "fg");
     let bg = req_str(extra, "bg");
@@ -626,7 +626,7 @@ pub async fn colorreset(
 ) -> Result<(), sqlx::Error> {
     let uid = sess.data().uid().unwrap_or(0);
     let pool = state.db.pool();
-    let ids = util::param_int_array(extra, "ids");
+    let ids = util::param_id_array(extra, "ids");
     for id in ids {
         sqlx::query("UPDATE ttrss_labels2 SET fg_color = '', bg_color = '' WHERE id = $1 AND owner_uid = $2")
             .bind(id)
@@ -648,7 +648,7 @@ pub async fn remove_labels(
     extra: &Map<String, Value>,
 ) -> Result<(), sqlx::Error> {
     let uid = sess.data().uid().unwrap_or(0);
-    let ids = util::param_int_array(extra, "ids");
+    let ids = util::param_id_array(extra, "ids");
     for id in ids {
         remove(&state.db, id, uid, None).await?;
     }

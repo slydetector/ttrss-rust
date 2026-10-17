@@ -365,7 +365,7 @@ async fn format_article(
     // PHP's 3rd arg is the *owner* — the sanitizer resolves the owner's
     // `STRIP_IMAGES` pref from it (Sanitizer.php:222). No session here, so
     // the pref resolves on the default profile.
-    let pref_rows = crate::prefs::load_rows_pool(host.pool(), owner_uid as i64, None).await;
+    let pref_rows = crate::prefs::load_rows_pool(host.pool(), owner_uid, None).await;
     let strip_images = matches!(
         crate::prefs::resolve(crate::prefs::STRIP_IMAGES, &pref_rows, None),
         crate::prefs::Pref::Bool(true)
@@ -387,14 +387,7 @@ async fn format_article(
     // the public shared-article page runs the per-article render hooks (nsfw
     // wraps the content in a toggle). The article map is the row the PHP
     // `$line` carries for this route: the selected fields + `tags`.
-    let tags = crate::article::get_tags(
-        host.pool(),
-        owner_uid as i64,
-        id,
-        Some(owner_uid as i64),
-        None,
-    )
-    .await;
+    let tags = crate::article::get_tags(host.pool(), owner_uid, id, Some(owner_uid), None).await;
     let mut article = serde_json::Map::new();
     article.insert("id".into(), serde_json::json!(id));
     article.insert("title".into(), serde_json::json!(title.clone()));

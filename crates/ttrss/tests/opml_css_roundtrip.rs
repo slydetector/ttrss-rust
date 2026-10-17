@@ -14,9 +14,9 @@ mod common;
 use test_db::template::with_test_db;
 use ttrss::session::Sess;
 
-fn sess_for(uid: i64) -> Sess {
+fn sess_for(uid: i32) -> Sess {
     let mut data = ttrss::core::session::Session::new();
-    data.set("uid", ttrss::core::phpser::Value::Int(uid));
+    data.set("uid", ttrss::core::phpser::Value::Int(uid as i64));
     data.set("name", ttrss::core::phpser::Value::Bytes(b"admin".to_vec()));
     let sess = Sess::new("test-sid".to_string());
     sess.replace("test-sid".to_string(), data);
@@ -24,7 +24,7 @@ fn sess_for(uid: i64) -> Sess {
 }
 
 /// Fetch the stored profile-less USER_STYLESHEET for `uid`.
-async fn stored_css(state: &ttrss::AppState, uid: i64) -> String {
+async fn stored_css(state: &ttrss::AppState, uid: i32) -> String {
     sqlx::query_scalar(
         "SELECT value FROM ttrss_user_prefs2 WHERE pref_name='USER_STYLESHEET' AND owner_uid = $1 AND profile IS NULL",
     )

@@ -23,7 +23,7 @@ use ttrss::article::{
 use ttrss::core::db::Db;
 
 /// `DbTestCase::setUp`: `$_SESSION["uid"] = 1`.
-const SESSION_UID: i64 = 1;
+const SESSION_UID: i32 = 1;
 
 /// `DbTestCase::setUp` on top of the harness-injected pool.
 async fn setup(url: &str) -> Db {
@@ -501,7 +501,7 @@ async fn test_labels_of_returns_empty_for_empty_array() {
         Box::pin(async move {
             let db = setup(&url).await;
             let labels = article::labels_of(db.pool(), &[], SESSION_UID).await;
-            assert_eq!(labels, Vec::<i64>::new());
+            assert_eq!(labels, Vec::<i32>::new());
             Ok(())
         })
     })
@@ -518,7 +518,7 @@ async fn test_labels_of_returns_unique_labels() {
             // Articles 1 and 2 are in the same feed but have different tags
             // Labels are not assigned to these articles in seed, so should be empty
             let labels = article::labels_of(db.pool(), &[1, 2], SESSION_UID).await;
-            assert_eq!(labels, Vec::<i64>::new());
+            assert_eq!(labels, Vec::<i32>::new());
             Ok(())
         })
     })
@@ -533,7 +533,7 @@ async fn test_feeds_of_returns_empty_for_empty_array() {
         Box::pin(async move {
             let db = setup(&url).await;
             let feeds = article::feeds_of(db.pool(), &[], SESSION_UID).await;
-            assert_eq!(feeds, Vec::<i64>::new());
+            assert_eq!(feeds, Vec::<i32>::new());
             Ok(())
         })
     })

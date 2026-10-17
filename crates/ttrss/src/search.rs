@@ -38,7 +38,7 @@ pub struct SearchParts {
 /// (loads the owner's prefs rows).
 pub async fn search_to_sql(
     db: &Db,
-    owner_uid: i64,
+    owner_uid: i32,
     profile: Option<i32>,
     search: &str,
     search_language: &str,
@@ -61,7 +61,7 @@ pub async fn search_to_sql(
 pub async fn search_to_sql_cached(
     pool: &sqlx::PgPool,
     rows: &[(String, Option<i32>, String)],
-    owner_uid: i64,
+    owner_uid: i32,
     profile: Option<i32>,
     search: &str,
     search_language: &str,

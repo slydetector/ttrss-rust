@@ -139,11 +139,11 @@ impl Plugin for PipeStub {
         self.record(format!("filter_triggered:matched={n}"));
     }
 
-    async fn hook_articles_mark_toggled(&self, _host: &mut HostCtx, article_ids: &[i64]) {
+    async fn hook_articles_mark_toggled(&self, _host: &mut HostCtx, article_ids: &[i32]) {
         self.record(format!("articles_mark_toggled:{article_ids:?}"));
     }
 
-    async fn hook_articles_publish_toggled(&self, _host: &mut HostCtx, article_ids: &[i64]) {
+    async fn hook_articles_publish_toggled(&self, _host: &mut HostCtx, article_ids: &[i32]) {
         self.record(format!("articles_publish_toggled:{article_ids:?}"));
     }
 

@@ -146,7 +146,7 @@ impl I18nCache {
     /// `PluralRules` holds an `Rc` and is not `Send + Sync`, so it can't be
     /// cached in the shared [`I18nCache`]; it is built per call (cheap — a locale
     /// parse plus a lookup in the compiled data).
-    pub fn cldr_form_index(&self, locale: &str, n: i64) -> Option<usize> {
+    pub fn cldr_form_index(&self, locale: &str, n: i32) -> Option<usize> {
         let loc: Locale = locale.replace('_', "-").parse().ok()?;
         let rules = PluralRules::try_new_cardinal(loc.into()).ok()?;
         let category = rules.category_for(n);
@@ -336,7 +336,7 @@ pub fn ngettext(
     // instead; see `cldr_form_index` for the category→form mapping.
     if let Some(forms) = cache.plural_forms(locale, singular, plural)
         && forms.len() >= 3
-        && let Some(form) = cache.cldr_form_index(locale, n)
+        && let Some(form) = cache.cldr_form_index(locale, n as i32)
         && let Some(text) = forms.get(form)
     {
         return text.clone();
@@ -393,9 +393,16 @@ pub fn t_sprintf(fmt: &str, args: &[&str]) -> String {
 
 /// Plural-aware translate + format (`T_nsprintf`), using the request's
 /// locale. English fallback: pick the form by `n`, then format.
-pub fn t_nsprintf(singular: &str, plural: &str, n: i64, args: &[&str]) -> String {
+pub fn t_nsprintf(singular: &str, plural: &str, n: i32, args: &[&str]) -> String {
     I18N.try_with(|ctx| {
-        translate_nsprintf(ctx.locale.as_deref(), &ctx.cache, singular, plural, n, args)
+        translate_nsprintf(
+            ctx.locale.as_deref(),
+            &ctx.cache,
+            singular,
+            plural,
+            n as i64,
+            args,
+        )
     })
     .unwrap_or_else(|_| {
         let form = if n == 1 { singular } else { plural };
@@ -428,7 +435,7 @@ pub fn resolve_request_locale(
 /// per-process cache (one `SELECT` per (uid, profile), then memory hits).
 pub async fn resolve_user_locale(
     state: &crate::AppState,
-    uid: i64,
+    uid: i32,
     profile: Option<i32>,
     accept_language: Option<&str>,
 ) -> Option<String> {
@@ -653,7 +660,7 @@ mod tests {
 
     // Correct, by-hand evaluations of the actual `.mo` `Plural-Forms` for the
     // three-form locales — the ground truth the CLDR path must match.
-    fn form_ru_be_uk(n: i64) -> usize {
+    fn form_ru_be_uk(n: i32) -> usize {
         if n % 10 == 1 && n % 100 != 11 {
             0
         } else if n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20) {
@@ -662,7 +669,7 @@ mod tests {
             2
         }
     }
-    fn form_pl(n: i64) -> usize {
+    fn form_pl(n: i32) -> usize {
         if n == 1 {
             0
         } else if n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20) {
@@ -671,7 +678,7 @@ mod tests {
             2
         }
     }
-    fn form_cs(n: i64) -> usize {
+    fn form_cs(n: i32) -> usize {
         if n == 1 {
             0
         } else if (2..=4).contains(&n) {

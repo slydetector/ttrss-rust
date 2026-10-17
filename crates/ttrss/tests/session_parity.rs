@@ -956,7 +956,7 @@ async fn test_authenticate_regenerates_session_id() {
             );
             // PHP session.sid_length=32, sid_bits_per_character=4 (hex)
             assert_eq!(after.len(), 32);
-            assert_eq!(sess.uid(), Some(id as i64));
+            assert_eq!(sess.uid(), Some(id));
             Ok(())
         })
     })

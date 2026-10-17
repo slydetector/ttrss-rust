@@ -60,7 +60,7 @@ use crate::pluginhost::PluginHost;
 /// The per-process prefs cache (the PHP's `Prefs` singleton `$cache`): a
 /// `RwLock`-guarded map of one entry per (uid, profile) to its pref rows.
 pub(crate) type PrefsCache = std::sync::RwLock<
-    std::collections::HashMap<(i64, Option<i32>), Vec<(String, Option<i32>, String)>>,
+    std::collections::HashMap<(i32, Option<i32>), Vec<(String, Option<i32>, String)>>,
 >;
 
 /// Shared server state (`AppState`): configuration + DB pool + the startup

@@ -20,7 +20,7 @@ use ttrss::core::db::Db;
 use ttrss::headlines::{HeadlinesParams, get_headlines_query};
 
 /// `DbTestCase::setUp`: `$_SESSION["uid"] = 1`.
-const SESSION_UID: i64 = 1;
+const SESSION_UID: i32 = 1;
 
 /// `DbTestCase::setUp` + the test class `setUp` on top of the harness pool.
 async fn setup(url: &str) -> Db {
@@ -382,17 +382,14 @@ async fn test_get_headlines_view_mode_adaptive_falls_back_to_all() {
         Box::pin(async move {
             let db = setup(&url).await;
             // Mark every article in feed 1 read so there is no unread to scope to.
-            let ids: Vec<i64> = sqlx::query_scalar::<_, i32>(
+            let ids: Vec<i32> = sqlx::query_scalar::<_, i32>(
                 "SELECT e.id FROM ttrss_entries e \
          JOIN ttrss_user_entries ue ON e.id = ue.ref_id \
          WHERE ue.feed_id = 1 AND ue.owner_uid = 1",
             )
             .fetch_all(db.pool())
             .await
-            .expect("feed 1 article ids")
-            .into_iter()
-            .map(|n| n as i64)
-            .collect();
+            .expect("feed 1 article ids");
             ttrss::article::catchup_by_id(
                 db.pool(),
                 &ids,

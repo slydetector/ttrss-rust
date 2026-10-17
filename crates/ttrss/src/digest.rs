@@ -30,7 +30,7 @@ struct Row {
     /// `digest_template.txt` never references `ARTICLE_EXCERPT`).
     excerpt: String,
     labels: String,
-    ref_id: i64,
+    ref_id: i32,
     score: i64,
     date_updated: String,
 }
@@ -44,7 +44,7 @@ pub async fn prepare_headlines_digest(
     self_url: &str,
 ) -> Value {
     let db = state.db.pool();
-    let rows = prefs::load_rows(&state.db, uid as i64, None).await;
+    let rows = prefs::load_rows(&state.db, uid, None).await;
 
     let tz_string = prefs::resolve(prefs::USER_TIMEZONE, &rows, None)
         .as_str()
@@ -110,7 +110,7 @@ pub async fn prepare_headlines_digest(
         // the boundary. (The old i64 decode errored on every row, and the
         // query's `unwrap_or_default()` turned that into an always-empty
         // digest — now the query `.expect()`s.)
-        let ref_id = l.get::<i32, _>(4) as i64;
+        let ref_id = l.get::<i32, _>(4);
         let link = l.get::<String, _>(5);
         let score = l.get::<i32, _>(6) as i64;
         let content = l.get::<String, _>(7);
@@ -125,7 +125,7 @@ pub async fn prepare_headlines_digest(
             crate::util::truncate_string(&crate::util::strip_tags(&content), 300, "&hellip;");
         // `Article::_get_labels(ref_id, user_id)` — the digest shows the
         // comma-joined label captions in both templates.
-        let labels = crate::article::get_labels(db, uid as i64, ref_id, Some(uid as i64))
+        let labels = crate::article::get_labels(db, uid, ref_id, Some(uid))
             .await
             .iter()
             .filter_map(|row| row.get(1).and_then(Value::as_str))

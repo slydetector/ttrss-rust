@@ -489,7 +489,7 @@ Plugins.Psql_Trgm = {
 
         // `/* cleanup */`: drop the enabled feeds that no longer exist
         // for this owner and store the pruned list back.
-        let owner_uid = host.owner_uid.unwrap_or(0) as i64;
+        let owner_uid = host.owner_uid.unwrap_or(0);
         let enabled_feeds: Vec<i32> = host
             .storage_get(&AfPsqlTrgm, "enabled_feeds", PValue::Array(vec![]))
             .await
@@ -534,7 +534,7 @@ Plugins.Psql_Trgm = {
         if !pruned.is_empty() {
             let mut items = String::new();
             for fid in &pruned {
-                let title = crate::feeds::feed_title(&pool, *fid as i64, owner_uid).await;
+                let title = crate::feeds::feed_title(&pool, *fid, owner_uid).await;
                 items.push_str(&format!(
                     "\t\t\t\t<li>\n\t\t\t\t\t<i class='material-icons'>rss_feed</i>\
                      \n\t\t\t\t\t<a href='#'\tonclick=\"CommonDialogs.editFeed({fid})\">\

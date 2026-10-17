@@ -16,7 +16,7 @@ use crate::i18n::{__, t_sprintf};
 use crate::session::Sess;
 use crate::time::{TzCtx, make_local_datetime};
 use crate::util::{
-    checkbox, clean_int, clean_str, htmlspecialchars, make_password, param_int_array,
+    checkbox, clean_int, clean_str, htmlspecialchars, make_password, param_id_array,
 };
 use serde_json::{Map, Value, json};
 
@@ -572,7 +572,7 @@ pub async fn user_enable_api(db: &crate::core::db::Db, login: &str, enable: bool
         db,
         crate::prefs::ENABLE_API_ACCESS,
         if enable { "true" } else { "false" },
-        uid as i64,
+        uid,
         None,
         false,
     )
@@ -669,7 +669,7 @@ pub async fn edit_save(state: &AppState, _sess: &Sess, extra: &Map<String, Value
 pub async fn remove(state: &AppState, sess: &Sess, extra: &Map<String, Value>) {
     let pool = state.db.pool();
     let uid = sess.data().uid().unwrap_or(0);
-    for id in param_int_array(extra, "ids") {
+    for id in param_id_array(extra, "ids") {
         if id != uid && id != 1 {
             let _ = sqlx::query("DELETE FROM ttrss_tags WHERE owner_uid = $1")
                 .bind(id)

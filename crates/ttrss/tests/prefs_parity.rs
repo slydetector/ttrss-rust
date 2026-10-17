@@ -17,7 +17,7 @@ use ttrss::prefs::{self, Pref, Type};
 
 /// PHP: `PrefsTest::createTestUser` — a synthetic user with the
 /// SHA1('password') hash and access level 0.
-async fn create_test_user(db: &Db, login: &str) -> i64 {
+async fn create_test_user(db: &Db, login: &str) -> i32 {
     let id: i32 = sqlx::query_scalar(
         "INSERT INTO ttrss_users (login, pwd_hash, access_level)
          VALUES ($1, 'SHA1:5baa61e4c9b93f3f0682250b6cf8331b7ee68fd8', 0) RETURNING id",
@@ -26,14 +26,14 @@ async fn create_test_user(db: &Db, login: &str) -> i64 {
     .fetch_one(db.pool())
     .await
     .expect("create test user");
-    id as i64
+    id
 }
 
 /// PHP: `PrefsTest::getRawPref` — the raw stored text (None when no row).
 async fn get_raw_pref(
     db: &Db,
     pref_name: &str,
-    owner_uid: i64,
+    owner_uid: i32,
     profile: Option<i32>,
 ) -> Option<String> {
     sqlx::query_scalar::<_, String>(

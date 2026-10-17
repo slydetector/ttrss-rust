@@ -149,7 +149,7 @@ pub async fn remove_profiles(
     let pool = state.db.pool();
     let uid = sess.data().uid().unwrap_or(0);
     let active_profile = sess.data().profile().unwrap_or(0);
-    let ids = util::param_int_array(extra, "ids");
+    let ids = util::param_id_array(extra, "ids");
     if ids.is_empty() {
         return Ok(());
     }
@@ -229,7 +229,7 @@ pub async fn clone_profile(
 /// limit=16), rendered via `digest::prepare_headlines_digest`.
 pub async fn preview_digest(state: &AppState, sess: &Sess) -> Value {
     let self_url = sess.self_url();
-    let uid = sess.data().uid().unwrap_or(0) as i32;
+    let uid = sess.data().uid().unwrap_or(0);
     crate::digest::prepare_headlines_digest(state, uid, 1, 16, &self_url).await
 }
 
@@ -240,7 +240,7 @@ pub async fn preview_digest(state: &AppState, sess: &Sess) -> Value {
 /// `make_local_datetime` (a `NULL` `last_used` renders as "Never").
 pub async fn app_password_list(state: &AppState, sess: &Sess) -> Result<String, sqlx::Error> {
     let pool = state.db.pool();
-    let uid = sess.data().uid().unwrap_or(0) as i32;
+    let uid = sess.data().uid().unwrap_or(0);
     let ctx = TzCtx::for_session(state, &sess.data()).await;
     let rows = sqlx::query(
         "SELECT id, title, created::text AS created, last_used::text AS last_used \
@@ -292,7 +292,7 @@ pub async fn generate_app_password(
     extra: &Map<String, Value>,
 ) -> Result<String, sqlx::Error> {
     let pool = state.db.pool();
-    let uid = sess.data().uid().unwrap_or(0) as i32;
+    let uid = sess.data().uid().unwrap_or(0);
     let title = util::clean_str(extra.get("title").and_then(Value::as_str).unwrap_or(""));
     let new_password = util::make_password(16);
     let new_salt = crate::core::user::get_salt();
@@ -328,8 +328,8 @@ pub async fn delete_app_passwords(
     extra: &Map<String, Value>,
 ) -> Result<String, sqlx::Error> {
     let pool = state.db.pool();
-    let uid = sess.data().uid().unwrap_or(0) as i32;
-    let ids = util::param_int_array(extra, "ids");
+    let uid = sess.data().uid().unwrap_or(0);
+    let ids = util::param_id_array(extra, "ids");
     if !ids.is_empty() {
         sqlx::query("DELETE FROM ttrss_app_passwords WHERE owner_uid = $1 AND id = ANY($2)")
             .bind(uid)
@@ -482,7 +482,7 @@ pub async fn change_personal_data(
 /// gate).
 pub async fn changepassword(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> String {
     let pool = state.db.pool();
-    let uid = sess.data().uid().unwrap_or(0) as i32;
+    let uid = sess.data().uid().unwrap_or(0);
 
     // `Config::FORBID_PASSWORD_CHANGES`: refuse password changes entirely.
     if state.config.forbid_password_changes {
@@ -530,7 +530,7 @@ pub async fn otp_enable(state: &AppState, sess: &Sess, extra: &Map<String, Value
     let uid = sess.data().uid().unwrap_or(0);
     let password = util::clean_str(&str_extra(extra, "password"));
     let otp_code = util::clean_str(&str_extra(extra, "otp"));
-    if auth::check_password(pool, uid as i32, &password).await {
+    if auth::check_password(pool, uid, &password).await {
         match otp::enable_otp(pool, uid, &otp_code, util::now_unix() as u64).await {
             Ok(true) => "OK".to_string(),
             // PHP: `"ERROR:".__(…)` — no space after the colon.
@@ -547,7 +547,7 @@ pub async fn otp_disable(state: &AppState, sess: &Sess, extra: &Map<String, Valu
     let pool = state.db.pool();
     let uid = sess.data().uid().unwrap_or(0);
     let password = util::clean_str(&str_extra(extra, "password"));
-    if auth::check_password(pool, uid as i32, &password).await {
+    if auth::check_password(pool, uid, &password).await {
         let _ = otp::disable_otp(pool, uid).await;
         "OK".to_string()
     } else {

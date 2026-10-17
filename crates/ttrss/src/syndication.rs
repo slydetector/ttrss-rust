@@ -98,7 +98,7 @@ pub async fn handle_rss(state: &AppState, req: &RssRequest<'_>, self_url: &str) 
 /// `Handler_Public::generate_syndicated_feed`.
 async fn generate_feed(
     state: &AppState,
-    owner_uid: i64,
+    owner_uid: i32,
     req: &RssRequest<'_>,
     self_url: &str,
 ) -> Response {
@@ -108,7 +108,7 @@ async fn generate_feed(
     // `if (!$limit) $limit = 60;`
     let limit = if req.limit == 0 { 60 } else { req.limit };
 
-    let n_feed: Option<i64> = feed.trim().parse().ok();
+    let n_feed: Option<i32> = feed.trim().parse().ok();
     // NOTE(port): the plugin-feed branch (`!$is_cat && is_numeric($feed) &&
     // $feed < PLUGIN_FEED_BASE_INDEX && $feed > LABEL_BASE_INDEX` → a plugin
     // handler's `get_headlines`) is not ported — no plugin feeds exist in
@@ -119,7 +119,7 @@ async fn generate_feed(
     // M7.6: the HOOK_SANITIZE / plugin context for the feed owner (PHP runs
     // the feed output through the owner's plugin host); the custom-sort
     // override chain (below) needs it too.
-    let mut pctx = crate::pluginhost::dispatch::owner_ctx(state, owner_uid as i32, self_url).await;
+    let mut pctx = crate::pluginhost::dispatch::owner_ctx(state, owner_uid, self_url).await;
 
     // `[$override_order, $skip_first_id_check] = Feeds::_order_to_override_query($order)`
     let (override_order, skip_first_id_check) = order_to_override_query(&mut pctx, req.order).await;
@@ -274,9 +274,9 @@ async fn generate_feed(
                 .hook_order(crate::pluginhost::HOOK_ARTICLE_EXPORT_FEED)
                 .is_empty()
             {
-                let feed_id = n_feed.map(|f| f as i32).unwrap_or(0);
+                let feed_id = n_feed.unwrap_or(0);
                 let is_cat = req.is_cat;
-                let owner = owner_uid as i32;
+                let owner = owner_uid;
                 pctx.chain_hooks_callback(
                     crate::pluginhost::HOOK_ARTICLE_EXPORT_FEED,
                     &mut row_val,
@@ -500,13 +500,13 @@ async fn get_or_create_access_key(
     pool: &sqlx::PgPool,
     feed_id: &str,
     is_cat: bool,
-    owner_uid: i64,
+    owner_uid: i32,
 ) -> Option<String> {
     let existing: Option<String> = sqlx::query_scalar(
         "SELECT access_key FROM ttrss_access_keys
          WHERE owner_uid = $1 AND feed_id = $2 AND is_cat = $3",
     )
-    .bind(owner_uid as i32)
+    .bind(owner_uid)
     .bind(feed_id)
     .bind(is_cat)
     .fetch_optional(pool)
@@ -521,7 +521,7 @@ async fn get_or_create_access_key(
         "INSERT INTO ttrss_access_keys (owner_uid, feed_id, is_cat, access_key)
          VALUES ($1, $2, $3, $4)",
     )
-    .bind(owner_uid as i32)
+    .bind(owner_uid)
     .bind(feed_id)
     .bind(is_cat)
     .bind(&key)
@@ -534,7 +534,7 @@ async fn get_or_create_access_key(
 /// `ttrss_access_keys` lookup: returns the `owner_uid` for a matching
 /// `(access_key, feed_id)` pair, or `None`. `owner_uid` is INT4 → decoded as
 /// `i32`, widened to `i64` at the boundary.
-async fn lookup_access_key(state: &AppState, req: &RssRequest<'_>) -> Option<i64> {
+async fn lookup_access_key(state: &AppState, req: &RssRequest<'_>) -> Option<i32> {
     let (Some(key), Some(id)) = (req.key, req.id) else {
         return None;
     };
@@ -547,7 +547,7 @@ async fn lookup_access_key(state: &AppState, req: &RssRequest<'_>) -> Option<i64
     .await
     .ok()
     .flatten();
-    uid.map(i64::from)
+    uid
 }
 
 /// `403 Forbidden` — unknown/missing access key.

@@ -174,7 +174,7 @@ pub async fn process_feed(
     // DEFAULT_SEARCH_LANGUAGE pref, else 'simple'.
     let mut feed_language = feed.feed_language.trim().to_lowercase();
     if feed_language.is_empty() || feed_language == "0" {
-        let rows = crate::prefs::load_rows_pool(pool, feed.owner_uid as i64, None).await;
+        let rows = crate::prefs::load_rows_pool(pool, feed.owner_uid, None).await;
         let pref = crate::prefs::resolve(crate::prefs::DEFAULT_SEARCH_LANGUAGE, &rows, None);
         feed_language = pref.as_str().to_lowercase();
     }
@@ -1105,20 +1105,20 @@ pub(crate) async fn load_filters(
 ) -> Result<Vec<EvalFilter>> {
     // `Feeds::_cat_of`: the feed's `cat_id` (0 when uncategorized/NULL; -1 when
     // the feed no longer exists — only reachable if called for a deleted feed).
-    let cat_id: i64 = sqlx::query_scalar("SELECT cat_id FROM ttrss_feeds WHERE id = $1")
+    let cat_id: i32 = sqlx::query_scalar("SELECT cat_id FROM ttrss_feeds WHERE id = $1")
         .bind(feed_id)
         .fetch_optional(pool)
         .await
         .context("look up feed category")?
-        .map(|v: Option<i32>| v.unwrap_or(0) as i64)
+        .map(|v: Option<i32>| v.unwrap_or(0))
         .unwrap_or(-1);
 
     // `($cat_id) ? '' : 'cat_id IS NULL OR'` (the PHP has no trailing space).
     let null_cat_qpart = if cat_id == 0 { "cat_id IS NULL OR" } else { "" };
 
     // `$check_cats = [..._get_parent_cats($cat_id, $owner_uid), $cat_id]`.
-    let mut check_cats: Vec<i64> = if cat_id > 0 {
-        parent_cats(pool, owner_uid as i64, cat_id).await
+    let mut check_cats: Vec<i32> = if cat_id > 0 {
+        parent_cats(pool, owner_uid, cat_id).await
     } else {
         Vec::new()
     };
@@ -1603,9 +1603,7 @@ async fn upsert_article(
     // `HOOK_ARTICLE_FILTER` chain can add to them (and dedup against them); a
     // just-created entry has none.
     let existing_article_labels: Vec<Value> = match base_entry_id {
-        Some(id) => {
-            crate::article::get_labels(pool, owner as i64, id as i64, Some(owner as i64)).await
-        }
+        Some(id) => crate::article::get_labels(pool, owner, id, Some(owner)).await,
         None => Vec::new(),
     };
     let mut article = json!({
@@ -2005,7 +2003,7 @@ async fn upsert_article(
                 for idx in ctx.hook_order(HOOK_ARTICLES_MARK_TOGGLED) {
                     ctx.host_arc()
                         .plugin(idx)
-                        .hook_articles_mark_toggled(ctx, &[ref_id as i64])
+                        .hook_articles_mark_toggled(ctx, &[ref_id])
                         .await;
                 }
             }
@@ -2013,7 +2011,7 @@ async fn upsert_article(
                 for idx in ctx.hook_order(HOOK_ARTICLES_PUBLISH_TOGGLED) {
                     ctx.host_arc()
                         .plugin(idx)
-                        .hook_articles_publish_toggled(ctx, &[ref_id as i64])
+                        .hook_articles_publish_toggled(ctx, &[ref_id])
                         .await;
                 }
             }
@@ -2100,7 +2098,7 @@ async fn upsert_article(
     );
     for label in &article_labels {
         if let Some(caption) = label.get(1).and_then(Value::as_str) {
-            crate::labels::add_article(pool, ref_id as i64, caption, owner as i64).await;
+            crate::labels::add_article(pool, ref_id, caption, owner).await;
         }
     }
     dlog(
@@ -2112,7 +2110,7 @@ async fn upsert_article(
         if fa.action_type.as_deref() == Some("label")
             && let Some(param) = fa.param.as_deref()
         {
-            crate::labels::add_article(pool, ref_id as i64, param, owner as i64).await;
+            crate::labels::add_article(pool, ref_id, param, owner).await;
         }
     }
 

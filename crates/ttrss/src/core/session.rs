@@ -72,8 +72,10 @@ impl Session {
     }
 
     // -- tt-rss specific accessors -------------------------------------------
-    pub fn uid(&self) -> Option<i64> {
-        self.get_int("uid")
+    /// The session's `uid` — INT4 in the schema, so the boundary narrows the
+    /// stored i64 to i32 here; the domain carries ids as i32.
+    pub fn uid(&self) -> Option<i32> {
+        self.get_int("uid").map(|u| u as i32)
     }
     pub fn is_logged_in(&self) -> bool {
         self.get_int("uid").is_some_and(|u| u > 0)

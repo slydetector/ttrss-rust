@@ -23,13 +23,13 @@ use ttrss::core::session::Session;
 use ttrss::headlines::view;
 use ttrss::session::Sess;
 
-const SESSION_UID: i64 = 1;
+const SESSION_UID: i32 = 1;
 
 async fn setup(url: &str) -> (AppState, Sess) {
     let db: Db = common::make_db_from_url(url).await.expect("test db");
     let state = AppState::new(common::test_config(), db);
     let mut data = Session::new();
-    data.set("uid", PValue::Int(SESSION_UID));
+    data.set("uid", PValue::Int(SESSION_UID as i64));
     let sess = Sess::new("test-sid".to_string());
     sess.replace("test-sid".to_string(), data);
     sess.set_self_url(&state.config.self_url_rtrim());
@@ -44,7 +44,7 @@ fn view_extra(feed: &str, method: &str) -> Map<String, Value> {
 }
 
 /// True when the feed's both update stamps equal `'1970-01-01'` (PHP's reset).
-async fn stamps_reset(p: &sqlx::Pool<sqlx::Postgres>, feed_id: i64) -> bool {
+async fn stamps_reset(p: &sqlx::Pool<sqlx::Postgres>, feed_id: i32) -> bool {
     sqlx::query_scalar::<_, bool>(
         "SELECT COALESCE(last_updated = '1970-01-01'::timestamp
               AND last_update_started = '1970-01-01'::timestamp, false)

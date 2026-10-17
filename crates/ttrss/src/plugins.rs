@@ -39,7 +39,18 @@ use crate::session::Sess;
 /// `(name, class_name, is_local, is_system, version, author, description,
 /// more_info)` — `class_name` is the PHP class (the
 /// `ttrss_plugin_storage.name` key).
-const PLUGIN_META: &[(&str, &str, bool, bool, &str, &str, &str, &str)] = &[
+type PluginMeta<'a> = (
+    &'a str,
+    &'a str,
+    bool,
+    bool,
+    &'a str,
+    &'a str,
+    &'a str,
+    &'a str,
+);
+
+const PLUGIN_META: &[PluginMeta<'static>] = &[
     (
         "af_comics",
         "Af_Comics",

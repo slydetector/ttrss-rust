@@ -217,8 +217,7 @@ impl Bookmarklets {
             // PHP's `_create_published_article` builds a *fresh*
             // owner-scoped host (`load_all(KIND_ALL, $owner_uid)`) for the
             // HOOK_GET_FULL_TEXT chain — rebuild it from this context.
-            let pref_rows =
-                crate::prefs::load_rows_pool(host.pool(), uid as i64, host.profile).await;
+            let pref_rows = crate::prefs::load_rows_pool(host.pool(), uid, host.profile).await;
             let enabled =
                 crate::prefs::resolve(crate::prefs::_ENABLED_PLUGINS, &pref_rows, host.profile)
                     .as_str()
@@ -254,7 +253,7 @@ impl Bookmarklets {
                 &url,
                 &content,
                 &labels,
-                uid as i64,
+                uid,
                 pctx,
             )
             .await;
@@ -399,7 +398,7 @@ impl Bookmarklets {
                 pool,
                 &host_arc,
                 &host.self_url,
-                uid as i64,
+                uid,
                 host.access_level,
                 &feed_url,
                 0,

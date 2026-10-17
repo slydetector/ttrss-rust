@@ -14,9 +14,9 @@ use test_db::template::with_test_db;
 use ttrss::session::Sess;
 
 /// A logged-in session for `uid` (mirrors the `opml_export.rs` setup).
-fn sess_for(uid: i64) -> Sess {
+fn sess_for(uid: i32) -> Sess {
     let mut data = ttrss::core::session::Session::new();
-    data.set("uid", ttrss::core::phpser::Value::Int(uid));
+    data.set("uid", ttrss::core::phpser::Value::Int(uid as i64));
     data.set("name", ttrss::core::phpser::Value::Bytes(b"admin".to_vec()));
     let sess = Sess::new("test-sid".to_string());
     sess.replace("test-sid".to_string(), data);
@@ -441,9 +441,9 @@ async fn test_import_no_file_reports_upload_error() {
 
 /// A full session (uid + access level + stored pwd hash + CSRF token), so
 /// `validate_session` + the CSRF gate pass and the routing is what's under test.
-fn sess_authed(uid: i64) -> Sess {
+fn sess_authed(uid: i32) -> Sess {
     let mut d = ttrss::core::session::Session::new();
-    d.set("uid", ttrss::core::phpser::Value::Int(uid));
+    d.set("uid", ttrss::core::phpser::Value::Int(uid as i64));
     d.set(
         "access_level",
         ttrss::core::phpser::Value::Int(ttrss::core::user::ACCESS_LEVEL_ADMIN as i64),

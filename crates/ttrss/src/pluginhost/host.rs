@@ -79,15 +79,15 @@ pub const PUBLIC_METHOD_DELIMITER: &str = "--";
 pub const CATEGORY_SPECIAL: i32 = -1;
 
 /// `functions.php:3` — base index for plugin virtual feed ids.
-pub const PLUGIN_FEED_BASE_INDEX: i64 = -128;
+pub const PLUGIN_FEED_BASE_INDEX: i32 = -128;
 
 /// `PluginHost::pfeed_to_feed_id` (classes/PluginHost.php:803).
-pub fn pfeed_to_feed_id(pfeed: i64) -> i64 {
+pub fn pfeed_to_feed_id(pfeed: i32) -> i32 {
     PLUGIN_FEED_BASE_INDEX - 1 - pfeed.abs()
 }
 
 /// `PluginHost::feed_to_pfeed_id` (classes/PluginHost.php:811).
-pub fn feed_to_pfeed_id(feed: i64) -> i64 {
+pub fn feed_to_pfeed_id(feed: i32) -> i32 {
     PLUGIN_FEED_BASE_INDEX - 1 + feed.abs()
 }
 

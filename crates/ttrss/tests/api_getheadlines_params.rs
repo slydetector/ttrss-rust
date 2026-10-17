@@ -54,7 +54,7 @@ fn request(pairs: &[(&str, Value)]) -> Map<String, Value> {
 }
 
 /// `getheadlines` → the response item ids (in order).
-async fn ids(state: &AppState, sess: &Sess, pairs: &[(&str, Value)]) -> Vec<i64> {
+async fn ids(state: &AppState, sess: &Sess, pairs: &[(&str, Value)]) -> Vec<i32> {
     let (status, content) =
         api::before_and_dispatch(state, sess, "getheadlines", &request(pairs), None).await;
     assert_eq!(status, 0);
@@ -62,7 +62,7 @@ async fn ids(state: &AppState, sess: &Sess, pairs: &[(&str, Value)]) -> Vec<i64>
         .as_array()
         .expect("array response")
         .iter()
-        .filter_map(|e| e.get("id").and_then(Value::as_i64))
+        .filter_map(|e| e.get("id").and_then(Value::as_i64).map(|v| v as i32))
         .collect()
 }
 
@@ -189,7 +189,7 @@ async fn test_check_first_id_changed_result_set() {
                     ]
                 )
                 .await,
-                Vec::<i64>::new(),
+                Vec::<i32>::new(),
                 "changed result set must signal via an empty list"
             );
             // `offset = 0` → the check is skipped (PHP's `offset > 0` gate).

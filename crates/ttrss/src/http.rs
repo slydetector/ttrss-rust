@@ -903,7 +903,7 @@ async fn logout_flow(state: &AppState, sess: session::Sess, form: &PublicForm) -
             crate::pluginhost::HOOK_POST_LOGOUT,
             |plugin, ctx| {
                 let login = u_login_captured.clone();
-                Box::pin(async move { plugin.hook_post_logout(ctx, &login, u_id as i32).await })
+                Box::pin(async move { plugin.hook_post_logout(ctx, &login, u_id).await })
             },
             |result: &serde_json::Value, _plugin| {
                 if let Some(url) = result.get(0).and_then(|v| v.as_str())

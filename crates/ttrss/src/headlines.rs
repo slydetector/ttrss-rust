@@ -29,12 +29,12 @@ use crate::i18n::{__, t_sprintf};
 use crate::labels::{LABEL_BASE_INDEX, feed_to_label_id};
 
 // `Feeds::FEED_ERROR` (functions.php): the virtual "error feed" pseudo-id.
-pub(crate) const FEED_ERROR: i64 = -7;
+pub(crate) const FEED_ERROR: i32 = -7;
 /// `PLUGIN_FEED_BASE_INDEX` (functions.php): virtual plugin feeds occupy
 /// `(LABEL_BASE_INDEX, PLUGIN_FEED_BASE_INDEX)`.
-pub(crate) const PLUGIN_FEED_BASE_INDEX: i64 = -128;
-const NEVER_GROUP_FEEDS: &[i64] = &[FEED_RECENTLY_READ, FEED_ARCHIVED];
-const NEVER_GROUP_BY_DATE: &[i64] = &[FEED_PUBLISHED, FEED_STARRED, FEED_FRESH];
+pub(crate) const PLUGIN_FEED_BASE_INDEX: i32 = -128;
+const NEVER_GROUP_FEEDS: &[i32] = &[FEED_RECENTLY_READ, FEED_ARCHIVED];
+const NEVER_GROUP_BY_DATE: &[i32] = &[FEED_PUBLISHED, FEED_STARRED, FEED_FRESH];
 
 // `SELECT` column indices for the shared headlines article-row query (built by
 // `get_headlines_query`). Non-vfeed rows have 30 columns; vfeed rows add
@@ -283,17 +283,17 @@ pub async fn view(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> 
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
-    let check_first_id = extra
+    let check_first_id: i32 = extra
         .get("fid")
         .and_then(|v| {
             v.as_i64()
                 .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
         })
-        .unwrap_or(0);
+        .unwrap_or(0) as i32;
 
     // `if (is_numeric($feed)) $feed = (int) $feed;` (a non-numeric string is a
     // tag name).
-    let feed_num: Option<i64> = feed_raw.trim().parse::<i64>().ok();
+    let feed_num: Option<i32> = feed_raw.trim().parse().ok();
 
     // Feed-ownership check (label / feed / category).
     let owned = match feed_num {
@@ -602,7 +602,7 @@ async fn format_headlines_list(
     state: &AppState,
     sess: &Sess,
     feed: &str,
-    feed_num: Option<i64>,
+    feed_num: Option<i32>,
     method: &str,
     view_mode: &str,
     limit: i64,
@@ -610,7 +610,7 @@ async fn format_headlines_list(
     offset: i64,
     override_order: &str,
     include_children: bool,
-    check_first_id: i64,
+    check_first_id: i32,
     skip_first_id_check: bool,
     order_by: &str,
     rows: &[(String, Option<i32>, String)],
@@ -711,7 +711,7 @@ async fn format_headlines_list(
 
     // `HOOK_HEADLINE_TOOLBAR_SELECT_MENU_ITEM2` / `_BUTTON` (Feeds.php:170-181):
     // each hook's HTML string is appended into the toolbar's plugin slots.
-    let feed_id: i32 = feed_num.map(|f| f as i32).unwrap_or(0);
+    let feed_id: i32 = feed_num.unwrap_or(0);
     let mut plugin_menu_items = String::new();
     pctx.chain_hooks_callback(
         crate::pluginhost::HOOK_HEADLINE_TOOLBAR_SELECT_MENU_ITEM2,
@@ -811,7 +811,7 @@ async fn format_headlines_list(
 
     let mut content_list: Vec<Value> = Vec::new();
     let mut headlines_count = 0i64;
-    let mut rgba_cache: std::collections::HashMap<i64, (i64, i64, i64)> =
+    let mut rgba_cache: std::collections::HashMap<i32, (i64, i64, i64)> =
         std::collections::HashMap::new();
 
     let show_content_preview = prefs::resolve("SHOW_CONTENT_PREVIEW", rows, profile).as_bool();
@@ -962,7 +962,7 @@ async fn format_headlines_list(
         }
 
         // `if ($line['feed_id'] === null)` — normalize the archived feed.
-        let feed_id: i64 = feed_id_db.map(|f| f as i64).unwrap_or(FEED_ARCHIVED);
+        let feed_id: i32 = feed_id_db.unwrap_or(FEED_ARCHIVED);
         let archived = feed_id_db.is_none();
         let feed_title_out = if let Some(t) = &vfeed_title {
             Some(t.clone())
@@ -981,7 +981,7 @@ async fn format_headlines_list(
                 // `Article::_labels_of` (in the mutation handlers) then sees
                 // the labels, so the per-label counters update on the
                 // post-marking refresh instead of waiting for the next poll.
-                serde_json::from_str(&crate::labels::get_labels_json(pool, uid, id as i64).await)
+                serde_json::from_str(&crate::labels::get_labels_json(pool, uid, id).await)
                     .unwrap_or(Value::Array(Vec::new()))
             } else {
                 match serde_json::from_str::<Value>(cache) {
@@ -1679,7 +1679,7 @@ pub(crate) fn url_to_youtube_vid(url: &str) -> Option<String> {
 }
 
 /// `Feeds::_has_icon`.
-fn has_icon(icon_dir: &std::path::Path, feed_id: i64) -> bool {
+fn has_icon(icon_dir: &std::path::Path, feed_id: i32) -> bool {
     if feed_id <= 0 {
         return false;
     }
@@ -1754,7 +1754,7 @@ pub struct HeadlinesQuery {
     /// search filter is inactive (and used in the "Incorrect search syntax"
     /// message when the fragment fails its dry-run precheck).
     pub search_words: Vec<String>,
-    pub first_id: i64,
+    pub first_id: i32,
     pub is_vfeed: bool,
     pub query_error_override: String,
     pub first_id_changed: bool,
@@ -1775,9 +1775,9 @@ pub struct HeadlinesParams {
     /// `offset` (PHP default 0).
     pub offset: i64,
     /// `since_id` (PHP default 0): only articles with a larger id.
-    pub since_id: i64,
+    pub since_id: i32,
     /// `owner_uid` (PHP: `$_SESSION["uid"]`).
-    pub owner_uid: i64,
+    pub owner_uid: i32,
     /// `search` (PHP default `""`): the search filter, converted to a SQL
     /// fragment by `_search_to_sql` (see [`crate::search`]) and spliced into
     /// the query; an unexecutable fragment degrades to `false` with a
@@ -1807,12 +1807,12 @@ pub struct HeadlinesParams {
     /// article. When `offset > 0` and the current top id differs, the result
     /// set changed since the client last viewed it (PHP returns `[-1, …]`) —
     /// signalled as `first_id_changed` with an empty row set.
-    pub check_first_id: i64,
+    pub check_first_id: i32,
 }
 
 impl HeadlinesParams {
     /// The PHP defaults (`limit` 30, `view_mode` `"all"`).
-    pub fn new(feed: impl Into<String>, owner_uid: i64) -> Self {
+    pub fn new(feed: impl Into<String>, owner_uid: i32) -> Self {
         Self {
             feed: feed.into(),
             limit: 30,
@@ -1841,7 +1841,7 @@ pub async fn get_headlines_query(
     db: &crate::core::db::Db,
     params: &HeadlinesParams,
 ) -> HeadlinesQuery {
-    let feed_num: Option<i64> = params.feed.trim().parse::<i64>().ok();
+    let feed_num: Option<i32> = params.feed.trim().parse().ok();
     let rows = prefs::load_rows(db, params.owner_uid, None).await;
     get_headlines(
         db,
@@ -1874,9 +1874,9 @@ pub async fn get_headlines_query(
 #[allow(clippy::too_many_arguments)]
 async fn get_headlines(
     db: &crate::core::db::Db,
-    uid: i64,
+    uid: i32,
     feed: &str,
-    feed_num: Option<i64>,
+    feed_num: Option<i32>,
     limit: i64,
     view_mode: &str,
     cat_view: bool,
@@ -1885,12 +1885,12 @@ async fn get_headlines(
     override_order: &str,
     offset: i64,
     include_children: bool,
-    check_first_id: i64,
+    check_first_id: i32,
     skip_first_id_check: bool,
     _order_by: &str,
     rows: &[(String, Option<i32>, String)],
     profile: Option<i32>,
-    since_id: i64,
+    since_id: i32,
     ignore_vfeed_group: bool,
     start_ts: &str,
 ) -> HeadlinesQuery {
@@ -2007,7 +2007,7 @@ async fn get_headlines(
         Some(f) if f > 0 => {
             if cat_view {
                 if include_children {
-                    let mut subcats: Vec<i64> = child_cats(pool, uid, f).await;
+                    let mut subcats: Vec<i32> = child_cats(pool, uid, f).await;
                     subcats.push(f);
                     let list = subcats
                         .iter()
@@ -2165,7 +2165,7 @@ async fn get_headlines(
     let yyiw_qpart = "to_char(date_entered, 'IYYY-IW') AS yyiw";
     let content_query_part = "content, ";
 
-    let mut first_id = 0i64;
+    let mut first_id = 0i32;
     let first_id_changed = false;
     // Assigned in both branches of the `feed_num` if/else below.
     let article_rows: Vec<sqlx::postgres::PgRow>;
@@ -2253,7 +2253,7 @@ async fn get_headlines(
 \t\t\t\t{first_id_query_strategy_part} ORDER BY {order_by} LIMIT 1"
             );
             if let Ok(Some(r)) = sqlx::query(AssertSqlSafe(query)).fetch_optional(pool).await {
-                first_id = r.get::<i32, _>(0) as i64;
+                first_id = r.get::<i32, _>(0);
                 if offset > 0 && first_id != 0 && check_first_id != 0 && first_id != check_first_id
                 {
                     return HeadlinesQuery {
@@ -2384,7 +2384,7 @@ async fn get_headlines(
 }
 
 /// `Feeds::_get_child_cats` (natural PG order).
-pub(crate) async fn child_cats(pool: &sqlx::PgPool, uid: i64, cat: i64) -> Vec<i64> {
+pub(crate) async fn child_cats(pool: &sqlx::PgPool, uid: i32, cat: i32) -> Vec<i32> {
     let rows = sqlx::query(
         "SELECT id FROM ttrss_feed_categories WHERE (parent_cat = $1 AND owner_uid = $2)",
     )
@@ -2393,12 +2393,12 @@ pub(crate) async fn child_cats(pool: &sqlx::PgPool, uid: i64, cat: i64) -> Vec<i
     .fetch_all(pool)
     .await
     .unwrap_or_default();
-    rows.iter().map(|r| r.get::<i32, _>(0) as i64).collect()
+    rows.iter().map(|r| r.get::<i32, _>(0)).collect()
 }
 
 /// `Feeds::_get_cat_title`. The three special categories are translated
 /// (PHP `Feeds.php:1315-1319`); real category titles come from the DB.
-async fn cat_title(pool: &sqlx::PgPool, uid: i64, cat_id: i64) -> String {
+async fn cat_title(pool: &sqlx::PgPool, uid: i32, cat_id: i32) -> String {
     match cat_id {
         CAT_UNCATEGORIZED => __("Uncategorized"),
         CAT_SPECIAL => __("Special"),
@@ -2421,7 +2421,7 @@ async fn cat_title(pool: &sqlx::PgPool, uid: i64, cat_id: i64) -> String {
 /// `Feeds::_get_title` (the non-cat branch) — delegates to the canonical
 /// `feeds::feed_title` (the PHP-faithful implementation, including the
 /// id-as-string fallback for the else branch, e.g. `FEED_ERROR` → `"-7"`).
-async fn feed_title_of(feed: i64, pool: &sqlx::PgPool, uid: i64) -> String {
+async fn feed_title_of(feed: i32, pool: &sqlx::PgPool, uid: i32) -> String {
     crate::feeds::feed_title(pool, feed, uid).await
 }
 
@@ -2474,14 +2474,14 @@ mod tests {
     // The reference plugins' RAW hook output (single quotes as in the
     // PHP source) and the exact DOM-round-tripped oracle strings (double
     // quotes, `data-plugin-name` appended) the chain must produce.
-    fn trgm_raw(id: i64) -> String {
+    fn trgm_raw(id: i32) -> String {
         format!(
             "<i style=\"cursor : pointer\" class='material-icons' \
              onclick=\"Plugins.Psql_Trgm.showRelated({id})\" \
              title=\"Show related articles\">bookmark_outline</i>"
         )
     }
-    fn note_raw(id: i64) -> String {
+    fn note_raw(id: i32) -> String {
         format!(
             "<i class='material-icons' onclick=\"Plugins.Note.edit({id})\" \
              style='cursor : pointer' title=\"Edit article note\">note</i>"

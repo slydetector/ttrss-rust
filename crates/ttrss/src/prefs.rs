@@ -407,7 +407,7 @@ fn stored_string(v: &Pref) -> String {
 /// Returns `(pref_name, profile, value)` rows.
 pub async fn load_rows(
     db: &Db,
-    uid: i64,
+    uid: i32,
     profile: Option<i32>,
 ) -> Vec<(String, Option<i32>, String)> {
     load_rows_pool(db.pool(), uid, profile).await
@@ -417,7 +417,7 @@ pub async fn load_rows(
 /// has only a `PgPool` to read the owner's enabled plugins from.
 pub async fn load_rows_pool(
     pool: &PgPool,
-    uid: i64,
+    uid: i32,
     profile: Option<i32>,
 ) -> Vec<(String, Option<i32>, String)> {
     let rows = sqlx::query(
@@ -445,7 +445,7 @@ pub async fn load_rows_pool(
 pub async fn load_rows_cached(
     cache: &crate::PrefsCache,
     db: &Db,
-    uid: i64,
+    uid: i32,
     profile: Option<i32>,
 ) -> Vec<(String, Option<i32>, String)> {
     // Fast path: cache hit.
@@ -467,7 +467,7 @@ pub async fn load_rows_cached(
 /// Drop the cached rows for a (uid, profile) — called after a prefs save so
 /// the next read reflects the change (the PHP's `Prefs::set` updates the
 /// in-memory cache entry).
-pub fn invalidate(cache: &crate::PrefsCache, uid: i64, profile: Option<i32>) {
+pub fn invalidate(cache: &crate::PrefsCache, uid: i32, profile: Option<i32>) {
     if let Ok(mut c) = cache.write() {
         c.remove(&(uid, profile));
     }
@@ -509,7 +509,7 @@ pub async fn set(
     db: &Db,
     name: &str,
     value: &str,
-    owner_uid: i64,
+    owner_uid: i32,
     profile: Option<i32>,
     strip_tags: bool,
 ) -> bool {
@@ -581,7 +581,7 @@ pub async fn set(
 
 /// `Prefs::reset`: delete all of the user's override rows for the profile
 /// except `_PREFS_MIGRATED`.
-pub async fn reset(db: &Db, owner_uid: i64, profile: Option<i32>) {
+pub async fn reset(db: &Db, owner_uid: i32, profile: Option<i32>) {
     let profile = if profile == Some(0) { None } else { profile };
     let _ = sqlx::query(
         "DELETE FROM ttrss_user_prefs2
@@ -609,7 +609,7 @@ pub fn get_all(
 
 /// `Prefs::get_profile_id`: the id of the user's profile with that title,
 /// or -1 if none exists.
-pub async fn get_profile_id(db: &Db, owner_uid: i64, title: &str) -> i64 {
+pub async fn get_profile_id(db: &Db, owner_uid: i32, title: &str) -> i64 {
     let id: Option<i32> = sqlx::query_scalar(
         "SELECT id FROM ttrss_settings_profiles WHERE owner_uid = $1 AND title = $2",
     )
@@ -623,7 +623,7 @@ pub async fn get_profile_id(db: &Db, owner_uid: i64, title: &str) -> i64 {
 }
 
 /// `Prefs::profile_exists`.
-pub async fn profile_exists(db: &Db, owner_uid: i64, profile_id: i64) -> bool {
+pub async fn profile_exists(db: &Db, owner_uid: i32, profile_id: i32) -> bool {
     sqlx::query_scalar::<_, i32>(
         "SELECT id FROM ttrss_settings_profiles WHERE owner_uid = $1 AND id = $2",
     )
@@ -638,7 +638,7 @@ pub async fn profile_exists(db: &Db, owner_uid: i64, profile_id: i64) -> bool {
 
 /// `Prefs::create_profile`: the id of the created profile; -1 if the title
 /// is already used by the user or the insert fails.
-pub async fn create_profile(db: &Db, owner_uid: i64, title: &str) -> i64 {
+pub async fn create_profile(db: &Db, owner_uid: i32, title: &str) -> i64 {
     if get_profile_id(db, owner_uid, title).await != -1 {
         return -1;
     }

@@ -4,8 +4,8 @@
 //! Labels, `-3` = All-except-virtual, `-4` = All, `0` = Uncategorized) used by
 //! `Feeds`, `Headlines`, `API`, and the counter queries.
 
-pub const CAT_UNCATEGORIZED: i64 = 0;
-pub const CAT_SPECIAL: i64 = -1;
-pub const CAT_LABELS: i64 = -2;
-pub const CAT_ALL_EXCEPT_VIRTUAL: i64 = -3;
-pub const CAT_ALL: i64 = -4;
+pub const CAT_UNCATEGORIZED: i32 = 0;
+pub const CAT_SPECIAL: i32 = -1;
+pub const CAT_LABELS: i32 = -2;
+pub const CAT_ALL_EXCEPT_VIRTUAL: i32 = -3;
+pub const CAT_ALL: i32 = -4;

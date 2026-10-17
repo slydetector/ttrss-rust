@@ -98,7 +98,7 @@ pub async fn get_all_counters(state: &AppState, sess: &Sess, extra: &Map<String,
 /// mirroring PHP's `$_REQUEST['feed_ids']` being an array or a string. A
 /// non-integer item rejects the whole input (null). `*_count == -1` (absent)
 /// → null (no list); `*_count >= 0` → the list (possibly empty).
-fn parse_id_list(count: Option<&Value>, ids: Option<&Value>) -> Option<Vec<i64>> {
+fn parse_id_list(count: Option<&Value>, ids: Option<&Value>) -> Option<Vec<i32>> {
     let count = count
         .and_then(|v| {
             v.as_i64()
@@ -133,9 +133,9 @@ fn parse_id_list(count: Option<&Value>, ids: Option<&Value>) -> Option<Vec<i64>>
     if items.is_empty() {
         return Some(Vec::new());
     }
-    let parsed: Vec<i64> = items
+    let parsed: Vec<i32> = items
         .iter()
-        .map(|t| t.parse::<i64>())
+        .map(|t| t.parse::<i32>())
         .collect::<Result<_, _>>()
         .ok()?;
     Some(parsed)
@@ -146,14 +146,14 @@ fn parse_id_list(count: Option<&Value>, ids: Option<&Value>) -> Option<Vec<i64>>
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn all_counters(
     pool: &sqlx::PgPool,
-    uid: i64,
+    uid: i32,
     profile: Option<i32>,
     rows: &[(String, Option<i32>, String)],
     icon_dir: &std::path::Path,
     client_tz_offset: i64,
-    feed_ids: Option<&[i64]>,
-    label_ids: Option<&[i64]>,
-    cat_ids: Option<&[i64]>,
+    feed_ids: Option<&[i32]>,
+    label_ids: Option<&[i32]>,
+    cat_ids: Option<&[i32]>,
 ) -> Vec<Value> {
     let fresh_max_age = prefs::resolve(prefs::FRESH_ARTICLE_MAX_AGE, rows, profile).as_int();
 
@@ -178,7 +178,7 @@ pub(crate) async fn all_counters(
 }
 
 /// `Counters::get_global`.
-async fn get_global(pool: &sqlx::PgPool, uid: i64) -> Vec<Value> {
+async fn get_global(pool: &sqlx::PgPool, uid: i32) -> Vec<Value> {
     let global_unread = sqlx::query_scalar::<_, i64>(
         "SELECT COALESCE(SUM(CASE WHEN unread THEN 1 ELSE 0 END), 0)
          FROM ttrss_user_entries ue WHERE ue.owner_uid = $1",
@@ -201,7 +201,7 @@ async fn get_global(pool: &sqlx::PgPool, uid: i64) -> Vec<Value> {
 
 /// `Counters::get_virt` (the five built-in virtual feeds; no plugin-provided
 /// virtual feeds in this deployment).
-async fn get_virt(pool: &sqlx::PgPool, uid: i64, fresh_max_age: i64) -> Vec<Value> {
+async fn get_virt(pool: &sqlx::PgPool, uid: i32, fresh_max_age: i64) -> Vec<Value> {
     let mut out = Vec::new();
     for feed_id in [
         FEED_ARCHIVED,
@@ -231,7 +231,7 @@ async fn get_virt(pool: &sqlx::PgPool, uid: i64, fresh_max_age: i64) -> Vec<Valu
 }
 
 /// `Counters::get_labels` (PHP body).
-async fn labels_counters(pool: &sqlx::PgPool, uid: i64, label_ids: Option<&[i64]>) -> Vec<Value> {
+async fn labels_counters(pool: &sqlx::PgPool, uid: i32, label_ids: Option<&[i32]>) -> Vec<Value> {
     let rows = match label_ids {
         Some([]) => return Vec::new(),
         Some(ids) => {
@@ -279,7 +279,7 @@ async fn labels_counters(pool: &sqlx::PgPool, uid: i64, label_ids: Option<&[i64]
 
     rows.iter()
         .map(|r| {
-            let label_id = r.get::<i32, _>(0) as i64;
+            let label_id = r.get::<i32, _>(0);
             // SUM columns are NULL for labels without articles; PHP casts to 0.
             let mut cv = Map::new();
             cv.insert("id".into(), json!(label_to_feed_id(label_id)));
@@ -305,8 +305,8 @@ async fn labels_counters(pool: &sqlx::PgPool, uid: i64, label_ids: Option<&[i64]
 /// `Counters::get_feeds` (the idiorm query, verbatim).
 async fn get_feeds(
     pool: &sqlx::PgPool,
-    uid: i64,
-    feed_ids: Option<&[i64]>,
+    uid: i32,
+    feed_ids: Option<&[i32]>,
     icon_dir: &std::path::Path,
     rows: &[(String, Option<i32>, String)],
     profile: Option<i32>,
@@ -410,8 +410,8 @@ async fn get_feeds(
 /// counters added.
 async fn get_cats(
     pool: &sqlx::PgPool,
-    uid: i64,
-    cat_ids: Option<&[i64]>,
+    uid: i32,
+    cat_ids: Option<&[i32]>,
     fresh_max_age: i64,
 ) -> Vec<Value> {
     let mut out: Vec<Value> = vec![json!({
@@ -487,7 +487,7 @@ async fn get_cats(
     };
 
     for r in &rows {
-        let cat_id = r.get::<i32, _>(0) as i64;
+        let cat_id = r.get::<i32, _>(0);
         // SUM columns are NULL for cats without feeds; PHP casts to 0.
         let count = r.get::<Option<i64>, _>(1).unwrap_or(0);
         let count_marked = r.get::<Option<i64>, _>(2).unwrap_or(0);
@@ -517,8 +517,8 @@ async fn get_cats(
 /// `Counters::get_cat_children` — recursive (subtree) counters.
 async fn cat_children(
     pool: &sqlx::PgPool,
-    uid: i64,
-    cat_id: i64,
+    uid: i32,
+    cat_id: i32,
     fresh_max_age: i64,
 ) -> (i64, i64, i64) {
     let children = sqlx::query(
@@ -533,7 +533,7 @@ async fn cat_children(
     let mut marked = 0i64;
     let mut published = 0i64;
     for c in children {
-        let cid = c.get::<i32, _>(0) as i64;
+        let cid = c.get::<i32, _>(0);
         let (tmp_u, tmp_m, tmp_p) = Box::pin(cat_children(pool, uid, cid, fresh_max_age)).await;
         unread += tmp_u + cat_unread(pool, uid, cid, fresh_max_age).await;
         marked += tmp_m + cat_marked(pool, uid, cid, fresh_max_age).await;
@@ -548,27 +548,27 @@ async fn cat_children(
 /// `feed_id IS NULL`.
 async fn feed_counters(
     pool: &sqlx::PgPool,
-    uid: i64,
-    feed: i64,
+    uid: i32,
+    n_feed: i32,
     is_cat: bool,
     unread_only: bool,
     feed_is_int: bool,
     fresh_max_age: i64,
 ) -> i64 {
     if is_cat {
-        return cat_unread(pool, uid, feed, fresh_max_age).await;
+        return cat_unread(pool, uid, n_feed, fresh_max_age).await;
     }
-    if feed < PLUGIN_FEED_BASE_INDEX && feed > LABEL_BASE_INDEX {
+    if n_feed < PLUGIN_FEED_BASE_INDEX && n_feed > LABEL_BASE_INDEX {
         // plugin virtual feeds — none in this deployment
         return 0;
     }
-    if feed == FEED_RECENTLY_READ {
+    if n_feed == FEED_RECENTLY_READ {
         return 0;
     }
 
     let unread_qpart = if unread_only { "unread = true" } else { "true" };
 
-    let (match_part, need_entries) = match feed {
+    let (match_part, need_entries) = match n_feed {
         FEED_STARRED => ("marked = true".to_string(), false),
         FEED_PUBLISHED => ("published = true".to_string(), false),
         FEED_FRESH => (
@@ -611,11 +611,11 @@ async fn feed_counters(
         .unwrap_or(0)
 }
 
-/// `Feeds::_get_counters(int|string $feed, …)` — a feed id **or** a tag name.
+/// `Feeds::_get_counters(int|string $n_feed, …)` — a n_feed id **or** a tag name.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum FeedOrTag<'a> {
     /// A numeric feed id (real, virtual, or label reference).
-    Feed(i64),
+    Feed(i32),
     /// A tag name (`ttrss_tags.tag_name`).
     Tag(&'a str),
 }
@@ -624,7 +624,7 @@ impl FeedOrTag<'_> {
     /// PHP `(int) $feed`.
     pub fn as_int(self) -> i64 {
         match self {
-            FeedOrTag::Feed(n) => n,
+            FeedOrTag::Feed(n) => n as i64,
             FeedOrTag::Tag(s) => php_int_cast(s),
         }
     }
@@ -642,7 +642,7 @@ fn php_is_numeric(s: &str) -> bool {
 
 /// `Feeds::_get_counters` (the tag branch of the `$feed != "0" &&
 /// $n_feed == 0` case).
-async fn tag_counters(pool: &sqlx::PgPool, uid: i64, unread_only: bool, tag: &str) -> i64 {
+async fn tag_counters(pool: &sqlx::PgPool, uid: i32, unread_only: bool, tag: &str) -> i64 {
     let unread_qpart = if unread_only { "unread = true" } else { "true" };
     let n: Option<i64> = sqlx::query_scalar(AssertSqlSafe(format!(
         "SELECT SUM((SELECT COUNT(int_id)
@@ -665,14 +665,14 @@ async fn tag_counters(pool: &sqlx::PgPool, uid: i64, unread_only: bool, tag: &st
 /// matching the integration-test session, which carries no profile).
 pub async fn get_counters(
     db: &Db,
-    uid: i64,
+    uid: i32,
     feed: FeedOrTag<'_>,
     is_cat: bool,
     unread_only: bool,
-    owner_uid: Option<i64>,
+    owner_uid: Option<i32>,
 ) -> i64 {
     let pool = db.pool();
-    let n_feed = feed.as_int();
+    let n_feed: i32 = feed.as_int() as i32;
     // `if (!$owner_uid) $owner_uid = $_SESSION["uid"]`
     let owner = match owner_uid {
         Some(u) if u != 0 => u,
@@ -717,7 +717,7 @@ pub async fn get_counters(
 }
 
 /// `Counters::get_all` (PHP) — the full counter list for the session user.
-pub async fn get_all(db: &Db, uid: i64, icon_dir: &std::path::Path) -> Vec<Value> {
+pub async fn get_all(db: &Db, uid: i32, icon_dir: &std::path::Path) -> Vec<Value> {
     let rows = prefs::load_rows(db, uid, None).await;
     all_counters(db.pool(), uid, None, &rows, icon_dir, 0, None, None, None).await
 }
@@ -726,15 +726,15 @@ pub async fn get_all(db: &Db, uid: i64, icon_dir: &std::path::Path) -> Vec<Value
 /// and feeds + the categories of the given feeds.
 pub async fn get_conditional(
     db: &Db,
-    uid: i64,
-    feed_ids: Option<&[i64]>,
-    label_ids: Option<&[i64]>,
+    uid: i32,
+    feed_ids: Option<&[i32]>,
+    label_ids: Option<&[i32]>,
     icon_dir: &std::path::Path,
 ) -> Vec<Value> {
     let rows = prefs::load_rows(db, uid, None).await;
     // `is_array($feed_ids) ? Feeds::_cats_of($feed_ids, uid, true) : null`
     // (an empty list yields an empty category list, not the full one).
-    let cat_ids: Option<Vec<i64>> = match feed_ids {
+    let cat_ids: Option<Vec<i32>> = match feed_ids {
         Some(ids) => Some(if ids.is_empty() {
             Vec::new()
         } else {
@@ -758,12 +758,12 @@ pub async fn get_conditional(
 
 /// `Counters::get_labels` (PHP) — the label counter entries (all labels when
 /// `label_ids` is `None`, the given subset otherwise).
-pub async fn get_labels(db: &Db, uid: i64, label_ids: Option<&[i64]>) -> Vec<Value> {
+pub async fn get_labels(db: &Db, uid: i32, label_ids: Option<&[i32]>) -> Vec<Value> {
     labels_counters(db.pool(), uid, label_ids).await
 }
 
 /// `Feeds::_get_label_unread`.
-async fn label_unread(pool: &sqlx::PgPool, uid: i64, label_id: i64) -> i64 {
+async fn label_unread(pool: &sqlx::PgPool, uid: i32, label_id: i32) -> i64 {
     sqlx::query_scalar::<_, i64>(
         "SELECT COUNT(DISTINCT article_id) FROM ttrss_user_entries ue, ttrss_user_labels2 l
          WHERE article_id = ref_id AND unread IS true AND ue.owner_uid = $1 AND l.label_id = $2",
@@ -776,7 +776,7 @@ async fn label_unread(pool: &sqlx::PgPool, uid: i64, label_id: i64) -> i64 {
 }
 
 /// `Feeds::_get_cat_unread` (real cats + the special LABELS/UNCATEGORIZED ids).
-async fn cat_unread(pool: &sqlx::PgPool, uid: i64, cat: i64, _fresh_max_age: i64) -> i64 {
+async fn cat_unread(pool: &sqlx::PgPool, uid: i32, cat: i32, _fresh_max_age: i64) -> i64 {
     if cat >= 0 {
         let n = sqlx::query_scalar::<_, Option<i64>>(
             "SELECT SUM(CASE WHEN unread THEN 1 ELSE 0 END)
@@ -787,7 +787,7 @@ async fn cat_unread(pool: &sqlx::PgPool, uid: i64, cat: i64, _fresh_max_age: i64
              AND owner_uid = $1",
         )
         .bind(uid)
-        .bind(if cat == 0 { None } else { Some(cat as i32) })
+        .bind(if cat == 0 { None } else { Some(cat) })
         .fetch_one(pool)
         .await
         .unwrap_or(None);
@@ -810,11 +810,11 @@ async fn cat_unread(pool: &sqlx::PgPool, uid: i64, cat: i64, _fresh_max_age: i64
 /// *descendant* categories of `cat` (each child's own unread plus its
 /// descendants'). Ported iteratively (explicit work stack) rather than the
 /// PHP's recursion, per the working-style note.
-pub(crate) async fn cat_children_unread(pool: &sqlx::PgPool, uid: i64, cat: i64) -> i64 {
+pub(crate) async fn cat_children_unread(pool: &sqlx::PgPool, uid: i32, cat: i32) -> i64 {
     let mut unread = 0i64;
     let mut stack = vec![cat];
     while let Some(c) = stack.pop() {
-        let children: Vec<i64> = sqlx::query(
+        let children: Vec<i32> = sqlx::query(
             "SELECT id FROM ttrss_feed_categories WHERE parent_cat = $1 AND owner_uid = $2",
         )
         .bind(c)
@@ -823,7 +823,7 @@ pub(crate) async fn cat_children_unread(pool: &sqlx::PgPool, uid: i64, cat: i64)
         .await
         .unwrap_or_default()
         .iter()
-        .map(|r| r.get::<i32, _>(0) as i64)
+        .map(|r| r.get::<i32, _>(0))
         .collect();
         for ch in children {
             unread += cat_unread(pool, uid, ch, 0).await;
@@ -833,7 +833,7 @@ pub(crate) async fn cat_children_unread(pool: &sqlx::PgPool, uid: i64, cat: i64)
     unread
 }
 /// `Feeds::_get_cat_marked`.
-async fn cat_marked(pool: &sqlx::PgPool, uid: i64, cat: i64, _fresh_max_age: i64) -> i64 {
+async fn cat_marked(pool: &sqlx::PgPool, uid: i32, cat: i32, _fresh_max_age: i64) -> i64 {
     if cat >= 0 {
         let n = sqlx::query_scalar::<_, Option<i64>>(
             "SELECT SUM(CASE WHEN marked THEN 1 ELSE 0 END)
@@ -844,7 +844,7 @@ async fn cat_marked(pool: &sqlx::PgPool, uid: i64, cat: i64, _fresh_max_age: i64
              AND owner_uid = $1",
         )
         .bind(uid)
-        .bind(if cat == 0 { None } else { Some(cat as i32) })
+        .bind(if cat == 0 { None } else { Some(cat) })
         .fetch_one(pool)
         .await
         .unwrap_or(None);
@@ -854,7 +854,7 @@ async fn cat_marked(pool: &sqlx::PgPool, uid: i64, cat: i64, _fresh_max_age: i64
 }
 
 /// `Feeds::_get_cat_published`.
-async fn cat_published(pool: &sqlx::PgPool, uid: i64, cat: i64, _fresh_max_age: i64) -> i64 {
+async fn cat_published(pool: &sqlx::PgPool, uid: i32, cat: i32, _fresh_max_age: i64) -> i64 {
     if cat >= 0 {
         let n = sqlx::query_scalar::<_, Option<i64>>(
             "SELECT SUM(CASE WHEN published THEN 1 ELSE 0 END)
@@ -865,7 +865,7 @@ async fn cat_published(pool: &sqlx::PgPool, uid: i64, cat: i64, _fresh_max_age: 
              AND owner_uid = $1",
         )
         .bind(uid)
-        .bind(if cat == 0 { None } else { Some(cat as i32) })
+        .bind(if cat == 0 { None } else { Some(cat) })
         .fetch_one(pool)
         .await
         .unwrap_or(None);
@@ -876,7 +876,7 @@ async fn cat_published(pool: &sqlx::PgPool, uid: i64, cat: i64, _fresh_max_age: 
 
 /// `Feeds::_cats_of` — distinct cats of the given feeds (+ parent cats when
 /// `with_parents`).
-async fn cats_of(pool: &sqlx::PgPool, uid: i64, feeds: &[i64], with_parents: bool) -> Vec<i64> {
+async fn cats_of(pool: &sqlx::PgPool, uid: i32, feeds: &[i32], with_parents: bool) -> Vec<i32> {
     if feeds.is_empty() {
         return Vec::new();
     }
@@ -894,12 +894,12 @@ async fn cats_of(pool: &sqlx::PgPool, uid: i64, feeds: &[i64], with_parents: boo
     }
     let rows = query.fetch_all(pool).await.unwrap_or_default();
 
-    let mut rv: Vec<i64> = Vec::new();
+    let mut rv: Vec<i32> = Vec::new();
     if let Some(r) = rows.first() {
-        let cat_id = r.get::<Option<i32>, _>(0).unwrap_or(0) as i64;
+        let cat_id = r.get::<Option<i32>, _>(0).unwrap_or(0);
         rv.push(cat_id);
         if with_parents && let Some(parent) = r.get::<Option<i32>, _>(1) {
-            rv.extend(parent_cats(pool, uid, parent as i64).await);
+            rv.extend(parent_cats(pool, uid, parent).await);
         }
     }
     // `array_unique` — dedup preserving first-seen order.
@@ -909,7 +909,7 @@ async fn cats_of(pool: &sqlx::PgPool, uid: i64, feeds: &[i64], with_parents: boo
 }
 
 /// `Feeds::_get_parent_cats` (recursive).
-pub(crate) async fn parent_cats(pool: &sqlx::PgPool, uid: i64, cat: i64) -> Vec<i64> {
+pub(crate) async fn parent_cats(pool: &sqlx::PgPool, uid: i32, cat: i32) -> Vec<i32> {
     let mut rv = Vec::new();
     let rows = sqlx::query(
         "SELECT parent_cat FROM ttrss_feed_categories
@@ -921,7 +921,7 @@ pub(crate) async fn parent_cats(pool: &sqlx::PgPool, uid: i64, cat: i64) -> Vec<
     .await
     .unwrap_or_default();
     for r in rows {
-        let p = r.get::<Option<i32>, _>(0).unwrap_or(0) as i64;
+        let p = r.get::<Option<i32>, _>(0).unwrap_or(0);
         rv.push(p);
         rv.extend(Box::pin(parent_cats(pool, uid, p)).await);
     }

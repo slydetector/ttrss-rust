@@ -109,7 +109,7 @@ async fn get_all_labels(pool: &sqlx::PgPool, owner_uid: i32) -> Vec<Value> {
         .map(|row| {
             let id: i32 = row.get(0);
             json!([
-                labels::label_to_feed_id(id as i64),
+                labels::label_to_feed_id(id),
                 row.get::<String, _>(1),
                 row.get::<String, _>(2),
                 row.get::<String, _>(3),

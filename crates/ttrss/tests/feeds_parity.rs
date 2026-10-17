@@ -23,16 +23,16 @@ use ttrss::feeds;
 use ttrss::i18n::{I18N, I18nCache, I18nCtx};
 
 /// PHP `Feeds::*` constants (mirrors `tt-rss/classes/Feeds.php`).
-const FEED_ARCHIVED: i64 = 0;
-const FEED_STARRED: i64 = -1;
-const FEED_PUBLISHED: i64 = -2;
-const FEED_FRESH: i64 = -3;
-const FEED_ALL: i64 = -4;
-const FEED_RECENTLY_READ: i64 = -6;
-const FEED_ERROR: i64 = -7;
-const CATEGORY_UNCATEGORIZED: i64 = 0;
-const CATEGORY_SPECIAL: i64 = -1;
-const CATEGORY_LABELS: i64 = -2;
+const FEED_ARCHIVED: i32 = 0;
+const FEED_STARRED: i32 = -1;
+const FEED_PUBLISHED: i32 = -2;
+const FEED_FRESH: i32 = -3;
+const FEED_ALL: i32 = -4;
+const FEED_RECENTLY_READ: i32 = -6;
+const FEED_ERROR: i32 = -7;
+const CATEGORY_UNCATEGORIZED: i32 = 0;
+const CATEGORY_SPECIAL: i32 = -1;
+const CATEGORY_LABELS: i32 = -2;
 
 // ── FeedsTest (functional: no seed data required) ───────────────────────────
 
@@ -42,7 +42,7 @@ async fn test_get_title_special_feeds() {
     with_test_db(|url| {
         Box::pin(async move {
             let db = common::make_db_ref(&url).await;
-            let uid = 1;
+            let uid = 1i32;
             assert_eq!(
                 "Starred articles",
                 feeds::feed_title(db.pool(), FEED_STARRED, uid).await
@@ -133,7 +133,7 @@ async fn test_get_title_numeric_feed_id_existing() {
     with_test_db(|url| {
         Box::pin(async move {
             let db = common::make_db_ref(&url).await;
-            let uid = 1;
+            let uid = 1i32;
             assert_eq!("Hacker News", feeds::feed_title(db.pool(), 1, uid).await);
             assert_eq!("The Register", feeds::feed_title(db.pool(), 2, uid).await);
             assert_eq!("Ars Technica", feeds::feed_title(db.pool(), 3, uid).await);
@@ -172,7 +172,7 @@ async fn test_get_title_label_id_existing() {
     with_test_db(|url| {
         Box::pin(async move {
             let db = common::make_db_ref(&url).await;
-            let uid = 1;
+            let uid = 1i32;
             // Label reference IDs must be < LABEL_BASE_INDEX (-1024); the label id is
             // recovered from the reference via `feed_to_label_id`.
             let ref_id_1 = ttrss::labels::label_to_feed_id(1);
@@ -268,7 +268,7 @@ async fn test_get_title_category_existing() {
     with_test_db(|url| {
         Box::pin(async move {
             let db = common::make_db_ref(&url).await;
-            let uid = 1;
+            let uid = 1i32;
             assert_eq!("Technology", feeds::category_title(db.pool(), 1, uid).await);
             assert_eq!(
                 "Science & Nature",
