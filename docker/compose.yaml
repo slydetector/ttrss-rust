@@ -28,9 +28,13 @@ services:
     healthcheck:
       # The app connects once at startup and has no DB retry loop, so gate
       # it on pg readiness (the official stack's bare `depends_on` would
-      # crash-loop on a cold start).
+      # crash-loop on a cold start). Interval is deliberately long: each
+      # probe is a full backend start + SCRAM auth (~200ms CPU), and the
+      # official PHP stack has no db healthcheck at all — a tight probe
+      # loop becomes a constant, non-trivial db CPU load (measured:
+      # 5s => ~2-4% of a core).
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
-      interval: 5s
+      interval: 30s
       timeout: 3s
       retries: 10
 

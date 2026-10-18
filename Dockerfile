@@ -67,5 +67,5 @@ EXPOSE 9000
 # port from TTRSS_LISTEN_ADDR. Always dialed via localhost, never the
 # user's external host, so no per-deployment wiring is needed.
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD ["sh", "-c", "s=${TTRSS_SELF_URL_PATH:-/tt-rss/}; case $s in */*) seg=${s#*/};; *) seg=;; esac; p=${TTRSS_LISTEN_ADDR##*:}; [ -n \"$p\" ] || p=9000; u=http://localhost:$p; [ -n \"$seg\" ] && u=$u/${seg%%/*}; curl --fail --silent --show-error $u/index.php"]
+    CMD ["sh", "-c", "s=${TTRSS_SELF_URL_PATH:-/tt-rss/}; seg=; case $s in *://*) s=${s#*://}; s=${s#*/}; seg=${s%%/*};; /*) seg=${s#/}; seg=${seg%%/*};; esac; p=${TTRSS_LISTEN_ADDR##*:}; [ -n \"$p\" ] || p=9000; u=http://localhost:$p; [ -n \"$seg\" ] && u=$u/$seg; curl --fail --silent --show-error $u/index.php"]
 ENTRYPOINT ["ttrss"]
