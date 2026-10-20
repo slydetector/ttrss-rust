@@ -1143,6 +1143,15 @@ pub async fn subscribe(
     // no second HTTP request.
     immediate_update: bool,
 ) -> Value {
+    // `if (!in_array($update_interval, array_keys(Feeds::_get_update_intervals())))
+    //  return ['code' => 9, 'parameters' => ['update_interval']];`
+    if !update_intervals(true)
+        .iter()
+        .any(|(k, _)| k.parse::<i32>() == Ok(update_interval))
+    {
+        return json!({ "code": 9, "parameters": ["update_interval"] });
+    }
+
     // `if ($user && $user->access_level == ACCESS_LEVEL_READONLY) return ["code" => 8]`.
     if access_level == crate::core::user::ACCESS_LEVEL_READONLY {
         return json!({ "code": 8 });
@@ -3095,18 +3104,10 @@ pub async fn editfeed(state: &AppState, sess: &Sess, extra: &Map<String, Value>)
 
     // purge intervals.
     let purge: Value = if state.config.force_article_purge == 0 {
-        let mut m: Map<String, Value> = Map::new();
-        for (k, v) in [
-            ("0", "Use default"),
-            ("-1", "Never purge"),
-            ("7", "1 week old"),
-            ("14", "2 weeks old"),
-            ("31", "1 month old"),
-            ("60", "2 months old"),
-            ("90", "3 months old"),
-        ] {
-            m.insert(k.to_string(), Value::String(__(v)));
-        }
+        let mut m: Map<String, Value> = purge_intervals()
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), Value::String(__(v))))
+            .collect();
         let default_purge = prefs::resolve(prefs::PURGE_OLD_DAYS, &pref_rows, None).as_int();
         let suffix = if default_purge > 0 {
             t_nsprintf(
@@ -3212,43 +3213,36 @@ pub async fn editfeeds(state: &AppState, sess: &Sess, extra: &Map<String, Value>
     let default_update = prefs::resolve("DEFAULT_UPDATE_INTERVAL", &pref_rows, None).as_int();
     let default_purge = prefs::resolve(prefs::PURGE_OLD_DAYS, &pref_rows, None).as_int();
 
-    // PHP `$update_intervals` / `$purge_intervals` (backend.php), with the
-    // default-annotation appended to the `0` key (PHP `editfeeds`).
-    let update: Vec<(String, String)> = vec![
-        (
-            "0".to_string(),
-            format!(
-                "{} ({})",
-                __("Default interval"),
-                update_interval_label(default_update)
-            ),
-        ),
-        ("-1".to_string(), __("Disable updates")),
-        ("15".to_string(), __("15 minutes")),
-        ("30".to_string(), __("30 minutes")),
-        ("60".to_string(), __("Hourly")),
-        ("240".to_string(), __("4 hours")),
-        ("720".to_string(), __("12 hours")),
-        ("1440".to_string(), __("Daily")),
-        ("10080".to_string(), __("Weekly")),
-    ];
+    // `Feeds::_get_update_intervals` / `_get_purge_intervals`, with the
+    // default-annotation appended to the `0` keys (PHP `editfeeds`).
+    let update: Vec<(String, String)> = update_intervals(true)
+        .into_iter()
+        .map(|(k, v)| {
+            if k == "0" {
+                (
+                    k.to_string(),
+                    format!("{} ({})", __(v), update_interval_label(default_update)),
+                )
+            } else {
+                (k.to_string(), __(v))
+            }
+        })
+        .collect();
     let purge_default = if default_purge > 0 {
         format!(" {}", t_sprintf("(%d days)", &[&default_purge.to_string()]))
     } else {
         format!(" ({})", __("Disabled"))
     };
-    let purge: Vec<(String, String)> = vec![
-        (
-            "0".to_string(),
-            format!("{}{}", __("Use default"), purge_default),
-        ),
-        ("-1".to_string(), __("Never purge")),
-        ("7".to_string(), __("1 week old")),
-        ("14".to_string(), __("2 weeks old")),
-        ("31".to_string(), __("1 month old")),
-        ("60".to_string(), __("2 months old")),
-        ("90".to_string(), __("3 months old")),
-    ];
+    let purge: Vec<(String, String)> = purge_intervals()
+        .into_iter()
+        .map(|(k, v)| {
+            if k == "0" {
+                (k.to_string(), format!("{}{}", __(v), purge_default))
+            } else {
+                (k.to_string(), __(v))
+            }
+        })
+        .collect();
 
     let cat_select = select_feeds_cats(pool, uid, "cat_id", None, "disabled=\"1\"").await;
     let languages = get_ts_languages(pool).await;
@@ -3403,14 +3397,29 @@ fn update_interval_label(value: i64) -> String {
     }
 }
 
-/// PHP `$update_intervals` (backend.php) as a JSON object (key => label), with
-/// the `0` ("Default interval") label annotated with the user's
-/// `DEFAULT_UPDATE_INTERVAL` — PHP `subscribeToFeed` / `editfeeds`'
-/// `$local_update_intervals[0] .= sprintf(" (%s)", $update_intervals[DEFAULT_UPDATE_INTERVAL])`.
-fn update_intervals_with_default(default_interval: i64) -> Map<String, Value> {
-    let mut update: Map<String, Value> = Map::new();
-    for (k, v) in [
-        ("0", "Default interval"),
+/// `Feeds::_get_purge_intervals` — key => label (the exact msgids the
+/// existing `.mo` catalogs translate).
+pub fn purge_intervals() -> [(&'static str, &'static str); 7] {
+    [
+        ("0", "Use default"),
+        ("-1", "Never purge"),
+        ("7", "1 week old"),
+        ("14", "2 weeks old"),
+        ("31", "1 month old"),
+        ("60", "2 months old"),
+        ("90", "3 months old"),
+    ]
+}
+
+/// `Feeds::_get_update_intervals` — key => label; `with_default` (PHP
+/// `$with_default`, default true) includes the `0` ("Default interval")
+/// entry.
+pub fn update_intervals(with_default: bool) -> Vec<(&'static str, &'static str)> {
+    let mut v = Vec::new();
+    if with_default {
+        v.push(("0", "Default interval"));
+    }
+    v.extend([
         ("-1", "Disable updates"),
         ("15", "15 minutes"),
         ("30", "30 minutes"),
@@ -3419,9 +3428,20 @@ fn update_intervals_with_default(default_interval: i64) -> Map<String, Value> {
         ("720", "12 hours"),
         ("1440", "Daily"),
         ("10080", "Weekly"),
-    ] {
-        update.insert(k.to_string(), Value::String(__(v)));
-    }
+    ]);
+    v
+}
+
+/// `update_intervals(true)` as a JSON object (key => label), with the
+/// `0` ("Default interval") label annotated with the user's
+/// `DEFAULT_UPDATE_INTERVAL` — PHP `subscribeToFeed` / `editfeeds`'
+/// `$local_update_intervals[0] .= sprintf(" (%s)", $update_intervals[DEFAULT_UPDATE_INTERVAL])`.
+fn update_intervals_with_default(default_interval: i64) -> Map<String, Value> {
+    let update: Map<String, Value> = update_intervals(true)
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), Value::String(__(v))))
+        .collect();
+    let mut update = update;
     update.insert(
         "0".to_string(),
         Value::String(format!(

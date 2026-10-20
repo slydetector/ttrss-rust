@@ -276,19 +276,10 @@ pub fn get_translations() -> Vec<(String, String)> {
 /// options (the "Default interval" entry is omitted here — it is the pref
 /// default, added separately by the form).
 fn update_intervals_nodefault() -> Vec<(String, String)> {
-    [
-        ("Disable updates", "-1"),
-        ("15 minutes", "15"),
-        ("30 minutes", "30"),
-        ("Hourly", "60"),
-        ("4 hours", "240"),
-        ("12 hours", "720"),
-        ("Daily", "1440"),
-        ("Weekly", "10080"),
-    ]
-    .into_iter()
-    .map(|(label, val)| (__(label), val.to_string()))
-    .collect()
+    crate::feeds::update_intervals(false)
+        .into_iter()
+        .map(|(val, label)| (__(label), val.to_string()))
+        .collect()
 }
 
 /// The `USER_TIMEZONE` options: "Automatic" (the server timezone) first, then

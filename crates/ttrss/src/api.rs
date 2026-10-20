@@ -40,7 +40,7 @@ use crate::util::{
     clean_int, clean_str, param_id_array, param_to_bool, php_int_cast, strip_tags, truncate_string,
 };
 
-const API_LEVEL: i64 = 23;
+const API_LEVEL: i64 = 25;
 const STATUS_OK: i64 = 0;
 const STATUS_ERR: i64 = 1;
 const E_API_DISABLED: &str = "API_DISABLED";
@@ -175,6 +175,15 @@ pub async fn before_and_dispatch(
         "unsubscribefeed" => unsubscribe_feed(state, sess, body).await,
         "updatefeed" => update_feed(state, sess, body).await,
         "subscribetofeed" => subscribe_to_feed(state, sess, body).await,
+        "getfeedupdateintervals" => (
+            STATUS_OK,
+            json!({
+                "update_intervals": crate::feeds::update_intervals(true)
+                    .into_iter()
+                    .map(|(k, v)| (k.to_string(), Value::String(__(v))))
+                    .collect::<Map<String, Value>>()
+            }),
+        ),
         "updatearticle" => update_article(state, sess, body).await,
         "setarticlelabel" => set_article_label(state, sess, body).await,
         "sharetopublished" => share_to_published(state, sess, body).await,
@@ -1563,11 +1572,34 @@ pub async fn subscribe_to_feed(
     let login = clean_str(body.get("login").and_then(|v| v.as_str()).unwrap_or(""));
     let password = clean_str(body.get("password").and_then(|v| v.as_str()).unwrap_or(""));
 
+    // `filter_var($_REQUEST["update_interval"] ?? 0, FILTER_VALIDATE_INT)` —
+    // absent = 0, a present non-int is `false`; then the value must be one
+    // of the known update intervals (both -> E_INCORRECT_USAGE). PHP checks
+    // this before the `feed_url` branch.
+    let update_interval = match body.get("update_interval") {
+        None => 0,
+        Some(v) => match v
+            .as_i64()
+            // `filter_var(60.0)` -> 60: an integral float validates.
+            .or_else(|| v.as_f64().filter(|f| f.fract() == 0.0).map(|f| f as i64))
+            .or_else(|| v.as_str().and_then(|t| t.parse::<i64>().ok()))
+            .and_then(|n| i32::try_from(n).ok())
+        {
+            Some(n) => n,
+            None => return (STATUS_ERR, json!({ "error": E_INCORRECT_USAGE })),
+        },
+    };
+    if !crate::feeds::update_intervals(true)
+        .iter()
+        .any(|(k, _)| k.parse::<i32>() == Ok(update_interval))
+    {
+        return (STATUS_ERR, json!({ "error": E_INCORRECT_USAGE }));
+    }
+
     if feed_url.is_empty() {
         return (STATUS_ERR, json!({ "error": E_INCORRECT_USAGE }));
     }
 
-    // No `update_interval` param (the PHP defaults it to 0).
     let rc = crate::feeds::subscribe(
         &state.config,
         pool,
@@ -1579,7 +1611,7 @@ pub async fn subscribe_to_feed(
         category_id,
         &login,
         &password,
-        0,
+        update_interval,
         false, // REST: reference behavior — the daemon does the first fetch
     )
     .await;

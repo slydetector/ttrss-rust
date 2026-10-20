@@ -59,7 +59,7 @@ async fn test_get_version() {
             let (status, content) =
                 api::before_and_dispatch(&state, &sess, "getversion", &request(&[]), None).await;
             assert_eq!(status, 0);
-            assert_eq!(content["version"], "27.10-270fcc71");
+            assert_eq!(content["version"], "26.10-86c8385");
             Ok(())
         })
     })
@@ -76,7 +76,7 @@ async fn test_get_api_level() {
             let (status, content) =
                 api::before_and_dispatch(&state, &sess, "getapilevel", &request(&[]), None).await;
             assert_eq!(status, 0);
-            assert_eq!(content["level"], 23);
+            assert_eq!(content["level"], 25);
             Ok(())
         })
     })
@@ -429,6 +429,145 @@ async fn test_unsubscribe_ok() {
                 api::unsubscribe_feed(&state, &sess, &request(&[("feed_id", json!(999))])).await;
             assert_eq!(status, 1);
             assert_eq!(content["error"], "E_OPERATION_FAILED");
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
+}
+
+/// The PHP suite's canonical mock feed (served by the loopback mock).
+const MOCK_FEED: &str = include_str!("../../../tt-rss/tests_integration/feed.xml");
+
+/// `subscribeToFeed` with `update_interval` (PHP `ApiTest::
+/// test_subscribeToFeedWithUpdateInterval`): the feed row stores the
+/// requested interval.
+#[tokio::test]
+async fn test_subscribe_to_feed_with_update_interval() {
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            enable_api(&state.db).await;
+            let feed = common::MockServer::new(vec![common::Canned {
+                status: 200,
+                reason: "OK",
+                headers: vec![],
+                body: MOCK_FEED.as_bytes().to_vec(),
+            }]);
+            let feed_url = feed.url("/feed.xml");
+            let (status, content) = api::before_and_dispatch(
+                &state,
+                &sess,
+                "subscribetofeed",
+                &request(&[
+                    ("feed_url", json!(feed_url)),
+                    ("update_interval", json!(60)),
+                ]),
+                None,
+            )
+            .await;
+            assert_eq!(status, 0);
+            assert_eq!(content["status"]["code"], 1);
+            let feed_id = content["status"]["feed_id"].as_i64().expect("feed_id");
+            let iv: i32 =
+                sqlx::query_scalar("SELECT update_interval FROM ttrss_feeds WHERE id = $1")
+                    .bind(feed_id)
+                    .fetch_one(state.db.pool())
+                    .await
+                    .unwrap();
+            assert_eq!(iv, 60);
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
+}
+
+/// `subscribeToFeed` rejects an unknown `update_interval` with
+/// `E_INCORRECT_USAGE` — the value must be one of the known intervals (9000
+/// is the PHP `_subscribe` docblock example); a non-int is rejected too
+/// (PHP `filter_var` -> `false`).
+#[tokio::test]
+async fn test_subscribe_to_feed_bad_update_interval() {
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            enable_api(&state.db).await;
+            for bad in [json!(9000), json!("abc")] {
+                let (status, content) = api::before_and_dispatch(
+                    &state,
+                    &sess,
+                    "subscribetofeed",
+                    &request(&[
+                        ("feed_url", json!("http://127.0.0.1:1/feed.xml")),
+                        ("update_interval", bad),
+                    ]),
+                    None,
+                )
+                .await;
+                assert_eq!(status, 1, "bad interval rejected: {content}");
+                assert_eq!(content["error"], "INCORRECT_USAGE");
+            }
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
+}
+
+/// `Feeds::_subscribe` itself returns `{code: 9, parameters:
+/// ["update_interval"]}` for an invalid interval — checked before anything
+/// else (no fetch, no readonly gate).
+#[tokio::test]
+async fn test_subscribe_code9_invalid_interval() {
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            let rc = ttrss::feeds::subscribe(
+                &state.config,
+                state.db.pool(),
+                &state.plugins,
+                &sess.self_url(),
+                1,
+                10,
+                "http://127.0.0.1:1/feed.xml",
+                0,
+                "",
+                "",
+                9000,
+                false,
+            )
+            .await;
+            assert_eq!(rc, json!({ "code": 9, "parameters": ["update_interval"] }));
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
+}
+
+/// `getFeedUpdateIntervals` returns the full interval map (with the
+/// "Default interval" entry).
+#[tokio::test]
+async fn test_get_feed_update_intervals() {
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            enable_api(&state.db).await;
+            let (status, content) = api::before_and_dispatch(
+                &state,
+                &sess,
+                "getfeedupdateintervals",
+                &request(&[]),
+                None,
+            )
+            .await;
+            assert_eq!(status, 0);
+            let m = content["update_intervals"].as_object().expect("object");
+            for k in ["0", "-1", "15", "30", "60", "240", "720", "1440", "10080"] {
+                assert!(m.contains_key(k), "missing {k}");
+            }
+            assert_eq!(m["0"], "Default interval");
             Ok(())
         })
     })

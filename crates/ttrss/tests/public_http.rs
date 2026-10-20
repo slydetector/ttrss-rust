@@ -248,7 +248,7 @@ async fn expect_api_login_envelope(resp: axum::response::Response) {
             .is_some_and(|s| !s.is_empty()),
         "session_id={content:?}"
     );
-    assert_eq!(content.get("api_level").and_then(Value::as_i64), Some(23));
+    assert_eq!(content.get("api_level").and_then(Value::as_i64), Some(25));
 }
 
 #[tokio::test]
