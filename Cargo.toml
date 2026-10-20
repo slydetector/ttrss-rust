@@ -26,6 +26,7 @@ clap = { version = "4", features = ["derive"] }
 hex = "0.4"
 hmac = "0.12"
 iana-time-zone = "0.1"
+infer = "0.22"
 libc = "0.2"
 icu_plurals = "2"
 icu_locale_core = "2"

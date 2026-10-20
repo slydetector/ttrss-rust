@@ -22,10 +22,6 @@ fn attr_name(name: &str) -> QualName {
     )
 }
 
-/// `Config::CACHE_MAX_DAYS` (T_INT, default 7): the `Expires` stamp is the
-/// file mtime plus this many days, and the [`expire_all`] sweep's age cutoff.
-pub const CACHE_MAX_DAYS: i64 = 7;
-
 /// The per-directory opt-out marker: its presence exempts the directory from
 /// the [`expire_all`] sweep and the on-serve mtime refresh (the reference's
 /// `Cache_Local` checks `$cache_dir/.no-auto-expiry`).
@@ -34,89 +30,59 @@ pub const NO_AUTO_EXPIRY: &str = ".no-auto-expiry";
 /// `mime_content_type()` — detect the media type from magic bytes, matching
 /// libmagic's result for the types that appear in the cache.
 pub fn sniff_mime(bytes: &[u8]) -> &'static str {
-    // PNG: 89 50 4E 47 0D 0A 1A 0A
-    if bytes.starts_with(&[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]) {
-        return "image/png";
+    // SVG first: `infer` ships no SVG matcher (four open PRs since 2022 —
+    // #73/#115/#119 — none merged), so the gate keeps its own check: a
+    // `<svg` prefix, or an `<?xml` prolog containing `<svg` (Adobe
+    // Illustrator and other exporters emit the prolog — infer's open PR
+    // #119 settles on the same 256-byte look-ahead). Leading whitespace/BOM
+    // is trimmed first, per the WHATWG mimesniff trim `infer`'s own text
+    // matchers do.
+    let mut head = bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(bytes);
+    while matches!(head.first(), Some(0x09 | 0x0A | 0x0C | 0x0D | 0x20)) {
+        head = &head[1..];
     }
-    // JPEG: FF D8
-    if bytes.len() >= 2 && bytes[0] == 0xFF && bytes[1] == 0xD8 {
-        return "image/jpeg";
+    let prefix = std::str::from_utf8(&head[..head.len().min(512)]).unwrap_or("");
+    if prefix.starts_with("<svg") || (prefix.starts_with("<?xml") && prefix.contains("<svg")) {
+        return "image/svg+xml";
     }
-    // GIF: "GIF8"
-    if bytes.starts_with(b"GIF8") {
-        return "image/gif";
+    // `infer` (magic signatures — PNG/JPEG/GIF/WebP/BMP/ICO/TIFF/… plus its
+    // WHATWG-conformant text/html, text/xml, shell-script matchers); unknown
+    // binary is finfo's `application/octet-stream`.
+    match infer::get(bytes).map(|kind| kind.mime_type()) {
+        Some(mime) => mime,
+        None => "application/octet-stream",
     }
-    // ICO (MS Windows icon resource): 00 00 01 00
-    if bytes.len() >= 4 && bytes.starts_with(&[0x00, 0x00, 0x01, 0x00]) {
-        return "image/vnd.microsoft.icon";
-    }
-    // WEBP: RIFF....WEBP; WAV: RIFF....WAVE (libmagic: audio/wav).
-    if bytes.len() >= 12 && &bytes[0..4] == b"RIFF" {
-        if &bytes[8..12] == b"WEBP" {
-            return "image/webp";
-        }
-        if &bytes[8..12] == b"WAVE" {
-            return "audio/wav";
-        }
-    }
-    // MP4/MOV: 4-byte size + "ftyp" (libmagic: video/mp4, or
-    // video/quicktime for the "qt  " major brand).
-    if bytes.len() >= 12 && &bytes[4..8] == b"ftyp" {
-        return if &bytes[8..12] == b"qt  " {
-            "video/quicktime"
-        } else {
-            "video/mp4"
-        };
-    }
-    // OGG: "OggS"; FLAC: "fLaC"; MP3: "ID3" tag or a frame-sync header.
-    if bytes.starts_with(b"OggS") {
-        return "audio/ogg";
-    }
-    if bytes.starts_with(b"fLaC") {
-        return "audio/flac";
-    }
-    if bytes.len() >= 3
-        && (bytes.starts_with(b"ID3") || (bytes[0] == 0xFF && (bytes[1] & 0xE0) == 0xE0))
-    {
-        return "audio/mpeg";
-    }
-    // SVG: leading XML/SVG markup (inspected over a small prefix).
-    let head = &bytes[..bytes.len().min(512)];
-    if let Ok(s) = std::str::from_utf8(head) {
-        let s = s.trim_start();
-        if s.starts_with("<svg") || s.starts_with("<?xml") {
-            return "image/svg+xml";
-        }
-    }
-    "application/octet-stream"
 }
 
-/// `DiskCache::$mimeMap` (media subset): MIME type → canonical extension used
-/// for the `Content-Disposition` filename. `send_file` passes the *pre-substitution*
-/// mime (the reference re-detects the file for the lookup, so a file served under
-/// the `video/mp4` fallback looks up `application/octet-stream`).
+/// `DiskCache::$mimeMap` (the reference re-detects the file for the lookup,
+/// so a file served under the `video/mp4` fallback looks up
+/// `application/octet-stream`). The map has 186 hand-written entries; only
+/// its non-canonical choices and the octet-stream quirk are listed — the
+/// rest resolve through `mime_guess` (mime-db, already a dependency): the
+/// canonical first extension for every known type, `""` for unknown ones
+/// (the reference's `$this->mimeMap[$mimetype] ?? ''`).
 pub fn fake_extension(mime: &str) -> &'static str {
     match mime {
-        "image/png" => "png",
+        // PHP's map picks non-canonical extensions for these (mime-db's
+        // first entries are jfif/tif/m2a/oga/m1v).
         "image/jpeg" => "jpg",
-        "image/gif" => "gif",
-        "image/vnd.microsoft.icon" => "ico",
-        "image/webp" => "webp",
-        "image/svg+xml" => "svg",
-        "video/mp4" => "mp4",
-        "video/quicktime" => "mov",
+        "image/tiff" => "tiff",
         "audio/mpeg" => "mp3",
         "audio/ogg" => "ogg",
-        "audio/flac" => "flac",
-        "audio/wav" => "wav",
-        // PHP's map entry verbatim: files served under the `video/mp4`
-        // fallback keep the `.pdf` name (the reference's quirk).
+        "video/mpeg" => "mpeg",
+        // The reference's map entry verbatim: files served under the
+        // `video/mp4` fallback keep the `.pdf` name (its quirk).
         "application/octet-stream" => "pdf",
-        _ => "",
+        // mime-db keys the icon type as `image/x-icon`; `infer` (and PHP's
+        // finfo) report the RFC alias.
+        "image/vnd.microsoft.icon" | "image/x-icon" => "ico",
+        _ => mime_guess::get_mime_extensions_str(mime)
+            .and_then(|exts| exts.first())
+            .copied()
+            .unwrap_or(""),
     }
 }
 
-/// `gmdate('D, d M Y H:i:s', $ts) . ' GMT'` — an RFC 1123 date.
 fn http_date(unix_secs: i64) -> String {
     crate::session::rfc1123(unix_secs)
 }
@@ -127,7 +93,7 @@ fn http_date(unix_secs: i64) -> String {
 /// string equality** against the `Last-Modified` stamp and the *unquoted*
 /// mtime ETag, and answers 304 (no body, cache headers only) when either
 /// matches.
-pub fn send_file(path: &Path, req: &HeaderMap) -> Response {
+pub fn send_file(path: &Path, req: &HeaderMap, max_days: i64) -> Response {
     // `Cache_Local::send_local_file`: refresh the mtime on access (LRU — an
     // actively-viewed file stays inside the expiry window), unless the
     // directory opted out via `.no-auto-expiry`.
@@ -154,7 +120,7 @@ pub fn send_file(path: &Path, req: &HeaderMap) -> Response {
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
     let last_modified = http_date(mtime);
-    let expires = http_date(mtime + 86400 * CACHE_MAX_DAYS);
+    let expires = http_date(mtime + 86400 * max_days);
     let etag = mtime.to_string();
 
     // `If-Modified-Since == $gmt_modified || If-None-Match == $file_mtime`.
@@ -180,9 +146,10 @@ pub fn send_file(path: &Path, req: &HeaderMap) -> Response {
         mime
     };
 
-    // Only serve image/audio/video. Deliberate deviation: the reference
-    // blacklists `image/svg+xml` here (400); the port serves SVG like any
-    // other image (it is a supported port feature).
+    // Only serve image/audio/video — including `image/svg+xml` (the
+    // reference 400s it; serving is deliberate: SVG in an `<img>` context
+    // can't run script in browsers, and the `images` cache holds legitimate
+    // SVG article images).
     let is_media = effective
         .split('/')
         .next()
@@ -605,15 +572,16 @@ mod tests {
         assert_eq!(sniff_mime(&mp4), "video/mp4");
         let mut mov = vec![0, 0, 0, 28];
         mov.extend_from_slice(b"ftypqt  ");
+        mov.extend_from_slice(&[0u8; 16]); // `infer`'s MOV matcher needs >15 bytes
         assert_eq!(sniff_mime(&mov), "video/quicktime");
         assert_eq!(sniff_mime(b"ID3\x04\x00\x00\x00\x00\x00"), "audio/mpeg");
         assert_eq!(sniff_mime(&[0xFF, 0xFB, 0x90, 0x00, 0, 0]), "audio/mpeg");
         assert_eq!(sniff_mime(b"OggS\x00\x02\x00\x00"), "audio/ogg");
-        assert_eq!(sniff_mime(b"fLaC\x00\x00\x00\x00"), "audio/flac");
+        assert_eq!(sniff_mime(b"fLaC\x00\x00\x00\x00"), "audio/x-flac");
         let mut wav = vec![0u8; 12];
         wav[0..4].copy_from_slice(b"RIFF");
         wav[8..12].copy_from_slice(b"WAVE");
-        assert_eq!(sniff_mime(&wav), "audio/wav");
+        assert_eq!(sniff_mime(&wav), "audio/x-wav");
         assert_eq!(
             sniff_mime(b"\x00\x01\x02random"),
             "application/octet-stream"
@@ -634,7 +602,9 @@ mod tests {
         assert_eq!(fake_extension("audio/wav"), "wav");
         // The reference's map quirk: the `video/mp4` fallback serves `.pdf`.
         assert_eq!(fake_extension("application/octet-stream"), "pdf");
-        assert_eq!(fake_extension("text/plain"), "");
+        assert_eq!(fake_extension("audio/no-such-type"), "");
+        assert_eq!(fake_extension("video/webm"), "webm");
+        assert_eq!(fake_extension("image/tiff"), "tiff");
     }
 
     /// Set a file's mtime back `$secs` seconds (the test needs controllable
@@ -692,7 +662,7 @@ mod tests {
         let before: u64 = mtime_secs(&png);
 
         let req = HeaderMap::new();
-        let resp = send_file(&png, &req);
+        let resp = send_file(&png, &req, 7);
         assert_eq!(resp.status(), StatusCode::OK);
         assert!(
             mtime_secs(&png) > before,
@@ -703,7 +673,7 @@ mod tests {
         std::fs::write(root.path().join("images").join(NO_AUTO_EXPIRY), b"").expect("marker");
         age_file(&png, 3600);
         let before: u64 = mtime_secs(&png);
-        let resp = send_file(&png, &req);
+        let resp = send_file(&png, &req, 7);
         assert_eq!(resp.status(), StatusCode::OK);
         assert_eq!(mtime_secs(&png), before, "marker dir: no touch");
     }
@@ -966,7 +936,7 @@ mod tests {
         // other image (favicon extension, see favicons::calculate_avg_color).
         let path = std::env::temp_dir().join("test_send_file.svg");
         std::fs::write(&path, b"<svg xmlns=\"http://www.w3.org/2000/svg\"/>").unwrap();
-        let resp = send_file(&path, &HeaderMap::new());
+        let resp = send_file(&path, &HeaderMap::new(), 7);
         assert_eq!(resp.status(), StatusCode::OK);
         assert_eq!(
             resp.headers()

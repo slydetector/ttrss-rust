@@ -29,6 +29,7 @@ use crate::article;
 use crate::auth;
 use crate::cats::{CAT_ALL, CAT_ALL_EXCEPT_VIRTUAL, CAT_LABELS, CAT_SPECIAL, CAT_UNCATEGORIZED};
 use crate::counters;
+use crate::diskcache;
 use crate::feeds;
 use crate::headlines;
 use crate::labels;
@@ -66,12 +67,16 @@ pub async fn handler(state: State<AppState>, sess: Extension<Sess>, req: Request
     // The request's `Accept-Language` (M10.3): threaded to the handlers that
     // render user-facing strings so they resolve the UI locale like PHP
     // (`startup_gettext` — the user's `USER_LANGUAGE` pref wins, else the
-    // header, else English).
+    // header, else English). The conditional-request headers drive PHP's 304
+    // path in `getFeedIcon` (DiskCache::send).
     let accept_language: Option<String> = req
         .headers()
         .get(header::ACCEPT_LANGUAGE)
         .and_then(|v| v.to_str().ok())
         .map(|s| s.to_string());
+    // `getFeedIcon` threads the conditional-request headers into
+    // `DiskCache::send`'s 304 path (shared with the public.php routes).
+    let headers = req.headers().clone();
     let bytes = axum::body::to_bytes(req.into_body(), 1_048_576)
         .await
         .unwrap_or_default();
@@ -96,7 +101,7 @@ pub async fn handler(state: State<AppState>, sess: Extension<Sess>, req: Request
     // `getFeedIcon` is the one API method that returns raw bytes (a cached
     // favicon image), not the JSON envelope — route it to a raw response.
     if op == "getfeedicon" {
-        return get_feed_icon(&state, &sess, &body, seq).await;
+        return get_feed_icon(&state, &sess, &body, seq, &headers).await;
     }
     let (status, content) =
         before_and_dispatch(&state, &sess, &op, &body, accept_language.as_deref()).await;
@@ -479,54 +484,35 @@ fn pref_json(p: &prefs::Pref) -> Value {
 }
 
 /// `API::getFeedIcon` — serve a cached feed favicon (raw image bytes, not a
-/// JSON envelope) for the given feed ID, or the `E_NOT_FOUND` envelope. This is
-/// the one API method that returns raw bytes: the favicon is fetched and cached
-/// by the feed engine (M6), so it's absent in the test environment.
+/// JSON envelope) for the given feed ID, or the `E_NOT_FOUND` envelope. This
+/// is the one API method that returns raw bytes.
+///
+/// Serves through [`diskcache::send_file`] — the same implementation the
+/// public.php `op=feed_icon`/`op=cached` routes use (PHP has one
+/// `DiskCache::send` for all three entry points): the 304/ETag/mtime block,
+/// the `image|audio|video` gate, the `application/octet-stream` → `video/mp4`
+/// remap, and the `mimeMap` fake extension (with the reference's
+/// octet-stream → `.pdf` quirk).
 pub async fn get_feed_icon(
     state: &AppState,
     sess: &Sess,
     body: &Map<String, Value>,
     seq: i64,
+    headers: &axum::http::HeaderMap,
 ) -> Response {
     // The `before()` gate still applies (auth).
     if let Err((status, content)) = api_auth(state, sess, "getfeedicon").await {
         return envelope(seq, status, content).into_response();
     }
 
+    // `API::getFeedIcon`: `$id = (int)$_REQUEST['id']`; `exists()` gate →
+    // `E_NOT_FOUND` envelope (the public routes answer a raw 404 instead).
     let id = clean_int(body.get("id"));
     let path = state.config.feed_icon_dir().join(id.to_string());
-    match tokio::fs::read(&path).await {
-        Ok(bytes) if !bytes.is_empty() => {
-            let len = bytes.len();
-            let mime = detect_image_mime(&bytes);
-            let mut res = axum::http::Response::new(Body::from(bytes));
-            *res.status_mut() = StatusCode::OK;
-            res.headers_mut().insert(
-                header::CONTENT_TYPE,
-                axum::http::HeaderValue::from_static(mime),
-            );
-            res.headers_mut()
-                .insert(header::CONTENT_LENGTH, axum::http::HeaderValue::from(len));
-            res.into_response()
-        }
-        _ => envelope(seq, STATUS_ERR, json!({ "error": E_NOT_FOUND })).into_response(),
-    }
-}
-
-/// Detect an image MIME type from magic bytes (the feed-icons cache stores
-/// favicons by feed ID with no extension, so the type comes from the content —
-/// an approximation of `DiskCache::get_mime_type`'s `finfo`).
-fn detect_image_mime(bytes: &[u8]) -> &'static str {
-    if bytes.len() >= 4 && &bytes[0..4] == b"\x89PNG" {
-        "image/png"
-    } else if bytes.len() >= 3 && bytes[0] == 0xFF && bytes[1] == 0xD8 && bytes[2] == 0xFF {
-        "image/jpeg"
-    } else if bytes.len() >= 4 && &bytes[0..4] == b"GIF8" {
-        "image/gif"
-    } else if bytes.len() >= 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
-        "image/webp"
+    if path.is_file() {
+        diskcache::send_file(&path, headers, state.config.cache_max_days as i64)
     } else {
-        "image/png"
+        envelope(seq, STATUS_ERR, json!({ "error": E_NOT_FOUND })).into_response()
     }
 }
 

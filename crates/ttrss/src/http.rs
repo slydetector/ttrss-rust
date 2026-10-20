@@ -718,7 +718,7 @@ async fn public_handler(
 /// `Handler_Public::cached()`: `?file=<subdir>/<name>` from the app cache dir.
 fn cached_file(state: &AppState, file: Option<&str>, headers: &axum::http::HeaderMap) -> Response {
     match file.and_then(|f| diskcache::resolve_cached(&state.config.cache_dir, f)) {
-        Some(path) => diskcache::send_file(&path, headers),
+        Some(path) => diskcache::send_file(&path, headers, state.config.cache_max_days as i64),
         None => StatusCode::NOT_FOUND.into_response(),
     }
 }
@@ -734,7 +734,7 @@ fn cached_file(state: &AppState, file: Option<&str>, headers: &axum::http::Heade
 fn feed_icon_response(cfg: &Config, id: &str, headers: &axum::http::HeaderMap) -> Response {
     let path = cfg.feed_icon_dir().join(php_int_cast(id).to_string());
     if path.file_name().is_some() {
-        diskcache::send_file(&path, headers)
+        diskcache::send_file(&path, headers, cfg.cache_max_days as i64)
     } else {
         StatusCode::NOT_FOUND.into_response()
     }

@@ -728,7 +728,8 @@ async fn test_get_feed_icon_not_logged_in() {
             let sess = Sess::new("anon".to_string());
             sess.replace("anon".to_string(), Session::new());
             let body = request(&[("id", json!(55))]);
-            let res = api::get_feed_icon(&state, &sess, &body, 1).await;
+            let res =
+                api::get_feed_icon(&state, &sess, &body, 1, &axum::http::HeaderMap::new()).await;
             let env: Value = serde_json::from_slice(&response_bytes(res).await).unwrap();
             assert_eq!(env["status"], 1);
             assert_eq!(env["content"]["error"], "NOT_LOGGED_IN");
@@ -747,7 +748,8 @@ async fn test_get_feed_icon_not_found() {
             let (state, sess) = setup(&url).await;
             enable_api(&state.db).await;
             let body = request(&[("id", json!(55))]);
-            let res = api::get_feed_icon(&state, &sess, &body, 1).await;
+            let res =
+                api::get_feed_icon(&state, &sess, &body, 1, &axum::http::HeaderMap::new()).await;
             let env: Value = serde_json::from_slice(&response_bytes(res).await).unwrap();
             assert_eq!(env["status"], 1);
             assert_eq!(env["content"]["error"], "E_NOT_FOUND");
@@ -769,7 +771,8 @@ async fn test_get_feed_icon_found_png() {
             let (state, sess) = setup_icon(&url, dir).await;
             enable_api(&state.db).await;
             let body = request(&[("id", json!(55))]);
-            let res = api::get_feed_icon(&state, &sess, &body, 1).await;
+            let res =
+                api::get_feed_icon(&state, &sess, &body, 1, &axum::http::HeaderMap::new()).await;
             assert_eq!(res.status(), 200);
             assert_eq!(
                 res.headers().get(axum::http::header::CONTENT_TYPE).unwrap(),
@@ -794,12 +797,365 @@ async fn test_get_feed_icon_found_jpeg() {
             let (state, sess) = setup_icon(&url, dir).await;
             enable_api(&state.db).await;
             let body = request(&[("id", json!(7))]);
-            let res = api::get_feed_icon(&state, &sess, &body, 1).await;
+            let res =
+                api::get_feed_icon(&state, &sess, &body, 1, &axum::http::HeaderMap::new()).await;
             assert_eq!(
                 res.headers().get(axum::http::header::CONTENT_TYPE).unwrap(),
                 "image/jpeg"
             );
             assert_eq!(response_bytes(res).await, jpeg);
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
+}
+
+// ── getFeedIcon: PHP DiskCache::send parity (conditional requests + gate) ──
+
+const ICON_MTIME: i64 = 1_700_000_000;
+
+/// Write `bytes` to `dir/feed-icons/{id}` and pin its mtime (PHP's ETag /
+/// Last-Modified source is the file mtime — a stable value keeps the expected
+/// header strings deterministic).
+fn write_icon(dir: &std::path::Path, id: i32, bytes: &[u8]) {
+    let path = dir.join("feed-icons").join(id.to_string());
+    std::fs::write(&path, bytes).expect("write icon");
+    std::fs::File::open(&path)
+        .expect("open icon")
+        .set_modified(std::time::UNIX_EPOCH + std::time::Duration::from_secs(ICON_MTIME as u64))
+        .expect("pin mtime");
+}
+
+/// The `D, d M Y H:i:s GMT` form `api::http_date` emits (gmdate parity).
+/// A 200 icon carries the full PHP header set: ETag (bare mtime),
+/// Last-Modified, Expires (mtime + CACHE_MAX_DAYS), Cache-Control, and the
+/// Content-Disposition fake extension.
+#[tokio::test]
+async fn test_get_feed_icon_headers() {
+    with_test_db(|url| {
+        Box::pin(async move {
+            let dir = icon_dir("headers");
+            let png = vec![0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 1, 2, 3];
+            write_icon(&dir, 55, &png);
+            let (state, sess) = setup_icon(&url, dir).await;
+            enable_api(&state.db).await;
+            let body = request(&[("id", json!(55))]);
+            let res =
+                api::get_feed_icon(&state, &sess, &body, 1, &axum::http::HeaderMap::new()).await;
+            assert_eq!(res.status(), 200);
+            let h = res.headers();
+            // `send_file`'s LRU touch refreshes the mtime on access, so the
+            // stamps are shape-checked, not pinned to `ICON_MTIME`.
+            let etag = h.get(axum::http::header::ETAG).unwrap().to_str().unwrap();
+            assert!(
+                etag.parse::<i64>().is_ok(),
+                "ETag is the bare mtime: {etag}"
+            );
+            let gmt = |v: &str| -> i64 {
+                // `D, d M Y H:i:s GMT` (gmdate's HTTP form) → unix secs.
+                chrono::NaiveDateTime::parse_from_str(&v[..v.len() - 4], "%a, %d %b %Y %H:%M:%S")
+                    .expect("gmdate form")
+                    .and_utc()
+                    .timestamp()
+            };
+            let parsed = gmt(h
+                .get(axum::http::header::LAST_MODIFIED)
+                .unwrap()
+                .to_str()
+                .unwrap());
+            let parsed_exp = gmt(h
+                .get(axum::http::header::EXPIRES)
+                .unwrap()
+                .to_str()
+                .unwrap());
+            assert_eq!(
+                parsed_exp - parsed,
+                86400 * 7,
+                "Expires = mtime + TTRSS_CACHE_MAX_DAYS (7)"
+            );
+            assert_eq!(
+                h.get(axum::http::header::CACHE_CONTROL).unwrap(),
+                "no-cache"
+            );
+            assert_eq!(
+                h.get(axum::http::header::CONTENT_DISPOSITION).unwrap(),
+                "inline; filename=\"55.png\""
+            );
+            assert_eq!(
+                h.get(axum::http::header::CONTENT_TYPE).unwrap(),
+                "image/png"
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
+}
+
+/// `If-Modified-Since` matching the stamped `Last-Modified` → 304 with an
+/// empty body (the 200-equivalent headers are still sent).
+#[tokio::test]
+async fn test_get_feed_icon_304_if_modified_since() {
+    with_test_db(|url| {
+        Box::pin(async move {
+            let dir = icon_dir("ims304");
+            write_icon(&dir, 9, b"\x89PNG\r\n\x1a\nbody");
+            let (state, sess) = setup_icon(&url, dir).await;
+            enable_api(&state.db).await;
+            let body = request(&[("id", json!(9))]);
+            // First request: 200 with the stamps the client echoes back
+            // (`send_file`'s LRU touch sets the mtime, so read them from the
+            // response rather than pinning `ICON_MTIME`).
+            let res =
+                api::get_feed_icon(&state, &sess, &body, 1, &axum::http::HeaderMap::new()).await;
+            assert_eq!(res.status(), 200);
+            let last_modified = res
+                .headers()
+                .get(axum::http::header::LAST_MODIFIED)
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .to_string();
+            let mut headers = axum::http::HeaderMap::new();
+            headers.insert(
+                axum::http::header::IF_MODIFIED_SINCE,
+                last_modified.parse().unwrap(),
+            );
+            let res = api::get_feed_icon(&state, &sess, &body, 2, &headers).await;
+            assert_eq!(res.status(), 304);
+            let h = res.headers();
+            assert!(
+                h.get(axum::http::header::ETAG)
+                    .unwrap()
+                    .to_str()
+                    .unwrap()
+                    .parse::<i64>()
+                    .is_ok(),
+                "ETag is the bare mtime"
+            );
+            assert_eq!(
+                h.get(axum::http::header::LAST_MODIFIED)
+                    .unwrap()
+                    .to_str()
+                    .unwrap(),
+                last_modified
+            );
+            assert_eq!(
+                h.get(axum::http::header::CACHE_CONTROL)
+                    .unwrap()
+                    .to_str()
+                    .unwrap(),
+                "no-cache"
+            );
+            assert!(response_bytes(res).await.is_empty());
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
+}
+
+/// `If-None-Match` matching the ETag (the bare mtime string) → 304.
+#[tokio::test]
+async fn test_get_feed_icon_304_if_none_match() {
+    with_test_db(|url| {
+        Box::pin(async move {
+            let dir = icon_dir("inm304");
+            write_icon(&dir, 9, b"\x89PNG\r\n\x1a\nbody");
+            let (state, sess) = setup_icon(&url, dir).await;
+            enable_api(&state.db).await;
+            let body = request(&[("id", json!(9))]);
+            let res =
+                api::get_feed_icon(&state, &sess, &body, 1, &axum::http::HeaderMap::new()).await;
+            assert_eq!(res.status(), 200);
+            let etag = res
+                .headers()
+                .get(axum::http::header::ETAG)
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .to_string();
+            let mut headers = axum::http::HeaderMap::new();
+            headers.insert(axum::http::header::IF_NONE_MATCH, etag.parse().unwrap());
+            let res = api::get_feed_icon(&state, &sess, &body, 2, &headers).await;
+            assert_eq!(res.status(), 304);
+            assert!(response_bytes(res).await.is_empty());
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
+}
+
+/// An SVG with a UTF-8 BOM + leading whitespace before `<svg` is still
+/// detected as `image/svg+xml` and served (the WHATWG-style trim in
+/// `sniff_mime` — without it, the BOM masks `<svg` and the content would
+/// remap to `video/mp4`).
+#[tokio::test]
+async fn test_get_feed_icon_bom_svg() {
+    with_test_db(|url| {
+        Box::pin(async move {
+            let dir = icon_dir("bomsvg");
+            let svg: Vec<u8> = b"\xEF\xBB\xBF  \n<svg xmlns=\"http://www.w3.org/2000/svg\"><script>alert(1)</script></svg>"
+                .to_vec();
+            write_icon(&dir, 9, &svg);
+            let (state, sess) = setup_icon(&url, dir).await;
+            enable_api(&state.db).await;
+            let body = request(&[("id", json!(9))]);
+            let res = api::get_feed_icon(&state, &sess, &body, 1, &axum::http::HeaderMap::new()).await;
+            assert_eq!(res.status(), 200);
+            assert_eq!(
+                res.headers().get(axum::http::header::CONTENT_TYPE).unwrap(),
+                "image/svg+xml"
+            );
+            assert_eq!(
+                res.headers()
+                    .get(axum::http::header::CONTENT_DISPOSITION)
+                    .unwrap(),
+                "inline; filename=\"9.svg\""
+            );
+            assert_eq!(response_bytes(res).await, svg);
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
+}
+
+/// An XML-prolog SVG (Adobe Illustrator export) is detected via the
+/// `<?xml` + `<svg` look-ahead and served with the `.svg` fake extension.
+#[tokio::test]
+async fn test_get_feed_icon_svg_served() {
+    with_test_db(|url| {
+        Box::pin(async move {
+            let dir = icon_dir("svg");
+            write_icon(&dir, 3, b"<?xml version=\"1.0\"?><svg xmlns=\"http://www.w3.org/2000/svg\"><script>alert(1)</script></svg>");
+            let (state, sess) = setup_icon(&url, dir).await;
+            enable_api(&state.db).await;
+            let body = request(&[("id", json!(3))]);
+            let res = api::get_feed_icon(&state, &sess, &body, 1, &axum::http::HeaderMap::new()).await;
+            assert_eq!(res.status(), 200);
+            assert_eq!(
+                res.headers().get(axum::http::header::CONTENT_TYPE).unwrap(),
+                "image/svg+xml"
+            );
+            assert_eq!(
+                res.headers()
+                    .get(axum::http::header::CONTENT_DISPOSITION)
+                    .unwrap(),
+                "inline; filename=\"3.svg\""
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
+}
+
+/// A stored HTML page (a feed host's 404 saved as the favicon) is not
+/// image/audio/video → 400.
+#[tokio::test]
+async fn test_get_feed_icon_html_rejected() {
+    with_test_db(|url| {
+        Box::pin(async move {
+            let dir = icon_dir("html");
+            write_icon(
+                &dir,
+                4,
+                b"<!DOCTYPE html><html><body>Not Found</body></html>",
+            );
+            let (state, sess) = setup_icon(&url, dir).await;
+            enable_api(&state.db).await;
+            let body = request(&[("id", json!(4))]);
+            let res =
+                api::get_feed_icon(&state, &sess, &body, 1, &axum::http::HeaderMap::new()).await;
+            assert_eq!(res.status(), 400);
+            assert_eq!(
+                String::from_utf8(response_bytes(res).await).unwrap(),
+                "Stored file has disallowed content type (text/html)"
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
+}
+
+/// An ICO favicon (common from Windows-served sites) is detected by `infer`
+/// and served as `image/vnd.microsoft.icon` with the `.ico` fake extension
+/// (the hand-rolled detector used to remap it to `video/mp4`).
+#[tokio::test]
+async fn test_get_feed_icon_ico() {
+    with_test_db(|url| {
+        Box::pin(async move {
+            let dir = icon_dir("ico");
+            let ico: Vec<u8> = vec![
+                0, 0, // reserved
+                1, 0, // type: icon (u16 LE)
+                1, 0, // one image (u16 LE)
+                32, 0, 32, 0, // 32x32
+                0, 0, 2, 0, // BITMAPINFOHEADER (40 bytes) + pixel data
+                40, 0, 0, 0, 32, 0, 64, 0, 1, 0, 24, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            ];
+            write_icon(&dir, 8, &ico);
+            let (state, sess) = setup_icon(&url, dir).await;
+            enable_api(&state.db).await;
+            let body = request(&[("id", json!(8))]);
+            let res =
+                api::get_feed_icon(&state, &sess, &body, 1, &axum::http::HeaderMap::new()).await;
+            assert_eq!(res.status(), 200);
+            assert_eq!(
+                res.headers()
+                    .get(axum::http::header::CONTENT_TYPE)
+                    .unwrap()
+                    .to_str()
+                    .unwrap(),
+                "image/vnd.microsoft.icon"
+            );
+            assert_eq!(
+                res.headers()
+                    .get(axum::http::header::CONTENT_DISPOSITION)
+                    .unwrap()
+                    .to_str()
+                    .unwrap(),
+                "inline; filename=\"8.ico\""
+            );
+            assert_eq!(response_bytes(res).await, ico);
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
+}
+
+/// Unrecognized binary: finfo's `application/octet-stream` → PHP's `video/mp4`
+/// remap (served, with the `.mp4` fake extension).
+#[tokio::test]
+async fn test_get_feed_icon_unknown_binary_served_mp4() {
+    with_test_db(|url| {
+        Box::pin(async move {
+            let dir = icon_dir("mp4");
+            let bin = b"\x00\x01\x02\x03\x04";
+            write_icon(&dir, 6, bin);
+            let (state, sess) = setup_icon(&url, dir).await;
+            enable_api(&state.db).await;
+            let body = request(&[("id", json!(6))]);
+            let res =
+                api::get_feed_icon(&state, &sess, &body, 1, &axum::http::HeaderMap::new()).await;
+            assert_eq!(res.status(), 200);
+            assert_eq!(
+                res.headers().get(axum::http::header::CONTENT_TYPE).unwrap(),
+                "video/mp4"
+            );
+            assert_eq!(
+                res.headers()
+                    .get(axum::http::header::CONTENT_DISPOSITION)
+                    .unwrap(),
+                "inline; filename=\"6.pdf\""
+            );
+            assert_eq!(response_bytes(res).await, bin);
             Ok(())
         })
     })
