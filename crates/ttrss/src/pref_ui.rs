@@ -291,13 +291,20 @@ fn update_intervals_nodefault() -> Vec<(String, String)> {
     .collect()
 }
 
-/// The `USER_TIMEZONE` options: the exact PHP
-/// `DateTimeZone::listIdentifiers(ALL_WITH_BC)` list (with "Automatic" first).
+/// The `USER_TIMEZONE` options: "Automatic" (the server timezone) first, then
+/// every zone in chrono-tz's bundled IANA tzdb, in the crate's (sorted) order.
+/// The list tracks chrono-tz releases (which track IANA tzdb updates) —
+/// deliberately not a frozen PHP `listIdentifiers` snapshot: post-cutover the
+/// port follows its own tz source, and a stored zone a future tzdb update
+/// retires simply stops being selectable (time formatting falls back to the
+/// server timezone).
 fn timezone_options() -> Vec<String> {
-    crate::pref_timezones::TIMEZONE_IDS
+    let mut ids: Vec<String> = chrono_tz::TZ_VARIANTS
         .iter()
-        .map(|s| s.to_string())
-        .collect()
+        .map(|tz| tz.name().to_owned())
+        .collect();
+    ids.insert(0, "Automatic".to_owned());
+    ids
 }
 
 /// The `USER_CSS_THEME` options: "" → default, then each theme file's basename
@@ -1079,4 +1086,35 @@ fn index_env() -> &'static Environment<'static> {
             .expect("valid prefs_index template");
         env
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn timezone_options_structure() {
+        let ids = timezone_options();
+        // "Automatic" + every chrono-tz zone — the list tracks the crate, so
+        // pin the relationship, not a frozen PHP count.
+        assert_eq!(ids.len(), chrono_tz::TZ_VARIANTS.len() + 1);
+        assert_eq!(ids[0], "Automatic");
+        // Sorted, no duplicates.
+        let mut sorted = ids[1..].to_vec();
+        sorted.sort();
+        sorted.dedup();
+        assert_eq!(ids[1..].to_vec(), sorted);
+        // Representative zones from each major region present.
+        for zone in [
+            "UTC",
+            "America/New_York",
+            "Europe/London",
+            "Asia/Tokyo",
+            "Australia/Sydney",
+            "Pacific/Kiritimati",
+            "Africa/Abidjan",
+        ] {
+            assert!(ids.contains(&zone.to_owned()), "missing {zone}");
+        }
+    }
 }

@@ -30,7 +30,6 @@ pub mod opml;
 pub mod otp;
 pub mod pluginhost;
 pub mod plugins;
-pub mod pref_timezones;
 pub mod pref_ui;
 pub mod prefs;
 pub mod privs;

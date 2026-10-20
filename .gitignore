@@ -26,6 +26,9 @@ browser/out/
 # Shadow-prod host data dirs (prod DB copy + feed icons; host-mounted, inspectable)
 shadow/data/
 
+# Local dev-server data dir (media cache etc.; transient)
+/data/
+
 # e2e (Playwright): deps, captured star-banner password, reports
 e2e/node_modules/
 e2e/.admin-pass
