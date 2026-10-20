@@ -10,7 +10,7 @@
 //! `pluginhost::dispatch::pluginhandler` (the protected path) exactly as the
 //! RPC layer would; the no-account public route (`get`) is covered separately.
 
-mod common;
+use crate::common;
 
 use std::sync::Arc;
 use test_db::template::with_test_db;

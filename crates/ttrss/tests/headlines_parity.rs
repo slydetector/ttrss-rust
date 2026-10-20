@@ -12,7 +12,7 @@
 //! `ttrss::headlines::get_headlines_query` (the same branch-for-
 //! branch query builder the `Feeds::view` handler uses).
 
-mod common;
+use crate::common;
 
 use sqlx::Row;
 use test_db::template::with_test_db;

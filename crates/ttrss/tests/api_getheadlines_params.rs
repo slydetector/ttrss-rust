@@ -16,7 +16,7 @@
 //! (`filter` is read by the PHP and then dropped — a dead param in the frozen
 //! reference, `_api_get_headlines` never uses it — so it is ignored here.)
 
-mod common;
+use crate::common;
 
 use common::{Canned, MockServer};
 use serde_json::{Map, Value, json};

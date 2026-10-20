@@ -7,7 +7,7 @@
 //! on the versioned `schema` + `baseline` + `seed` fixtures: labels 1-2
 //! (`test-label-1`, `test-label-2`) for owner 1.
 
-mod common;
+use crate::common;
 
 use serde_json::{Map, Value, json};
 use test_db::template::with_test_db;

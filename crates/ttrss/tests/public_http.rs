@@ -7,7 +7,7 @@
 //! from either, otherwise the dropdown degrades to an empty disabled select
 //! (the response for a missing login is `[]`, which wipes the placeholder).
 
-mod common;
+use crate::common;
 
 use axum::Router;
 use axum::body::Body;

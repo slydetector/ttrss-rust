@@ -7,7 +7,7 @@
 //! handler end to end on the versioned `schema` + `baseline` + `seed`
 //! fixtures. Owner 1 is the test session's uid.
 
-mod common;
+use crate::common;
 
 use serde_json::{Map, Value, json};
 use sqlx::AssertSqlSafe;

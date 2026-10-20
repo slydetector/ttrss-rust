@@ -7,7 +7,7 @@
 //! `getscheduledtasks` was ported earlier (see `system::getscheduledtasks`);
 //! `sendTestEmail` is a deliberate no-op (the system MTA is not wired up) and
 //! `getphpinfo` surfaces Rust/server diagnostics in place of `phpinfo()`.
-mod common;
+use crate::common;
 
 use serde_json::{Map, json};
 use test_db::template::with_test_db;

@@ -8,7 +8,7 @@
 //! tests prove the *dispatch* itself: a registered stub plugin's hook is
 //! invoked at the right point, and its rewrite flows through the pipeline.
 
-mod common;
+use crate::common;
 
 use std::sync::{Arc, Mutex};
 

@@ -18,7 +18,7 @@
 //! the Rust server only implements the multi-user `authenticate` path, so the
 //! conditions match.
 
-mod common;
+use crate::common;
 
 use test_db::template::with_test_db;
 use ttrss::auth::{self, AuthOutcome};

@@ -8,7 +8,7 @@
 //! return value is used (substituting the feed data / content / basic info),
 //! decoupled from af_comics's per-comic filter logic via a stub plugin per hook.
 
-mod common;
+use crate::common;
 
 use std::sync::Arc;
 

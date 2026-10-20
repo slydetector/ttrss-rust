@@ -3,7 +3,7 @@
 //! frozen PHP suite has no `Pref_Users` admin tests, so these exercise the
 //! ported handlers on the versioned `schema` + `baseline` fixtures (owner 1 =
 //! `admin`, access_level 10).
-mod common;
+use crate::common;
 
 use axum::body::to_bytes;
 use axum::extract::{Extension, State};

@@ -8,7 +8,7 @@
 //! level in `public_http.rs` (params from the form body, as the login page
 //! sends them).
 
-mod common;
+use crate::common;
 
 use test_db::template::with_test_db;
 use ttrss::AppState;

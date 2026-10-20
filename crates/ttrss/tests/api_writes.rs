@@ -10,7 +10,7 @@
 //! The handlers are called two ways: directly (their own logic) and, for the
 //! auth gate + meta methods, through `before_and_dispatch` (the op routing).
 
-mod common;
+use crate::common;
 
 use serde_json::{Map, Value, json};
 use test_db::template::with_test_db;

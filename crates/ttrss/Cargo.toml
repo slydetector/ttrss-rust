@@ -3,10 +3,40 @@ name = "ttrss"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+autotests = false
 
 [[bin]]
 name = "ttrss"
 path = "src/main.rs"
+
+# All the flat tests/*.rs files are modules of the merged `integration`
+# target (tests/integration.rs, `#[path]`-referenced) or the six standalone
+# suites below — `autotests = false` (in [package]) so cargo does not
+# re-discover every flat file as its own binary.
+
+[[test]]
+name = "integration"
+path = "tests/integration.rs"
+[[test]]
+name = "feed_item"
+path = "tests/feed_item.rs"
+[[test]]
+name = "feed_item_atom"
+path = "tests/feed_item_atom.rs"
+[[test]]
+name = "feed_item_common"
+path = "tests/feed_item_common.rs"
+[[test]]
+name = "feed_parser"
+path = "tests/feed_parser.rs"
+[[test]]
+name = "param_differential"
+path = "tests/param_differential.rs"
+[[test]]
+name = "url_validate"
+path = "tests/url_validate.rs"
+
+
 
 [dev-dependencies]
 ctor.workspace = true

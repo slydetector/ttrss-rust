@@ -10,7 +10,7 @@
 //! whitelisting plugin cannot live in `AppState`'s fixed registry; M7.11's
 //! `af_youtube_embed` is the real consumer).
 
-mod common;
+use crate::common;
 
 use std::sync::Arc;
 use test_db::template::with_test_db;

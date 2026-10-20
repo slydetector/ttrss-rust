@@ -7,7 +7,7 @@
 //! the versioned `schema` + `baseline` + `seed` fixtures: feeds 1-4
 //! (categories 1-2), owner 1 (access_level 10).
 
-mod common;
+use crate::common;
 
 use axum::http::StatusCode;
 use base64::Engine as _;

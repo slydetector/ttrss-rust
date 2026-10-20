@@ -7,7 +7,7 @@
 //! Storage keys off the plugin **class name** (PHP's `$sender::class`), so
 //! the test plugin's `class_name` is the row's `name`.
 
-mod common;
+use crate::common;
 
 use async_trait::async_trait;
 use std::sync::Arc;

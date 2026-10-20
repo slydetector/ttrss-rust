@@ -3,7 +3,7 @@
 //! `content`; the getArticle response must carry the rewrite (before the
 //! fix the route skipped the chain entirely — only getHeadlines ran it).
 
-mod common;
+use crate::common;
 
 use std::sync::Arc;
 

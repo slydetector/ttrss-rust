@@ -7,7 +7,7 @@
 //! articles → download their media into the `starred-images` DiskCache → mark
 //! them done in `plugin_data`) and the per-article attempt cap (5).
 
-mod common;
+use crate::common;
 
 use test_db::template::with_test_db;
 use ttrss::core::config::Config;

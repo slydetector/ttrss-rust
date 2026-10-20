@@ -7,7 +7,7 @@
 //! The fidelity bar (AGENTS.md "Frontend HTML forms") is structural: the Dojo
 //! widgets and the visible labels / section headers / control types must be
 //! present; whitespace is not asserted.
-mod common;
+use crate::common;
 
 use test_db::template::with_test_db;
 use ttrss::AppState;

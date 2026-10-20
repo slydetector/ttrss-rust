@@ -7,7 +7,7 @@
 //! covered by the M6c.2 workhorse tests; here we focus on the selection + claim +
 //! shutdown.
 
-mod common;
+use crate::common;
 
 use sqlx::AssertSqlSafe;
 use std::sync::Arc;

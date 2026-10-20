@@ -10,7 +10,7 @@
 //! unread), cat 2 "Science & Nature" (feed 4, 2 unread). The tests add a
 //! nested cat 3 "Hardware" under cat 1 with one unread entry.
 
-mod common;
+use crate::common;
 
 use serde_json::{Map, Value, json};
 use test_db::template::with_test_db;

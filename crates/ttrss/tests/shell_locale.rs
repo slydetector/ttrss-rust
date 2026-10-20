@@ -6,7 +6,7 @@
 //!
 //! Rust-only: the frozen PHP suite has no shell-rendering locale test.
 
-mod common;
+use crate::common;
 
 use axum::body::Body;
 use axum::http::{Method, Request, StatusCode};

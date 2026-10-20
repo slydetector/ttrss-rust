@@ -15,7 +15,7 @@
 //! get_labels}` are ported to `ttrss::counters::{get_counters,
 //! get_all, get_conditional, get_labels}`.
 
-mod common;
+use crate::common;
 
 use serde_json::{Map, Value, json};
 use test_db::template::with_test_db;

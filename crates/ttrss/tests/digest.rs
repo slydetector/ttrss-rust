@@ -9,7 +9,7 @@
 //! `NOW() - INTERVAL '1 day'` window, so the test refreshes `date_updated` /
 //! `last_updated` of the two picked articles first.
 
-mod common;
+use crate::common;
 
 use test_db::template::with_test_db;
 use ttrss::AppState;

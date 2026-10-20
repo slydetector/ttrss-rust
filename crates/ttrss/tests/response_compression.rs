@@ -7,7 +7,7 @@
 //! the `image/*` exclusion. Legacy clients get gzip-6 (the official parity
 //! case); modern browsers get zstd/br (a strict superset of the official).
 
-mod common;
+use crate::common;
 
 use axum::Router;
 use axum::body::Body;

@@ -7,7 +7,7 @@
 //! The shared test template seeds the stock `admin`/`password` user
 //! (`schema.sql`), matching the reference's fresh-install state.
 
-mod common;
+use crate::common;
 
 use test_db::template::with_test_db;
 use ttrss::bootstrap::{self, BootstrapVars};

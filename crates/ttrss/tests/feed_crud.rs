@@ -7,7 +7,7 @@
 //! on the versioned `schema` + `baseline` + `seed` fixtures: feeds 1-4
 //! (categories 1-2), labels 1-2, entries 1-11 for owner 1.
 
-mod common;
+use crate::common;
 
 use axum::body::to_bytes;
 use axum::extract::{Extension, State};

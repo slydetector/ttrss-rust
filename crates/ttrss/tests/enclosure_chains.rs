@@ -8,7 +8,7 @@
 //! - `HOOK_ENCLOSURE_ENTRY` (cache_starred_images): an entry whose media has
 //!   a DiskCache copy gets its `content_url` rewritten to the local URL.
 
-mod common;
+use crate::common;
 
 use std::path::PathBuf;
 

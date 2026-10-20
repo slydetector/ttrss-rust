@@ -5,7 +5,7 @@
 //! Rust-only: the frozen PHP suite has no `Pref_Prefs` configuration tests, so
 //! these exercise the ported handlers on the versioned `schema` + `baseline`
 //! fixtures. Owner 1 (the admin user in `schema.sql`) is the session uid.
-mod common;
+use crate::common;
 
 use serde_json::{Map, Value, json};
 use test_db::template::with_test_db;

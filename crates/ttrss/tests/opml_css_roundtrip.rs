@@ -9,7 +9,7 @@
 //! (deliberate favorable deviation — see `take_attrs` in `opml.rs`), and
 //! the export re-escapes the decoded value, so round trips are stable.
 
-mod common;
+use crate::common;
 
 use test_db::template::with_test_db;
 use ttrss::session::Sess;

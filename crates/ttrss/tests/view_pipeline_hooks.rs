@@ -8,7 +8,7 @@
 //! for the stock set (exactly as in PHP). These tests prove the *dispatch*
 //! itself through a registered stub.
 
-mod common;
+use crate::common;
 
 use std::sync::Arc;
 

@@ -1,7 +1,7 @@
 //! Test: M7.14 — the `bookmarklets` plugin (the `prefFeeds` prefs-tab UI
 //! exposing the two bookmarklets + the `sharepopup` public method).
 
-mod common;
+use crate::common;
 
 use std::sync::Arc;
 use test_db::template::with_test_db;

@@ -11,7 +11,7 @@
 //! get_tags, get_labels, catchup_by_id, purge_orphans, get_enclosures,
 //! labels_of, feeds_of, get_image, format_enclosures }`.
 
-mod common;
+use crate::common;
 
 use chrono::NaiveDateTime;
 use serde_json::{Value, json};

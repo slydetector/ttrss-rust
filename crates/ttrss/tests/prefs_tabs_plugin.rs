@@ -12,7 +12,7 @@
 //!   ContentPane only when the chain produced output — PHP's `ob_start`
 //!   trim special case)
 
-mod common;
+use crate::common;
 
 use std::sync::Arc;
 use test_db::template::with_test_db;

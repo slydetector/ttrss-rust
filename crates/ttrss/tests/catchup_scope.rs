@@ -11,7 +11,7 @@
 //! (feed 1: refs 1,2 unread + 3 read; feed 2: refs 4-6 unread; feed 3: ref 7
 //! unread + 8 read; feed 4: refs 9,10 unread + 11 read).
 
-mod common;
+use crate::common;
 
 use serde_json::{Map, Value, json};
 use sqlx::AssertSqlSafe;

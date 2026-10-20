@@ -6,7 +6,7 @@
 //! the versioned `schema` + `baseline` + `seed` fixtures (feeds 1-4,
 //! categories 1-2, owner 1). Owner 1 is the test session's uid.
 
-mod common;
+use crate::common;
 
 use serde_json::{Map, Value, json};
 use test_db::template::with_test_db;

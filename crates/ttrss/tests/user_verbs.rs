@@ -5,7 +5,7 @@
 //! has no dedicated suite), so the port gets its own coverage — the same bar
 //! as the `Db_Migrations` port (docs/20).
 
-mod common;
+use crate::common;
 
 use test_db::template::with_test_db;
 use ttrss::core::db::Db;

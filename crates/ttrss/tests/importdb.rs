@@ -4,8 +4,6 @@
 //! pointed at both. Asserts the marker lands in the target and the source
 //! is remembered for one-keypress re-runs.
 
-mod common;
-
 use sqlx::AssertSqlSafe;
 use sqlx::Connection;
 use test_db::master_url;

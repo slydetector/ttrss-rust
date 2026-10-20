@@ -8,7 +8,7 @@
 //! publish_selected}`) with an explicit `Sess` carrying `uid = 1`. The
 //! `$_REQUEST` payload is the `extra` parameter map.
 
-mod common;
+use crate::common;
 
 use serde_json::{Map, Value, json};
 use test_db::template::with_test_db;

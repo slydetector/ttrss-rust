@@ -7,7 +7,7 @@
 //! against the versioned schema + baseline + seed fixtures, asserting the
 //! permission gate, the article upsert, the feed metadata stamp, and dedup.
 
-mod common;
+use crate::common;
 
 use async_trait::async_trait;
 use serde_json::Value;

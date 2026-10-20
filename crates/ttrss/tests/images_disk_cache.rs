@@ -9,7 +9,7 @@
 //!   `op=cached&file=images/<sha1>` serve path
 //!   (`DiskCache::rewrite_urls` + the PHP's `get_url` wraps).
 
-mod common;
+use crate::common;
 
 use std::path::PathBuf;
 

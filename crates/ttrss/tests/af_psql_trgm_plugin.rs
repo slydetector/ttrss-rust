@@ -1,6 +1,6 @@
 //! Test: M7.15 — the `af_psql_trgm` plugin (the trigram-similarity filter).
 
-mod common;
+use crate::common;
 
 use std::sync::Arc;
 use test_db::template::with_test_db;

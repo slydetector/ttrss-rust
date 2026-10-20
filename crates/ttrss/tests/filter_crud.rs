@@ -7,7 +7,7 @@
 //! seeded; the reference `ttrss_filter_types` / `ttrss_filter_actions` tables
 //! live in `schema.sql`). Owner 1 is the test session's uid.
 
-mod common;
+use crate::common;
 
 use serde_json::{Map, Value, json};
 use test_db::template::with_test_db;

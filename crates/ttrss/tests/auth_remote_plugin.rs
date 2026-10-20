@@ -19,7 +19,7 @@
 //!   redirects the logout to that URL (validated; empty/invalid → the
 //!   default index).
 
-mod common;
+use crate::common;
 
 use axum::body::Body;
 

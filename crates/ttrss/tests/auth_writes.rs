@@ -4,7 +4,7 @@
 //! exercise the ported handlers on the versioned `schema` + `baseline`
 //! fixtures (owner 1 = the session uid, whose baseline password is
 //! `password`).
-mod common;
+use crate::common;
 
 use serde_json::{Map, Value, json};
 use test_db::template::with_test_db;

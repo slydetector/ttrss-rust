@@ -9,7 +9,7 @@
 //! with a `Sess` carrying `uid`/`csrf_token` (as `rpc::dispatch` would); the
 //! public path through `pluginhost::dispatch::public_dispatch` (no session).
 
-mod common;
+use crate::common;
 
 use async_trait::async_trait;
 use test_db::template::with_test_db;

@@ -11,7 +11,7 @@
 //! layer would (a `Sess` with `uid` + `csrf_token`), plus one direct
 //! `hook_article_button` call for the button row.
 
-mod common;
+use crate::common;
 
 use std::sync::Arc;
 use test_db::template::with_test_db;

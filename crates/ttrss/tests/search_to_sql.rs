@@ -10,7 +10,7 @@
 //! computed from the current UTC day (the oracle table recorded on
 //! 2026-09-08: yesterday=09-07, last Monday=09-07).
 
-mod common;
+use crate::common;
 
 use chrono::Datelike;
 use test_db::template::with_test_db;

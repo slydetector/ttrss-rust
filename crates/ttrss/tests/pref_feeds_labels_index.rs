@@ -6,7 +6,7 @@
 //! widgets and the visible labels / menu items / control values must be
 //! present; whitespace is not asserted.
 
-mod common;
+use crate::common;
 
 use serde_json::{Map, Value};
 use test_db::template::with_test_db;

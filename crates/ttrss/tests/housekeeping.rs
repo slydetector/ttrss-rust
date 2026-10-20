@@ -6,7 +6,7 @@
 //! `RSSUtils::disable_failed_feeds` / `RSSUtils::expire_error_log` /
 //! `RSSUtils::cleanup_feed_icons` and `Feeds::_purge`.
 
-mod common;
+use crate::common;
 
 use chrono::{Local, NaiveDate, NaiveDateTime, NaiveTime, TimeZone as _};
 use croner::Cron;

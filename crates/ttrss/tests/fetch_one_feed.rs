@@ -7,7 +7,7 @@
 //! network error, and a parse failure. The 30-day auto-disable is a separate
 //! scheduled task (M6c.4), not the workhorse.
 
-mod common;
+use crate::common;
 
 use std::net::TcpListener;
 use std::sync::Arc;

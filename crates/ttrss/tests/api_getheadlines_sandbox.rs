@@ -7,7 +7,7 @@
 //! stripping them. `getArticle` re-reads the session flag (no param of its
 //! own), so the client's full-article view shows the same embeds.
 
-mod common;
+use crate::common;
 
 use serde_json::{Map, Value, json};
 use test_db::template::with_test_db;

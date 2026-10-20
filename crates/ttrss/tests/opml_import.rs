@@ -7,7 +7,7 @@
 //! and the `tt-rss-prefs` / `tt-rss-labels` / `tt-rss-filters` settings sections
 //! applied.
 
-mod common;
+use crate::common;
 
 use sqlx::AssertSqlSafe;
 use test_db::template::with_test_db;

@@ -14,7 +14,7 @@
 //! isolated here), reusing the same fixtures + helpers as the other DB-backed
 //! update tests.
 
-mod common;
+use crate::common;
 
 use std::sync::Arc;
 use ttrss::core::db::Db;

@@ -6,7 +6,7 @@
 //! on-demand full update, which runs immediately — not gated by the daemon
 //! loop's `Semaphore(N)` — with the in-flight dedup).
 
-mod common;
+use crate::common;
 
 use std::sync::Arc;
 

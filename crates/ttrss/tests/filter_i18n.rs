@@ -7,7 +7,7 @@
 //!
 //! Rust-only: the frozen PHP suite has no filter-configuration locale test.
 
-mod common;
+use crate::common;
 
 use serde_json::{Map, Value, json};
 use test_db::template::with_test_db;

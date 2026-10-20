@@ -6,7 +6,7 @@
 //! U+2003 em-space indentation, the `CAT:<id>` / feed-id / "All feeds" /
 //! "Uncategorized" selection, and the `<select multiple=<TAB>rue"` opening quirk.
 
-mod common;
+use crate::common;
 
 use serde_json::{Map, Value, json};
 use test_db::template::with_test_db;

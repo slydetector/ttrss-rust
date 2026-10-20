@@ -12,7 +12,7 @@
 //! The port read `m` and ignored it. The frozen PHP suite does not cover the
 //! `view` method side effects, so these pin the corrected behavior.
 
-mod common;
+use crate::common;
 
 use serde_json::{Map, Value, json};
 use test_db::template::with_test_db;

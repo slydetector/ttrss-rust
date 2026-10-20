@@ -8,7 +8,7 @@
 //!
 //! Rust-only: the frozen PHP reference has no `getconfig` test.
 
-mod common;
+use crate::common;
 
 use serde_json::{Map, Value};
 use test_db::template::with_test_db;

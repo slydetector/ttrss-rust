@@ -9,7 +9,7 @@
 //! (PHP `PrefsTest::createTestUser`), so the cases stay isolated exactly
 //! like the PHP suite.
 
-mod common;
+use crate::common;
 
 use test_db::template::with_test_db;
 use ttrss::core::db::Db;

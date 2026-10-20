@@ -10,7 +10,7 @@
 //! no-ops for the stock set (exactly as in PHP). These tests prove the
 //! dispatch itself.
 
-mod common;
+use crate::common;
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};

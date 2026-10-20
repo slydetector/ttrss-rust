@@ -6,7 +6,7 @@
 //! 1-2, labels 1-2, for owner 1. The bar is *functionally equivalent* OPML
 //! (same feeds/categories/settings), not a byte-for-byte DOMDocument match.
 
-mod common;
+use crate::common;
 
 use test_db::template::with_test_db;
 use ttrss::session::Sess;

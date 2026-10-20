@@ -9,7 +9,7 @@
 //!
 //! Rust-only: the frozen PHP suite has no `init`-translations test.
 
-mod common;
+use crate::common;
 
 use axum::body::Body;
 use axum::http::{Method, Request, StatusCode};

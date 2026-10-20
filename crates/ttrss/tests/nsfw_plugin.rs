@@ -8,7 +8,7 @@
 //! fallback of the API hook, the placeholder image, the prefs-tab pane, and
 //! the plugin-level CSRF gate.
 
-mod common;
+use crate::common;
 
 use std::sync::Arc;
 use test_db::template::with_test_db;

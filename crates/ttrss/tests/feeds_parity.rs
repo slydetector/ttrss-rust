@@ -16,7 +16,7 @@
 //! case is handled by the id parser at the handler layer and has no
 //! `feed_title` equivalent.
 
-mod common;
+use crate::common;
 
 use test_db::template::with_test_db;
 use ttrss::cats::{CAT_LABELS, CAT_SPECIAL, CAT_UNCATEGORIZED};

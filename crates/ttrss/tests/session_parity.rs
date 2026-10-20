@@ -12,7 +12,7 @@
 //! write, destroy, validate_session}`; `read`/`write` operate on raw session
 //! data strings exactly like PHP's `SessionHandlerInterface` methods.
 
-mod common;
+use crate::common;
 
 use base64::Engine as _;
 use rand::Rng;

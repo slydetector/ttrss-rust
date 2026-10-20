@@ -5,7 +5,7 @@
 //! semantics: fresh install, no-op at latest, upgrade walk, per-file
 //! rollback, and the `SCHEMA_VERSION` ceiling.
 
-mod common;
+use crate::common;
 
 use sqlx::AssertSqlSafe;
 use sqlx::postgres::PgPool;

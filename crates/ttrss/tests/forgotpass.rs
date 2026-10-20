@@ -4,7 +4,7 @@
 //! These drive the handler directly (no HTTP) against a fresh Postgres fixture:
 //! the request-form GET, the `method=do` POST (CSRF + arithmetic CAPTCHA), and
 //! the reset-link GET (15-hour token validation + password reset).
-mod common;
+use crate::common;
 
 use axum::body::to_bytes;
 use axum::response::Response;

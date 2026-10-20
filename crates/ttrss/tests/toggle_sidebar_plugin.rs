@@ -2,7 +2,7 @@
 //! M7.22 handler wiring: `HOOK_MAIN_TOOLBAR_BUTTON` output must reach the
 //! shell's `{{ main_toolbar_buttons }}` slot (PHP `index.php:195`).
 
-mod common;
+use crate::common;
 
 use axum::body::Body;
 use axum::http::{Method, Request, StatusCode};

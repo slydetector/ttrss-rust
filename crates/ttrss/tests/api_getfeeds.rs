@@ -13,7 +13,7 @@
 //! test-label-1/-2 (no entries → 0 unread); 11 entries total; no
 //! uncategorized feeds.
 
-mod common;
+use crate::common;
 
 use serde_json::{Map, Value, json};
 use test_db::template::with_test_db;
