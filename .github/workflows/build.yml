@@ -127,14 +127,17 @@ jobs:
       # - postgresql-client: the importdb integration test runs the binary
       #   on the host, which shells out to pg_dump|pg_restore (the image
       #   ships them; the CI job container must too).
+      # - clang + mold: the committed .cargo/config.toml links through clang
+      #   with the mold linker (faster link steps).
       # Each install is a no-op when the piece already exists, so the file
       # stays portable to GitHub.
-      - name: Ensure build toolchain (node + clippy + rustfmt)
+      - name: Ensure build toolchain (node + clippy + rustfmt + clang/mold)
         run: |
           # Debian's nodejs package lacks npm/npx — the npm package supplies both.
           command -v node >/dev/null 2>&1 && command -v npx >/dev/null 2>&1 || (apt-get update && apt-get install -y --no-install-recommends nodejs npm)
           command -v zstd >/dev/null 2>&1 || (apt-get update && apt-get install -y --no-install-recommends zstd)
           command -v pg_dump >/dev/null 2>&1 || (apt-get update && apt-get install -y --no-install-recommends postgresql-client)
+          command -v clang >/dev/null 2>&1 && command -v mold >/dev/null 2>&1 || (apt-get update && apt-get install -y --no-install-recommends clang mold)
           # Docker: the official repo's client + buildx + compose plugins
           # (docs.docker.com/engine/install/debian). Daemon = the runner's,
           # via the mounted socket — dockerd just isn't started. Guarded so

@@ -4,7 +4,8 @@
 # would otherwise unpack into the job container's writable layer on every run
 # — the runner's disk is spinning rust, so unpack + dpkg-configure (not the
 # download) is the per-run cost:
-#   * the ensure-steps' apt set (node/npm, zstd, postgresql-client, iproute2),
+#   * the ensure-steps' apt set (node/npm, zstd, postgresql-client, iproute2,
+#     clang + mold — the .cargo/config.toml link setup),
 #   * the docker client stack (official repo: docker-ce + buildx + compose),
 #   * clippy + rustfmt,
 #   * the Playwright side: e2e's node_modules (from the lock file) + chromium
@@ -24,7 +25,7 @@ FROM rust:1.98-trixie
 # The ensure-steps' apt set (docker comes from the official repo below).
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        ca-certificates curl iproute2 nodejs npm postgresql-client zstd \
+        ca-certificates clang curl iproute2 mold nodejs npm postgresql-client zstd \
     && rm -rf /var/lib/apt/lists/*
 
 # The fmt/clippy gates (the rust image ships neither).
