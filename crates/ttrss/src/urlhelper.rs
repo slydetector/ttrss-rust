@@ -882,7 +882,26 @@ async fn send_with_auth(
             .get(reqwest::header::WWW_AUTHENTICATE)
             .and_then(|v| v.to_str().ok())
             .and_then(parse_digest_challenge)
-            .and_then(|ch| digest_authorization(url, opts.post_query.is_some(), login, pass, &ch))
+            .and_then(|ch| {
+                // The entity body `auth-int`'s HA2 covers (the same
+                // x-www-form-urlencoded string `build_and_send` sends).
+                let body = opts.post_query.as_ref().map(|post| {
+                    post.iter()
+                        .map(|(k, v)| {
+                            format!("{}={}", urlencoding::encode(k), urlencoding::encode(v))
+                        })
+                        .collect::<Vec<_>>()
+                        .join("&")
+                });
+                digest_authorization(
+                    url,
+                    opts.post_query.is_some(),
+                    body.as_deref(),
+                    login,
+                    pass,
+                    &ch,
+                )
+            })
     {
         return build_and_send(client, url, opts, scheme, useragent, Some(&header)).await;
     }
@@ -1018,6 +1037,7 @@ fn request_uri(url: &str) -> String {
 fn digest_authorization(
     url: &str,
     is_post: bool,
+    post_body: Option<&str>,
     login: &str,
     pass: &str,
     ch: &DigestChallenge,
@@ -1026,7 +1046,6 @@ fn digest_authorization(
     let uri = request_uri(url);
 
     let ha1 = crate::util::md5_hex(format!("{}:{}:{}", login, ch.realm, pass));
-    let ha2 = crate::util::md5_hex(format!("{method}:{uri}"));
 
     let (qop, nc, cnonce) = match ch.qop.as_deref() {
         None => (None, None, None),
@@ -1035,12 +1054,22 @@ fn digest_authorization(
             Some("00000001".to_string()),
             Some(crate::util::random_hex(8)),
         ),
-        Some(_) => {
-            // TODO(port): digest qop=auth-int unsupported (challenge offers no
-            // "auth"); feed servers only ever advertise "auth".
-            tracing::warn!("digest qop=auth-int unsupported (challenge offers no \"auth\")");
-            return None;
+        // RFC 2617 integrity variant: HA2 covers the entity body.
+        Some(q) if q.split(',').any(|x| x.trim() == "auth-int") => (
+            Some("auth-int".to_string()),
+            Some("00000001".to_string()),
+            Some(crate::util::random_hex(8)),
+        ),
+        Some(_) => return None,
+    };
+
+    // `auth-int`: HA2 = H(Method:H(uri:H(entity-body))) (RFC 2617 §3.3.3).
+    let ha2 = match qop.as_deref() {
+        Some("auth-int") => {
+            let body = post_body.unwrap_or("");
+            crate::util::md5_hex(format!("{method}:{uri}:{}", crate::util::md5_hex(body)))
         }
+        _ => crate::util::md5_hex(format!("{method}:{uri}")),
     };
 
     let response = match (&qop, &nc, &cnonce) {
@@ -1430,6 +1459,70 @@ mod tests {
         let ha1 = crate::util::md5_hex("user:ttrss:pass");
         let ha2 = crate::util::md5_hex("GET:/feed");
         let expected = crate::util::md5_hex(format!("{ha1}:abc123:00000001:{cnonce}:auth:{ha2}"));
+        assert_eq!(response, expected);
+    }
+
+    /// `qop="auth-int"` (integrity variant): HA2 covers the entity body —
+    /// a POST form's HA2 is `H(POST:uri:H(body))`.
+    #[tokio::test]
+    async fn fetch_digest_auth_int_round_trip() {
+        let mock = MockProxy::new(vec![
+            Canned {
+                status: 401,
+                reason: "Unauthorized",
+                headers: vec![(
+                    "WWW-Authenticate",
+                    "Digest realm=\"ttrss\", nonce=\"abc123\", qop=\"auth-int\"".into(),
+                )],
+                body: Vec::new(),
+            },
+            Canned {
+                status: 200,
+                reason: "OK",
+                headers: vec![],
+                body: b"auth-int ok".to_vec(),
+            },
+        ]);
+        let mut o = opts(&target(), mock.proxy());
+        o.login = Some("user".into());
+        o.pass = Some("pass".into());
+        o.auth_type = Some("digest".into());
+        o.post_query = Some(vec![("a".to_string(), "b c".to_string())]);
+        let res = fetch(&o).await;
+        assert_eq!(res.body.as_deref(), Some(b"auth-int ok".as_slice()));
+        assert_eq!(res.error_code, 200);
+
+        let req1 = mock.request(1);
+        let auth = req1
+            .lines()
+            .find(|l| l.to_ascii_lowercase().starts_with("authorization: "))
+            .unwrap();
+        let header = auth.split_once(": ").unwrap().1;
+        let field = |name: &str| -> String {
+            let quoted = matches!(name, "response" | "cnonce");
+            let marker = if quoted {
+                format!("{name}=\"")
+            } else {
+                format!("{name}=")
+            };
+            let Some(i) = header.find(&marker) else {
+                panic!("missing {name} in: {header}")
+            };
+            let rest = &header[i + marker.len()..];
+            if quoted {
+                rest.split('"').next().unwrap().to_string()
+            } else {
+                rest.split(',').next().unwrap().trim().to_string()
+            }
+        };
+        let response = field("response");
+        let cnonce = field("cnonce");
+        assert_eq!(field("qop"), "auth-int");
+        let ha1 = crate::util::md5_hex("user:ttrss:pass");
+        // The entity body is the x-www-form-urlencoded form string.
+        let ha2 = crate::util::md5_hex(format!("POST:/feed:{}", crate::util::md5_hex("a=b%20c")));
+        let expected =
+            crate::util::md5_hex(format!("{ha1}:abc123:00000001:{cnonce}:auth-int:{ha2}"));
         assert_eq!(response, expected);
     }
 

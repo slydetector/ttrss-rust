@@ -10,14 +10,13 @@
 //! `generated_feed.txt` — the `feed_hub` block is never emitted on this
 //! path, so it is dropped) and builds the JSON feed with serde_json.
 //!
-//! NOTE(port): the `q` search filter is not ported yet (see
-//! `HeadlinesParams::search`) — it affects the feed title and the first-id
-//! check, but does not filter rows.
 //! NOTE(port): the plugin-feed branch of `generate_syndicated_feed`
 //! (a plugin `get_headlines` handler for `PLUGIN_FEED_BASE_INDEX` feeds) is
 //! not ported (no plugin feeds in this deployment).
-//! TODO(port): `Config::get_version()` is a placeholder constant (PHP derives
-//! it from the docroot git metadata).
+//! NOTE: `Config::get_version()` is the frozen reference value — the
+//! frontend is the tt-rss submodule at that commit, so the constant is
+//! byte-identical to PHP's docroot-git derivation (and the Docker image has
+//! no `.git`, where PHP itself falls back to `UNKNOWN (Unsupported)`).
 
 use axum::body::Body;
 use axum::http::{StatusCode, header};
@@ -40,9 +39,8 @@ use crate::sanitizer;
 use crate::util::{self, htmlspecialchars, strip_tags, truncate_string};
 use crate::{AppState, diskcache, nocache_headers};
 
-/// `Config::get_version()` — TODO(port): derive from the docroot git
-/// metadata (PHP `Config::get_version()`), like the frozen reference
-/// `27.10-270fcc71`.
+/// `Config::get_version()` — the frozen reference value (see the module
+/// note: identical to PHP's git derivation for the pinned frontend).
 const VERSION: &str = crate::core::config::VERSION;
 
 /// `$_REQUEST` params for `op=rss` (`Handler_Public::rss`).
