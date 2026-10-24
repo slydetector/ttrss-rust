@@ -13,6 +13,7 @@ Working agreements for **ttrss** (a Rust re-implementation of the Tiny Tiny RSS 
 ## Working style
 
 - **Do not commit (or push) without the user's review.** Green is a precondition, not a substitute: stop with a diff summary + proposed message; commit only on approval.
+- **Commit messages: short.** Imperative subject; body = the decision/deviation and its scope, a few lines max. No XML examples, no per-file tours, no test counts or "clippy clean" — the user judges those from the diff summary.
 - **Surface your own decisions.** Flag judgment calls inline — especially spec deviations — and end the turn with a short **Decisions to revisit** list (one-line rationale + effect).
 - **Root cause, no whack-a-mole.**
 - **i18n helpers: import bare, no space before the paren.** `use crate::i18n::__;` then `__("…")`. No qualified `crate::i18n::__ (…)` form, no `f (x)` space. The pipeline mangles `__` in *display* (and str_replace can rewrite it) — build/replace via Python `chr(95)*2`, verify by bytes.
