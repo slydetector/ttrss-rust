@@ -1329,6 +1329,58 @@ async fn test_getfeedtree_search_filters_feeds() {
     .unwrap();
 }
 
+/// `getfeedtree` mode 0 (the prefs tab): the search term comes from the
+/// session (`$_SESSION["prefs_feed_search"]`, stamped by the tab's index
+/// page), not `$_REQUEST`. PHP `Pref_Feeds::_makefeedtree()`. Rust-only
+/// regression: before the fix the port hardcoded `""` here, so a search
+/// like "ha dev blog" showed every feed.
+async fn fetch_ids_mode0(url: &str, session_search: Option<&str>) -> Vec<i64> {
+    let (state, sess) = setup_from_url(url).await;
+    if let Some(s) = session_search {
+        sess.with_mut(|d| {
+            d.set("prefs_feed_search", PValue::Bytes(s.as_bytes().to_vec()));
+        });
+    }
+    let v = ttrss::feeds::getfeedtree(&state, &sess, &request(&[])).await;
+    let mut ids: Vec<i64> = Vec::new();
+    feed_ids(&v, &mut ids);
+    ids.sort_unstable();
+    ids.dedup();
+    ids
+}
+
+#[tokio::test]
+async fn test_getfeedtree_mode0_session_search() {
+    with_test_db(|url| {
+        Box::pin(async move {
+            // No stamped search → all fixture feeds.
+            assert_eq!(fetch_ids_mode0(&url, None).await, vec![1, 2, 3, 4]);
+            // Multi-word term: the WHOLE phrase must occur (contiguous
+            // substring), case-insensitively → The Register only.
+            assert_eq!(fetch_ids_mode0(&url, Some("the register")).await, vec![2]);
+            assert_eq!(fetch_ids_mode0(&url, Some("hacker news")).await, vec![1]);
+            // PHP quirk: the pattern is only lowered in the feed_url branch
+            // (`LOWER(title) LIKE ?` with an unlowered pattern), so an
+            // all-uppercase term matches nothing.
+            assert_eq!(
+                fetch_ids_mode0(&url, Some("HACKER NEWS")).await,
+                Vec::<i64>::new()
+            );
+            // No feed contains this phrase as a substring → empty.
+            assert_eq!(
+                fetch_ids_mode0(&url, Some("hacker register")).await,
+                Vec::<i64>::new()
+            );
+            // A cleared search (empty string) restores the full list
+            // (PHP: `$search` is falsy → no filter, empty cats shown).
+            assert_eq!(fetch_ids_mode0(&url, Some("")).await, vec![1, 2, 3, 4]);
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
+}
+
 /// Mode 2 with `ENABLE_FEED_CATS` off: PHP flattens the special and label
 /// feeds directly into the root items (`array_push($root['items'],
 /// ...$cat['items'])`) — no category wrapper. Rust-only regression: before

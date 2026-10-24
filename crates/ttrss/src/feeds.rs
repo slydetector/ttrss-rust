@@ -158,7 +158,9 @@ pub async fn getfeedtree(state: &AppState, sess: &Sess, extra: &Map<String, Valu
             .unwrap_or("")
             .to_string()
     } else {
-        String::new() // `$_SESSION["prefs_feed_search"] ?? ""`
+        // `$_SESSION["prefs_feed_search"] ?? ""` — the prefs-tab search term
+        // is stamped into the session by `pref_ui` (PHP `index_feeds`).
+        data.get_str("prefs_feed_search").unwrap_or("").to_string()
     };
     let force_show_empty = extra
         .get("force_show_empty")
