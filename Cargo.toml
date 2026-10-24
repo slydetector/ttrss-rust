@@ -63,5 +63,11 @@ idna = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
+[profile.dev]
+# Line tables only — no variable debuginfo: much faster codegen and a
+# dramatically smaller target/ (full debuginfo dominated the 42GB). Panics
+# and stepping keep working; gdb just can't print local values.
+debug = 1
+
 [profile.release]
 lto = "thin"
