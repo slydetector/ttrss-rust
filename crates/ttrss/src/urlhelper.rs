@@ -588,6 +588,29 @@ fn ua_for(override_: Option<&str>) -> String {
     }
 }
 
+/// The error string for a transport-level failure: the top-level message
+/// plus the `source()` chain — the levels that carry the actual cause (a
+/// TLS `invalid peer certificate: UnknownIssuer`, a DNS lookup failure,
+/// `Connection refused`, a timeout).  Walked with bounded hops; a level that
+/// repeats the text already present is skipped (some wrappers just restate
+/// the inner message).
+fn error_chain(e: &dyn std::error::Error) -> String {
+    let mut msg = e.to_string();
+    let mut src = e.source();
+    for _ in 0..6 {
+        let Some(s) = src else {
+            break;
+        };
+        let text = s.to_string();
+        if !msg.ends_with(&text) {
+            msg.push_str(": ");
+            msg.push_str(&text);
+        }
+        src = s.source();
+    }
+    msg
+}
+
 /// The first 100,000 bytes of a response body as lossy UTF-8, for 4xx/5xx
 /// error messages — `None` for an (effectively) empty body.
 fn body_snippet(body: &[u8]) -> Option<String> {
@@ -758,7 +781,7 @@ pub async fn fetch(opts: &FetchOptions) -> FetchResult {
                 match send_with_auth(&client, &url, opts, AuthScheme::Any, &useragent).await {
                     Ok(r2) => r2,
                     Err(e) => {
-                        res.error = e.to_string();
+                        res.error = error_chain(&e);
                         return res;
                     }
                 }
@@ -769,7 +792,7 @@ pub async fn fetch(opts: &FetchOptions) -> FetchResult {
         Err(e) => {
             // Transport error (connection failure, DNS, timeout, proxy). The
             // PHP's GuzzleException path leaves error_code at -1.
-            res.error = e.to_string();
+            res.error = error_chain(&e);
             return res;
         }
     };
@@ -815,7 +838,7 @@ pub async fn fetch(opts: &FetchOptions) -> FetchResult {
     let bytes = match resp.bytes().await {
         Ok(b) => b,
         Err(e) => {
-            res.error = e.to_string();
+            res.error = error_chain(&e);
             return res;
         }
     };
@@ -1475,6 +1498,78 @@ mod tests {
         assert_eq!(body_snippet(b""), None);
         // Invalid UTF-8 becomes U+FFFD, not a panic.
         assert!(body_snippet(b"\xff\xfe").unwrap().contains('\u{FFFD}'));
+    }
+
+    /// A transport failure through a closed proxy port: the cause
+    /// (`Connection refused`) must surface in the message, not just the
+    /// top-level wrapper.
+    #[tokio::test]
+    async fn fetch_transport_error_includes_cause() {
+        let res = fetch(&opts(&target(), "http://127.0.0.1:1".into())).await;
+        assert_eq!(res.error_code, -1);
+        assert!(
+            res.error.starts_with("error sending request"),
+            "error: {}",
+            res.error
+        );
+        assert!(
+            res.error.contains("Connection refused"),
+            "error: {}",
+            res.error
+        );
+    }
+
+    #[derive(Debug)]
+    struct LeafError(String);
+    impl std::fmt::Display for LeafError {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "{}", self.0)
+        }
+    }
+    impl std::error::Error for LeafError {}
+
+    #[derive(Debug)]
+    struct MidPlain {
+        leaf: LeafError,
+    }
+    impl std::fmt::Display for MidPlain {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str("mid failure")
+        }
+    }
+    impl std::error::Error for MidPlain {
+        fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+            Some(&self.leaf)
+        }
+    }
+
+    #[derive(Debug)]
+    struct MidRepeat {
+        leaf: LeafError,
+    }
+    impl std::fmt::Display for MidRepeat {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "prefix: {}", self.leaf)
+        }
+    }
+    impl std::error::Error for MidRepeat {
+        fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+            Some(&self.leaf)
+        }
+    }
+
+    #[test]
+    fn error_chain_walks_sources_and_skips_repeats() {
+        // A level that doesn't restate the inner message: both appear.
+        let plain = MidPlain {
+            leaf: LeafError("leaf detail".into()),
+        };
+        assert_eq!(error_chain(&plain), "mid failure: leaf detail");
+        // A level whose text already ends the message is not repeated.
+        let repeat = MidRepeat {
+            leaf: LeafError("leaf detail".into()),
+        };
+        assert_eq!(error_chain(&repeat), "prefix: leaf detail");
     }
 
     /// A `401 + WWW-Authenticate: Digest` challenge with `auth_type = "digest"`
