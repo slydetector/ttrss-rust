@@ -588,6 +588,23 @@ fn ua_for(override_: Option<&str>) -> String {
     }
 }
 
+/// The first 100,000 bytes of a response body as lossy UTF-8, for 4xx/5xx
+/// error messages — `None` for an (effectively) empty body.
+fn body_snippet(body: &[u8]) -> Option<String> {
+    const MAX: usize = 100_000;
+    let head = &body[..body.len().min(MAX)];
+    let lossy = String::from_utf8_lossy(head);
+    let text = lossy.trim();
+    if text.is_empty() {
+        return None;
+    }
+    let mut out = text.to_string();
+    if body.len() > MAX {
+        out.push_str(" (truncated...)");
+    }
+    Some(out)
+}
+
 /// `UrlHelper::fetch()`'s options (the PHP's `$options` array). Unset fields
 /// fall back to the PHP defaults.
 #[derive(Debug, Clone, Default)]
@@ -768,8 +785,13 @@ pub async fn fetch(opts: &FetchOptions) -> FetchResult {
     let status = resp.status();
     let status_code = status.as_u16() as i64;
     res.error_code = status_code;
-    let reason = status.canonical_reason().unwrap_or_default();
-    res.error = format!("HTTP/1.1 {status_code} {reason}");
+    let reason = status.canonical_reason().unwrap_or_default().to_string();
+    let proto = match resp.version() {
+        reqwest::Version::HTTP_11 => "HTTP/1.1".to_string(),
+        reqwest::Version::HTTP_2 => "HTTP/2".to_string(),
+        v => format!("{v:?}"),
+    };
+    res.error = format!("{proto} {status_code} {reason}");
     res.last_modified = resp
         .headers()
         .get("last-modified")
@@ -783,11 +805,6 @@ pub async fn fetch(opts: &FetchOptions) -> FetchResult {
         .unwrap_or_default()
         .to_string();
     res.effective_url = resp.url().to_string();
-
-    // A 4xx/5xx response: no body is returned (the PHP returns false here).
-    if status_code >= 400 {
-        return res;
-    }
 
     // Content-Length guard (before reading the body).
     if resp.content_length().is_some_and(|cl| cl > max_size) {
@@ -806,6 +823,19 @@ pub async fn fetch(opts: &FetchOptions) -> FetchResult {
         res.error = "Download exceeded size limit".into();
         return res;
     }
+
+    // A 4xx/5xx response: append a snippet of the body (the PHP's Guzzle
+    // error message embeds it — e.g. Cloudflare's "Just a moment..." page on
+    // a 403, the most useful part of the message) and return without a body
+    // (the PHP returns false).
+    if status_code >= 400 {
+        if let Some(snippet) = body_snippet(&bytes) {
+            let status = res.error.clone();
+            res.error = format!("{status}: {snippet}");
+        }
+        return res;
+    }
+
     if bytes.is_empty() {
         res.error = "Successful response, but no content was received.".into();
         return res;
@@ -1382,6 +1412,69 @@ mod tests {
         let res = fetch(&opts(&target(), mock.proxy())).await;
         assert_eq!(res.body, None);
         assert_eq!(res.error_code, 403);
+    }
+
+    /// 4xx/5xx: the error string includes a snippet of the response body.
+    #[tokio::test]
+    async fn fetch_404_message_includes_body_snippet() {
+        let mock = MockProxy::new(vec![Canned {
+            status: 404,
+            reason: "Not Found",
+            headers: vec![],
+            body: vec![b'x'; 100_001],
+        }]);
+        let res = fetch(&opts(&target(), mock.proxy())).await;
+        assert_eq!(res.body, None);
+        assert_eq!(
+            res.error,
+            format!(
+                "HTTP/1.1 404 Not Found: {} (truncated...)",
+                "x".repeat(100_000)
+            )
+        );
+    }
+
+    /// An empty 4xx body: no snippet appended.
+    #[tokio::test]
+    async fn fetch_404_empty_body_no_snippet() {
+        let mock = MockProxy::new(vec![Canned {
+            status: 404,
+            reason: "Not Found",
+            headers: vec![],
+            body: Vec::new(),
+        }]);
+        let res = fetch(&opts(&target(), mock.proxy())).await;
+        assert_eq!(res.error, "HTTP/1.1 404 Not Found");
+    }
+
+    #[tokio::test]
+    async fn fetch_502_message_includes_body() {
+        let mock = MockProxy::new(vec![Canned {
+            status: 502,
+            reason: "Bad Gateway",
+            headers: vec![],
+            body: b"<html>gateway timeout</html>".to_vec(),
+        }]);
+        let res = fetch(&opts(&target(), mock.proxy())).await;
+        assert_eq!(
+            res.error,
+            "HTTP/1.1 502 Bad Gateway: <html>gateway timeout</html>"
+        );
+    }
+
+    #[test]
+    fn body_snippet_truncates_at_100k() {
+        let body = vec![b'a'; 100_001];
+        assert_eq!(
+            body_snippet(&body).as_deref(),
+            Some(("a".repeat(100_000) + " (truncated...)").as_str())
+        );
+        let short = b"small body";
+        assert_eq!(body_snippet(short).as_deref(), Some("small body"));
+        assert_eq!(body_snippet(b"   "), None);
+        assert_eq!(body_snippet(b""), None);
+        // Invalid UTF-8 becomes U+FFFD, not a panic.
+        assert!(body_snippet(b"\xff\xfe").unwrap().contains('\u{FFFD}'));
     }
 
     /// A `401 + WWW-Authenticate: Digest` challenge with `auth_type = "digest"`
