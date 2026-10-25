@@ -2,88 +2,98 @@
   <img src="ttrss-rust.png" alt="ttrss-rust" width="200">
 </p>
 
-# ttrss
+# ttrss-rust
 
-Rust re-implementation of the [tt-rss](https://github.com/tt-rss/tt-rss) (Tiny Tiny RSS)
-server backend. The existing PHP codebase in `tt-rss/` is the frozen reference
-implementation and specification; the Dojo/JS frontend is served unchanged.
+A port of the [tt-rss](https://github.com/tt-rss/tt-rss) (Tiny Tiny RSS)
+server backend from PHP to Rust. The front-end is untouched.
 
-See `docs/01-plan.md` (delivery plan), `docs/02-research-report.md` (methodology), and
-`docs/03-test-coverage-audit.md` (reference test baseline).
+This is mostly a drop-in replacement for the tt-rss backend. A four container PHP deployment (app + updater + web-nginx + db) reduces down to two containers (rust app + db) now. 
 
-## Layout
-
-| Path | Contents |
-|---|---|
-| `crates/` | Rust workspace crates (`harness` = record/replay/diff test harness) |
-| `oracle/` | Dockerized live PHP tt-rss instance used as the test oracle; scripts to seed the golden dataset, snapshot it, and drive the corpus |
-| `oracle/data/` | Generated: golden DB dump, corpus fixtures, census, perf baseline (gitignored) |
-| `docs/` | Planning & research documents |
-| `tt-rss/` | Upstream PHP checkout (frozen reference, own git repo) |
-
-## License
-
-The Rust port is licensed under **GPL-3.0-or-later** (see `LICENSE`). The frozen
-PHP reference in `tt-rss/` remains under its own upstream license (GPLv3,
-`tt-rss/COPYING`).
-
-## Prerequisites
-
-- Rust (stable), Docker + compose, Python 3 (seed script)
+Performance-wise, it seems to be the same speed if not a little bit snappier. Most of the heavylifting is done by the database which is unchanged, so that pretty much tracks. I imagine it takes less resources (CPU + RAM) too, but haven't done any measurements.
 
 ## Quick start
 
-Fresh clone? Run `make bootstrap` first (initializes the `tt-rss` reference
-submodule).
+```shell
+git clone https://github.com/slydetector/ttrss-rust
+cd ttrss-rust/docker
 
-The top-level **`Makefile`** is the primary interface — `make` (or `make help`)
-lists every target. The most common targets:
+# Configure by customizing .env
+cp .env.example .env  
+
+# Start up ttrss-rust
+docker compose up -d
+
+# Option A: 
+#   Import your existing postgres db into this instance. This allows you to 
+#   take ttrss-rust for a quick spin with a copy of your existing setup. Your
+#   postgres host:port must be reachable and you'll be prompted for your db info.
+docker compose exec app ttrss importdb
+
+#   Restart the app so it picks up the imported data.
+docker compose restart app
+
+# Option B: 
+#   Import your feeds via opml from your existing php tt-rss instance. 
+#   1. Grab the admin password from the logs
+#   2. Browse to http://localhost:9000/tt-rss/ , login as admin and do the OPML import.
+docker compose logs app
+
+# Option C: 
+#   Start with a blank slate. 
+#   1. Grab the admin password from the logs
+#   2. Browse to http://localhost:9000/tt-rss/ and you're good to login as admin.
+docker compose logs app
+```
+
+## Caveats
+
+### Plugins
+- All bundled first-party PHP plugins have been ported to rust.
+- 3rd party PHP plugins are incompatible and require porting to rust.
+### Configuration
+- The vast majority of configuration via env vars works out of the box.
+- Configuration via php obviously doesn't work.
+### CLI
+- I don't use the CLI so I didn't port it.
+
+## Development
+
+Run `make bootstrap` first (initializes the `tt-rss` reference submodule).
+
+The top-level **`Makefile`** is the primary interface — `make help` lists every target. 
+The most common targets:
 
 ```sh
-make oracle-up      # bring up the PHP oracle (db + app + updater + nginx)
-make oracle-down    # tear down (keeps the db volume)
 make build          # build the Rust server + harness
 make run            # run the Rust server in the foreground (port 9000)
-make harness        # reset DB + build + run the corpus + diff vs oracle-a
-make test           # run the full workspace test suite
+make test           # run all the unit and integration tests
+make e2e            # Run e2e Playwright tests
+make php-sync       # Identifies changes to upstream php tt-rss that require porting.
 ```
 
-The oracle (PHP) web is on `http://127.0.0.1:8280/tt-rss/`; the Rust server on
-`http://127.0.0.1:8281/tt-rss/` (the diff strips the port, so they compare as
-the same app). Oracle login: `admin` / `admin` (no TOTP — the frictionless demo
-path; API app password `AppPass123`); `otpuser` / `otppass` (TOTP enabled,
-secret `OTPSECRET1234567890`). **`oracle/README.md` is the full oracle + harness
-guide — read it before driving the corpus.**
+### Layout
 
-## Harness (record / replay / diff)
+| Path | Contents |
+|---|---|
+| `Makefile` | Start here to see useful targets |
+| `crates/ttrss` | Rust port |
+| `docker/` | Docker compose stack |
+| `docs/` | Planning & research docs for the Rust port |
+| `e2e/` | Playwright based e2e acceptance tests |
+| `tt-rss/` | Upstream PHP checkout (frozen reference, own git repo) |
 
-`make harness` is the canonical run (resets the oracle DB to the golden
-baseline so runs are reproducible, builds, starts the Rust server on `:8281`, runs
-the 53-step corpus (61 defined; 8 `skip = true`), and diffs against `oracle/data/runs/oracle-a`):
+## Backstory
+This started out as an experiment to see if a fully self-hosted LLM on consumer grade hardware was capable of porting a large complex PHP codebase to Rust. 
 
-```sh
-make harness                        # full run + diff vs oracle-a
-make harness ARGS=--no-build        # reuse existing binaries
-make harness-keep                   # leave the Rust server running
-```
+The answer is a resounding yes. However, it did require a significant amount of steering and architectural experience. Keep in mind, I have zero professional experience with PHP or Rust.
 
-To *record* a fresh oracle baseline, or to diff two run dirs by hand:
+Regardless, ttrss-rust is now my production daily driver, so I plan to keep it in sync with the PHP implementation.
 
-```sh
-make record                         # record -> oracle/data/runs/oracle-a
-make diff ARGS=--a <run-a> --b <run-b>
-```
+### AI Setup
+- LLM: Qwen 3.8 27b 
+- GPU: Nvidia RTX 3090 with 24GB VRAM
+- Harness: [pi.dev](https://pi.dev) with plugins: pi-ketch, pi-vcc, pi-token-speed, pi-turn-timer
+- LLM runner: Started out with [club-3090](https://github.com/noonghunna/club-3090) then migrated to [llamAmpere](https://github.com/JakeATX/llamAmpere) to max out token decode speed (30-70 tps)
 
-## Status
-
-- **M0 complete**: oracle + golden dataset + corpus; harness proven with a
-  clean self-replay diff; PHP-FPM baseline in `oracle/data/baseline.json`.
-- **M1 complete**: `ttrss serve` (static assets byte-for-byte + login page +
-  real login SSHA-512 + TOTP + logout + authenticated SPA shell with
-  ETag/304 + encrypted DB sessions with rolling cookie re-stamp). The full
-  login/logout/session surface diffs clean against the oracle; the corpus is
-  now 61 steps (admin is frictionless; a dedicated `otpuser` exercises the
-  OTP challenge + code path). See `docs/01-plan.md` (M1 status section).
-- Next: **M2 read-only UI on real data** — the `backend.php` RPC surface
-  (`getFeedTree`, `Feeds.view`, …) + external API read ops so the feed tree
-  and headlines render on the golden dataset.
+## Credits
+Much gratitude to the original authors, contributors, and maintainers of tt-rss.
