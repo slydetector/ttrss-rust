@@ -62,11 +62,21 @@ setup('bring up the fresh e2e stack', async () => {
   //    (star banner, empty feed list).
   await dockerCompose('down', '-v', '--remove-orphans').catch(() => {});
 
-  // 3. Build the image (root Dockerfile, repo-root context). Streams to
-  //    CI live (docker.ts).
-  console.log(`${elapsed()} building image…`);
-  await dockerCompose('build', '--provenance=false', '--sbom=false');
-  console.log(`${elapsed()} build done`);
+  // 3. Build the image — unless it is already in the daemon. CI builds it
+  //    with `docker buildx build --load` (docker-container builder; the
+  //    daemon's buildkit store stays empty), so an unconditional `compose
+  //    build` would recompile everything from scratch; local dev has no
+  //    image on first use and builds it here.
+  const imageInDaemon = await dockerRun(['image', 'inspect', 'ttrss-rust:latest'])
+    .then(() => true)
+    .catch(() => false);
+  if (imageInDaemon) {
+    console.log(`${elapsed()} image ttrss-rust:latest in daemon — skipping build`);
+  } else {
+    console.log(`${elapsed()} building image…`);
+    await dockerCompose('build', '--provenance=false', '--sbom=false');
+    console.log(`${elapsed()} build done`);
+  }
 
   // 4. Up — fresh named volumes by construction (down -v above).
   await dockerCompose('up', '-d');

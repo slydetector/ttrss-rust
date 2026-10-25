@@ -1,17 +1,13 @@
 # CI — build on every push/PR to main.
 #
-# GitHub-Actions-canonical on purpose: this file runs unmodified on both the
-# temporary self-hosted runner (label "ubuntu-latest") and the permanent
-# GitHub home (runs-on: ubuntu-latest is a hosted pool there). Keep it that
-# way: official actions only, stock Docker images, no host-specific syntax.
-#
-# Self-hosted optimization (drop it at the GitHub migration): the ci-image
-# job builds the ttrss-ci job image (ci/Dockerfile — everything the install
-# steps would otherwise unpack into the container per run) and the build job
-# runs in it. On a hosted runner the two jobs can't share a daemon, so
-# ci-image is dead weight there and the build job's guarded steps degrade to
-# the full install automatically. Migration = delete ci-image and point the
-# build job's container back at rust:1.98-trixie.
+# Three concurrent jobs, each on its own hosted runner (stock image, official
+# actions). Hosted runners are ephemeral: Swatinem/rust-cache and the BuildKit
+# GHA layer cache carry build state between runs.
+#   test:   the nextest suite (debug) against a postgres service
+#   lint:   rustfmt + clippy (restore-only cache, shared key with test)
+#   image:  the docker image (the release build happens in-container) + the
+#           Playwright e2e golden path; on main, publishes ttrss-rust:latest
+#           — and only after e2e passed, so `latest` is always a green run.
 name: build
 
 on:
@@ -20,70 +16,18 @@ on:
   pull_request:
     branches: [main]
 
-jobs:
-  # The CI job image (the self-hosted optimization — see the header).
-  # Runs in docker:29-cli (stock; ships git + the docker CLI — no JS action,
-  # the runner host has no node for actions/checkout) with the runner's
-  # daemon socket mounted: the runner itself is a dind container, so the
-  # daemon is only reachable from inside a job container — the same pattern
-  # as the build job. Rebuilt every run; the daemon's layer cache makes
-  # unchanged layers near-free, and a lock-file change busts only the
-  # Playwright layer.
-  ci-image:
-    runs-on: ubuntu-latest
-    container:
-      image: docker:29-cli
-      volumes:
-        - /var/run/docker.sock:/var/run/docker.sock
-    concurrency:
-      group: build-${{ github.ref }}
-      cancel-in-progress: true
-    steps:
-      - name: Checkout
-        run: |
-          git init .
-          git remote add origin "${{ github.server_url }}/${{ github.repository }}.git"
-          git fetch --depth 1 origin "${{ github.ref }}"
-          git checkout FETCH_HEAD
-      - name: Build ttrss-ci
-        run: docker build -t ttrss-ci:latest -f ci/Dockerfile .
+# Serialize per ref so concurrent runs of the same ref don't fight over the
+# shared caches. Different refs may build in parallel.
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
 
-  build:
+jobs:
+  test:
     runs-on: ubuntu-latest
-    needs: [ci-image] # the image the job container runs in
-    # The CI job image (the ci-image job above, ci/Dockerfile): rustc 1.98 on
-    # trixie plus everything the install steps below would unpack. The steps
-    # stay as the fallback — every piece is guarded, so on a daemon without
-    # ttrss-ci (a hosted runner) they do the full install.
-    container:
-      image: ttrss-ci:latest
-      # Persistent build state. The runner's docker daemon (dind) has a
-      # host-backed /ci-cache dir, so these bind mounts survive between
-      # runs: the cargo target dir and registry stay warm on the host SSD,
-      # no cache download/extract/save, each run writes only the build delta
-      # (cargo fingerprints encode Cargo.lock, so a warm target stays
-      # correct when deps change). On GitHub-hosted runners the host paths
-      # are created per job (ephemeral) and actions/cache (below) carries
-      # the state — same file, both hosts. The target dir is a fixed
-      # path (via CARGO_TARGET_DIR below), independent of the workspace
-      # layout.
-      volumes:
-        - /ci-cache/cargo-target:/cargo-target
-        - /ci-cache/cargo-home:/cargo-home
-        # The suite's compose stack runs in the RUNNER'S daemon (this
-        # one): the job container gets the daemon's socket. On
-        # GitHub-hosted runners the same mount reaches the runner's own
-        # (dind) daemon.
-        - /var/run/docker.sock:/var/run/docker.sock
-    # Serialize per ref so concurrent runs of the same ref don't write the
-    # shared volume at once. Different refs may build in parallel; cargo's
-    # file locks keep that safe.
-    concurrency:
-      group: build-${{ github.ref }}
-      cancel-in-progress: true
     # Phase 2: the DB-backed integration suite. test-db uses TTRSS_TEST_PG_URL
-    # when set (instead of spinning its own testcontainers postgres), so the
-    # full `cargo test` runs against this service on both hosts.
+    # when set (instead of spinning its own testcontainers postgres). A
+    # non-container job reaches the published service port on localhost.
     services:
       postgres:
         image: postgres:17-alpine
@@ -100,123 +44,220 @@ jobs:
           --health-retries 5
           --tmpfs /var/lib/postgresql/data
     env:
-      # Build artifacts live outside the workspace at a stable mount point (see the container
-      # volumes above). CARGO_HOME moves the cargo registry off the image's baked-in
-      # /usr/local/cargo so the mount doesn't shadow the rustup/cargo binaries.
-      CARGO_TARGET_DIR: /cargo-target
-      CARGO_HOME: /cargo-home
-      # Host = the service NAME (not localhost): this runner publishes
-      # service ports to the runner host, so the job container reaches the
-      # DB over the shared docker network alias. GitHub resolves the service
-      # name too, so the file stays portable.
-      TTRSS_TEST_PG_URL: postgres://postgres:postgres@postgres:5432/postgres?sslmode=disable
-      # Publishing identity — registry host+namespace / user / token, all from
-      # secrets, none of it in the repo (docs/19). Same secret names on both
-      # CI homes; an unset REGISTRY (local runs, fork PRs) skips the publish.
-      REGISTRY: ${{ secrets.REGISTRY }}
-      REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
-      REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
+      TTRSS_TEST_PG_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable
     steps:
-      # Toolchain gaps the stock image leaves for us:
-      # - JS actions (like checkout) need node in the job container: GitHub
-      #   injects it, the act-based self-hosted runner does not.
-      # - the rust:1.98 image lacks clippy + rustfmt (shadow/Dockerfile never
-      #   needed them; the fmt gate needs the latter).
-      # - zstd: actions/cache falls back to single-threaded gzip (tar -z)
-      #   without it; with it, cache save/restore is multi-threaded.
-      # - postgresql-client: the importdb integration test runs the binary
-      #   on the host, which shells out to pg_dump|pg_restore (the image
-      #   ships them; the CI job container must too).
-      # - clang + mold: the committed .cargo/config.toml links through clang
-      #   with the mold linker (faster link steps).
-      # Each install is a no-op when the piece already exists, so the file
-      # stays portable to GitHub.
-      - name: Ensure build toolchain (node + clippy + rustfmt + clang/mold)
-        run: |
-          # Debian's nodejs package lacks npm/npx — the npm package supplies both.
-          command -v node >/dev/null 2>&1 && command -v npx >/dev/null 2>&1 || (apt-get update && apt-get install -y --no-install-recommends nodejs npm)
-          command -v zstd >/dev/null 2>&1 || (apt-get update && apt-get install -y --no-install-recommends zstd)
-          command -v pg_dump >/dev/null 2>&1 || (apt-get update && apt-get install -y --no-install-recommends postgresql-client)
-          command -v clang >/dev/null 2>&1 && command -v mold >/dev/null 2>&1 || (apt-get update && apt-get install -y --no-install-recommends clang mold)
-          # Docker: the official repo's client + buildx + compose plugins
-          # (docs.docker.com/engine/install/debian). Daemon = the runner's,
-          # via the mounted socket — dockerd just isn't started. Guarded so
-          # the ttrss-ci image (which bakes this) makes the whole block a
-          # no-op.
-          command -v docker >/dev/null 2>&1 || {
-            apt-get update
-            apt-get install -y --no-install-recommends ca-certificates curl iproute2
-            # Drop any distro-provided docker before the official one (none
-            # in the rust image; the docs list the conflicting names).
-            PKGS=$(dpkg --get-selections docker.io docker-compose docker-doc docker-buildx podman-docker containerd runc | cut -f1)
-            [ -z "$PKGS" ] || apt-get remove -y $PKGS
-            install -m 0755 -d /etc/apt/keyrings
-            curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc
-            chmod a+r /etc/apt/keyrings/docker.asc
-            printf 'Types: deb\nURIs: https://download.docker.com/linux/debian\nSuites: %s\nComponents: stable\nArchitectures: %s\nSigned-By: /etc/apt/keyrings/docker.asc\n' "$(. /etc/os-release && echo "$VERSION_CODENAME")" "$(dpkg --print-architecture)" > /etc/apt/sources.list.d/docker.sources
-            apt-get update
-            apt-get install -y --no-install-recommends docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-          }
-          docker --version && docker buildx version && docker compose version
-          rustup component add clippy rustfmt
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # The build reads plugin assets from the tt-rss reference submodule
           # via include_str! — same dependency `make bootstrap` covers locally.
           submodules: recursive
-      # Cargo cache across runs: registry + target, keyed on Cargo.lock
-      # (JS action — node is handled by the ensure step above). Skipped on
-      # the act runner (ACT=true): there the container volumes above are
-      # persistent and already warm.
-      - uses: actions/cache@v4
-        if: env.ACT != 'true'
+      # The stock runner image ships toolchains we don't use; dropping them
+      # frees several GB (actions/virtual-environments#709).
+      # The toolchain install (dtolnay re-downloads rust every run); the key
+      # changes when the version below changes.
+      - uses: actions/cache@v6
+        with:
+          path: ~/.rustup
+          key: rustup-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml') }}
+      # dtolnay needs an explicit toolchain input: derive the channel from
+      # rust-toolchain.toml so that file stays the single source of truth.
+      - name: Read toolchain version
+        id: tc
+        run: |
+          echo "tc=$(grep '^channel' rust-toolchain.toml | cut -d'"' -f2)" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: ${{ steps.tc.outputs.tc }}
+      # The committed .cargo/config.toml links through clang + mold.
+      - uses: rui314/setup-mold@v1
+      - uses: taiki-e/install-action@v2.87.31
+        with:
+          tool: nextest
+      # apt's .deb archive + package lists (the apt steps below): the
+      # download is the mirror-speed variable (25.9 MB once took 8m18s at
+      # 52 kB/s); warm, apt uses the local archive and only unpacks (~10 s).
+      - uses: actions/cache@v6
         with:
           path: |
-            /cargo-home/registry
-            /cargo-home/git
-            /cargo-target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-      - run: cargo build --release -p ttrss --bin ttrss
+            /var/cache/apt/archives
+            /var/lib/apt/lists
+          key: apt-ubuntu-24.04
+      # The importdb integration test shells out to pg_dump|pg_restore. The
+      # runner's stock client is 16; the service above is 17 (the product's
+      # version), and pg_dump aborts on a newer server — so install the 17
+      # client (pgdg).
+      - name: Postgres 17 client
+        run: |
+          sudo install -m 0755 -d /etc/apt/keyrings
+          sudo curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc -o /etc/apt/keyrings/pgdg.asc
+          echo "deb [signed-by=/etc/apt/keyrings/pgdg.asc] https://apt.postgresql.org/pub/repos/apt $(. /etc/os-release && echo "$VERSION_CODENAME")-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends postgresql-client-17
+          # actions/cache tars the apt dirs as the runner user: apt's lock
+          # files are root 600/700, so make the tree readable or the save fails.
+          sudo chmod 644 /var/cache/apt/archives/lock /var/lib/apt/lists/lock
+          sudo chmod 755 /var/cache/apt/archives/partial /var/lib/apt/lists/partial
+          # The runner's /usr/bin/pg_dump(+pg_restore) are postgresql-common's
+          # pg_wrapper and resolve to the image's 16 client; put 17's bin dir
+          # first on PATH for all following steps (the fix in
+          # meggarmind/RESIDIO#958 and pavelprokes/g-gallery#50 — pgdg noble
+          # installs the per-version binaries under /usr/lib/postgresql/17).
+          echo /usr/lib/postgresql/17/bin >> "$GITHUB_PATH"
+          /usr/lib/postgresql/17/bin/pg_dump --version | grep -q " 17\." || { echo "pg_dump 17 missing"; exit 1; }
+          PATH=/usr/lib/postgresql/17/bin:$PATH pg_dump --version
+      # Cargo cache (registry + target). Saved only from main — branch
+      # caches get evicted under the 10 GB budget before they're useful.
+      # shared-key + no job-id in the key: the lint job restores this same
+      # cache entry (and saves nothing, so main stores exactly one).
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ttrss
+          add-job-id-key: false
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      # Full suite: lib tests + the DB-backed integration binaries
+      # (postgres service above).
+      - run: make test
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # include_str! plugin assets, same as test.
+          submodules: recursive
+      # The toolchain install (dtolnay re-downloads rust every run); the key
+      # follows rust-toolchain.toml, so a version bump busts it automatically.
+      - uses: actions/cache@v6
+        with:
+          path: ~/.rustup
+          key: rustup-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml') }}
+      # dtolnay needs an explicit toolchain input: derive the channel from
+      # rust-toolchain.toml so that file stays the single source of truth.
+      - name: Read toolchain version
+        id: tc
+        run: |
+          echo "tc=$(grep '^channel' rust-toolchain.toml | cut -d'"' -f2)" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: ${{ steps.tc.outputs.tc }}
+          components: clippy, rustfmt
+      # mold: clippy links build scripts (the .cargo/config.toml rustflags
+      # apply to them), so it needs the linker too.
+      - uses: rui314/setup-mold@v1
+      # Restore-only (save-if: false): main's test job is the single saver,
+      # so the 10 GB budget holds one rust-cache entry.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ttrss
+          add-job-id-key: false
+          save-if: false
       # Pure rustfmt defaults (no config file) — the tree is kept fmt-clean.
       - run: cargo fmt --all -- --check
-      # Full suite: lib tests + the DB-backed integration binaries
-      # (postgres service above). `make test` = `cargo nextest run`
-      # (nextest is baked into ttrss-ci, ci/Dockerfile).
-      - run: make test
-      # Playwright: ttrss-ci bakes node_modules + chromium + the apt deps
-      # (ci/Dockerfile). Reuse the baked node_modules through a symlink when
-      # the lock files are unchanged (npm follows the symlink); a mismatch —
-      # defensive, the image is built from this tree — runs a real npm ci.
-      - name: Playwright (baked into ttrss-ci)
+      - run: make clippy
+
+  image:
+    runs-on: ubuntu-latest
+    env:
+      # Publishing identity — registry host+namespace / user / token, all
+      # from secrets, none of it in the repo (docs/19); an unset REGISTRY
+      # (fork PRs) skips the publish.
+      REGISTRY: ${{ secrets.REGISTRY }}
+      REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
+      REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The Dockerfile copies plugin assets from the tt-rss reference
+          # submodule (include_str! in the crate sources).
+          submodules: recursive
+      # The image job's peak (buildkit layers + base images + the GHA cache
+      # tar) exceeds the 13 GB the runner starts with free, so drop the
+      # 5.8 GB dotnet install (probe-measured: ~15 s to delete, ~7 s to walk).
+      # /usr/local/lib/android (12 GB, ~1 min to delete) is the fallback if
+      # the margin proves insufficient.
+      - name: Free runner disk
+        run: |
+          df -h / | tail -1
+          sudo rm -rf /usr/share/dotnet
+          df -h / | tail -1
+      # The runner's compose plugin predates compose build's attestation
+      # flags (--provenance/--sbom — b414656); the suite passes them, and
+      # they keep `latest` a plain image. The official latest binary wins
+      # over the plugin (cli-plugins dir is first on the plugin search
+      # path).
+      - name: Docker Compose (official, latest)
+        run: |
+          mkdir -p "$HOME/.docker/cli-plugins"
+          curl -fsSL "https://github.com/docker/compose/releases/latest/download/docker-compose-linux-$(uname -m)" -o "$HOME/.docker/cli-plugins/docker-compose"
+          chmod +x "$HOME/.docker/cli-plugins/docker-compose"
+          docker compose version
+      # Chromium (the bulk of the next step's time) across runs; the lock
+      # hash in the key invalidates it on a Playwright version bump.
+      - uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ runner.arch }}-pw${{ hashFiles('e2e/package-lock.json') }}
+      # apt's .deb archive + package lists (the apt steps below): the
+      # download is the mirror-speed variable (25.9 MB once took 8m18s at
+      # 52 kB/s); warm, apt uses the local archive and only unpacks (~10 s).
+      - uses: actions/cache@v6
+        with:
+          path: |
+            /var/cache/apt/archives
+            /var/lib/apt/lists
+          key: apt-ubuntu-24.04
+      # Playwright: node_modules from the lock file + chromium and its apt
+      # deps (both cached/installed above — the step is a no-op when warm).
+      - name: Playwright
         working-directory: e2e
         run: |
-          NOW=$(sha256sum package.json package-lock.json | sha256sum | awk '{print $1}')
-          BAKED=$(cat /opt/e2e/pkg-hash 2>/dev/null || echo none)
-          if [ "$NOW" = "$BAKED" ] && [ ! -e node_modules ]; then
-            ln -s /opt/e2e/node_modules node_modules
-            echo "reusing the baked node_modules"
-          else
-            rm -f node_modules
-            npm ci
-          fi
-          # No-op when the baked chromium matches (it does — the image is
-          # built from this tree); self-heals a wiped browser dir.
+          rm -rf node_modules
+          npm ci
           npx playwright install --with-deps chromium
-      # Headless golden path: the suite's compose project (ttrss-e2e, port
-      # 19000) runs in the runner's daemon (socket mounted above); chromium
-      # (here) reaches the app's published port over the job network's
-      # gateway — the host's own IP on that subnet.
-      - name: e2e (golden path)
+          # actions/cache tars the apt dirs as the runner user: apt's lock
+          # files are root 600/700, so make the tree readable or the save fails.
+          sudo chmod 644 /var/cache/apt/archives/lock /var/lib/apt/lists/lock
+          sudo chmod 755 /var/cache/apt/archives/partial /var/lib/apt/lists/partial
+      # The image (what `make image` builds) with the BuildKit GHA layer
+      # cache: unchanged layers (base image, sources, the in-container cargo
+      # build) restore across runs, so a push that doesn't touch
+      # Cargo.lock skips the release compile entirely.
+      # The 2026-era hosted runners no longer expose ACTIONS_CACHE_URL /
+      # ACTIONS_RUNTIME_TOKEN to step shells, and without them buildx
+      # SILENTLY drops `type=gha` cache entries (isActive check in
+      # docker/buildx build/opt.go). This action restores the variables.
+      - uses: crazy-max/ghaction-github-runtime@v3
+      # The daemon's embedded buildkit (docker driver) cannot EXPORT a
+      # remote layer cache, so the build runs on a docker-container
+      # builder; --load lands the image in the daemon for the e2e step.
+      - name: Build ttrss-rust
         run: |
-          # Published ports land on the host; reach them via the job
-          # network's gateway (the host's IP on that subnet).
-          export TTRSS_E2E_HOST=$(ip route | awk '/default/ {print $3; exit}')
-          make e2e
-      - run: cargo clippy --workspace --all-targets
-      # Publish the image to the registry named by the secrets above
-      # (skipped when REGISTRY is unset). The image was already built by
-      # the e2e step (same Dockerfile) — this only tags + pushes it
-      # (make image-push).
+          docker buildx create --name gha --driver docker-container
+          docker buildx build --builder gha --provenance=false --sbom=false --load \
+            -t ttrss-rust:latest \
+            --cache-from type=gha,cache-key=ttrss-image \
+            --cache-to type=gha,cache-key=ttrss-image,mode=max \
+            .
+      # Playwright golden path: the suite's compose project (ttrss-e2e,
+      # port 19000) runs in the runner's own daemon; chromium reaches the
+      # app at 127.0.0.1:19000 (no container indirection, so no
+      # TTRSS_E2E_HOST). The suite's `docker compose build` reuses the
+      # daemon's BuildKit cache from the step above — a re-tag, not a
+      # recompile.
+      - name: e2e (golden path)
+        run: make e2e
+      # Trace + video + console/page transcripts for a failed golden path.
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: e2e-results
+          path: |
+            e2e/test-results
+            e2e/playwright-report
+          if-no-files-found: ignore
+      # Publish only when the registry secrets exist (main pushes; fork PRs
+      # have none) — and only after e2e passed, so `latest` always points at
+      # a green run. The image above is tagged + pushed as-is.
       - name: Publish ttrss-rust
         if: env.REGISTRY != ''
         run: |

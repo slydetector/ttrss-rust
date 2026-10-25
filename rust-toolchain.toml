@@ -1,0 +1,6 @@
+# The single source of truth for the toolchain: rustup (local shells), the
+# dtolnay actions (no inputs — they read this file) and the CI cache key
+# (hashFiles) all derive from it. Bump = edit this one line.
+[toolchain]
+channel = "1.98.0"
+components = ["clippy", "rustfmt"]

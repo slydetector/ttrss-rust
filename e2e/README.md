@@ -64,21 +64,21 @@ Consequences:
 
 ## CI
 
-Runs in the `build` job, after `cargo test` (`.github/workflows/build.yml`) —
-the Rust suite is the primary gate, the golden path is the final end-to-end
-proof. Two runner-specific facts not obvious from the file (recorded
-2026-10-10):
+Runs in the `image` job (`.github/workflows/build.yml`), **concurrent with**
+the `test` and `lint` jobs — the Rust suite and the golden path are
+independent gates on the same PR. The job builds the image first (BuildKit
+GHA layer cache — a push that doesn't touch `Cargo.lock` skips the
+in-container release compile), runs the suite against it, and only then
+publishes `ttrss-rust:latest` (main pushes; `latest` is therefore always a
+green run). The build runs on a docker-container buildx builder (the
+daemon's embedded buildkit cannot export the gha cache), so the daemon's
+layer store stays empty and `--load` is just an image export: `global.setup`
+therefore **skips its `compose build` when `ttrss-rust:latest` is already
+in the daemon** (CI) and only builds it locally on first use.
 
-- **No service-container healthchecks, no dind.** This act-based runner kills
-  the job on the *first* failed service probe (it ignores `--health-retries`),
-  and stock dind's healthcheck has a 1 s probe cap that never passes there.
-  So the e2e stack runs in the **runner's own docker daemon** (a
-  `/var/run/docker.sock` bind mount — the runner's `valid_volumes` must allow
-  it) and readiness is polled by the `stack-setup` project step.
-- **Reaching the app.** Published ports land on the runner host; the browser
-  (inside the job container) reaches port 19000 over the job network's
-  **gateway IP** — the workflow step exports it as `TTRSS_E2E_HOST` (the
-  config's `baseURL` default is `127.0.0.1` for local runs).
+Hosted runner, native (no job container): the stack runs in the runner's
+own docker daemon and chromium reaches the app at `127.0.0.1:19000` — the
+config's `baseURL` default, so no `TTRSS_E2E_HOST` override is needed.
 
 ## Failure breadcrumbs
 
