@@ -251,6 +251,65 @@ async fn test_update_feed_on_demand() {
     .unwrap();
 }
 
+// `API::updateFeed` (GHSA-62wp-j9w3-4vrv): a feed not owned by the session
+// user is not updated — `E_OPERATION_FAILED`, no re-fetch, no articles.
+#[tokio::test]
+async fn test_update_feed_not_owned() {
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = common::make_db_from_url(&url).await.expect("test db");
+            let mock = atom_mock();
+            let tc2 = common::test_cfg(); // keep the cache dir alive for the test
+            let state = make_state(db.clone(), &tc2);
+            let owner = create_user(&db, 304, 0).await;
+            let other = create_user(&db, 305, 0).await;
+            let feed_id = create_feed(&db, 304, owner, &mock.url("/feed")).await;
+            let sess = make_sess(other);
+
+            let body: Map<String, Value> =
+                json!({ "feed_id": feed_id }).as_object().unwrap().clone();
+            let (status, content) = update_feed(&state, &sess, &body).await;
+            assert_eq!(status, 1);
+            assert_eq!(content["error"], "E_OPERATION_FAILED");
+            assert_eq!(entry_count(&db, feed_id).await, 0);
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
+}
+
+// `API::updateFeed`: a failed fetch (500) reports `E_OPERATION_FAILED`.
+#[tokio::test]
+async fn test_update_feed_fetch_failed() {
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = common::make_db_from_url(&url).await.expect("test db");
+            let mock = MockServer::new(vec![Canned {
+                status: 500,
+                reason: "Internal Server Error",
+                headers: vec![],
+                body: vec![],
+            }]);
+            let tc2 = common::test_cfg(); // keep the cache dir alive for the test
+            let state = make_state(db.clone(), &tc2);
+            let uid = create_user(&db, 306, 0).await;
+            let feed_id = create_feed(&db, 306, uid, &mock.url("/feed")).await;
+            let sess = make_sess(uid);
+
+            let body: Map<String, Value> =
+                json!({ "feed_id": feed_id }).as_object().unwrap().clone();
+            let (status, content) = update_feed(&state, &sess, &body).await;
+            assert_eq!(status, 1);
+            assert_eq!(content["error"], "E_OPERATION_FAILED");
+            assert_eq!(entry_count(&db, feed_id).await, 0);
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
+}
+
 // `API::updateFeed` dedup: a feed already in flight (claimed by the running
 // daemon loop within the last 10 minutes) is a no-op — no re-fetch, no articles.
 #[tokio::test]

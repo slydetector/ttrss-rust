@@ -1519,17 +1519,24 @@ pub async fn unsubscribe_feed(
 }
 
 /// `API::updateFeed` — update a single feed now (a blocking, in-process
-/// on-demand update, D2 = a). The PHP guards on `!ini_get("open_basedir")`
-/// (always unset in this port), then runs `RSSUtils::update_rss_feed`. An
-/// on-demand update for a feed already in flight (claimed by the running daemon
-/// loop within the last minute) is a no-op.
-pub async fn update_feed(
-    state: &AppState,
-    _sess: &Sess,
-    body: &Map<String, Value>,
-) -> (i64, Value) {
+/// on-demand update, D2 = a). Only the session user's own feeds are updated
+/// (GHSA-62wp-j9w3-4vrv); a non-owned feed, or a failed fetch, yields
+/// `E_OPERATION_FAILED`. An on-demand update for a feed already in flight
+/// (claimed by the running daemon loop within the last minute) is a no-op.
+pub async fn update_feed(state: &AppState, sess: &Sess, body: &Map<String, Value>) -> (i64, Value) {
     let pool = state.db.pool();
+    let uid = sess.data().uid().unwrap_or(0);
     let feed_id = clean_int(body.get("feed_id")) as i32;
+    let owned: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM ttrss_feeds WHERE id = $1 AND owner_uid = $2")
+            .bind(feed_id)
+            .bind(uid)
+            .fetch_one(pool)
+            .await
+            .unwrap_or(0);
+    if owned == 0 {
+        return (STATUS_ERR, json!({ "error": E_OPERATION_FAILED }));
+    }
     let in_flight: Option<bool> = sqlx::query_scalar(
         "SELECT last_update_started IS NOT NULL \
          AND last_update_started >= NOW() - INTERVAL '1 minute' \
@@ -1543,7 +1550,7 @@ pub async fn update_feed(
     if in_flight.unwrap_or(false) {
         return (STATUS_OK, json!({ "status": "OK" }));
     }
-    let _ = crate::updates::fetch_one_feed(
+    match crate::updates::fetch_one_feed(
         pool,
         &state.config,
         state.plugins.clone(),
@@ -1551,8 +1558,11 @@ pub async fn update_feed(
         &crate::updates::FeedUpdateFlags::default(),
         None,
     )
-    .await;
-    (STATUS_OK, json!({ "status": "OK" }))
+    .await
+    {
+        Ok(outcome) if outcome.success => (STATUS_OK, json!({ "status": "OK" })),
+        _ => (STATUS_ERR, json!({ "error": E_OPERATION_FAILED })),
+    }
 }
 
 /// `API::subscribeToFeed` — subscribe to a feed (delegates to
