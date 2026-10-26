@@ -6,8 +6,10 @@
 #   test:   the nextest suite (debug) against a postgres service
 #   lint:   rustfmt + clippy (restore-only cache, shared key with test)
 #   image:  the docker image (the release build happens in-container) + the
-#           Playwright e2e golden path; on main, publishes ttrss-rust:latest
-#           — and only after e2e passed, so `latest` is always a green run.
+#           Playwright e2e golden path. Runs concurrent with test + lint,
+#           but the publish polls for both to finish green first — on main,
+#           ttrss-rust:latest is only pushed after ALL three gates passed,
+#           so `latest` is always a fully green run.
 name: build
 
 on:
@@ -15,6 +17,13 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+
+# The publish's gate poll (`gh run view`) needs actions:read, which the
+# token does not get under the "read contents only" default — declare it
+# explicitly so the poll never depends on the repo's permissions setting.
+permissions:
+  actions: read
+  contents: read
 
 # Serialize per ref so concurrent runs of the same ref don't fight over the
 # shared caches. Different refs may build in parallel.
@@ -277,9 +286,37 @@ jobs:
             e2e/test-results
             e2e/playwright-report
           if-no-files-found: ignore
+      # Full-gate publish: test + lint ran concurrent with this job, so
+      # poll the run's jobs (10 s ticks, 30 min cap — test finishes in
+      # ~7 min) until both are done. Only then is a green run complete
+      # (their pass + this job's e2e), and only then does `latest` move.
+      # Polling only happens when a publish would occur (secrets present).
+      - name: Wait for test + lint
+        if: env.REGISTRY != ''
+        env:
+          # gh looks for GH_TOKEN specifically in workflows (GITHUB_TOKEN
+          # alone is not picked up).
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for _ in $(seq 1 180); do
+            line=$(gh run view "$GITHUB_RUN_ID" --json jobs --jq \
+              '[.jobs[] | select(.name=="test" or .name=="lint")]
+               | map(.conclusion | if . == "" then "running" else . end)
+               | sort | join(",")')
+            case "$line" in
+              success,success) echo "test + lint green"; exit 0;;
+              *failure*|*cancelled*|*timed_out*|*stale*)
+                echo "gate failed: $line" >&2; exit 1;;
+            esac
+            echo "$line — waiting"
+            sleep 10
+          done
+          echo "timed out (30 min) waiting for test + lint" >&2
+          exit 1
       # Publish only when the registry secrets exist (main pushes; fork PRs
-      # have none) — and only after e2e passed, so `latest` always points at
-      # a green run. The image above is tagged + pushed as-is.
+      # have none) — and only after e2e + test + lint passed, so `latest`
+      # always points at a fully green run. The image above is tagged +
+      # pushed as-is.
       - name: Publish ttrss-rust
         if: env.REGISTRY != ''
         run: |

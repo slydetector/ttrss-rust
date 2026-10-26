@@ -65,11 +65,13 @@ Consequences:
 ## CI
 
 Runs in the `image` job (`.github/workflows/build.yml`), **concurrent with**
-the `test` and `lint` jobs — the Rust suite and the golden path are
-independent gates on the same PR. The job builds the image first (BuildKit
-GHA layer cache — a push that doesn't touch `Cargo.lock` skips the
-in-container release compile), runs the suite against it, and only then
-publishes it (main pushes; `latest` is therefore always a green run). The
+the `test` and `lint` jobs. The build + suite are independent of the Rust
+suite, but the publish polls for test + lint to finish green before pushing
+— all three gates (Rust suite, lint, golden path) must pass. The job builds
+the image first (BuildKit GHA layer cache — a push that doesn't touch
+`Cargo.lock` skips the in-container release compile), runs the suite against
+it, and only then publishes (main pushes; `latest` is therefore always a
+fully green run). The
 build runs on a docker-container buildx builder (the daemon's embedded
 buildkit cannot export the gha cache), so the daemon's layer store stays
 empty and `--load` is just an image export: it tags the image under the
