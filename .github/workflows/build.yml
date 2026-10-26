@@ -76,6 +76,15 @@ jobs:
       # apt's .deb archive + package lists (the apt steps below): the
       # download is the mirror-speed variable (25.9 MB once took 8m18s at
       # 52 kB/s); warm, apt uses the local archive and only unpacks (~10 s).
+      # The runner image ships with pre-seeded apt lists (restore's tar
+      # chokes on "File exists") and both dirs are root-owned (tar cannot
+      # utime/write as the runner user) — clear them and hand them to the
+      # runner user so the restore below can extract.
+      - name: Prepare apt dirs for cache restore
+        run: |
+          sudo rm -rf /var/lib/apt/lists /var/cache/apt/archives
+          sudo mkdir -p /var/lib/apt/lists /var/cache/apt/archives
+          sudo chown -R "$(whoami)" /var/lib/apt/lists /var/cache/apt/archives
       - uses: actions/cache@v6
         with:
           path: |
@@ -200,6 +209,15 @@ jobs:
       # apt's .deb archive + package lists (the apt steps below): the
       # download is the mirror-speed variable (25.9 MB once took 8m18s at
       # 52 kB/s); warm, apt uses the local archive and only unpacks (~10 s).
+      # The runner image ships with pre-seeded apt lists (restore's tar
+      # chokes on "File exists") and both dirs are root-owned (tar cannot
+      # utime/write as the runner user) — clear them and hand them to the
+      # runner user so the restore below can extract.
+      - name: Prepare apt dirs for cache restore
+        run: |
+          sudo rm -rf /var/lib/apt/lists /var/cache/apt/archives
+          sudo mkdir -p /var/lib/apt/lists /var/cache/apt/archives
+          sudo chown -R "$(whoami)" /var/lib/apt/lists /var/cache/apt/archives
       - uses: actions/cache@v6
         with:
           path: |
