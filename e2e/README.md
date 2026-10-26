@@ -24,7 +24,7 @@ poking; the captured admin password stays in `.admin-pass`.
 | file | role |
 |---|---|
 | `playwright.config.ts` | projects: `stack-setup` → (chromium spec) → `stack-cleanup` |
-| `global.setup.ts` | synthesize throwaway files → `compose build` → `up -d` → readiness → star-banner password capture → HEALTHCHECK `healthy` |
+| `global.setup.ts` | synthesize throwaway files → `compose build` (skipped when the compose's image is already in the daemon) → `up -d` → readiness → star-banner password capture → HEALTHCHECK `healthy` |
 | `global.teardown.ts` | `down -v --remove-orphans` → delete throwaway files + `.admin-pass` (skipped with `E2E_KEEP`) |
 | `e2e.spec.ts` | the golden-path test (boot → login → subscribe & read) |
 
@@ -69,12 +69,13 @@ the `test` and `lint` jobs — the Rust suite and the golden path are
 independent gates on the same PR. The job builds the image first (BuildKit
 GHA layer cache — a push that doesn't touch `Cargo.lock` skips the
 in-container release compile), runs the suite against it, and only then
-publishes `ttrss-rust:latest` (main pushes; `latest` is therefore always a
-green run). The build runs on a docker-container buildx builder (the
-daemon's embedded buildkit cannot export the gha cache), so the daemon's
-layer store stays empty and `--load` is just an image export: `global.setup`
-therefore **skips its `compose build` when `ttrss-rust:latest` is already
-in the daemon** (CI) and only builds it locally on first use.
+publishes it (main pushes; `latest` is therefore always a green run). The
+build runs on a docker-container buildx builder (the daemon's embedded
+buildkit cannot export the gha cache), so the daemon's layer store stays
+empty and `--load` is just an image export: it tags the image under the
+name the blessed compose references (`ghcr.io/slydetector/ttrss-rust:latest`),
+so `global.setup` **skips its `compose build` when that image is already in
+the daemon** (CI) and only builds it locally on first use.
 
 Hosted runner, native (no job container): the stack runs in the runner's
 own docker daemon and chromium reaches the app at `127.0.0.1:19000` — the
@@ -87,4 +88,5 @@ tree's actual DOM rows + an HTML slice, when the subscribed feed's row never
 appears), `PAGE-ERRORS` (uncaught page exceptions) and `CONSOLE-TAIL` (last
 40 console lines); the console transcript + page errors are also attached to
 the report (`browser-console (on failure)`). Per-test trace + video land in
-`test-results/` — inside the container, so they're only reachable locally.
+`e2e/test-results/` (gitignored); in CI both `test-results/` and
+`playwright-report/` are attached to the run as the `e2e-results` artifact.

@@ -67,11 +67,11 @@ setup('bring up the fresh e2e stack', async () => {
   //    daemon's buildkit store stays empty), so an unconditional `compose
   //    build` would recompile everything from scratch; local dev has no
   //    image on first use and builds it here.
-  const imageInDaemon = await dockerRun(['image', 'inspect', 'ttrss-rust:latest'])
+  const imageInDaemon = await dockerRun(['image', 'inspect', 'ghcr.io/slydetector/ttrss-rust:latest'])
     .then(() => true)
     .catch(() => false);
   if (imageInDaemon) {
-    console.log(`${elapsed()} image ttrss-rust:latest in daemon — skipping build`);
+    console.log(`${elapsed()} image ghcr.io/slydetector/ttrss-rust:latest in daemon — skipping build`);
   } else {
     console.log(`${elapsed()} building image…`);
     await dockerCompose('build', '--provenance=false', '--sbom=false');

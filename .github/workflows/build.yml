@@ -233,8 +233,12 @@ jobs:
       - name: Build ttrss-rust
         run: |
           docker buildx create --name gha --driver docker-container
+          # Two tags: the ghcr name is what the blessed compose (and e2e)
+          # reference, so the suite tests THIS code, not the last published
+          # image; the bare name feeds make image-push.
           docker buildx build --builder gha --provenance=false --sbom=false --load \
             -t ttrss-rust:latest \
+            -t ghcr.io/slydetector/ttrss-rust:latest \
             --cache-from type=gha,cache-key=ttrss-image \
             --cache-to type=gha,cache-key=ttrss-image,mode=max \
             .

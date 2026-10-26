@@ -39,10 +39,13 @@ services:
       retries: 10
 
   app:
+    # Pull the published image by default (drop-in, like the official PHP
+    # stack's `image: tt-rss:latest`); `docker compose up --build` builds
+    # from this checkout instead (local dev).
+    image: ghcr.io/slydetector/ttrss-rust:latest
     build:
       context: ..
       dockerfile: Dockerfile
-    image: ttrss-rust
     restart: unless-stopped
     env_file:
       - .env

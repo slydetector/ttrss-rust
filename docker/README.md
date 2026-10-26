@@ -13,9 +13,6 @@ serves static assets, dynamic routes and runs the feed daemon in-process).
 | `compose.yaml` | the blessed 2-service stack (postgres + app) |
 | `.env.example` | app configuration template (copy to `.env`) |
 
-`shadow/` is a separate, prod-copy confidence stack (docs/10) that builds the
-*same* `Dockerfile`.
-
 ## Build
 
 ```sh
@@ -29,6 +26,9 @@ cd docker
 cp .env.example .env        # then edit (at minimum: HTTP_PORT, TTRSS_DB_PASS)
 docker compose up -d
 ```
+
+`up` pulls the published image from GHCR (`ghcr.io/slydetector/ttrss-rust:latest`);
+to run unpushed changes from this checkout, `docker compose up --build`.
 
 First boot with the stock credentials shows the tt-rss install banner; the
 `admin` password is printed in the app logs (`docker compose logs app`) and is
@@ -74,8 +74,10 @@ The image's `HEALTHCHECK` probes the real login page at the configured base
 path (official-parity probe). Semantics: the app serves ⇒ healthy, even with
 the database down (a page-serving liveness probe, like the official stack's).
 
-## Publishing (planned, docs/19 P3)
+## Publishing
 
-`docker buildx build --platform linux/amd64,linux/arm64 -t <registry>/ttrss:latest --push .`
-via the standard `setup-buildx` / `login` / `build-push-action` CI trio — no
-context flags needed since the Dockerfile sits at the repo root.
+Every green `main` push publishes `ghcr.io/slydetector/ttrss-rust:latest`
+(`.github/workflows/build.yml`, image job: buildx build → e2e →
+`make image-push REGISTRY=ghcr.io/slydetector`). The repo is public, so the
+image is public (repository-scoped packages inherit visibility). Manual push
+of a locally built image: `make image-push REGISTRY=ghcr.io/slydetector`.
