@@ -3415,14 +3415,13 @@ pub fn purge_intervals() -> [(&'static str, &'static str); 7] {
 
 /// `Feeds::_get_update_intervals` — key => label; `with_default` (PHP
 /// `$with_default`, default true) includes the `0` ("Default interval")
-/// entry.
+/// entry, listed right after `-1` ("Disable updates").
 pub fn update_intervals(with_default: bool) -> Vec<(&'static str, &'static str)> {
-    let mut v = Vec::new();
+    let mut v = vec![("-1", "Disable updates")];
     if with_default {
         v.push(("0", "Default interval"));
     }
     v.extend([
-        ("-1", "Disable updates"),
         ("15", "15 minutes"),
         ("30", "30 minutes"),
         ("60", "Hourly"),

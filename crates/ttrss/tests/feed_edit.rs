@@ -359,6 +359,17 @@ async fn test_editfeeds_general_tab() {
                 update_options.contains(&"-1=Disable updates".to_string()),
                 "{update_options:?}"
             );
+            // "Disable updates" precedes "Default interval".
+            let pos_disable = update_options
+                .iter()
+                .position(|o| o == "-1=Disable updates");
+            let pos_default = update_options
+                .iter()
+                .position(|o| o.starts_with("0=Default interval"));
+            assert!(
+                pos_disable.is_some_and(|d| pos_default.is_some_and(|p| d < p)),
+                "order: {update_options:?}"
+            );
             Ok(())
         })
     })
