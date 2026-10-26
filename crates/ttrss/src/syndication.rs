@@ -529,18 +529,21 @@ async fn get_or_create_access_key(
     saved.then_some(key)
 }
 
-/// `ttrss_access_keys` lookup: returns the `owner_uid` for a matching
-/// `(access_key, feed_id)` pair, or `None`. `owner_uid` is INT4 → decoded as
-/// `i32`, widened to `i64` at the boundary.
+/// `ttrss_access_keys` lookup: returns the `owner_uid` for a row matching
+/// `(access_key, feed_id, is_cat)` — the key only authorizes its own
+/// feed/category pair — or `None`. `owner_uid` is INT4 → decoded as `i32`,
+/// widened to `i64` at the boundary.
 async fn lookup_access_key(state: &AppState, req: &RssRequest<'_>) -> Option<i32> {
     let (Some(key), Some(id)) = (req.key, req.id) else {
         return None;
     };
     let uid: Option<i32> = sqlx::query_scalar(
-        "SELECT owner_uid FROM ttrss_access_keys WHERE access_key = $1 AND feed_id = $2",
+        "SELECT owner_uid FROM ttrss_access_keys \
+         WHERE access_key = $1 AND feed_id = $2 AND is_cat = $3",
     )
     .bind(key)
     .bind(id)
+    .bind(req.is_cat)
     .fetch_optional(state.db.pool())
     .await
     .ok()

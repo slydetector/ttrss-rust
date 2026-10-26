@@ -819,6 +819,69 @@ async fn test_get_shared_url() {
     .unwrap();
 }
 
+/// `op=rss` authorizes on the full `(access_key, feed_id, is_cat)` triple:
+/// a feed key rejected for a category request, and vice versa.
+#[tokio::test]
+async fn test_rss_access_key_is_cat() {
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup_from_url(&url).await;
+
+            // Feed 1's key is created with is_cat = false.
+            let r = ttrss::feeds::get_shared_url(
+                &state,
+                &sess,
+                &request(&[("id", json!("1")), ("is_cat", json!("0"))]),
+            )
+            .await;
+            let key = r["link"]
+                .as_str()
+                .expect("link")
+                .split("key=")
+                .nth(1)
+                .expect("key in link")
+                .to_string();
+
+            let req = |is_cat: bool| ttrss::syndication::RssRequest {
+                id: Some("1"),
+                key: Some(&key),
+                is_cat,
+                limit: 0,
+                offset: 0,
+                search: "",
+                view_mode: "",
+                order: "",
+                start_ts: "",
+                format: "atom",
+                orig_guid: "",
+                noxml: false,
+                accept_language: None,
+            };
+
+            // Matching is_cat → the feed is generated.
+            let ok = ttrss::syndication::handle_rss(
+                &state,
+                &req(false),
+                "http://127.0.0.1:9000/tt-rss/",
+            )
+            .await;
+            assert_eq!(ok.status(), axum::http::StatusCode::OK, "is_cat match");
+            // The same key for a category request → 403.
+            let bad =
+                ttrss::syndication::handle_rss(&state, &req(true), "http://127.0.0.1:9000/tt-rss/")
+                    .await;
+            assert_eq!(
+                bad.status(),
+                axum::http::StatusCode::FORBIDDEN,
+                "is_cat mismatch"
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
+}
+
 /// `removeIcon` deletes the favicon cache file and resets the feed's
 /// `favicon_*` columns (only when the cached file exists and is removable).
 #[tokio::test]
