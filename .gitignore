@@ -16,8 +16,10 @@ __pycache__/
 
 # The PHP reference (tt-rss/) is a git submodule (see .gitmodules;
 # `make bootstrap` after a fresh clone). The Android client checkout
-# stays a local-only clone.
+# stays a local-only clone. The freshapi spec clone (docs/22) is
+# local-only too.
 /tt-rss-android/
+/freshapi/
 
 # Local agent state + browser-probe output (transient, regenerated)
 .pi/
