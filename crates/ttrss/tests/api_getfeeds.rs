@@ -31,6 +31,11 @@ async fn setup(url: &str) -> (AppState, Sess) {
     let state = AppState::new(common::test_config(), db);
     let mut data = Session::new();
     data.set("uid", PValue::Int(1));
+    data.set(
+        "pwd_hash",
+        PValue::Bytes(crate::common::ADMIN_PWD_HASH.as_bytes().to_vec()),
+    );
+    data.set("access_level", PValue::Int(10));
     let sess = Sess::new("test-sid".to_string());
     sess.replace("test-sid".to_string(), data);
     sqlx::query(
@@ -50,7 +55,7 @@ fn request(pairs: &[(&str, Value)]) -> Map<String, Value> {
 /// Dispatch `getfeeds` and return the content array.
 async fn get_feeds(state: &AppState, sess: &Sess, pairs: &[(&str, Value)]) -> Value {
     let (status, content) =
-        api::before_and_dispatch(state, sess, "getfeeds", &request(pairs), None).await;
+        api::before_and_dispatch(state, sess, "getfeeds", &request(pairs), None, false).await;
     assert_eq!(status, 0, "getfeeds should succeed: {content}");
     content
 }

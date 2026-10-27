@@ -157,6 +157,11 @@ impl Plugin for DispatchStub {
 async fn save_admin_session(state: &AppState, sid: &str) {
     let mut data = Session::new();
     data.set("uid", PValue::Int(1));
+    data.set(
+        "pwd_hash",
+        PValue::Bytes(crate::common::ADMIN_PWD_HASH.as_bytes().to_vec()),
+    );
+    data.set("access_level", PValue::Int(10));
     // The DB admin's access level — login records the DB value, and
     // validate_session rejects a stale one.
     data.set(
@@ -290,6 +295,11 @@ async fn test_validate_session_runs_hook() {
             let mut data = Session::new();
             data.set("uid", PValue::Int(1));
             data.set(
+                "pwd_hash",
+                PValue::Bytes(crate::common::ADMIN_PWD_HASH.as_bytes().to_vec()),
+            );
+            data.set("access_level", PValue::Int(10));
+            data.set(
                 "access_level",
                 PValue::Int(ttrss::core::user::ACCESS_LEVEL_ADMIN as i64),
             );
@@ -324,6 +334,11 @@ async fn test_getconfig_custom_sort_types() {
 
             let mut data = Session::new();
             data.set("uid", PValue::Int(1));
+            data.set(
+                "pwd_hash",
+                PValue::Bytes(crate::common::ADMIN_PWD_HASH.as_bytes().to_vec()),
+            );
+            data.set("access_level", PValue::Int(10));
             let sess = ttrss::session::Sess::new("sort-types".into());
             sess.replace("sort-types".into(), data);
 
@@ -333,6 +348,7 @@ async fn test_getconfig_custom_sort_types() {
                 "getconfig",
                 json!({}).as_object().unwrap(),
                 None,
+                false,
             )
             .await;
             assert_eq!(status, 0, "API STATUS_OK, got {out}");
@@ -474,6 +490,11 @@ fn rpc_sess() -> ttrss::session::Sess {
     let mut d = Session::new();
     d.set("uid", PValue::Int(1));
     d.set(
+        "pwd_hash",
+        PValue::Bytes(crate::common::ADMIN_PWD_HASH.as_bytes().to_vec()),
+    );
+    d.set("access_level", PValue::Int(10));
+    d.set(
         "access_level",
         PValue::Int(ttrss::core::user::ACCESS_LEVEL_ADMIN as i64),
     );
@@ -606,6 +627,11 @@ async fn test_api_update_article_marked_fires_mark() {
             .expect("set ENABLE_API_ACCESS");
             let mut data = Session::new();
             data.set("uid", PValue::Int(1));
+            data.set(
+                "pwd_hash",
+                PValue::Bytes(crate::common::ADMIN_PWD_HASH.as_bytes().to_vec()),
+            );
+            data.set("access_level", PValue::Int(10));
             let sess = ttrss::session::Sess::new("api-sid".into());
             sess.replace("api-sid".into(), data);
 
@@ -617,6 +643,7 @@ async fn test_api_update_article_marked_fires_mark() {
                     .as_object()
                     .unwrap(),
                 None,
+                false,
             )
             .await;
             assert_eq!(status, 0, "updatearticle(marked) OK: {out}");
@@ -650,6 +677,11 @@ async fn test_api_update_article_published_fires_publish() {
             .expect("set ENABLE_API_ACCESS");
             let mut data = Session::new();
             data.set("uid", PValue::Int(1));
+            data.set(
+                "pwd_hash",
+                PValue::Bytes(crate::common::ADMIN_PWD_HASH.as_bytes().to_vec()),
+            );
+            data.set("access_level", PValue::Int(10));
             let sess = ttrss::session::Sess::new("api-sid".into());
             sess.replace("api-sid".into(), data);
 
@@ -661,6 +693,7 @@ async fn test_api_update_article_published_fires_publish() {
                     .as_object()
                     .unwrap(),
                 None,
+                false,
             )
             .await;
             assert_eq!(status, 0, "updatearticle(published) OK: {out}");
@@ -695,6 +728,11 @@ async fn test_api_plugin_method_dispatched() {
             .expect("set ENABLE_API_ACCESS");
             let mut data = Session::new();
             data.set("uid", PValue::Int(1));
+            data.set(
+                "pwd_hash",
+                PValue::Bytes(crate::common::ADMIN_PWD_HASH.as_bytes().to_vec()),
+            );
+            data.set("access_level", PValue::Int(10));
             let sess = ttrss::session::Sess::new("api-plugin-sid".into());
             sess.replace("api-plugin-sid".into(), data);
 
@@ -704,6 +742,7 @@ async fn test_api_plugin_method_dispatched() {
                 "apimethod",
                 json!({ "arg": 42 }).as_object().unwrap(),
                 None,
+                false,
             )
             .await;
             assert_eq!(status, 0, "API method dispatched, got {out}");
@@ -720,6 +759,7 @@ async fn test_api_plugin_method_dispatched() {
                 "nope",
                 json!({}).as_object().unwrap(),
                 None,
+                false,
             )
             .await;
             assert_eq!(status, 1, "unknown method, got {out}");

@@ -129,7 +129,13 @@ pub fn test_cfg() -> TestCfg {
     TestCfg::new()
 }
 
-/// Standard admin session: `uid = 1`, `access_level = 10`.
+/// The fixture admin's stored `pwd_hash` (the base `schema.sql`: SHA1 of
+/// "password" — deliberately legacy, pre-SSHA-512, so login-upgrade paths
+/// are testable).
+pub const ADMIN_PWD_HASH: &str = "SHA1:5baa61e4c9b93f3f0682250b6cf8331b7ee68fd8";
+
+/// Standard admin session: `uid = 1`, `access_level = 10`, the fixture
+/// admin's `pwd_hash` (session validation compares it against the DB row).
 pub fn admin_sess() -> ttrss::session::Sess {
     use ttrss::core::phpser::Value as PValue;
     use ttrss::core::session::Session;
@@ -137,6 +143,10 @@ pub fn admin_sess() -> ttrss::session::Sess {
     let mut data = Session::new();
     data.set("uid", PValue::Int(1));
     data.set("access_level", PValue::Int(10));
+    data.set(
+        "pwd_hash",
+        PValue::Bytes(ADMIN_PWD_HASH.as_bytes().to_vec()),
+    );
     let sess = Sess::new("test-sid".to_string());
     sess.replace("test-sid".to_string(), data);
     sess

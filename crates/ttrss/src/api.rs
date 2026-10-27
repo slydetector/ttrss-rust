@@ -41,8 +41,8 @@ use crate::util::{
 };
 
 const API_LEVEL: i64 = 25;
-const STATUS_OK: i64 = 0;
-const STATUS_ERR: i64 = 1;
+pub(crate) const STATUS_OK: i64 = 0;
+pub(crate) const STATUS_ERR: i64 = 1;
 const E_API_DISABLED: &str = "API_DISABLED";
 const E_NOT_LOGGED_IN: &str = "NOT_LOGGED_IN";
 const E_LOGIN_ERROR: &str = "LOGIN_ERROR";
@@ -98,13 +98,25 @@ pub async fn handler(state: State<AppState>, sess: Extension<Sess>, req: Request
         .to_ascii_lowercase();
     let seq = clean_int(body.get("seq"));
 
+    // `isset($_SERVER["HTTP_SEC_FETCH_MODE"])` — browsers only.
+    let from_browser = headers
+        .iter()
+        .any(|(name, _)| name.as_str() == "sec-fetch-mode");
+
     // `getFeedIcon` is the one API method that returns raw bytes (a cached
     // favicon image), not the JSON envelope — route it to a raw response.
     if op == "getfeedicon" {
-        return get_feed_icon(&state, &sess, &body, seq, &headers).await;
+        return get_feed_icon(&state, &sess, &body, seq, &headers, from_browser).await;
     }
-    let (status, content) =
-        before_and_dispatch(&state, &sess, &op, &body, accept_language.as_deref()).await;
+    let (status, content) = before_and_dispatch(
+        &state,
+        &sess,
+        &op,
+        &body,
+        accept_language.as_deref(),
+        from_browser,
+    )
+    .await;
 
     let mut res = envelope(seq, status, content);
     // The PHP session `nocache` limiter stamps every response (session_start
@@ -116,10 +128,29 @@ pub async fn handler(state: State<AppState>, sess: Extension<Sess>, req: Request
 /// The `API::before()` gate: verify the session is authenticated and the
 /// external API is enabled. Returns `Ok(())` when the call may proceed, else
 /// the `(status, content)` error envelope to return.
-async fn api_auth(state: &AppState, sess: &Sess, op: &str) -> Result<(), (i64, Value)> {
+async fn api_auth(
+    state: &AppState,
+    sess: &Sess,
+    op: &str,
+    from_browser: bool,
+) -> Result<(), (i64, Value)> {
     let uid = sess.data().uid();
     if let Some(u) = uid {
+        // `api/index.php`: a session with a uid is re-validated against the
+        // DB (pwd hash, access level, account state) before dispatch.
+        let mut data = sess.data();
+        if !crate::session::validate_session(state, state.config.single_user_mode, &mut data).await
+        {
+            return Err((STATUS_ERR, json!({ "error": E_NOT_LOGGED_IN })));
+        }
         let rows = prefs::load_rows(&state.db, u, None).await;
+        // `API::before`: block browser-originated requests (the
+        // `Sec-Fetch-Mode` header is only sent by browsers) unless the user
+        // opted in — before the API-access gate, and for every method
+        // (including `logout`).
+        if from_browser && !prefs::resolve("ENABLE_API_ACCESS_BROWSER", &rows, None).as_bool() {
+            return Err((STATUS_ERR, json!({ "error": E_API_DISABLED })));
+        }
         if op != "logout" && !prefs::resolve("ENABLE_API_ACCESS", &rows, None).as_bool() {
             return Err((STATUS_ERR, json!({ "error": E_API_DISABLED })));
         }
@@ -138,12 +169,13 @@ pub async fn before_and_dispatch(
     op: &str,
     body: &Map<String, Value>,
     accept_language: Option<&str>,
+    from_browser: bool,
 ) -> (i64, Value) {
     let self_url = sess.self_url();
     let data = sess.data();
     let uid = data.uid();
 
-    if let Err((status, content)) = api_auth(state, sess, op).await {
+    if let Err((status, content)) = api_auth(state, sess, op, from_browser).await {
         return (status, content);
     }
 
@@ -247,7 +279,11 @@ fn param_bool_default(body: &Map<String, Value>, key: &str, default: bool) -> bo
 // ── Login / config ──────────────────────────────────────────────────────────
 
 /// `API::login` — app-password auth (`service = '_api'`), then a fresh session.
-async fn login(state: &AppState, sess: &Sess, body: &Map<String, Value>) -> (i64, Value) {
+pub(crate) async fn login(
+    state: &AppState,
+    sess: &Sess,
+    body: &Map<String, Value>,
+) -> (i64, Value) {
     let self_url = sess.self_url();
     let pool = state.db.pool();
     let login_name = clean_str(body.get("user").and_then(Value::as_str).unwrap_or(""));
@@ -303,6 +339,18 @@ async fn login(state: &AppState, sess: &Sess, body: &Map<String, Value>) -> (i64
         .bind(uid)
         .execute(pool)
         .await;
+    // PHP re-reads the user row *after* the password check: `check_password`
+    // upgrades a pre-SSHA-512 hash in place, and the session must carry the
+    // new hash (session validation compares against the DB row).
+    let pwd_hash =
+        match sqlx::query_scalar::<_, String>("SELECT pwd_hash FROM ttrss_users WHERE id = $1")
+            .bind(uid)
+            .fetch_one(pool)
+            .await
+        {
+            Ok(h) => h,
+            Err(_) => pwd_hash,
+        };
     let (new_id, data) = auth::build_login_session(
         uid,
         &u_login,
@@ -463,7 +511,11 @@ async fn global_unread(pool: &sqlx::PgPool, uid: i32) -> i64 {
 }
 
 /// `API::getCounters` — `Counters::get_all()` (identical to `RPC::getAllCounters`).
-async fn get_counters(state: &AppState, sess: &Sess, body: &Map<String, Value>) -> (i64, Value) {
+pub(crate) async fn get_counters(
+    state: &AppState,
+    sess: &Sess,
+    body: &Map<String, Value>,
+) -> (i64, Value) {
     let rc = counters::get_all_counters(state, sess, body).await;
     let content = rc.get("counters").cloned().unwrap_or(Value::Array(vec![]));
     (STATUS_OK, content)
@@ -508,9 +560,10 @@ pub async fn get_feed_icon(
     body: &Map<String, Value>,
     seq: i64,
     headers: &axum::http::HeaderMap,
+    from_browser: bool,
 ) -> Response {
     // The `before()` gate still applies (auth).
-    if let Err((status, content)) = api_auth(state, sess, "getfeedicon").await {
+    if let Err((status, content)) = api_auth(state, sess, "getfeedicon", from_browser).await {
         return envelope(seq, status, content).into_response();
     }
 
@@ -814,7 +867,11 @@ async fn get_feed_tree(state: &AppState, sess: &Sess, body: &Map<String, Value>)
     (STATUS_OK, json!({ "categories": tree }))
 }
 
-async fn get_labels(state: &AppState, uid: Option<i32>, body: &Map<String, Value>) -> (i64, Value) {
+pub(crate) async fn get_labels(
+    state: &AppState,
+    uid: Option<i32>,
+    body: &Map<String, Value>,
+) -> (i64, Value) {
     let uid = uid.unwrap_or(0);
     let pool = state.db.pool();
     // `Article::_get_labels` for the requested article (none in the corpus → all
@@ -860,7 +917,7 @@ async fn get_labels(state: &AppState, uid: Option<i32>, body: &Map<String, Value
     )
 }
 
-async fn get_headlines(
+pub(crate) async fn get_headlines(
     state: &AppState,
     sess: &Sess,
     body: &Map<String, Value>,
@@ -1090,7 +1147,8 @@ async fn api_headline_row(
     let tag_cache: String = r.get(H_TAG_CACHE);
     let site_url: String = r.get(H_SITE_URL);
     let note: Option<String> = r.get(H_NOTE);
-    let lang: String = r.get(H_LANG);
+    // `e.lang` is nullable; the PHP API treats a missing language as empty.
+    let lang: Option<String> = r.get(H_LANG);
     let hide_images: Option<bool> = r.get(H_HIDE_IMAGES);
     let unread: bool = r.get(H_UNREAD);
     let line_feed_id: i32 = r.get(H_FEED_ID);
@@ -1216,7 +1274,7 @@ async fn api_headline_row(
             _ => Value::Null,
         },
     );
-    m.insert("lang".into(), Value::from(lang));
+    m.insert("lang".into(), Value::from(lang.unwrap_or_default()));
     m.insert("site_url".into(), Value::from(site_url));
 
     // M7.16: HOOK_RENDER_ARTICLE_API — the per-article API render hook
@@ -1273,7 +1331,7 @@ async fn api_labels(label_cache: &str, pool: &sqlx::PgPool, uid: i32, id: i32) -
     }
 }
 
-async fn get_article(
+pub(crate) async fn get_article(
     state: &AppState,
     sess: &Sess,
     uid: Option<i32>,

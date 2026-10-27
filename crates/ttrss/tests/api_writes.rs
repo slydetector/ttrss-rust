@@ -28,6 +28,11 @@ async fn setup(url: &str) -> (AppState, Sess) {
     let state = AppState::new(common::test_config(), db);
     let mut data = Session::new();
     data.set("uid", PValue::Int(1));
+    data.set(
+        "pwd_hash",
+        PValue::Bytes(crate::common::ADMIN_PWD_HASH.as_bytes().to_vec()),
+    );
+    data.set("access_level", PValue::Int(10));
     let sess = Sess::new("test-sid".to_string());
     sess.replace("test-sid".to_string(), data);
     sess.set_self_url(&state.config.self_url_rtrim());
@@ -57,7 +62,8 @@ async fn test_get_version() {
             let (state, sess) = setup(&url).await;
             enable_api(&state.db).await;
             let (status, content) =
-                api::before_and_dispatch(&state, &sess, "getversion", &request(&[]), None).await;
+                api::before_and_dispatch(&state, &sess, "getversion", &request(&[]), None, false)
+                    .await;
             assert_eq!(status, 0);
             assert_eq!(content["version"], "26.10-86c8385");
             Ok(())
@@ -74,7 +80,8 @@ async fn test_get_api_level() {
             let (state, sess) = setup(&url).await;
             enable_api(&state.db).await;
             let (status, content) =
-                api::before_and_dispatch(&state, &sess, "getapilevel", &request(&[]), None).await;
+                api::before_and_dispatch(&state, &sess, "getapilevel", &request(&[]), None, false)
+                    .await;
             assert_eq!(status, 0);
             assert_eq!(content["level"], 25);
             Ok(())
@@ -91,7 +98,8 @@ async fn test_api_disabled() {
         Box::pin(async move {
             let (state, sess) = setup(&url).await;
             let (status, content) =
-                api::before_and_dispatch(&state, &sess, "getversion", &request(&[]), None).await;
+                api::before_and_dispatch(&state, &sess, "getversion", &request(&[]), None, false)
+                    .await;
             assert_eq!(status, 1);
             assert_eq!(content["error"], "API_DISABLED");
             Ok(())
@@ -112,7 +120,7 @@ async fn test_logout() {
             assert_eq!(sess.data().uid(), Some(1));
 
             let (status, content) =
-                api::before_and_dispatch(&state, &sess, "logout", &request(&[]), None).await;
+                api::before_and_dispatch(&state, &sess, "logout", &request(&[]), None, false).await;
             assert_eq!(status, 0);
             assert_eq!(content["status"], "OK");
             assert_eq!(sess.data().uid(), None, "session should be destroyed");
@@ -133,7 +141,7 @@ async fn test_logout_not_logged_in() {
             let anon = Sess::new("anon-sid".to_string()); // no `uid`
 
             let (status, content) =
-                api::before_and_dispatch(&state, &anon, "logout", &request(&[]), None).await;
+                api::before_and_dispatch(&state, &anon, "logout", &request(&[]), None, false).await;
             assert_eq!(status, 0);
             assert_eq!(content["status"], "OK");
             Ok(())
@@ -464,6 +472,7 @@ async fn test_subscribe_to_feed_with_update_interval() {
                     ("update_interval", json!(60)),
                 ]),
                 None,
+                false,
             )
             .await;
             assert_eq!(status, 0);
@@ -503,6 +512,7 @@ async fn test_subscribe_to_feed_bad_update_interval() {
                         ("update_interval", bad),
                     ]),
                     None,
+                    false,
                 )
                 .await;
                 assert_eq!(status, 1, "bad interval rejected: {content}");
@@ -560,6 +570,7 @@ async fn test_get_feed_update_intervals() {
                 "getfeedupdateintervals",
                 &request(&[]),
                 None,
+                false,
             )
             .await;
             assert_eq!(status, 0);
@@ -844,6 +855,11 @@ async fn setup_icon(url: &str, dir: std::path::PathBuf) -> (AppState, Sess) {
     let state = AppState::new(config, db);
     let mut data = Session::new();
     data.set("uid", PValue::Int(1));
+    data.set(
+        "pwd_hash",
+        PValue::Bytes(crate::common::ADMIN_PWD_HASH.as_bytes().to_vec()),
+    );
+    data.set("access_level", PValue::Int(10));
     let sess = Sess::new("icon-sid".to_string());
     sess.replace("icon-sid".to_string(), data);
     sess.set_self_url(&state.config.self_url_rtrim());
@@ -867,8 +883,15 @@ async fn test_get_feed_icon_not_logged_in() {
             let sess = Sess::new("anon".to_string());
             sess.replace("anon".to_string(), Session::new());
             let body = request(&[("id", json!(55))]);
-            let res =
-                api::get_feed_icon(&state, &sess, &body, 1, &axum::http::HeaderMap::new()).await;
+            let res = api::get_feed_icon(
+                &state,
+                &sess,
+                &body,
+                1,
+                &axum::http::HeaderMap::new(),
+                false,
+            )
+            .await;
             let env: Value = serde_json::from_slice(&response_bytes(res).await).unwrap();
             assert_eq!(env["status"], 1);
             assert_eq!(env["content"]["error"], "NOT_LOGGED_IN");
@@ -887,8 +910,15 @@ async fn test_get_feed_icon_not_found() {
             let (state, sess) = setup(&url).await;
             enable_api(&state.db).await;
             let body = request(&[("id", json!(55))]);
-            let res =
-                api::get_feed_icon(&state, &sess, &body, 1, &axum::http::HeaderMap::new()).await;
+            let res = api::get_feed_icon(
+                &state,
+                &sess,
+                &body,
+                1,
+                &axum::http::HeaderMap::new(),
+                false,
+            )
+            .await;
             let env: Value = serde_json::from_slice(&response_bytes(res).await).unwrap();
             assert_eq!(env["status"], 1);
             assert_eq!(env["content"]["error"], "E_NOT_FOUND");
@@ -910,8 +940,15 @@ async fn test_get_feed_icon_found_png() {
             let (state, sess) = setup_icon(&url, dir).await;
             enable_api(&state.db).await;
             let body = request(&[("id", json!(55))]);
-            let res =
-                api::get_feed_icon(&state, &sess, &body, 1, &axum::http::HeaderMap::new()).await;
+            let res = api::get_feed_icon(
+                &state,
+                &sess,
+                &body,
+                1,
+                &axum::http::HeaderMap::new(),
+                false,
+            )
+            .await;
             assert_eq!(res.status(), 200);
             assert_eq!(
                 res.headers().get(axum::http::header::CONTENT_TYPE).unwrap(),
@@ -936,8 +973,15 @@ async fn test_get_feed_icon_found_jpeg() {
             let (state, sess) = setup_icon(&url, dir).await;
             enable_api(&state.db).await;
             let body = request(&[("id", json!(7))]);
-            let res =
-                api::get_feed_icon(&state, &sess, &body, 1, &axum::http::HeaderMap::new()).await;
+            let res = api::get_feed_icon(
+                &state,
+                &sess,
+                &body,
+                1,
+                &axum::http::HeaderMap::new(),
+                false,
+            )
+            .await;
             assert_eq!(
                 res.headers().get(axum::http::header::CONTENT_TYPE).unwrap(),
                 "image/jpeg"
@@ -980,8 +1024,15 @@ async fn test_get_feed_icon_headers() {
             let (state, sess) = setup_icon(&url, dir).await;
             enable_api(&state.db).await;
             let body = request(&[("id", json!(55))]);
-            let res =
-                api::get_feed_icon(&state, &sess, &body, 1, &axum::http::HeaderMap::new()).await;
+            let res = api::get_feed_icon(
+                &state,
+                &sess,
+                &body,
+                1,
+                &axum::http::HeaderMap::new(),
+                false,
+            )
+            .await;
             assert_eq!(res.status(), 200);
             let h = res.headers();
             // `send_file`'s LRU touch refreshes the mtime on access, so the
@@ -1046,8 +1097,15 @@ async fn test_get_feed_icon_304_if_modified_since() {
             // First request: 200 with the stamps the client echoes back
             // (`send_file`'s LRU touch sets the mtime, so read them from the
             // response rather than pinning `ICON_MTIME`).
-            let res =
-                api::get_feed_icon(&state, &sess, &body, 1, &axum::http::HeaderMap::new()).await;
+            let res = api::get_feed_icon(
+                &state,
+                &sess,
+                &body,
+                1,
+                &axum::http::HeaderMap::new(),
+                false,
+            )
+            .await;
             assert_eq!(res.status(), 200);
             let last_modified = res
                 .headers()
@@ -1061,7 +1119,7 @@ async fn test_get_feed_icon_304_if_modified_since() {
                 axum::http::header::IF_MODIFIED_SINCE,
                 last_modified.parse().unwrap(),
             );
-            let res = api::get_feed_icon(&state, &sess, &body, 2, &headers).await;
+            let res = api::get_feed_icon(&state, &sess, &body, 2, &headers, false).await;
             assert_eq!(res.status(), 304);
             let h = res.headers();
             assert!(
@@ -1105,8 +1163,15 @@ async fn test_get_feed_icon_304_if_none_match() {
             let (state, sess) = setup_icon(&url, dir).await;
             enable_api(&state.db).await;
             let body = request(&[("id", json!(9))]);
-            let res =
-                api::get_feed_icon(&state, &sess, &body, 1, &axum::http::HeaderMap::new()).await;
+            let res = api::get_feed_icon(
+                &state,
+                &sess,
+                &body,
+                1,
+                &axum::http::HeaderMap::new(),
+                false,
+            )
+            .await;
             assert_eq!(res.status(), 200);
             let etag = res
                 .headers()
@@ -1117,7 +1182,7 @@ async fn test_get_feed_icon_304_if_none_match() {
                 .to_string();
             let mut headers = axum::http::HeaderMap::new();
             headers.insert(axum::http::header::IF_NONE_MATCH, etag.parse().unwrap());
-            let res = api::get_feed_icon(&state, &sess, &body, 2, &headers).await;
+            let res = api::get_feed_icon(&state, &sess, &body, 2, &headers, false).await;
             assert_eq!(res.status(), 304);
             assert!(response_bytes(res).await.is_empty());
             Ok(())
@@ -1142,7 +1207,8 @@ async fn test_get_feed_icon_bom_svg() {
             let (state, sess) = setup_icon(&url, dir).await;
             enable_api(&state.db).await;
             let body = request(&[("id", json!(9))]);
-            let res = api::get_feed_icon(&state, &sess, &body, 1, &axum::http::HeaderMap::new()).await;
+            let res = api::get_feed_icon(&state, &sess, &body, 1, &axum::http::HeaderMap::new(), false)
+                    .await;
             assert_eq!(res.status(), 200);
             assert_eq!(
                 res.headers().get(axum::http::header::CONTENT_TYPE).unwrap(),
@@ -1173,7 +1239,8 @@ async fn test_get_feed_icon_svg_served() {
             let (state, sess) = setup_icon(&url, dir).await;
             enable_api(&state.db).await;
             let body = request(&[("id", json!(3))]);
-            let res = api::get_feed_icon(&state, &sess, &body, 1, &axum::http::HeaderMap::new()).await;
+            let res = api::get_feed_icon(&state, &sess, &body, 1, &axum::http::HeaderMap::new(), false)
+                    .await;
             assert_eq!(res.status(), 200);
             assert_eq!(
                 res.headers().get(axum::http::header::CONTENT_TYPE).unwrap(),
@@ -1207,8 +1274,15 @@ async fn test_get_feed_icon_html_rejected() {
             let (state, sess) = setup_icon(&url, dir).await;
             enable_api(&state.db).await;
             let body = request(&[("id", json!(4))]);
-            let res =
-                api::get_feed_icon(&state, &sess, &body, 1, &axum::http::HeaderMap::new()).await;
+            let res = api::get_feed_icon(
+                &state,
+                &sess,
+                &body,
+                1,
+                &axum::http::HeaderMap::new(),
+                false,
+            )
+            .await;
             assert_eq!(res.status(), 400);
             assert_eq!(
                 String::from_utf8(response_bytes(res).await).unwrap(),
@@ -1242,8 +1316,15 @@ async fn test_get_feed_icon_ico() {
             let (state, sess) = setup_icon(&url, dir).await;
             enable_api(&state.db).await;
             let body = request(&[("id", json!(8))]);
-            let res =
-                api::get_feed_icon(&state, &sess, &body, 1, &axum::http::HeaderMap::new()).await;
+            let res = api::get_feed_icon(
+                &state,
+                &sess,
+                &body,
+                1,
+                &axum::http::HeaderMap::new(),
+                false,
+            )
+            .await;
             assert_eq!(res.status(), 200);
             assert_eq!(
                 res.headers()
@@ -1281,8 +1362,15 @@ async fn test_get_feed_icon_unknown_binary_served_mp4() {
             let (state, sess) = setup_icon(&url, dir).await;
             enable_api(&state.db).await;
             let body = request(&[("id", json!(6))]);
-            let res =
-                api::get_feed_icon(&state, &sess, &body, 1, &axum::http::HeaderMap::new()).await;
+            let res = api::get_feed_icon(
+                &state,
+                &sess,
+                &body,
+                1,
+                &axum::http::HeaderMap::new(),
+                false,
+            )
+            .await;
             assert_eq!(res.status(), 200);
             assert_eq!(
                 res.headers().get(axum::http::header::CONTENT_TYPE).unwrap(),

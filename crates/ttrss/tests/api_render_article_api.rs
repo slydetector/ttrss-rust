@@ -75,6 +75,11 @@ async fn test_getarticle_runs_render_article_api_chain() {
 
             let mut data = Session::new();
             data.set("uid", PValue::Int(1));
+            data.set(
+                "pwd_hash",
+                PValue::Bytes(crate::common::ADMIN_PWD_HASH.as_bytes().to_vec()),
+            );
+            data.set("access_level", PValue::Int(10));
             let sess = Sess::new("render-api-test".into());
             sess.replace("render-api-test".into(), data);
 
@@ -94,6 +99,7 @@ async fn test_getarticle_runs_render_article_api_chain() {
                 "getarticle",
                 &request(&[("article_id", json!([1]))]),
                 None,
+                false,
             )
             .await;
             assert_eq!(status, 0, "API STATUS_OK, got {out}");

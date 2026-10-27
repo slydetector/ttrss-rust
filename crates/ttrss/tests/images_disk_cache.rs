@@ -35,6 +35,10 @@ async fn setup(url: &str) -> (AppState, Sess, PathBuf) {
     let state = AppState::new(cfg, db);
     let mut data = Session::new();
     data.set("uid", PValue::Int(1));
+    data.set(
+        "pwd_hash",
+        PValue::Bytes(crate::common::ADMIN_PWD_HASH.as_bytes().to_vec()),
+    );
     data.set("access_level", PValue::Int(10));
     let sess = Sess::new("test-sid".to_string());
     sess.replace("test-sid".to_string(), data);
@@ -245,7 +249,8 @@ async fn test_api_getheadlines_rewrites_cached_image() {
                 ("show_content".to_string(), json!(true)),
             ]);
             let (status, out) =
-                ttrss::api::before_and_dispatch(&state, &sess, "getheadlines", &body, None).await;
+                ttrss::api::before_and_dispatch(&state, &sess, "getheadlines", &body, None, false)
+                    .await;
             assert_eq!(status, 0, "API STATUS_OK: {out}");
             let content = out
                 .as_array()

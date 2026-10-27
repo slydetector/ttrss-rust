@@ -133,7 +133,7 @@ async fn test_api_login_upgrades_outdated_app_password_algo() {
 
             let body = request(&[("user", json!("admin")), ("password", json!(pw))]);
             let (status, content) =
-                ttrss::api::before_and_dispatch(&state, &sess, "login", &body, None).await;
+                ttrss::api::before_and_dispatch(&state, &sess, "login", &body, None, false).await;
             assert_eq!(status, 0, "login must succeed: {content}");
 
             // The stored row is now SSHA-512, salt preserved, still verifies.
@@ -149,6 +149,78 @@ async fn test_api_login_upgrades_outdated_app_password_algo() {
                 "salt must be preserved: {new_stored}"
             );
             assert!(ttrss::core::user::verify_app_password(&new_stored, pw));
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
+}
+
+/// API login with a legacy *main* password hash: `check_password` upgrades
+/// the stored row to SSHA-512 in place, and the session must carry the new
+/// hash (session validation compares it against the DB row). Regression:
+/// the session was built from the pre-upgrade row, so every request after
+/// the login answered NOT_LOGGED_IN.
+#[tokio::test]
+async fn test_api_login_upgrades_outdated_main_password() {
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = common::make_state(&url).await;
+            let db = state.db.pool();
+
+            // The fixture's admin hash is legacy SHA1 (a pre-SSHA-512 install).
+            let before: String =
+                sqlx::query_scalar("SELECT pwd_hash FROM ttrss_users WHERE id = 1")
+                    .fetch_one(db)
+                    .await
+                    .unwrap();
+            assert!(
+                before.starts_with("SHA1:"),
+                "fixture must stay legacy: {before}"
+            );
+            sqlx::query(
+                "INSERT INTO ttrss_user_prefs2 (owner_uid, pref_name, profile, value) \
+                 VALUES (1, 'ENABLE_API_ACCESS', NULL, 'true')",
+            )
+            .execute(db)
+            .await
+            .unwrap();
+
+            let body = request(&[("user", json!("admin")), ("password", json!("password"))]);
+            let (status, content) =
+                ttrss::api::before_and_dispatch(&state, &sess, "login", &body, None, false).await;
+            assert_eq!(status, 0, "login must succeed: {content}");
+            let sid = content["session_id"]
+                .as_str()
+                .expect("session_id")
+                .to_string();
+
+            // The stored row is now SSHA-512.
+            let after: String = sqlx::query_scalar("SELECT pwd_hash FROM ttrss_users WHERE id = 1")
+                .fetch_one(db)
+                .await
+                .unwrap();
+            assert!(after.starts_with("SSHA-512:"), "got: {after}");
+
+            // The returned session must survive validation. Persist it
+            // (this path skips the HTTP middleware that would), then adopt
+            // it the way the API handler does and call a gated op.
+            let data = sess.data().clone();
+            ttrss::session::save(&state.db, state.config.encryption_key, &sid, &data)
+                .await
+                .unwrap();
+            let data = ttrss::session::load(&state.db, state.config.encryption_key, &sid).await;
+            sess.replace(sid, data);
+            let (status, content) = ttrss::api::before_and_dispatch(
+                &state,
+                &sess,
+                "getconfig",
+                &request(&[]),
+                None,
+                false,
+            )
+            .await;
+            assert_eq!(status, 0, "post-upgrade session must validate: {content}");
             Ok(())
         })
     })

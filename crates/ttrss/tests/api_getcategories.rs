@@ -27,6 +27,11 @@ async fn setup(url: &str) -> (AppState, Sess) {
     let state = AppState::new(common::test_config(), db);
     let mut data = Session::new();
     data.set("uid", PValue::Int(1));
+    data.set(
+        "pwd_hash",
+        PValue::Bytes(crate::common::ADMIN_PWD_HASH.as_bytes().to_vec()),
+    );
+    data.set("access_level", PValue::Int(10));
     let sess = Sess::new("test-sid".to_string());
     sess.replace("test-sid".to_string(), data);
     sqlx::query(
@@ -91,8 +96,15 @@ async fn test_flat_lists_nested_cat_and_omits_descendant_unread() {
 
             // No `enable_nested`: every category (roots and nested) is its own entry,
             // and each counter covers only its direct feeds.
-            let (status, content) =
-                api::before_and_dispatch(&state, &sess, "getcategories", &request(&[]), None).await;
+            let (status, content) = api::before_and_dispatch(
+                &state,
+                &sess,
+                "getcategories",
+                &request(&[]),
+                None,
+                false,
+            )
+            .await;
             assert_eq!(status, 0);
             let cats = real_cats(&content);
             assert_eq!(cats.get(&1), Some(&6), "cat 1 direct unread; got {cats:?}");
@@ -120,6 +132,7 @@ async fn test_enable_nested_lists_roots_only_and_folds_descendants() {
                 "getcategories",
                 &request(&[("enable_nested", json!("true"))]),
                 None,
+                false,
             )
             .await;
             assert_eq!(status, 0);
@@ -162,6 +175,7 @@ async fn test_enable_nested_unread_only_drops_zero_unread_roots() {
                     ("unread_only", json!("true")),
                 ]),
                 None,
+                false,
             )
             .await;
             assert_eq!(status, 0);
@@ -189,8 +203,15 @@ async fn test_special_cats_without_include_empty() {
         Box::pin(async move {
             let (state, sess) = setup(&url).await;
 
-            let (status, content) =
-                api::before_and_dispatch(&state, &sess, "getcategories", &request(&[]), None).await;
+            let (status, content) = api::before_and_dispatch(
+                &state,
+                &sess,
+                "getcategories",
+                &request(&[]),
+                None,
+                false,
+            )
+            .await;
             assert_eq!(status, 0);
 
             let ids: Vec<i64> = content

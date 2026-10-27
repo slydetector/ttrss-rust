@@ -10,7 +10,7 @@
 
 use crate::common;
 
-use serde_json::{Map, Value};
+use serde_json::{Map, Value, json};
 use test_db::template::with_test_db;
 use ttrss::AppState;
 use ttrss::api;
@@ -35,6 +35,11 @@ async fn setup(url: &str) -> (AppState, Sess) {
     let state = AppState::new(test_config(), db);
     let mut data = Session::new();
     data.set("uid", PValue::Int(1));
+    data.set(
+        "pwd_hash",
+        PValue::Bytes(crate::common::ADMIN_PWD_HASH.as_bytes().to_vec()),
+    );
+    data.set("access_level", PValue::Int(10));
     let sess = Sess::new("test-sid".to_string());
     sess.replace("test-sid".to_string(), data);
     sess.set_self_url(&state.config.self_url_rtrim());
@@ -59,7 +64,7 @@ async fn enable_api(db: &Db) {
 
 async fn getconfig(state: &AppState, sess: &Sess) -> Value {
     let (status, content) =
-        api::before_and_dispatch(state, sess, "getconfig", &request(&[]), None).await;
+        api::before_and_dispatch(state, sess, "getconfig", &request(&[]), None, false).await;
     assert_eq!(status, 0, "getconfig must succeed: {content}");
     content
 }
@@ -88,6 +93,49 @@ async fn test_getconfig_shape_and_no_translations_field() {
                 content.get("translations").is_none(),
                 "getconfig must not send translations (PHP parity): {content}"
             );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
+}
+
+/// `API::before`: a request bearing the browser-only `Sec-Fetch-Mode` header
+/// is blocked with `API_DISABLED` unless the user opted in via
+/// `ENABLE_API_ACCESS_BROWSER` — and the gate applies even when
+/// `ENABLE_API_ACCESS` is on. Non-browser requests are unaffected.
+#[tokio::test]
+async fn test_browser_origin_block() {
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            enable_api(&state.db).await;
+
+            // Non-browser (no `Sec-Fetch-Mode`): passes.
+            let (status, _) =
+                api::before_and_dispatch(&state, &sess, "getconfig", &request(&[]), None, false)
+                    .await;
+            assert_eq!(status, 0);
+
+            // Browser origin, no opt-in: `API_DISABLED`.
+            let (status, content) =
+                api::before_and_dispatch(&state, &sess, "getconfig", &request(&[]), None, true)
+                    .await;
+            assert_eq!(status, 1);
+            assert_eq!(content, json!({ "error": "API_DISABLED" }));
+
+            // Browser origin with the opt-in pref: passes.
+            sqlx::query(
+                "INSERT INTO ttrss_user_prefs2 (owner_uid, pref_name, profile, value)
+                 VALUES (1, 'ENABLE_API_ACCESS_BROWSER', NULL, 'true')",
+            )
+            .execute(state.db.pool())
+            .await
+            .expect("set ENABLE_API_ACCESS_BROWSER");
+            let (status, _) =
+                api::before_and_dispatch(&state, &sess, "getconfig", &request(&[]), None, true)
+                    .await;
+            assert_eq!(status, 0);
             Ok(())
         })
     })
