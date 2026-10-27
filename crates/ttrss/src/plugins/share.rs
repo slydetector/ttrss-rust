@@ -314,6 +314,7 @@ async fn get(host: &mut HostCtx, params: &Value) -> Result<MethodOutput, PluginE
                 status: 200,
                 content_type: "text/html; charset=utf-8",
                 body,
+                headers: Vec::new(),
             });
         }
     }
@@ -321,6 +322,7 @@ async fn get(host: &mut HostCtx, params: &Value) -> Result<MethodOutput, PluginE
         status: 404,
         content_type: "text/plain; charset=utf-8",
         body: __("Article not found."),
+        headers: Vec::new(),
     })
 }
 

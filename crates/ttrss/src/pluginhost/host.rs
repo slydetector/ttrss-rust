@@ -59,6 +59,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use axum::http::Method;
 use serde_json::Value;
 use sqlx::PgPool;
 
@@ -129,6 +130,30 @@ pub struct ScheduledTask {
     /// Index into [`PluginHost::plugins`].
     pub plugin: usize,
     pub callback: Box<dyn Fn(PgPool, Option<i32>, Config) -> BoxFuture<'static, ()> + Send + Sync>,
+}
+
+/// A registered plugin route (docs/22, phase 0).
+struct Route {
+    prefix: &'static str,
+    /// Index into [`PluginHost::plugins`].
+    plugin: usize,
+    methods: &'static [Method],
+}
+
+/// A request matched to a plugin route (docs/22, phase 0) — the input
+/// the router wraps in a [`super::plugin::RouteRequest`] before calling
+/// [`Plugin::handle_route`].
+pub struct RouteMatch<'a> {
+    /// The plugin that owns the matched prefix.
+    pub plugin: &'a dyn Plugin,
+    /// The matched prefix.
+    pub prefix: &'static str,
+    /// The path after the prefix (no leading slash); empty when the
+    /// request hit the prefix itself.
+    pub path_info: String,
+    /// The route's accepted methods — the router 405s anything else
+    /// before the plugin is called.
+    pub methods: &'static [Method],
 }
 
 /// A scheduled task's full name (PHP `add_scheduled_task` naming):
@@ -215,6 +240,8 @@ pub struct PluginHost {
     /// API method name → plugin index (PHP's `api_methods[]`; system plugins
     /// only).
     api_methods: HashMap<String, usize>,
+    /// Claimed route prefixes (docs/22, phase 0).
+    routes: Vec<Route>,
     /// Plugin index → filter actions (PHP's `plugin_actions[]`, keyed by
     /// sender class name).
     filter_actions: HashMap<usize, Vec<FilterAction>>,
@@ -430,6 +457,57 @@ impl PluginHost {
             .map(|&i| &*self.plugins[i])
     }
 
+    /// Claim an HTTP route prefix (docs/22, phase 0) — called from the
+    /// plugin's `init`, like the other registration methods.
+    ///
+    /// Duplicate prefix → panic: registration is compile-time (the `init`
+    /// calls at [`PluginHost::startup`]), so a collision is a developer
+    /// error and fails the boot. Deliberately stricter than
+    /// [`PluginHost::add_api_method`], whose `insert` silently overwrites.
+    pub fn add_route(&mut self, prefix: &'static str, methods: &'static [Method]) {
+        let Some(idx) = self.current else {
+            return;
+        };
+        if self.routes.iter().any(|r| r.prefix == prefix) {
+            panic!("duplicate plugin route prefix: {prefix}");
+        }
+        self.routes.push(Route {
+            prefix,
+            plugin: idx,
+            methods,
+        });
+    }
+
+    /// Longest-prefix, segment-boundary match against the request path
+    /// (the base path is already stripped by the caller). The prefix
+    /// matches itself and anything starting with `prefix + "/"`;
+    /// overlapping prefixes resolve to the longest.
+    pub fn lookup_route(&self, path: &str) -> Option<RouteMatch<'_>> {
+        let mut best: Option<&Route> = None;
+        for r in &self.routes {
+            let matched = if path.len() == r.prefix.len() {
+                path == r.prefix
+            } else {
+                path.len() > r.prefix.len()
+                    && path.starts_with(r.prefix)
+                    && path.as_bytes()[r.prefix.len()] == b'/'
+            };
+            if matched && best.is_none_or(|b| r.prefix.len() > b.prefix.len()) {
+                best = Some(r);
+            }
+        }
+        best.map(|r| RouteMatch {
+            plugin: &*self.plugins[r.plugin],
+            prefix: r.prefix,
+            path_info: path
+                .strip_prefix(r.prefix)
+                .unwrap_or("")
+                .trim_start_matches('/')
+                .to_owned(),
+            methods: r.methods,
+        })
+    }
+
     /// `PluginHost::add_filter_action($sender, $action_name, $action_desc)`.
     pub fn add_filter_action(&mut self, action: &str, description: &str) {
         let Some(idx) = self.current else {
@@ -495,6 +573,7 @@ impl PluginHost {
             handlers: HashMap::new(),
             commands: BTreeMap::new(),
             api_methods: HashMap::new(),
+            routes: Vec::new(),
             filter_actions: HashMap::new(),
             scheduled_tasks: Vec::new(),
             current: None,

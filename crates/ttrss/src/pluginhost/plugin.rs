@@ -39,6 +39,7 @@ use std::future::Future;
 use std::pin::Pin;
 
 use async_trait::async_trait;
+use axum::http::Method;
 use serde_json::Value;
 
 use crate::core::feed::FeedParser;
@@ -68,7 +69,45 @@ pub enum MethodOutput {
         status: u16,
         content_type: &'static str,
         body: String,
+        /// Extra response headers, emitted after the standard ones
+        /// (duplicates win). `String` values: the interface is
+        /// per-request, so a header value may be computed at request
+        /// time (an echoed `Origin`, a built `Location`, …).
+        /// Empty by default.
+        headers: Vec<(String, String)>,
     },
+}
+
+/// One HTTP route a plugin claims (docs/22, phase 0). Registered via
+/// [`PluginHost::add_route`] in [`Plugin::init`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RouteSpec {
+    /// Path prefix, e.g. `/freshapi`. Matched on whole segments: it
+    /// matches itself and anything starting with `prefix + "/"`
+    /// (`/freshapiX` does not match `/freshapi`).
+    pub prefix: &'static str,
+    /// Accepted methods; anything else gets a 405 from the router
+    /// *before* the plugin is called.
+    pub methods: &'static [Method],
+}
+
+/// The raw request handed to [`Plugin::handle_route`].
+///
+/// No headers field: the raw request headers are already in
+/// [`HostCtx::server_env`] (`Authorization`, `User-Agent`, …).
+#[derive(Debug, Clone)]
+pub struct RouteRequest<'a> {
+    /// The HTTP method (the router has already filtered to the route's
+    /// `methods`).
+    pub method: Method,
+    /// The path after the matched prefix — the PATH_INFO equivalent, no
+    /// leading slash (`reader/api/0/stream/contents/feed/3`); empty when
+    /// the request hit the prefix itself.
+    pub path_info: &'a str,
+    /// The raw query string (`n=20&ot=…`); empty if none.
+    pub query: &'a str,
+    /// The raw request body (e.g. the OPML for a subscription import).
+    pub body: &'a [u8],
 }
 
 /// `Plugin::API_VERSION_COMPAT` (classes/Plugin.php:3) — the version a plugin
@@ -260,6 +299,23 @@ pub trait Plugin: Send + Sync {
         _params: &Value,
     ) -> Result<MethodOutput, PluginError> {
         Err(PluginError::UnknownMethod(method.to_string()))
+    }
+
+    // -- route dispatch (docs/22, phase 0) -------------------------------------
+
+    /// Handle a request that matched one of this plugin's routes
+    /// (registered via [`PluginHost::add_route`]).
+    ///
+    /// A *dispatch*, not a hook: one plugin, resolved by prefix, called
+    /// once — no chain, no priority (the `hook_*` methods are chain
+    /// handlers iterated by the hook runner). The router folds the
+    /// returned [`MethodOutput`] into the final response (status,
+    /// Content-Type, body, extra headers).
+    ///
+    /// Default: unreachable (the router only calls this for registered
+    /// prefixes); the 404 body documents the miss if it ever happens.
+    async fn handle_route(&self, _host: &mut HostCtx, _req: &RouteRequest<'_>) -> MethodOutput {
+        MethodOutput::Raw("404".to_string())
     }
 
     // -- hooks ------------------------------------------------------------------

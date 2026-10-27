@@ -298,6 +298,7 @@ async fn test_get_public_route() {
                 status,
                 content_type,
                 body,
+                ..
             } = v
             else {
                 panic!("expected a Response, got {v:?}");

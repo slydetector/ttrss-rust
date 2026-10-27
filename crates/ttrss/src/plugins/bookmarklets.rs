@@ -195,6 +195,7 @@ impl Bookmarklets {
                 status: 200,
                 content_type: "text/html; charset=utf-8",
                 body,
+                headers: Vec::new(),
             });
         }
 
@@ -264,6 +265,7 @@ impl Bookmarklets {
                 body: format!(
                     "<!DOCTYPE html><html><head><title>{share_popup_title}</title></head><body><script>window.close();</script></body></html>",
                 ),
+                headers: Vec::new(),
             });
         }
 
@@ -312,6 +314,7 @@ impl Bookmarklets {
             status: 200,
             content_type: "text/html; charset=utf-8",
             body: form,
+            headers: Vec::new(),
         })
     }
 
@@ -509,6 +512,7 @@ impl Bookmarklets {
             status: 200,
             content_type: "text/html; charset=utf-8",
             body,
+            headers: Vec::new(),
         })
     }
 }

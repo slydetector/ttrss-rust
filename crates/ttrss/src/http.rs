@@ -77,7 +77,7 @@ pub fn build_router(state: &AppState) -> Router<AppState> {
         // infrastructure, not tt-rss behavior).
         .route("/api", post(api::handler))
         .route("/api/", post(api::handler))
-        .fallback(static_handler);
+        .fallback(plugin_fallback);
 
     let app = if base.is_empty() {
         inner
@@ -633,12 +633,23 @@ async fn public_handler(
                     status,
                     content_type,
                     body,
-                }) => (
-                    StatusCode::from_u16(status).unwrap(),
-                    [(header::CONTENT_TYPE, content_type)],
-                    body,
-                )
-                    .into_response(),
+                    headers,
+                }) => {
+                    let mut resp = (
+                        StatusCode::from_u16(status).unwrap(),
+                        [(header::CONTENT_TYPE, content_type)],
+                        body,
+                    )
+                        .into_response();
+                    for (name, value) in headers {
+                        resp.headers_mut().insert(
+                            name.parse::<axum::http::HeaderName>()
+                                .expect("valid header name"),
+                            value.parse().expect("valid header value"),
+                        );
+                    }
+                    resp
+                }
                 // PHP: an uncaught exception in the public handler — 500.
                 Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
             }
@@ -1171,6 +1182,76 @@ fn checkbox(s: Option<&str>) -> bool {
 /// byte-for-byte with the oracle's static-file headers — correct Content-Type
 /// (from the nginx `mime.types`), `Cache-Control: no-cache`, and no
 /// `Accept-Ranges` (nginx omits it on the gzip/chunked path real clients hit).
+/// The fallback: plugin-claimed routes first (docs/22, phase 0), static
+/// files second. The base path is stripped before the route lookup, so
+/// plugin prefixes are base-relative (the `nest` maps them under the
+/// base, exactly like the literal routes).
+async fn plugin_fallback(
+    State(state): State<AppState>,
+    Extension(sess): Extension<session::Sess>,
+    req: Request,
+) -> axum::response::Response {
+    let base = state.config.base_path();
+    let path = req.uri().path().to_owned();
+    let rel = if base.is_empty() {
+        path.as_str()
+    } else {
+        path.strip_prefix(base.as_str()).unwrap_or(path.as_str())
+    };
+    if let Some(m) = state.plugins.lookup_route(rel) {
+        let method = req.method().clone();
+        if !m.methods.contains(&method) {
+            return (StatusCode::METHOD_NOT_ALLOWED, "method not allowed").into_response();
+        }
+        let query = req.uri().query().unwrap_or("").to_owned();
+        let bytes = axum::body::to_bytes(req.into_body(), 1_048_576)
+            .await
+            .unwrap_or_default();
+        let mut ctx = crate::pluginhost::dispatch::session_ctx(&state, &sess).await;
+        let route_req = crate::pluginhost::plugin::RouteRequest {
+            method,
+            path_info: m.path_info.as_str(),
+            query: &query,
+            body: &bytes,
+        };
+        let out = m.plugin.handle_route(&mut ctx, &route_req).await;
+        return match out {
+            // A route is a full-response surface: the plugin's output
+            // *is* the response (the JSON envelope is the plugin's to
+            // build, not the host's — unlike the `op=` API dispatch).
+            crate::pluginhost::plugin::MethodOutput::Json(v) => (
+                StatusCode::OK,
+                [(header::CONTENT_TYPE, "application/json; charset=utf-8")],
+                v.to_string(),
+            )
+                .into_response(),
+            crate::pluginhost::plugin::MethodOutput::Raw(s) => (StatusCode::OK, s).into_response(),
+            crate::pluginhost::plugin::MethodOutput::Response {
+                status,
+                content_type,
+                body,
+                headers,
+            } => {
+                let mut resp = (
+                    StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
+                    [(header::CONTENT_TYPE, content_type)],
+                    body,
+                )
+                    .into_response();
+                for (name, value) in headers {
+                    resp.headers_mut().insert(
+                        name.parse::<axum::http::HeaderName>()
+                            .expect("valid header name"),
+                        value.parse().expect("valid header value"),
+                    );
+                }
+                resp
+            }
+        };
+    }
+    static_handler(State(state), req).await
+}
+
 async fn static_handler(State(state): State<AppState>, req: Request) -> axum::response::Response {
     let url_base = state.config.base_path();
     let uri_path = req.uri().path();

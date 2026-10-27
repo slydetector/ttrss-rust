@@ -107,6 +107,8 @@ mod opml_export;
 mod opml_import;
 #[path = "plugin_dispatch.rs"]
 mod plugin_dispatch;
+#[path = "plugin_routes.rs"]
+mod plugin_routes;
 #[path = "plugin_storage.rs"]
 mod plugin_storage;
 #[path = "pref_feeds_labels_index.rs"]
