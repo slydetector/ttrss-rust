@@ -1203,18 +1203,39 @@ async fn plugin_fallback(
         if !m.methods.contains(&method) {
             return (StatusCode::METHOD_NOT_ALLOWED, "method not allowed").into_response();
         }
+        // The `$_SERVER`-equivalent: raw header names/values — route
+        // plugins read `Authorization` (freshapi) from it.
+        let server_env: Vec<(String, String)> = req
+            .headers()
+            .iter()
+            .map(|(name, value)| {
+                (
+                    name.as_str().to_string(),
+                    value.to_str().unwrap_or("").to_string(),
+                )
+            })
+            .collect();
         let query = req.uri().query().unwrap_or("").to_owned();
         let bytes = axum::body::to_bytes(req.into_body(), 1_048_576)
             .await
             .unwrap_or_default();
-        let mut ctx = crate::pluginhost::dispatch::session_ctx(&state, &sess).await;
+        let mut ctx = crate::pluginhost::dispatch::session_ctx(&state, &sess)
+            .await
+            .with_server_env(server_env);
+        // The request context (session + app state) is separate from the
+        // per-plugin HostCtx: route plugins reach the API surface through
+        // it (freshapi's ClientLogin adopts a fresh session into `sess`).
+        let route = crate::pluginhost::plugin::RouteCtx {
+            sess: sess.clone(),
+            app: state.clone(),
+        };
         let route_req = crate::pluginhost::plugin::RouteRequest {
             method,
             path_info: m.path_info.as_str(),
             query: &query,
             body: &bytes,
         };
-        let out = m.plugin.handle_route(&mut ctx, &route_req).await;
+        let out = m.plugin.handle_route(&mut ctx, &route, &route_req).await;
         return match out {
             // A route is a full-response surface: the plugin's output
             // *is* the response (the JSON envelope is the plugin's to

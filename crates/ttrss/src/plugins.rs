@@ -1,11 +1,12 @@
 //! Port of the `Pref_Prefs` plugin handlers (`getPluginsList`, `setplugins`,
 //! `getAvailablePlugins`) in classes/Pref_Prefs.php.
 //!
-//! `getPluginsList` enumerates the bundled plugins. Each plugin's `about()`
-//! metadata (description/author/is_system/more_info) is static in the frozen
-//! reference, so it's reproduced here as a data table. `system_enabled` comes
-//! from `Config::PLUGINS`, `user_enabled` from the `_ENABLED_PLUGINS` pref,
-//! `has_data` from the (empty) plugin config store.
+//! `getPluginsList` enumerates the bundled plugins: each plugin's `about()`
+//! metadata is read from the plugin instance (the `PluginHost` registry
+//! holds every bundled plugin, mirroring PHP's `load_all(KIND_ALL)` +
+//! `about()` loop). `system_enabled` comes from `Config::PLUGINS`,
+//! `user_enabled` from the `_ENABLED_PLUGINS` pref, `has_data` from the
+//! plugin config store.
 
 pub mod af_comics;
 pub mod af_psql_trgm;
@@ -16,6 +17,7 @@ pub mod auth_remote;
 pub mod auto_assign_labels;
 pub mod bookmarklets;
 pub mod cache_starred_images;
+pub mod freshapi;
 pub mod hotkeys_force_top;
 pub mod hotkeys_noscroll;
 pub mod hotkeys_swap_jk;
@@ -33,225 +35,6 @@ use crate::AppState;
 use crate::core::user::ACCESS_LEVEL_ADMIN;
 use crate::prefs;
 use crate::session::Sess;
-
-/// Static `about()` metadata for the bundled plugins, in the order the
-/// `PluginHost` loads them (before the final name-sort). Fields:
-/// `(name, class_name, is_local, is_system, version, author, description,
-/// more_info)` — `class_name` is the PHP class (the
-/// `ttrss_plugin_storage.name` key).
-type PluginMeta<'a> = (
-    &'a str,
-    &'a str,
-    bool,
-    bool,
-    &'a str,
-    &'a str,
-    &'a str,
-    &'a str,
-);
-
-const PLUGIN_META: &[PluginMeta<'static>] = &[
-    (
-        "af_comics",
-        "Af_Comics",
-        false,
-        false,
-        "",
-        "fox",
-        "Fixes RSS feeds of assorted comic strips",
-        "",
-    ),
-    (
-        "af_psql_trgm",
-        "Af_Psql_Trgm",
-        false,
-        false,
-        "",
-        "fox",
-        "Marks similar articles as read (requires pg_trgm)",
-        "",
-    ),
-    (
-        "af_youtube_embed",
-        "Af_Youtube_Embed",
-        false,
-        false,
-        "",
-        "fox",
-        "Embed videos in Youtube RSS feeds (and whitelist Youtube iframes)",
-        "",
-    ),
-    (
-        "af_zz_vidmute",
-        "Af_Zz_Vidmute",
-        false,
-        false,
-        "",
-        "fox",
-        "Mute audio in HTML5 videos",
-        "",
-    ),
-    (
-        "auth_internal",
-        "Auth_Internal",
-        false,
-        true,
-        "",
-        "fox",
-        "Authenticates against internal tt-rss database",
-        "",
-    ),
-    (
-        "auth_remote",
-        "Auth_Remote",
-        false,
-        true,
-        "",
-        "fox",
-        "Authenticates against external passwords (HTTP Authentication, SSL certificates)",
-        "",
-    ),
-    (
-        "auto_assign_labels",
-        "Auto_Assign_Labels",
-        false,
-        false,
-        "",
-        "fox",
-        "Assign labels automatically based on article title, content, and tags",
-        "",
-    ),
-    (
-        "bookmarklets",
-        "Bookmarklets",
-        false,
-        false,
-        "",
-        "fox",
-        "Easy feed subscription and web page sharing using bookmarklets",
-        "https://tt-rss.org/docs/Share-Anything.html",
-    ),
-    (
-        "cache_starred_images",
-        "Cache_Starred_Images",
-        false,
-        false,
-        "",
-        "fox",
-        "Automatically cache media files in Starred articles",
-        "",
-    ),
-    (
-        "hotkeys_force_top",
-        "Hotkeys_Force_Top",
-        false,
-        false,
-        "",
-        "itsamenathan",
-        "Force open article to the top",
-        "",
-    ),
-    (
-        "hotkeys_noscroll",
-        "Hotkeys_Noscroll",
-        false,
-        false,
-        "",
-        "fox",
-        "n/p (and up/down) hotkeys move between articles without scrolling",
-        "",
-    ),
-    (
-        "hotkeys_swap_jk",
-        "Hotkeys_Swap_JK",
-        false,
-        false,
-        "",
-        "fox",
-        "Swap j and k hotkeys (for vi brethren)",
-        "",
-    ),
-    (
-        "nginx_xaccel",
-        "Nginx_XAccel",
-        true,
-        true,
-        "v25.12-6c1afee1, by fox",
-        "fox",
-        "Sends static files via nginx X-Accel-Redirect header",
-        "https://github.com/tt-rss/tt-rss-plugin-nginx-xaccel",
-    ),
-    (
-        "no_iframes",
-        "No_Iframes",
-        false,
-        false,
-        "",
-        "fox",
-        "Remove embedded iframes (unless whitelisted)",
-        "",
-    ),
-    (
-        "note",
-        "Note",
-        false,
-        false,
-        "",
-        "fox",
-        "Adds support for setting article notes",
-        "",
-    ),
-    (
-        "nsfw",
-        "NSFW",
-        false,
-        false,
-        "",
-        "fox",
-        "Hide article content based on tags",
-        "",
-    ),
-    (
-        "share",
-        "Share",
-        false,
-        false,
-        "",
-        "fox",
-        "Share article by unique URL",
-        "",
-    ),
-    (
-        "shorten_expanded",
-        "Shorten_Expanded",
-        false,
-        false,
-        "",
-        "fox",
-        "Shorten overly long articles in CDM/expanded",
-        "",
-    ),
-    (
-        "toggle_sidebar",
-        "Toggle_Sidebar",
-        false,
-        false,
-        "",
-        "fox",
-        "Adds a main toolbar button to toggle sidebar",
-        "",
-    ),
-    (
-        "tweak_article_header",
-        "Tweak_Article_Header",
-        false,
-        false,
-        "",
-        "slydetector",
-        "In the article header for special and category feeds, moves the feed title next to the article name.",
-        "",
-    ),
-];
 
 /// The `tt-rss.org/tt-rss/plugins.json` payload (the plugin-installer catalog).
 /// Fetched over the network by the PHP; reproduced verbatim here since the
@@ -291,20 +74,33 @@ pub async fn get_plugins_list(state: &AppState, sess: &Sess) -> Value {
             .await
             .unwrap_or_default();
 
+    // The `PluginHost` registry holds every bundled plugin (PHP builds a
+    // throwaway host with `load_all(KIND_ALL)` for this list).
     let mut rv: Vec<Value> = Vec::new();
-    for (name, class, is_local, is_system, version, author, description, more_info) in PLUGIN_META {
-        let version = crate::util::htmlspecialchars(version);
+    for plugin in state.plugins.plugins() {
+        let about = plugin.about();
+        // `Pref_Prefs::_get_plugin_version`: `Some(v)` → `v%.2f, by <author>`;
+        // bundled plugins have no git repo of their own, so `None` → `""`.
+        let version = match &about.version {
+            Some(v) => format!(
+                "v{:.2}, by {}",
+                v.parse::<f64>().unwrap_or(0.0),
+                about.author
+            ),
+            None => String::new(),
+        };
         rv.push(json!({
-            "name": name,
-            "is_local": is_local,
-            "system_enabled": system_enabled.contains(name),
-            "user_enabled": user_enabled.contains(name),
-            "has_data": storage_names.iter().any(|n| n == class),
-            "is_system": is_system,
-            "version": version,
-            "author": author,
-            "description": description,
-            "more_info": more_info,
+            "name": plugin.name(),
+            // All bundled; the port has no local-plugins dir.
+            "is_local": false,
+            "system_enabled": system_enabled.contains(&plugin.name()),
+            "user_enabled": user_enabled.contains(&plugin.name()),
+            "has_data": storage_names.iter().any(|n| n == plugin.class_name()),
+            "is_system": about.system,
+            "version": crate::util::htmlspecialchars(&version),
+            "author": about.author,
+            "description": about.description,
+            "more_info": about.more_info,
         }));
     }
 

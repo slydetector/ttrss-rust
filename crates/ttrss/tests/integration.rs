@@ -77,6 +77,8 @@ mod filter_read;
 mod filter_test;
 #[path = "forgotpass.rs"]
 mod forgotpass;
+#[path = "freshapi.rs"]
+mod freshapi;
 #[path = "headlines_parity.rs"]
 mod headlines_parity;
 #[path = "housekeeping.rs"]

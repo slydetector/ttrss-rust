@@ -21,7 +21,7 @@ use tower::ServiceExt;
 use ttrss::AppState;
 use ttrss::http;
 use ttrss::pluginhost::host::PluginHost;
-use ttrss::pluginhost::plugin::{About, MethodOutput, Plugin, RouteRequest};
+use ttrss::pluginhost::plugin::{About, MethodOutput, Plugin, RouteCtx, RouteRequest};
 
 const CORS: [(&str, &str); 3] = [
     ("access-control-allow-origin", "*"),
@@ -59,6 +59,7 @@ impl Plugin for Stub {
     async fn handle_route(
         &self,
         _host: &mut ttrss::pluginhost::host::HostCtx,
+        _route: &RouteCtx,
         req: &RouteRequest<'_>,
     ) -> MethodOutput {
         if req.method == Method::OPTIONS {

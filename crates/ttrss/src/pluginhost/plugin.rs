@@ -91,6 +91,21 @@ pub struct RouteSpec {
     pub methods: &'static [Method],
 }
 
+/// The per-request context handed to [`Plugin::handle_route`]: the request
+/// session + the app state, which do not belong to the per-plugin
+/// [`HostCtx`] (storage, hooks, active flags) and exist only on the route
+/// path. Route plugins reach the shared API surface (`api::login`), session
+/// validation, and the i18n cache through these.
+#[derive(Clone)]
+pub struct RouteCtx {
+    /// The request session (`session_middleware`'s handle). Clones share
+    /// the inner state, so a plugin's `Sess::replace` (e.g. after
+    /// `api::login`) is visible to the response path.
+    pub sess: crate::session::Sess,
+    /// The app state (`config`, `db`, `i18n`, the plugin registry).
+    pub app: crate::AppState,
+}
+
 /// The raw request handed to [`Plugin::handle_route`].
 ///
 /// No headers field: the raw request headers are already in
@@ -121,8 +136,10 @@ pub const API_VERSION_COMPAT: i32 = 1;
 /// Index 3 (`is_system`) gates the `KIND_SYSTEM`/`KIND_USER` loading.
 #[derive(Debug, Clone, PartialEq)]
 pub struct About {
-    /// `about[0]` — e.g. `1.0`; `None` when absent (most first-party plugins).
-    pub version: Option<f64>,
+    /// `about[0]` — e.g. `"1.2"`; `None` when absent (most first-party
+    /// plugins). The system of record for the version (the `getPluginsList`
+    /// renderer formats it, matching `Pref_Prefs::_get_plugin_version`).
+    pub version: Option<String>,
     /// `about[1]`.
     pub description: String,
     /// `about[2]`.
@@ -314,7 +331,12 @@ pub trait Plugin: Send + Sync {
     ///
     /// Default: unreachable (the router only calls this for registered
     /// prefixes); the 404 body documents the miss if it ever happens.
-    async fn handle_route(&self, _host: &mut HostCtx, _req: &RouteRequest<'_>) -> MethodOutput {
+    async fn handle_route(
+        &self,
+        _host: &mut HostCtx,
+        _route: &RouteCtx,
+        _req: &RouteRequest<'_>,
+    ) -> MethodOutput {
         MethodOutput::Raw("404".to_string())
     }
 

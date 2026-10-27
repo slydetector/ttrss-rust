@@ -109,6 +109,7 @@ pub fn all_plugins() -> Vec<fn() -> Box<dyn Plugin>> {
         || Box::new(crate::plugins::auto_assign_labels::AutoAssignLabels),
         || Box::new(crate::plugins::bookmarklets::Bookmarklets),
         || Box::new(crate::plugins::cache_starred_images::CacheStarredImages),
+        || Box::new(crate::plugins::freshapi::FreshApi),
         || Box::new(crate::plugins::hotkeys_force_top::HotkeysForceTop),
         || Box::new(crate::plugins::hotkeys_noscroll::HotkeysNoscroll),
         || Box::new(crate::plugins::hotkeys_swap_jk::HotkeysSwapJk),
