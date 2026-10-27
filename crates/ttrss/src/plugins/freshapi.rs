@@ -8,21 +8,23 @@
 //! `api::get_counters`, `api::update_article`, `api::get_article`) where
 //! the reference loops back over HTTP (`callTinyTinyRssApi`).
 //!
-//! Phase 1: ClientLogin + session auth, `stream/contents` (feed / label /
-//! category / reading-list / starred), `stream/items/ids`,
-//! `stream/items/contents` (FeedMe), `edit-tag`, `unread-count`, `tag/list`
-//! (json), `token`, `user-info`. Phase 2: the subscription and
-//! tag-management verbs.
+//! The full surface (phases 1+2 of docs/22): ClientLogin + session auth,
+//! `stream/contents` (feed / label / category / reading-list / starred),
+//! `stream/items/ids`, `stream/items/contents` (FeedMe), `edit-tag`,
+//! `unread-count`, `tag/list` (json), `token`, `user-info`, and the
+//! management verbs (`subscription/list|export|import|edit|quickadd`,
+//! `rename-tag`, `disable-tag`, `mark-all-as-read`).
 
 use async_trait::async_trait;
 use axum::http::Method;
 use serde_json::{Map, Value, json};
-use sqlx::{QueryBuilder, Row};
+use sqlx::{AssertSqlSafe, QueryBuilder, Row};
 
 use crate::api;
 use crate::core::db::Db;
 use crate::i18n;
 use crate::labels::{self, LABEL_BASE_INDEX};
+use crate::opml;
 use crate::pluginhost::host::{HostCtx, PluginHost};
 use crate::pluginhost::plugin::{About, MethodOutput, Plugin, RouteCtx, RouteRequest};
 use crate::prefs;
@@ -149,16 +151,21 @@ struct Params {
 
 fn parse_request(query: &str, body: &[u8]) -> Params {
     let mut req: std::collections::HashMap<String, String> = std::collections::HashMap::new();
-    for pair in query.split('&') {
-        if let Some((k, v)) = pair.split_once('=') {
-            req.insert(urldecode(k), urldecode(v));
-        }
-    }
     let body = String::from_utf8_lossy(body).to_string();
-    if !body.is_empty() {
-        for pair in body.split('&') {
-            if let Some((k, v)) = pair.split_once('=') {
-                req.insert(urldecode(k), urldecode(v));
+    // `parse_str` (and so `$_REQUEST`): a bare key without `=` takes the
+    // empty value (`?s` → `isset($_REQUEST['s'])` is true).
+    for src in [query, &body] {
+        for pair in src.split('&') {
+            if pair.is_empty() {
+                continue;
+            }
+            match pair.split_once('=') {
+                Some((k, v)) => {
+                    req.insert(urldecode(k), urldecode(v));
+                }
+                None => {
+                    req.insert(urldecode(pair), String::new());
+                }
             }
         }
     }
@@ -240,7 +247,10 @@ fn urldecode(s: &str) -> String {
 /// `user/-/state|label/…` — some clients put their own user id in the
 /// stream id (`user/1234/state/…`); normalize it (freshapi.php:899).
 fn normalize_stream_id(stream_id: &str) -> String {
-    stream_id.replace("user/", "user/-/").replace("-/-/", "-/")
+    static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    RE.get_or_init(|| regex::Regex::new(r"^user/[^/]+/(state|label)/").unwrap())
+        .replace(stream_id, "user/-/${1}/")
+        .into_owned()
 }
 
 /// `hex2dec` (freshapi.php:95): 0 unless every byte is hex; 64-bit
@@ -342,6 +352,9 @@ async fn dispatch(host: &mut HostCtx, route: &RouteCtx, req: &RouteRequest<'_>) 
             return unauthorized();
         };
         let (app, sess) = (&route.app, &route.sess);
+        // `requireWriteAccess`: the session's access level is DB-validated
+        // per request (`validate_session`), so no separate query.
+        let readonly = authed.access_level == crate::core::user::ACCESS_LEVEL_READONLY;
         // `Accept-Language` for the user-locale translations (the
         // reference's `startup_gettext()` picks the session user's
         // locale).
@@ -497,8 +510,102 @@ async fn dispatch(host: &mut HostCtx, route: &RouteCtx, req: &RouteRequest<'_>) 
             }
             "token" => token(host, &authed).await,
             "user-info" => user_info(sess),
-            // `subscription/*`, `rename-tag`, `disable-tag`,
-            // `mark-all-as-read`: phase 2.
+            "subscription" => match parts.get(5).copied() {
+                Some("export") => subscription_export(app, sess).await,
+                Some("import") => {
+                    if readonly {
+                        return forbidden();
+                    }
+                    // `POST && $ORIGINAL_INPUT != ''`
+                    if req.method == Method::POST && !p.body.is_empty() {
+                        subscription_import(app, sess, &p.body).await
+                    } else {
+                        text(400, "Bad Request!")
+                    }
+                }
+                Some("list") => {
+                    if getp("output") != "json" {
+                        return text(501, "Not Implemented!");
+                    }
+                    subscription_list(host, route, &locale, &authed).await
+                }
+                Some("edit") => {
+                    // `isset($ORIG_REQUEST['s'], $ORIG_REQUEST['ac'])`
+                    if !p.req.contains_key("s") || !p.req.contains_key("ac") {
+                        return text(400, "Bad Request!");
+                    }
+                    if readonly {
+                        return forbidden();
+                    }
+                    // `empty($input['s']) && isset(...)` → the scalar form
+                    // (an empty `s=`), else the raw-body `multiplePosts`.
+                    let scalar = |k: &str| {
+                        p.req
+                            .get(k)
+                            .map(|v| v.is_empty() || v == "0")
+                            .unwrap_or(false)
+                    };
+                    let stream_names = if scalar("s") {
+                        vec![String::new()]
+                    } else {
+                        multiple_posts(&p.body, "s")
+                    };
+                    let titles = if scalar("t") {
+                        vec![String::new()]
+                    } else {
+                        multiple_posts(&p.body, "t")
+                    };
+                    subscription_edit(
+                        host,
+                        route,
+                        &locale,
+                        &authed,
+                        &stream_names,
+                        &titles,
+                        &p.req["ac"],
+                        p.req.get("a").map(|s| s.as_str()).unwrap_or(""),
+                        p.req.get("r").map(|s| s.as_str()).unwrap_or(""),
+                    )
+                    .await
+                }
+                Some("quickadd") => {
+                    if !p.req.contains_key("quickadd") {
+                        return text(400, "Bad Request!");
+                    }
+                    if readonly {
+                        return forbidden();
+                    }
+                    quickadd(host, route, &authed, &p.req["quickadd"]).await
+                }
+                _ => text(400, "Bad Request!"),
+            },
+            "rename-tag" => {
+                if readonly {
+                    return forbidden();
+                }
+                rename_tag(host, route, &locale, &authed, getp("s"), getp("dest")).await
+            }
+            "disable-tag" => {
+                if readonly {
+                    return forbidden();
+                }
+                // `foreach ($s_s as $s) { self::disableTag($s, …) }` — every
+                // path exits, so only the first `s=` is processed.
+                let s_list = multiple_posts(&p.body, "s");
+                if s_list.is_empty() {
+                    text(400, "Bad Request!")
+                } else {
+                    disable_tag(host, route, &locale, &authed, &s_list[0]).await
+                }
+            }
+            "mark-all-as-read" => {
+                let ts = p.req.get("ts").map(|t| t.trim()).unwrap_or("0");
+                // `ctype_digit`
+                if ts.is_empty() || !ts.chars().all(|c| c.is_ascii_digit()) {
+                    return text(400, "Bad Request!");
+                }
+                mark_all_as_read(host, route, &locale, &authed, getp("s"), ts).await
+            }
             _ => text(400, "Bad Request!"),
         }
     } else {
@@ -835,7 +942,8 @@ async fn convert_article(host: &HostCtx, article: &Value) -> Value {
     let aid = article.get("id").and_then(Value::as_i64).unwrap_or(0) as u64;
 
     let mut v = json!({
-        "id": format!("tag:google.com,2005:reader/item/{aid:x}"),
+        // `dec2hex`: the hex id is zero-padded to 16 chars.
+        "id": format!("tag:google.com,2005:reader/item/{aid:016x}"),
         "crawlTimeMsec": format!("{ts}000"),
         "timestampUsec": format!("{ts}000000"),
         "published": ts,
@@ -1231,11 +1339,12 @@ async fn stream_items(
                     .unwrap_or("")
                     .is_empty()
                 {
-                    g["origin"]["title"] = json!(util::html_entity_decode(
+                    g["origin"]["title"] = json!(escape_to_unicode_alternative(
                         cat_titles
                             .get(&cat)
                             .map(String::as_str)
-                            .unwrap_or("Uncategorized")
+                            .unwrap_or("Uncategorized"),
+                        true
                     ));
                 }
                 if let Some(name) = cat_titles.get(&cat) {
@@ -1264,13 +1373,15 @@ async fn stream_items(
                 .cmp(&a.get(key).and_then(Value::as_i64).unwrap_or(0))
         });
     }
+    // No trailing newline here (the reference's FeedMe endpoint is the
+    // exception).
     json_result(
         &json!({
             "id": "user/-/state/com.google/reading-list",
             "updated": chrono::Utc::now().timestamp(),
             "items": items,
         }),
-        true,
+        false,
     )
 }
 
@@ -1535,9 +1646,588 @@ fn user_info(sess: &session::Sess) -> MethodOutput {
     )
 }
 
+// ── Management (phase 2) ────────────────────────────────────────────────────
+
+/// `requireWriteAccess` (freshapi.php:299): read-only users (access level
+/// -1) get a plain 403.
+fn forbidden() -> MethodOutput {
+    text(403, "Forbidden!")
+}
+
+/// `userFeeds` (freshapi.php:330): the owner's feeds (id, title, feed_url,
+/// site_url, cat_id with NULL → 0), ordered by title.
+async fn user_feeds(host: &HostCtx, authed: &Authed) -> Vec<(i32, String, String, String, i32)> {
+    let rows = sqlx::query(
+        "SELECT id, title, feed_url, site_url, COALESCE(cat_id, 0) AS cat_id
+         FROM ttrss_feeds WHERE owner_uid = $1 ORDER BY title",
+    )
+    .bind(authed.uid)
+    .fetch_all(host.pool())
+    .await
+    .unwrap_or_default();
+    rows.iter()
+        .filter_map(|r| {
+            Some((
+                r.try_get::<i32, _>("id").ok()?,
+                r.try_get::<String, _>("title").ok()?,
+                r.try_get::<String, _>("feed_url").ok()?,
+                r.try_get::<String, _>("site_url").ok()?,
+                r.try_get::<i32, _>("cat_id").ok()?,
+            ))
+        })
+        .collect()
+}
+
+/// `subscriptionList` (freshapi.php:452). The per-feed category title comes
+/// from the id→title map; feeds with `cat_id = 0` (uncategorized) get "".
+async fn subscription_list(
+    host: &HostCtx,
+    route: &RouteCtx,
+    locale: &Option<String>,
+    authed: &Authed,
+) -> MethodOutput {
+    let app: &crate::AppState = &route.app;
+    let cat_map: std::collections::HashMap<i32, String> = categories(host, route, locale, authed)
+        .await
+        .into_iter()
+        .collect();
+    let mut subscriptions = Vec::new();
+    for (id, title, feed_url, site_url, cat_id) in user_feeds(host, authed).await {
+        let cat_title = cat_map
+            .get(&cat_id)
+            .map(|t| util::html_entity_decode(t))
+            .unwrap_or_default();
+        subscriptions.push(json!({
+            "id": format!("feed/{id}"),
+            "title": title,
+            "categories": [{
+                "id": format!("user/-/label/{cat_title}"),
+                "label": cat_title,
+            }],
+            "url": feed_url,
+            "htmlUrl": site_url,
+            // `TTRSS_SELF_URL_PATH . '/public.php?op=feed_icon&id=…'`
+            "iconUrl": format!(
+                "{}/public.php?op=feed_icon&id={id}.ico",
+                app.config.self_url_rtrim()
+            ),
+        }));
+    }
+    json_result(&json!({ "subscriptions": subscriptions }), true)
+}
+
+/// `subscriptionExport` (freshapi.php:389): `OPML::opml_export` with
+/// `include_settings = false`. The reference emits the OPML with PHP's
+/// default content type (text/html); the port uses the opml module's
+/// declared type.
+async fn subscription_export(app: &crate::AppState, sess: &session::Sess) -> MethodOutput {
+    let extra = Map::new();
+    let (_status, _content_type, _disposition, body) = opml::export(app, sess, &extra).await;
+    MethodOutput::Response {
+        status: 200,
+        // `opml::export`'s declared type (a `&'static str` on the variant)
+        content_type: "application/xml+opml",
+        body,
+        headers: cors(),
+    }
+}
+
+/// `subscriptionImport` (freshapi.php:400): validate the body is OPML, run
+/// the port's `opml::import` directly on the bytes (the reference writes a
+/// temp file first — the documented deviation), then the reference's output
+/// post-processing (`&nbsp;`/`<br/>` runs → newlines, "Done!" suffix).
+async fn subscription_import(
+    app: &crate::AppState,
+    sess: &session::Sess,
+    body: &str,
+) -> MethodOutput {
+    if !body.to_ascii_lowercase().contains("<opml") {
+        return text(400, "Bad Request!");
+    }
+    let out = opml::import(app, sess, Some(body.as_bytes())).await;
+    text(200, &format!("{}Done!", collapse_nbsp_br(&out)))
+}
+
+/// `preg_replace('/(&nbsp;|<br\/>)+/', "\n", s)` (freshapi.php:429).
+fn collapse_nbsp_br(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut i = 0;
+    while i < s.len() {
+        if s[i..].starts_with("&nbsp;") || s[i..].starts_with("<br/>") {
+            while i < s.len() && (s[i..].starts_with("&nbsp;") || s[i..].starts_with("<br/>")) {
+                i += if s[i..].starts_with("&nbsp;") { 6 } else { 5 };
+            }
+            out.push('\n');
+        } else {
+            let ch = s[i..].chars().next().unwrap();
+            out.push(ch);
+            i += ch.len_utf8();
+        }
+    }
+    out
+}
+
+/// `createCategory` (freshapi.php:556): insert, 0 on failure/empty name.
+async fn create_category(host: &HostCtx, uid: i32, name: &str) -> i32 {
+    let name = util::clean_str(name);
+    if name.is_empty() {
+        return 0;
+    }
+    sqlx::query_scalar(
+        "INSERT INTO ttrss_feed_categories (title, owner_uid) VALUES ($1, $2) RETURNING id",
+    )
+    .bind(&name)
+    .bind(uid)
+    .fetch_optional(host.pool())
+    .await
+    .ok()
+    .flatten()
+    .unwrap_or(0)
+}
+
+/// `renameFeed` (freshapi.php:494): `UPDATE … SET title` (success = the
+/// statement ran; 0-affected-rows is not a failure, as in PDO).
+async fn rename_feed(host: &HostCtx, uid: i32, feed_id: i32, title: &str) -> bool {
+    sqlx::query("UPDATE ttrss_feeds SET title = $1 WHERE id = $2 AND owner_uid = $3")
+        .bind(util::clean_str(title))
+        .bind(feed_id)
+        .bind(uid)
+        .execute(host.pool())
+        .await
+        .is_ok()
+}
+
+/// `addCategoryFeed` / `removeCategoryFeed` (freshapi.php:576/593): set the
+/// feed's folder, `None` = uncategorized (NULL).
+async fn set_feed_category(host: &HostCtx, uid: i32, feed_id: i32, cat: Option<i32>) -> bool {
+    let res = match cat {
+        Some(c) => {
+            sqlx::query("UPDATE ttrss_feeds SET cat_id = $1 WHERE id = $2 AND owner_uid = $3")
+                .bind(c)
+                .bind(feed_id)
+                .bind(uid)
+                .execute(host.pool())
+                .await
+        }
+        None => {
+            sqlx::query("UPDATE ttrss_feeds SET cat_id = NULL WHERE id = $1 AND owner_uid = $2")
+                .bind(feed_id)
+                .bind(uid)
+                .execute(host.pool())
+                .await
+        }
+    };
+    res.is_ok()
+}
+
+/// `subscribeFeed` (freshapi.php:696): the tt-rss `subscribeToFeed` API call
+/// (`content.status` is the `Feeds::_subscribe` result array), then the
+/// title lookup. The URL is passed as-is (the reference stopped
+/// HTML-escaping it — `&` in query strings broke).
+async fn subscribe_feed(
+    host: &HostCtx,
+    app: &crate::AppState,
+    sess: &session::Sess,
+    authed: &Authed,
+    url: &str,
+    category_id: i32,
+) -> Result<(i32, String), String> {
+    let url = url.strip_prefix("feed/").unwrap_or(url).to_string();
+    let mut body = Map::new();
+    body.insert("feed_url".into(), json!(url));
+    body.insert("category_id".into(), json!(category_id));
+    let (status, content) = api::subscribe_to_feed(app, sess, &body).await;
+    let rc = content.get("status");
+    let feed_id = rc
+        .and_then(|v| v.get("feed_id"))
+        .and_then(Value::as_i64)
+        .unwrap_or(0) as i32;
+    if status != api::STATUS_OK || feed_id <= 0 {
+        let code = rc
+            .and_then(|v| v.get("code"))
+            .and_then(Value::as_i64)
+            .map(|c| c.to_string())
+            .unwrap_or_else(|| "?".into());
+        return Err(format!("Failed to add feed (code {code})"));
+    }
+    let title =
+        sqlx::query_scalar("SELECT title FROM ttrss_feeds WHERE id = $1 AND owner_uid = $2")
+            .bind(feed_id)
+            .bind(authed.uid)
+            .fetch_optional(host.pool())
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+    Ok((feed_id, title))
+}
+
+/// `quickadd` (freshapi.php:726).
+async fn quickadd(host: &HostCtx, route: &RouteCtx, authed: &Authed, url: &str) -> MethodOutput {
+    let (app, sess) = (&route.app, &route.sess);
+    match subscribe_feed(host, app, sess, authed, url, 0).await {
+        Ok((feed_id, name)) => json_result(
+            &json!({
+                "numResults": 1,
+                "query": url,
+                "streamId": format!("feed/{feed_id}"),
+                "streamName": name,
+            }),
+            false,
+        ),
+        Err(e) => json_result(&json!({ "numResults": 0, "error": e }), false),
+    }
+}
+
+/// `subscriptionEdit` (freshapi.php:605): the per-stream `subscribe` /
+/// `unsubscribe` / `edit` actions; category from `a` (0 = none, -1 =
+/// "Uncategorized" and other virtuals), title from `t`, removal from `r`.
+#[allow(clippy::too_many_arguments)] // mirrors the reference signature
+async fn subscription_edit(
+    host: &HostCtx,
+    route: &RouteCtx,
+    locale: &Option<String>,
+    authed: &Authed,
+    stream_names: &[String],
+    titles: &[String],
+    action: &str,
+    add: &str,
+    remove: &str,
+) -> MethodOutput {
+    let (app, sess) = (&route.app, &route.sess);
+    let add_name = if let Some(n) = add.strip_prefix("user/-/label/") {
+        n.to_string()
+    } else {
+        String::new()
+    };
+    let mut category_id: i32 = 0;
+    if !add_name.is_empty()
+        && let Some(id) = category_label_id(host, route, locale, authed, &add_name).await
+    {
+        // the virtual categories all mean "no folder"
+        category_id = if id > 0 { id } else { -1 };
+    }
+
+    for (i, stream_url) in stream_names.iter().enumerate() {
+        let Some(rest) = stream_url.strip_prefix("feed/") else {
+            continue;
+        };
+        // doubling up: some readers push a double `feed/` prefix
+        let rest = rest.strip_prefix("feed/").unwrap_or(rest);
+        let feed_id = if !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit()) {
+            rest.parse::<i32>().unwrap_or(0)
+        } else {
+            feed_id_by_url(host, authed, rest).await
+        };
+        let title = titles.get(i).cloned().unwrap_or_default();
+
+        match action {
+            "subscribe" => {
+                if feed_id == 0
+                    && subscribe_feed(host, app, sess, authed, rest, category_id.max(0))
+                        .await
+                        .is_err()
+                {
+                    return text(400, "Bad Request!");
+                }
+            }
+            "unsubscribe" => {
+                if feed_id > 0 {
+                    let mut body = Map::new();
+                    body.insert("feed_id".into(), json!(feed_id));
+                    let (status, _) = api::unsubscribe_feed(app, sess, &body).await;
+                    if status != api::STATUS_OK {
+                        return text(400, "Bad Request!");
+                    }
+                }
+            }
+            "edit" => {
+                if feed_id > 0 {
+                    // remove first: clients move a feed by sending both
+                    // `r=<old>` and `a=<new>`
+                    if remove.starts_with("user/-/label/")
+                        && !set_feed_category(host, authed.uid, feed_id, None).await
+                    {
+                        return text(400, "Bad Request!");
+                    }
+                    if !add_name.is_empty() {
+                        if category_id == 0 {
+                            // create the folder once, even when several
+                            // feeds are moved into it
+                            category_id = create_category(host, authed.uid, &add_name).await;
+                        }
+                        let ok = if category_id > 0 {
+                            set_feed_category(host, authed.uid, feed_id, Some(category_id)).await
+                        } else {
+                            set_feed_category(host, authed.uid, feed_id, None).await
+                        };
+                        if !ok {
+                            return text(400, "Bad Request!");
+                        }
+                    }
+                    if !title.is_empty() && !rename_feed(host, authed.uid, feed_id, &title).await {
+                        return text(400, "Bad Request!");
+                    }
+                } else {
+                    return text(400, "Bad Request!");
+                }
+            }
+            _ => {}
+        }
+    }
+    text(200, "OK")
+}
+
+/// `renameTag` (freshapi.php:1291): a category wins over a label with the
+/// same name.
+async fn rename_tag(
+    host: &HostCtx,
+    route: &RouteCtx,
+    locale: &Option<String>,
+    authed: &Authed,
+    s: &str,
+    dest: &str,
+) -> MethodOutput {
+    let app: &crate::AppState = &route.app;
+    if !s.is_empty()
+        && s.starts_with("user/-/label/")
+        && !dest.is_empty()
+        && dest.starts_with("user/-/label/")
+    {
+        let old_name = &s["user/-/label/".len()..];
+        let new_name = util::clean_str(&dest["user/-/label/".len()..]);
+        if new_name.is_empty() {
+            return text(400, "Bad Request!");
+        }
+        for (id, title) in categories(host, route, locale, authed).await {
+            if name_matches(&title, old_name) {
+                let res = sqlx::query(
+                    "UPDATE ttrss_feed_categories SET title = $1 WHERE id = $2 AND owner_uid = $3",
+                )
+                .bind(&new_name)
+                .bind(id)
+                .bind(authed.uid)
+                .execute(host.pool())
+                .await;
+                if res.is_ok() {
+                    return text(200, "OK");
+                }
+            }
+        }
+        let (status, content) = api::get_labels(app, Some(authed.uid), &Map::new()).await;
+        if status == api::STATUS_OK
+            && let Some(list) = content.as_array()
+        {
+            for l in list {
+                if let Some(caption) = l.get("caption").and_then(Value::as_str)
+                    && name_matches(caption, old_name)
+                {
+                    let res = sqlx::query(
+                        "UPDATE ttrss_labels2 SET caption = $1 WHERE caption = $2 AND owner_uid = $3",
+                    )
+                    .bind(&new_name)
+                    .bind(caption)
+                    .bind(authed.uid)
+                    .execute(host.pool())
+                    .await;
+                    if res.is_ok() {
+                        return text(200, "OK");
+                    }
+                }
+            }
+        }
+    }
+    text(400, "Bad Request!")
+}
+
+/// `disableTag` (freshapi.php:1338): a category is emptied of feeds and
+/// deleted; a label detaches its articles and is deleted.
+async fn disable_tag(
+    host: &HostCtx,
+    route: &RouteCtx,
+    locale: &Option<String>,
+    authed: &Authed,
+    s: &str,
+) -> MethodOutput {
+    let app: &crate::AppState = &route.app;
+    if !s.is_empty() && s.starts_with("user/-/label/") {
+        let tag = &s["user/-/label/".len()..];
+        for (id, title) in categories(host, route, locale, authed).await {
+            if id > 0 && name_matches(&title, tag) {
+                let moved = sqlx::query(
+                    "UPDATE ttrss_feeds SET cat_id = NULL WHERE cat_id = $1 AND owner_uid = $2",
+                )
+                .bind(id)
+                .bind(authed.uid)
+                .execute(host.pool())
+                .await;
+                if moved.is_err() {
+                    return text(400, "Bad Request!");
+                }
+                // `deleteCategory`: refuse if the folder is not empty
+                let count: i64 = sqlx::query_scalar(
+                    "SELECT count(*) FROM ttrss_feeds WHERE cat_id = $1 AND owner_uid = $2",
+                )
+                .bind(id)
+                .bind(authed.uid)
+                .fetch_optional(host.pool())
+                .await
+                .ok()
+                .flatten()
+                .unwrap_or(0);
+                if count != 0 {
+                    return text(400, "Bad Request!");
+                }
+                let res = sqlx::query(
+                    "DELETE FROM ttrss_feed_categories WHERE id = $1 AND owner_uid = $2",
+                )
+                .bind(id)
+                .bind(authed.uid)
+                .execute(host.pool())
+                .await;
+                if res.is_ok() {
+                    return text(200, "OK");
+                }
+                return text(400, "Bad Request!");
+            }
+        }
+        let (status, content) = api::get_labels(app, Some(authed.uid), &Map::new()).await;
+        if status == api::STATUS_OK
+            && let Some(list) = content.as_array()
+        {
+            for l in list {
+                if let Some(caption) = l.get("caption").and_then(Value::as_str)
+                    && name_matches(caption, tag)
+                {
+                    let label_id: Option<i32> = sqlx::query_scalar(
+                        "SELECT id FROM ttrss_labels2 WHERE caption = $1 AND owner_uid = $2",
+                    )
+                    .bind(caption)
+                    .bind(authed.uid)
+                    .fetch_optional(host.pool())
+                    .await
+                    .ok()
+                    .flatten();
+                    let Some(label_id) = label_id else {
+                        return text(400, "Bad Request!");
+                    };
+                    let detached =
+                        sqlx::query("DELETE FROM ttrss_user_labels2 WHERE label_id = $1")
+                            .bind(label_id)
+                            .execute(host.pool())
+                            .await;
+                    if detached.is_err() {
+                        return text(400, "Bad Request!");
+                    }
+                    let res =
+                        sqlx::query("DELETE FROM ttrss_labels2 WHERE id = $1 AND owner_uid = $2")
+                            .bind(label_id)
+                            .bind(authed.uid)
+                            .execute(host.pool())
+                            .await;
+                    if res.is_ok() {
+                        return text(200, "OK");
+                    }
+                    return text(400, "Bad Request!");
+                }
+            }
+        }
+    }
+    text(400, "Bad Request!")
+}
+
+/// `timestampToSeconds` (freshapi.php:1454): clients send micro per spec,
+/// some send seconds/millis/nanos.
+fn timestamp_to_seconds(ts: &str) -> i64 {
+    // PHP `(int)`: saturates on overflow.
+    let v = ts.parse::<i64>().unwrap_or(i64::MAX);
+    if v >= 100_000_000_000_000_000 {
+        v / 1_000_000_000
+    } else if v >= 100_000_000_000_000 {
+        v / 1_000_000
+    } else if v >= 100_000_000_000 {
+        v / 1_000
+    } else {
+        v
+    }
+}
+
+/// `markAllAsRead` (freshapi.php:1417): every unread article of the stream,
+/// bounded by the `ts` cutoff on `date_entered`. Not write-gated in the
+/// reference (it is not subscription management).
+async fn mark_all_as_read(
+    host: &HostCtx,
+    route: &RouteCtx,
+    locale: &Option<String>,
+    authed: &Authed,
+    s: &str,
+    ts: &str,
+) -> MethodOutput {
+    let stream_id = normalize_stream_id(s.trim());
+    let mut conds: Vec<String> = vec![
+        "a.owner_uid = $1".into(),
+        "a.unread = true".into(),
+        "e.id = a.ref_id".into(),
+    ];
+    let mut args: Vec<i64> = vec![authed.uid as i64];
+    if stream_id == "user/-/state/com.google/starred" {
+        conds.push("a.marked = true".into());
+    } else if stream_id != "user/-/state/com.google/reading-list" {
+        let Some((scope_cond, scope_args)) =
+            stream_scope(host, route, locale, authed, &stream_id).await
+        else {
+            return text(400, "Bad Request!");
+        };
+        // The scope conditions carry their own `$N` placeholders; renumber
+        // past the args bound so far (the reference merges its `?`
+        // placeholders positionally).
+        let offset = args.len();
+        let mut renumbered = String::new();
+        let rest = &scope_cond;
+        // (straightforward scan: `$<digit>` runs become `$<digit + offset>`)
+        let mut i = 0;
+        while i < rest.len() {
+            let ch = rest[i..].chars().next().unwrap();
+            if ch == '$'
+                && let Some(d) = rest[i + 1..].chars().next().and_then(|c| c.to_digit(10))
+            {
+                renumbered.push_str(&format!("${}", d + offset as u32));
+                i += 2;
+            } else {
+                renumbered.push(ch);
+                i += ch.len_utf8();
+            }
+        }
+        conds.push(renumbered);
+        args.extend(scope_args.iter().map(|a| *a as i64));
+    }
+    let cutoff = timestamp_to_seconds(ts);
+    if cutoff > 0 {
+        conds.push(format!(
+            "e.date_entered < (to_timestamp(${}) AT TIME ZONE 'UTC')",
+            args.len() + 1
+        ));
+        args.push(cutoff);
+    }
+    // All fragments are code constants (the scope conditions come from
+    // `stream_scope`'s fixed set).
+    let where_sql: String = conds.join(" AND ");
+    let mut res = sqlx::query(AssertSqlSafe(format!(
+        "UPDATE ttrss_user_entries a SET unread = false, last_read = NOW()
+         FROM ttrss_entries e WHERE {where_sql}"
+    )));
+    for a in &args {
+        res = res.bind(*a);
+    }
+    match res.execute(host.pool()).await {
+        Ok(_) => text(200, "OK"),
+        Err(_) => internal_error(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::urldecode;
+    use super::{normalize_stream_id, urldecode};
 
     /// PHP `urldecode` is lenient: valid sequences decode, invalid ones
     /// stay literal. Pinned against PHP's behavior.
@@ -1550,5 +2240,29 @@ mod tests {
         assert_eq!(urldecode("%C3%A9"), "\u{e9}"); // multi-byte UTF-8
         assert_eq!(urldecode("%c"), "%c"); // non-hex
         assert_eq!(urldecode(""), "");
+    }
+
+    /// `normalizeStreamId` (freshapi.php:898): only a leading
+    /// `user/<x>/(state|label)/` is rewritten; `user/` elsewhere (feed
+    /// URLs) is untouched.
+    #[test]
+    fn test_normalize_stream_id() {
+        assert_eq!(
+            normalize_stream_id("user/1234/state/com.google/starred"),
+            "user/-/state/com.google/starred"
+        );
+        assert_eq!(
+            normalize_stream_id("user/joe/label/inbox"),
+            "user/-/label/inbox"
+        );
+        assert_eq!(
+            normalize_stream_id("user/-/state/com.google/read"),
+            "user/-/state/com.google/read"
+        );
+        assert_eq!(
+            normalize_stream_id("feed/https://example.com/user/joe/rss"),
+            "feed/https://example.com/user/joe/rss"
+        );
+        assert_eq!(normalize_stream_id("feed/3"), "feed/3");
     }
 }

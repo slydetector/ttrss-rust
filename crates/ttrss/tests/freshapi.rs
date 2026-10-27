@@ -4,10 +4,12 @@
 //! `admin`/`password`).
 //!
 //! The reference (freshapi/api/freshapi.php) ships no test suite; the
-//! cases here pin the v1 endpoint contract: ClientLogin + session auth,
+//! cases here pin the endpoint contract: ClientLogin + session auth,
 //! stream/contents (all four scopes), stream/items/ids,
 //! stream/items/contents, edit-tag, unread-count, tag/list, token,
-//! user-info.
+//! user-info, and the phase-2 management verbs (subscription
+//! list/export/import/edit/quickadd, rename-tag, disable-tag,
+//! mark-all-as-read).
 
 use crate::common;
 use axum::Router;
@@ -407,6 +409,8 @@ async fn test_stream_contents_scopes() {
             let id = first["id"].as_str().unwrap();
             assert!(id.starts_with("tag:google.com,2005:reader/item/"), "{id}");
             let hex = &id["tag:google.com,2005:reader/item/".len()..];
+            // `dec2hex`: 16 zero-padded hex chars.
+            assert_eq!(hex.len(), 16, "{id}");
             let n: i64 = i64::from_str_radix(hex, 16).unwrap();
             assert!((1..=11).contains(&n), "fixture id: {n}");
             assert_eq!(first["crawlTimeMsec"], format!("{}000", first["published"]));
@@ -799,6 +803,681 @@ async fn test_unread_count_and_tag_list() {
                 .collect();
             assert!(label_ids.contains(&"user/-/label/test-label-1"));
             assert!(label_ids.contains(&"user/-/label/test-label-2"));
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
+}
+
+// ── Phase 2: management verbs ───────────────────────────────────────────────
+
+const MOCK_FEED: &str = include_str!("../../../tt-rss/tests_integration/feed.xml");
+
+/// A canned mock feed server (one good RSS body, repeated).
+fn mock_feed_server() -> common::MockServer {
+    common::MockServer::new(vec![common::Canned {
+        status: 200,
+        reason: "OK",
+        headers: vec![],
+        body: MOCK_FEED.as_bytes().to_vec(),
+    }])
+}
+
+/// `subscription/list?output=json`: the four fixture feeds in title order,
+/// per-feed category label (cat 1/2), the icon URL, url/htmlUrl.
+#[tokio::test]
+async fn test_subscription_list() {
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sid) = setup(&url).await;
+            let resp = app(state.clone())
+                .oneshot(auth_req(
+                    Method::GET,
+                    &format!("{BASE}/freshapi/reader/api/0/subscription/list?output=json"),
+                    "",
+                    &sid,
+                ))
+                .await
+                .expect("response");
+            assert_eq!(resp.status(), StatusCode::OK);
+            let v = json_body(resp).await;
+            let subs = v["subscriptions"].as_array().unwrap();
+            assert_eq!(subs.len(), 4);
+            // ORDER BY title
+            let titles: Vec<&str> = subs.iter().map(|s| s["title"].as_str().unwrap()).collect();
+            assert_eq!(
+                titles,
+                vec![
+                    "Ars Technica",
+                    "Hacker News",
+                    "MIT Tech Review",
+                    "The Register"
+                ]
+            );
+            let hn = &subs[1];
+            assert_eq!(hn["id"], "feed/1");
+            assert_eq!(hn["categories"][0]["id"], "user/-/label/Technology");
+            assert_eq!(hn["categories"][0]["label"], "Technology");
+            assert_eq!(hn["url"], "https://hnrss.org/frontpage");
+            assert_eq!(hn["htmlUrl"], "https://news.ycombinator.com");
+            assert!(
+                hn["iconUrl"]
+                    .as_str()
+                    .unwrap()
+                    .ends_with("/public.php?op=feed_icon&id=1.ico")
+            );
+            // `output` must be json
+            let resp = app(state.clone())
+                .oneshot(auth_req(
+                    Method::GET,
+                    &format!("{BASE}/freshapi/reader/api/0/subscription/list"),
+                    "",
+                    &sid,
+                ))
+                .await
+                .expect("response");
+            assert_eq!(resp.status(), StatusCode::NOT_IMPLEMENTED);
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
+}
+
+/// `subscription/edit`: folder moves (`a=`/`r=`), folder creation for a
+/// new `a=`, rename (`t=`), and the double `feed/` prefix.
+#[tokio::test]
+async fn test_subscription_edit() {
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sid) = setup(&url).await;
+            let post = |body: &str| {
+                let (state, sid) = (&state, sid.clone());
+                let body = body.to_string();
+                Box::pin(async move {
+                    let resp = app(state.clone())
+                        .oneshot(auth_req(
+                            Method::POST,
+                            &format!("{BASE}/freshapi/reader/api/0/subscription/edit"),
+                            &body,
+                            &sid,
+                        ))
+                        .await
+                        .expect("response");
+                    assert_eq!(resp.status(), StatusCode::OK, "{body}");
+                    text(resp).await
+                })
+            };
+            let cat_of = |feed: i32| {
+                let state = &state;
+                Box::pin(async move {
+                    sqlx::query_scalar("SELECT cat_id FROM ttrss_feeds WHERE id = $1")
+                        .bind(feed)
+                        .fetch_optional(state.db.pool())
+                        .await
+                        .unwrap()
+                        .flatten()
+                })
+            };
+
+            // move feed 4: Science & Nature -> Technology (r + a)
+            assert_eq!(
+                post("s=feed/4&r=user/-/label/Science%20%26%20Nature&a=user/-/label/Technology&ac=edit").await,
+                "OK"
+            );
+            assert_eq!(cat_of(4).await, Some(1));
+
+            // move feed 4 into a brand-new folder (a= only)
+            assert_eq!(
+                post("s=feed/4&a=user/-/label/News&ac=edit").await,
+                "OK"
+            );
+            let news_cat = sqlx::query_scalar("SELECT id FROM ttrss_feed_categories WHERE title = 'News' AND owner_uid = 1")
+                .fetch_optional(state.db.pool())
+                .await
+                .unwrap()
+                .flatten()
+                .expect("News folder created");
+            assert_eq!(cat_of(4).await, Some(news_cat));
+
+            // move feed 4 back to uncategorized (r= only)
+            assert_eq!(
+                post("s=feed/4&r=user/-/label/News&ac=edit").await,
+                "OK"
+            );
+            assert_eq!(cat_of(4).await, None);
+
+            // rename feed 1 (t=)
+            assert_eq!(
+                post("s=feed/1&t=HN&ac=edit").await,
+                "OK"
+            );
+            let title: String = sqlx::query_scalar("SELECT title FROM ttrss_feeds WHERE id = 1")
+                .fetch_one(state.db.pool())
+                .await
+                .unwrap();
+            assert_eq!(title, "HN");
+
+            // double `feed/` prefix is stripped
+            assert_eq!(
+                post("s=feed/feed/1&t=Hacker%20News&ac=edit").await,
+                "OK"
+            );
+            let title: String = sqlx::query_scalar("SELECT title FROM ttrss_feeds WHERE id = 1")
+                .fetch_one(state.db.pool())
+                .await
+                .unwrap();
+            assert_eq!(title, "Hacker News");
+
+            // unknown (non-numeric, unresolvable) feed for `edit` -> 400
+            let resp = app(state.clone())
+                .oneshot(auth_req(
+                    Method::POST,
+                    &format!("{BASE}/freshapi/reader/api/0/subscription/edit"),
+                    "s=feed/not-a-real-feed-url&ac=edit",
+                    &sid,
+                ))
+                .await
+                .expect("response");
+            assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
+}
+
+/// `subscription/edit` subscribe + unsubscribe against the mock server,
+/// and `subscription/quickadd` (success + an invalid URL).
+#[tokio::test]
+async fn test_subscription_subscribe_unsubscribe_quickadd() {
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sid) = setup(&url).await;
+            let mock = mock_feed_server();
+            let feed_url = mock.url("/feed.xml");
+
+            // subscribe (s=feed/<url>, the reference's wire form)
+            let body = format!("s=feed/{feed_url}&ac=subscribe");
+            let resp = app(state.clone())
+                .oneshot(auth_req(
+                    Method::POST,
+                    &format!("{BASE}/freshapi/reader/api/0/subscription/edit"),
+                    &body,
+                    &sid,
+                ))
+                .await
+                .expect("response");
+            assert_eq!(resp.status(), StatusCode::OK);
+            assert_eq!(text(resp).await, "OK");
+            let new_id: i32 = sqlx::query_scalar("SELECT id FROM ttrss_feeds WHERE feed_url = $1")
+                .bind(&feed_url)
+                .fetch_one(state.db.pool())
+                .await
+                .unwrap();
+
+            // quickadd (success)
+            let body = format!("quickadd={}", mock.url("/feed2.xml"));
+            let resp = app(state.clone())
+                .oneshot(auth_req(
+                    Method::POST,
+                    &format!("{BASE}/freshapi/reader/api/0/subscription/quickadd"),
+                    &body,
+                    &sid,
+                ))
+                .await
+                .expect("response");
+            let v: Value = json_body(resp).await;
+            assert_eq!(v["numResults"], 1);
+            assert_eq!(
+                v["streamId"],
+                format!("feed/{}", {
+                    let id: i32 =
+                        sqlx::query_scalar("SELECT id FROM ttrss_feeds WHERE feed_url = $1")
+                            .bind(mock.url("/feed2.xml"))
+                            .fetch_one(state.db.pool())
+                            .await
+                            .unwrap();
+                    id
+                })
+            );
+            assert!(!v["streamName"].as_str().unwrap().is_empty());
+
+            // quickadd (unfetchable URL -> numResults 0 + error)
+            let resp = app(state.clone())
+                .oneshot(auth_req(
+                    Method::POST,
+                    &format!("{BASE}/freshapi/reader/api/0/subscription/quickadd"),
+                    "quickadd=not-a-url",
+                    &sid,
+                ))
+                .await
+                .expect("response");
+            let v = json_body(resp).await;
+            assert_eq!(v["numResults"], 0);
+            assert!(v["error"].as_str().unwrap().contains("Failed to add feed"));
+
+            // unsubscribe
+            let body = format!("s=feed/{new_id}&ac=unsubscribe");
+            let resp = app(state.clone())
+                .oneshot(auth_req(
+                    Method::POST,
+                    &format!("{BASE}/freshapi/reader/api/0/subscription/edit"),
+                    &body,
+                    &sid,
+                ))
+                .await
+                .expect("response");
+            assert_eq!(resp.status(), StatusCode::OK);
+            let gone: i64 = sqlx::query_scalar("SELECT count(*) FROM ttrss_feeds WHERE id = $1")
+                .bind(new_id)
+                .fetch_one(state.db.pool())
+                .await
+                .unwrap();
+            assert_eq!(gone, 0);
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
+}
+
+/// `subscription/export`: the OPML of the fixture feeds; `subscription/import`:
+/// an OPML body round-trips new feeds, GET is a 400, non-OPML bodies 400.
+#[tokio::test]
+async fn test_subscription_export_import() {
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sid) = setup(&url).await;
+            let mock = mock_feed_server();
+
+            let resp = app(state.clone())
+                .oneshot(auth_req(
+                    Method::GET,
+                    &format!("{BASE}/freshapi/reader/api/0/subscription/export"),
+                    "",
+                    &sid,
+                ))
+                .await
+                .expect("response");
+            assert_eq!(resp.status(), StatusCode::OK);
+            assert_eq!(
+                resp.headers().get("content-type").unwrap(),
+                "application/xml+opml"
+            );
+            let opml = text(resp).await;
+            assert!(opml.contains("<opml"));
+            assert!(opml.contains("Hacker News"));
+            assert!(opml.contains("https://hnrss.org/frontpage"));
+
+            // import: a new feed into a new category
+            let body = format!(
+                r#"<?xml version="1.0"?>
+                <opml version="2.0">
+                  <head><title>import</title></head>
+                  <body>
+                    <outline text="News">
+                      <outline text="Imported" type="subscription"
+                               xmlUrl="{u}" htmlUrl="https://example.com"/>
+                    </outline>
+                  </body>
+                </opml>"#,
+                u = mock.url("/feed3.xml")
+            );
+            let resp = app(state.clone())
+                .oneshot(auth_req(
+                    Method::POST,
+                    &format!("{BASE}/freshapi/reader/api/0/subscription/import"),
+                    &body,
+                    &sid,
+                ))
+                .await
+                .expect("response");
+            assert_eq!(resp.status(), StatusCode::OK);
+            let out = text(resp).await;
+            assert!(out.ends_with("Done!"), "{out}");
+            let imported: Option<i32> =
+                sqlx::query_scalar("SELECT id FROM ttrss_feeds WHERE feed_url = $1")
+                    .bind(mock.url("/feed3.xml"))
+                    .fetch_optional(state.db.pool())
+                    .await
+                    .unwrap()
+                    .flatten();
+            assert!(imported.is_some());
+
+            // GET import -> 400; non-OPML body -> 400
+            let resp = app(state.clone())
+                .oneshot(auth_req(
+                    Method::GET,
+                    &format!("{BASE}/freshapi/reader/api/0/subscription/import"),
+                    "",
+                    &sid,
+                ))
+                .await
+                .expect("response");
+            assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+            let resp = app(state.clone())
+                .oneshot(auth_req(
+                    Method::POST,
+                    &format!("{BASE}/freshapi/reader/api/0/subscription/import"),
+                    "hello",
+                    &sid,
+                ))
+                .await
+                .expect("response");
+            assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
+}
+
+/// `rename-tag` (category wins over a same-named label) and `disable-tag`
+/// (a category is emptied of feeds and deleted; a label detaches articles).
+#[tokio::test]
+async fn test_rename_disable_tag() {
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sid) = setup(&url).await;
+            let post = |path: &str, body: &str| {
+                let (state, sid) = (&state, sid.clone());
+                let (path, body) = (path.to_string(), body.to_string());
+                Box::pin(async move {
+                    let resp = app(state.clone())
+                        .oneshot(auth_req(
+                            Method::POST,
+                            &format!("{BASE}/freshapi/reader/api/0/{path}"),
+                            &body,
+                            &sid,
+                        ))
+                        .await
+                        .expect("response");
+                    let status = resp.status();
+                    let body = text(resp).await;
+                    (status, body)
+                })
+            };
+
+            // rename a category
+            let (status, body) = post(
+                "rename-tag",
+                "s=user/-/label/Technology&dest=user/-/label/Tech",
+            )
+            .await;
+            assert_eq!((status, body), (StatusCode::OK, "OK".to_string()));
+            let title: Option<String> =
+                sqlx::query_scalar("SELECT title FROM ttrss_feed_categories WHERE id = 1")
+                    .fetch_optional(state.db.pool())
+                    .await
+                    .unwrap()
+                    .flatten();
+            assert_eq!(title.as_deref(), Some("Tech"));
+
+            // rename a label
+            let (status, body) = post(
+                "rename-tag",
+                "s=user/-/label/test-label-1&dest=user/-/label/l1-renamed",
+            )
+            .await;
+            assert_eq!((status, body), (StatusCode::OK, "OK".to_string()));
+            let caption: String =
+                sqlx::query_scalar("SELECT caption FROM ttrss_labels2 WHERE id = 1")
+                    .fetch_one(state.db.pool())
+                    .await
+                    .unwrap();
+            assert_eq!(caption, "l1-renamed");
+
+            // unknown tag -> 400
+            let (status, _) = post("rename-tag", "s=user/-/label/nope&dest=user/-/label/x").await;
+            assert_eq!(status, StatusCode::BAD_REQUEST);
+
+            // disable the category: its 3 feeds go to uncategorized, the
+            // row is deleted
+            let (status, body) = post("disable-tag", "s=user/-/label/Tech").await;
+            assert_eq!((status, body), (StatusCode::OK, "OK".to_string()));
+            let cat_rows: i64 =
+                sqlx::query_scalar("SELECT count(*) FROM ttrss_feed_categories WHERE id = 1")
+                    .fetch_one(state.db.pool())
+                    .await
+                    .unwrap();
+            assert_eq!(cat_rows, 0);
+            let uncats: i64 =
+                sqlx::query_scalar("SELECT count(*) FROM ttrss_feeds WHERE cat_id IS NULL")
+                    .fetch_one(state.db.pool())
+                    .await
+                    .unwrap();
+            assert_eq!(uncats, 3); // feeds 1-3 moved (feed 4 stays in cat 2)
+
+            // disable a label: article attachments + the row go
+            let (status, body) = post("disable-tag", "s=user/-/label/l1-renamed").await;
+            assert_eq!((status, body), (StatusCode::OK, "OK".to_string()));
+            let label_rows: i64 =
+                sqlx::query_scalar("SELECT count(*) FROM ttrss_labels2 WHERE id = 1")
+                    .fetch_one(state.db.pool())
+                    .await
+                    .unwrap();
+            assert_eq!(label_rows, 0);
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
+}
+
+/// `mark-all-as-read`: feed / starred / reading-list scopes, the `ts`
+/// cutoff, label scope, unknown stream -> 400.
+#[tokio::test]
+async fn test_mark_all_as_read() {
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sid) = setup(&url).await;
+            let unread = |feed: Option<i32>| {
+                let state = &state;
+                Box::pin(async move {
+                    if let Some(f) = feed {
+                        sqlx::query_scalar::<_, i64>(
+                            "SELECT count(*) FROM ttrss_user_entries WHERE unread AND feed_id = $1",
+                        )
+                        .bind(f)
+                        .fetch_one(state.db.pool())
+                        .await
+                        .unwrap()
+                    } else {
+                        sqlx::query_scalar::<_, i64>(
+                            "SELECT count(*) FROM ttrss_user_entries WHERE unread",
+                        )
+                        .fetch_one(state.db.pool())
+                        .await
+                        .unwrap()
+                    }
+                })
+            };
+
+            let post = |body: &str| {
+                let (state, sid) = (&state, sid.clone());
+                let body = body.to_string();
+                Box::pin(async move {
+                    let resp = app(state.clone())
+                        .oneshot(auth_req(
+                            Method::POST,
+                            &format!("{BASE}/freshapi/reader/api/0/mark-all-as-read"),
+                            &body,
+                            &sid,
+                        ))
+                        .await
+                        .expect("response");
+                    let status = resp.status();
+                    let body = text(resp).await;
+                    (status, body)
+                })
+            };
+
+            // feed 1: its 2 unread articles go read
+            assert_eq!(unread(Some(1)).await, 2);
+            let (status, body) = post("s=feed/1").await;
+            assert_eq!((status, body), (StatusCode::OK, "OK".to_string()));
+            assert_eq!(unread(Some(1)).await, 0);
+            let total = unread(None).await;
+            assert!(total > 0, "other feeds stay unread: {total}");
+
+            // reading-list: everything remaining goes read
+            let (status, body) = post("s=user/-/state/com.google/reading-list").await;
+            assert_eq!((status, body), (StatusCode::OK, "OK".to_string()));
+            assert_eq!(unread(None).await, 0);
+
+            // starred: mark the read state untouched (all read now) —
+            // restore one unread, then mark the starred stream (article 3
+            // is the only starred fixture article)
+            sqlx::query("UPDATE ttrss_user_entries SET unread = true WHERE ref_id = 3")
+                .execute(state.db.pool())
+                .await
+                .unwrap();
+            let (status, body) = post("s=user/-/state/com.google/starred").await;
+            assert_eq!((status, body), (StatusCode::OK, "OK".to_string()));
+            let starred_unread: i64 = sqlx::query_scalar(
+                "SELECT count(*) FROM ttrss_user_entries WHERE unread AND marked",
+            )
+            .fetch_one(state.db.pool())
+            .await
+            .unwrap();
+            assert_eq!(starred_unread, 0);
+            let remaining: i64 =
+                sqlx::query_scalar("SELECT count(*) FROM ttrss_user_entries WHERE unread")
+                    .fetch_one(state.db.pool())
+                    .await
+                    .unwrap();
+            assert_eq!(remaining, 0); // the restored article 3 was starred -> read
+
+            // ts cutoff: restore feed 2 (3 unread, older fixture dates),
+            // a cutoff before all of them marks none; after all, marks all
+            sqlx::query("UPDATE ttrss_user_entries SET unread = true WHERE feed_id = 2")
+                .execute(state.db.pool())
+                .await
+                .unwrap();
+            let (status, body) = post("s=feed/2&ts=1").await;
+            assert_eq!((status, body), (StatusCode::OK, "OK".to_string()));
+            assert_eq!(unread(Some(2)).await, 3);
+            let (status, body) = post("s=feed/2&ts=4102444800000000").await;
+            assert_eq!((status, body), (StatusCode::OK, "OK".to_string()));
+            assert_eq!(unread(Some(2)).await, 0);
+
+            // label scope: attach a label to an unread article, mark it
+            sqlx::query("UPDATE ttrss_user_entries SET unread = true WHERE ref_id = 5")
+                .execute(state.db.pool())
+                .await
+                .unwrap();
+            sqlx::query("INSERT INTO ttrss_user_labels2 (label_id, article_id) VALUES ($1, 5)")
+                .bind(2)
+                .execute(state.db.pool())
+                .await
+                .unwrap();
+            let (status, body) = post("s=user/-/label/test-label-2").await;
+            assert_eq!((status, body), (StatusCode::OK, "OK".to_string()));
+            let five_unread: i64 = sqlx::query_scalar(
+                "SELECT count(*) FROM ttrss_user_entries WHERE unread AND ref_id = 5",
+            )
+            .fetch_one(state.db.pool())
+            .await
+            .unwrap();
+            assert_eq!(five_unread, 0);
+
+            // unknown stream -> 400; non-numeric ts -> 400
+            let (status, _) = post("s=user/-/label/no-such-label").await;
+            assert_eq!(status, StatusCode::BAD_REQUEST);
+            let (status, _) = post("s=feed/1&ts=abc").await;
+            assert_eq!(status, StatusCode::BAD_REQUEST);
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
+}
+
+/// The write verbs (import / edit / quickadd / rename / disable) are 403 for
+/// a read-only user; the read verbs and mark-all-as-read (not write-gated in
+/// the reference) still work.
+#[tokio::test]
+async fn test_readonly_gates() {
+    with_test_db(|url| {
+        Box::pin(async move {
+            // Read-only from the first login: a level change after the
+            // fact would invalidate the session (access level is part of
+            // the per-request validation) -> 401, not 403.
+            let db = common::make_db_from_url(&url).await.expect("test db");
+            let mut state = AppState::new(common::test_config(), db);
+            state.plugins = Arc::new(PluginHost::startup(&all_plugin_factories()));
+            enable_freshapi(&state).await;
+            sqlx::query("UPDATE ttrss_users SET access_level = -1 WHERE id = 1")
+                .execute(state.db.pool())
+                .await
+                .unwrap();
+            let sid = client_login(&state, "admin", "password").await.sid;
+            let call = |method: Method, path: &str, body: &str| {
+                let (state, sid) = (&state, sid.clone());
+                let (path, body) = (path.to_string(), body.to_string());
+                Box::pin(async move {
+                    let resp = app(state.clone())
+                        .oneshot(auth_req(
+                            method,
+                            &format!("{BASE}/freshapi/reader/api/0/{path}"),
+                            &body,
+                            &sid,
+                        ))
+                        .await
+                        .expect("response");
+                    let status = resp.status();
+                    let body = text(resp).await;
+                    (status, body)
+                })
+            };
+            // the 403s
+            assert_eq!(
+                call(Method::POST, "subscription/import", "<opml></opml>").await,
+                (StatusCode::FORBIDDEN, "Forbidden!".to_string())
+            );
+            assert_eq!(
+                call(Method::POST, "subscription/edit", "s=feed/1&ac=edit&t=x").await,
+                (StatusCode::FORBIDDEN, "Forbidden!".to_string())
+            );
+            assert_eq!(
+                call(
+                    Method::POST,
+                    "subscription/quickadd",
+                    "quickadd=http://127.0.0.1:1/f"
+                )
+                .await,
+                (StatusCode::FORBIDDEN, "Forbidden!".to_string())
+            );
+            assert_eq!(
+                call(
+                    Method::POST,
+                    "rename-tag",
+                    "s=user/-/label/a&dest=user/-/label/b"
+                )
+                .await,
+                (StatusCode::FORBIDDEN, "Forbidden!".to_string())
+            );
+            assert_eq!(
+                call(Method::POST, "disable-tag", "s=user/-/label/a").await,
+                (StatusCode::FORBIDDEN, "Forbidden!".to_string())
+            );
+            // reads + mark-all-as-read are not gated
+            assert_eq!(
+                call(Method::GET, "subscription/list?output=json", "")
+                    .await
+                    .0,
+                StatusCode::OK
+            );
+            assert_eq!(
+                call(Method::GET, "subscription/export", "").await.0,
+                StatusCode::OK
+            );
+            assert_eq!(
+                call(Method::POST, "mark-all-as-read", "s=feed/1").await.0,
+                StatusCode::OK
+            );
             Ok(())
         })
     })

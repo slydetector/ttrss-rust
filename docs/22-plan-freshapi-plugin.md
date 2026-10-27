@@ -208,7 +208,16 @@ decimal-string conversion happens).
    `unread-count`, `tag/list`, `user-info`, `token`. (Enough for a GR
    client to log in and read.)
 2. **v2 management** — `subscription/list|edit|quickadd|export|import`,
-   `rename-tag`, `disable-tag`, `mark-all-as-read`.
+   `rename-tag`, `disable-tag`, `mark-all-as-read`. **Done (2026-10-26):**
+   all eight verbs, the `requireWriteAccess` 403 gate (import / edit /
+   quickadd / rename / disable only — `mark-all-as-read` is not write-gated
+   in the reference), reusing `api::subscribe_to_feed` / `unsubscribe_feed`,
+   `opml::export` / `import`, and the phase-1 `stream_scope`. Deviations
+   (documented in code): the OPML export uses the opml module's
+   `application/xml+opml` type (the reference emits PHP's default
+   text/html); `opml::import` runs on the bytes directly (no temp file);
+   the read-only check reads the session's access level (DB-validated per
+   request) instead of a fresh user query.
 
 ### Phase 0 sketch
 
@@ -564,14 +573,16 @@ No new host capability, no new dependencies beyond phase 1. The phase-1
 
 ## Decisions to revisit
 
-Both deferred until the implementation is further along:
-
 - **`stream/contents` full-fidelity knobs** (`it`/`xt` filters,
-  `ot`/`nt` time ranges, `c` continuation): freshapi accepts but mostly
-  ignores these (it clamps `n` to 10000 and passes times through).
-  Decide match-freshapi vs. implement-filters when the endpoint is built.
-- **NetNewsWire UA quirk** (hex-decoding decimal ids): faithful but
-  ugly; decide keep vs. drop when the id decode is implemented.
+  `ot`/`nt` time ranges, `c` continuation) — **settled (2026-10-26):
+  match-freshapi.** The reference computes `min_date` from `ot` and never
+  uses it (`streamContents` passes only `limit`/`skip`/`view_mode`/
+  `feed_id`/`order_by` to `getHeadlines`); `it`/`xt`/`nt` are read and
+  dropped. The port does the same — nothing to implement.
+- **NetNewsWire UA quirk** (hex-decoding decimal ids) — **settled
+  (2026-10-26): keep.** Landed in phase 1 (`stream/items/contents`,
+  `edit-tag`): the `substr(ua, 0, 11) == "NetNewsWire"` prefix check +
+  `hex2dec` of decimal ids, verbatim.
 
 Settled: the freshapi-compat path **stays** (the odd URL is the
 drop-in story — see Mount point).
