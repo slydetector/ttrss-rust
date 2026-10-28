@@ -4,7 +4,6 @@ target/
 
 # Oracle generated data (dumps, fixtures, logs)
 oracle/data/
-oracle/corpus/scenarios.toml
 
 # Local env / secrets (oracle/.env is non-sensitive and committed on purpose)
 .env

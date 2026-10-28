@@ -1,19 +1,22 @@
-# Oracle: dockerized PHP tt-rss + golden dataset + corpus
+# Oracle: dockerized PHP tt-rss + golden dataset
 
-> **Retired (2026-09-19).** The corpus is no longer part of the workspace's
-> green definition — verification is the Rust test suite (unit/DB tests +
-> PHP test-parity; see `AGENTS.md`). The machinery (stack, seed, recorders,
-> diff tool) is kept for reference in case the differential approach is
-> revived.
+> The **record/replay harness is retired (2026-09-19) and removed (2026-10-27)**:
+> the corpus, the `crates/harness` diff tool and the `make harness`/`record`
+> targets are gone. Verification is the Rust test suite (unit/DB tests +
+> PHP test-parity; see `AGENTS.md`). What remains is the live stack, the
+> golden dataset and the param recorders.
 
-The oracle is a live, stock Tiny Tiny RSS (PHP) deployment that serves two
-purposes:
+The oracle is a live, stock Tiny Tiny RSS (PHP) deployment:
 
-1. **Reference implementation** for the ttrss port: the harness records its
-   HTTP behavior as fixtures (golden corpus), and the Rust server is diffed
-   against it.
-2. **Performance baseline**: `scripts/bench.sh` measures PHP-FPM latency for
-   the key endpoints; the Rust server must beat it.
+1. **Reference implementation** for the ttrss port — run stock PHP side by
+   side with the Rust server for parity checking.
+2. **Development database** — `make run` / `make demo-*` point the Rust
+   server at the oracle Postgres (golden dataset, `oracle/.env` creds).
+3. **Param-differential recorders** — `make record-params` drives the real
+   PHP helpers and records the fixtures the Rust tests compare against
+   (no oracle stack required, just the public PHP image).
+4. **Performance baseline**: `scripts/bench.sh` measures PHP-FPM latency for
+   the key endpoints.
 
 ## Layout
 
@@ -33,15 +36,12 @@ oracle/
 │   ├── record_params.sh  # re-record the param-differential fixtures (PHP 8.5 container)
 │   ├── bench.sh          # latency baseline -> oracle/data/baseline.json
 │   └── census.sh         # nginx request-distribution summary
-├── corpus/
-│   └── scenarios.template.toml   # the 61-step record/replay suite (53 active; 8 skipped)
 └── data/                 # generated (gitignored)
     ├── golden-db.sql     # frozen full DB dump (the golden dataset)
     ├── cache/            # copied app cache (feed icons, cached feed XML)
     ├── db-manifest.json  # row counts + key facts
-    ├── ids.json          # feed/category/user ids + credentials for the harness
-    ├── baseline.json     # PHP-FPM latency baseline
-    └── runs/<name>/      # harness fixtures: NNN_<step>.json
+    ├── ids.json          # feed/category/user ids + credentials
+    └── baseline.json     # PHP-FPM latency baseline
 ```
 
 ## Stack
@@ -117,117 +117,17 @@ fails until you re-baseline. Pick one:
   first). Use it when the recipe's *data* actually changed.
 
 The recorded dataset is only valid for the seed recipe that produced it.
-`harness.sh` runs the same check before build/reset, so a drifted dataset
-can never silently serve as the baseline of a harness run.
-
-## Corpus
-
-`corpus/scenarios.template.toml` defines 61 ordered steps covering (steps
-marked `skip = true` are kept for re-enablement but not executed or diffed)
-
-- public.php: healthz, login page, static assets
-- web login (admin: frictionless username/password → 302), shell, prefs
-  shell, ETag/304
-- backend.php RPC: runtime info, counters, sanity check, updates, hotkeys
-- Pref_Feeds: feed trees, feeds with errors, inactive feeds
-- Feeds::view: unread / all / category headlines, search, update debugger
-- Article: metadata, tags; Pref_Labels tree; Pref_Filters tree
-- Pref_Users: index + details; Pref_System: scheduled tasks
-- Pref_Prefs: profiles, plugins list/available, digest preview
-- external JSON API (level 23): login (app password), isLoggedIn, config,
-  unread, counters, feeds, categories, feed tree, labels, headlines (feed +
-  category), article, getPref
-- syndication: RSS/Atom with valid feed & category keys, bad key (403),
-  cached file, feed icon
-- logout; readonly user login + feed tree + headlines ("Feed not found");
-  otpuser login (OTP challenge 200 → code 302), shell, logout.
-  Skipped: checkforupdates (011, live GitHub data), digest preview (032,
-  time-window drift), the admin logout flow (051–052), and the otpuser
-  flow (058–061) — see `docs/01-plan.md` (harness triage).
-
-Run it:
-
-```sh
-harness run --scenarios oracle/corpus/scenarios.template.toml \
-    --vars oracle/data/ids.json --out oracle/data/runs/<name>
-```
-
-Variables like `{{totp:{{totp_secret}}}}` compute live TOTP codes. Steps
-re-execute per run, so volatile session/CSRF/API-sid values are always
-re-derived; `--vars` supplies the stable seeded facts.
-
-## Proving the harness (self-replay)
-
-Two runs minutes apart must diff clean after normalization:
-
-```sh
-harness run ... --out oracle/data/runs/oracle-a
-harness run ... --out oracle/data/runs/oracle-b
-harness diff --a oracle/data/runs/oracle-a --b oracle/data/runs/oracle-b
-# -> 61 exchange(s): 61 match, 0 mismatch
-```
-
-Normalizations applied at diff time: CSRF tokens / session ids / sids dropped
-from JSON; `recent_log_events` dropped (grows with request history);
-ISO/RFC822/`Y/m/d H:i` timestamps -> `<ts>`; tt-rss "smart dates" (`13:28`,
-`1 Jan, 12:00`, `Thu, 1 Jan 2026` — display renderings of stored datetimes
-that logins/updates re-stamp between runs) -> `<ts>`;
-32/40/64-hex -> `<hex32>/<sha1>/<hex64>`; URL authority ports stripped
-(`http://127.0.0.1:8280/...` == `http://127.0.0.1:8281/...`, literal and
-percent-encoded) so the oracle (8280) and Rust (8281) compare; all header
-values (notably `set-cookie` and `location`) normalized the same way.
-
-## Known Rust↔Oracle mismatches
-
-The corpus is recorded from the *live* oracle and replayed against Rust a few
-minutes later, and the golden feed content is re-fetched on each re-seed — so
-two cases can show a diff that is not a Rust defect (neither is 15→17 related):
-
-- **`050_api_get_headlines_has_sandbox`** — the golden contains a Firefox-blog
-  article whose body embeds a **YouTube** `<iframe>`. The active
-  `af_youtube_embed` plugin hooks `HOOK_IFRAME_WHITELISTED` for the YouTube
-  hosts, so the oracle applies the *expanded* sandbox
-  (`allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox`)
-  and a bare `allowfullscreen`. The port has no M7 plugin system yet, so
-  `sanitizer::iframe_whitelisted` is a documented `false` stub and Rust emits
-  the restrictive `sandbox="allow-scripts"` (and `allowfullscreen=""`). This is
-  the tracked M7 gap, not a sanitizer defect — it only surfaces once re-seeded
-  content actually contains a whitelisted (YouTube) iframe; a golden without one
-  diffs clean.
-
-- **`019_headlines_category`** — the `updated` field is a relative "N min" age.
-  The diff normalizes tt-rss *smart dates* to `<ts>` (above) but not the
-  sub-hour "N min" form, so if `record` and the Rust replay straddle a minute
-  boundary the sides differ by exactly one minute (`"18 min"` vs `"19 min"`).
-  A timing artifact, not a content divergence; clean when record and replay
-  land in the same minute.
 
 ## Reuse for the Rust server
 
-**The canonical interface is the top-level `Makefile`** — `make harness` resets
-the oracle DB to the golden baseline (reproducible), builds the server + harness,
-starts the Rust server on `127.0.0.1:8281` (self URL `http://127.0.0.1:8281/tt-rss/`),
-runs the corpus, and diffs against `oracle/data/runs/oracle-a` (it calls
-`oracle/scripts/harness.sh`):
+**The canonical interface is the top-level `Makefile`** — the `oracle-*`
+targets manage the stack, `make run` / `make demo-*` run the Rust server
+against the oracle database (golden baseline via `make demo-reset`):
 
 ```sh
-make harness                         # full run + diff vs oracle-a
-make harness ARGS=--no-build         # reuse existing binaries
-make harness ARGS=--no-reset         # skip the DB reset
-make harness-keep                    # leave the Rust server running
-make run                             # just run the Rust server (foreground)
-make record-params                   # re-record param fixtures from frozen PHP
+make oracle-up / oracle-down     # manage the PHP stack
+make oracle-seed                 # regenerate the golden dataset
+make oracle-snapshot / -restore / -reset / -check
+make run                         # run the Rust server (foreground, :9000)
+make record-params               # re-record param fixtures from frozen PHP
 ```
-
-The diff strips the authority port, so the oracle (8280) and Rust (8281) compare
-as the same application on different ports.
-
-> **The harness is used for read-only ops for now.** The corpus is *stateful*
-> (logins create/destroy sessions, `Feeds::view` persists `_DEFAULT_VIEW_*`,
-> the readonly/OTP logins at the end mutate user state). That's why `harness.sh`
-> resets the oracle DB to the golden baseline before every run — without the
-> reset, mutations accumulate across runs and the diff drifts (steps stop being
-> written, counters/orderings shift). The write/mutating steps are diffed only
-> against a matching-baseline oracle run and will get dedicated write-op
-> verification (asserting the *resulting* DB state, not just the response) at a
-> later milestone. The DB reset keeps each run reproducible regardless.

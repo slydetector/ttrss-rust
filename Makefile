@@ -1,14 +1,12 @@
-# ttrss — Makefile for the oracle + record/replay harness workflow.
+# ttrss — Makefile for the oracle stack + Rust server workflow.
 #
 # This is the primary interface. `make` (or `make help`) lists every target;
 # the targets launch the `oracle/scripts/` helpers and set the canonical env
-# for the Rust server. Pass extra options with `ARGS=...`, e.g.
-#   make harness ARGS=--no-build
+# for the Rust server.
 
 .DEFAULT_GOAL := help
 SHELL := /bin/bash
 SCRIPTS     := oracle/scripts
-HARNESS_BIN := ./target/debug/harness
 # Server build profile for `run`. A debug build is ~7x slower per request than
 # the optimized one (and the PHP oracle is compiled/OPcache'd), so the
 # canonical server runs in release; set PROFILE=debug for fast iteration.
@@ -17,13 +15,10 @@ CARGO_PROF  := $(if $(filter release,$(PROFILE)),--release,)
 SERVER_BIN  := ./target/$(PROFILE)/ttrss
 
 # Canonical Rust server values. 9000 = the reference app image's own port —
-# one port across dev (run), demo, the docker image and shadow. (The retired
-# oracle used 8280/8281; see oracle/README.md.)
+# one port across dev (run), demo, the docker image and shadow. (The live
+# oracle stack uses 8280/8281; see oracle/README.md.)
 SERVER_PORT := 9000
 BASE_URL  := http://127.0.0.1:$(SERVER_PORT)/tt-rss/
-ORACLE_URL := http://127.0.0.1:8280/tt-rss/
-SCENARIOS := oracle/corpus/scenarios.template.toml
-VARS      := oracle/data/ids.json
 
 # DB creds / plugins / the encryption key come from oracle/.env (source of truth).
 DB_USER := $(shell grep -E '^TTRSS_DB_USER=' oracle/.env 2>/dev/null | cut -d= -f2-)
@@ -44,8 +39,8 @@ RUST_LOG  ?= ttrss=debug
 
 .PHONY: help
 help: ## (default) list targets
-	@echo "ttrss — oracle + record/replay harness workflow"
-	@echo "Run a target with:  make <target>   (extra opts via ARGS=...)"
+	@echo "ttrss — oracle stack + Rust server workflow"
+	@echo "Run a target with:  make <target>"
 	@echo ""
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
 		| awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -91,8 +86,8 @@ oracle-check: ## verify the golden dataset matches the current seed recipe
 
 # --- Rust server -------------------------------------------------------------
 .PHONY: build
-build: ## build the debug Rust server + harness (for tests / the differential harness)
-	cargo build -p ttrss --bin ttrss -p harness
+build: ## build the debug Rust server (for tests)
+	cargo build -p ttrss --bin ttrss
 
 .PHONY: build-server
 build-server: ## build the server in $(PROFILE) (used by `run`)
@@ -269,28 +264,6 @@ coverage: ## run test coverage (cargo-llvm-cov): CLI summary + HTML report
 	@echo "== freeing the instrumented build dir (target/llvm-cov-target, ~18 GB) ..."
 	@rm -rf target/llvm-cov-target
 	@echo "== done - the HTML report above is kept; the extra build dir is removed."
-
-# --- harness (record / replay / diff) ---------------------------------------
-.PHONY: harness
-harness: ## reset DB, build, run the corpus vs the Rust server, diff vs oracle-a
-	$(SCRIPTS)/harness.sh $(ARGS)
-
-.PHONY: harness-keep
-harness-keep: ## like `harness` but leave the Rust server running
-	$(SCRIPTS)/harness.sh --keep $(ARGS)
-
-.PHONY: record
-record: ## record a fresh oracle baseline -> oracle/data/runs/oracle-a
-	@echo "stopping the updater (static oracle) + resetting the DB to the golden baseline ..."
-	@( cd oracle && docker compose stop updater >/dev/null 2>&1 ) || true
-	oracle/scripts/reset-db.sh
-	$(SCRIPTS)/check_sync.py
-	$(HARNESS_BIN) run --base-url $(ORACLE_URL) \
-		--scenarios $(SCENARIOS) --vars $(VARS) --out oracle/data/runs/oracle-a
-
-.PHONY: diff
-diff: ## diff two run dirs (A/B via ARGS=--a <dir> --b <dir>)
-	$(HARNESS_BIN) diff $(ARGS)
 
 # --- differential param fixtures (recorded from the frozen PHP reference) ---
 # These drive the *real* PHP helpers (the frozen tt-rss reference) over a

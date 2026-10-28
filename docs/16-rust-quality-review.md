@@ -94,7 +94,7 @@ is *wise*, not on whether the author "didn't know better."
 
 | Dimension | Measurement |
 |---|---|
-| Workspace crates | `ttrss` (server), `test-db` (Postgres test harness), `harness` (retired) |
+| Workspace crates | `ttrss` (server), `test-db` (Postgres test harness) |
 | Core crate size | **74.3K LOC** total (47.4K in `src/`, 84 files; ~26.9K in `tests/`) |
 | Functions | 1,959 total, **421 async** (~22%) |
 | Data layer | thin `Db` wrapper over `PgPool`; **349 inline SQL strings**, no query/repository layer |

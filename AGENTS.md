@@ -64,10 +64,6 @@ console — the response **body**, not the status. Dojo: drive widgets via
 in-page. See `docs/07-browser-debugging.md`; `browser/diff_rpc_surface.py` diffs
 the app's RPC surface against the backend dispatch.
 
-## Test harness / oracle (retired 2026-09-19)
-
-- The record/replay corpus (`oracle/`, `crates/harness`, the `harness*` targets) is **retired** — not part of the "green" bar. Do not re-add it. Kept in-tree, unwired, in case the approach is revived.
-
 ## Test parity
 
 Porting a PHP module means **mirroring its test cases 1:1** — same inputs, same expectations, landing with the code.

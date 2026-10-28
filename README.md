@@ -64,7 +64,7 @@ The top-level **`Makefile`** is the primary interface — `make help` lists ever
 The most common targets:
 
 ```sh
-make build          # build the Rust server + harness
+make build          # build the Rust server
 make run            # run the Rust server in the foreground (port 9000)
 make test           # run all the unit and integration tests
 make e2e            # Run e2e Playwright tests
