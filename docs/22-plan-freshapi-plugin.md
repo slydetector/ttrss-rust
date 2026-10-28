@@ -575,10 +575,22 @@ No new host capability, no new dependencies beyond phase 1. The phase-1
 
 - **`stream/contents` full-fidelity knobs** (`it`/`xt` filters,
   `ot`/`nt` time ranges, `c` continuation) — **settled (2026-10-26):
-  match-freshapi.** The reference computes `min_date` from `ot` and never
-  uses it (`streamContents` passes only `limit`/`skip`/`view_mode`/
-  `feed_id`/`order_by` to `getHeadlines`); `it`/`xt`/`nt` are read and
-  dropped. The port does the same — nothing to implement.
+  match-freshapi — superseded for `ot` on 2026-10-27: follow the
+  greader protocol.** The reference computes `min_date` from `ot` and
+  never uses it (`streamContents` passes only `limit`/`skip`/`view_mode`/
+  `feed_id`/`order_by` to `getHeadlines` — the API boundary never exposed
+  `start_ts`; a regression from freshapi's pre-`getHeadlines` rewrite,
+  which filtered on it). The protocol (mihaip spec: "the timestamp of the
+  oldest item that you're interested in"; Arowser: "only items crawled
+  after this time"; the 2009 Google spec's delta-sync pattern) requires
+  honoring it, and clients rely on it: News Flash sends `ot=<last sync>`
+  on every page, so ignoring it re-downloads the entire unread stream on
+  every sync. **Deviation: the port honors `ot`** — `start_ts` threaded
+  through the `getHeadlines` boundary into the already-ported
+  `date_entered >=` filter (crawl time, matching the reference's own
+  `streamItemsIds` `ot` convention). `nt` stays read-and-dropped like the
+  reference (no `end_ts` in the headline query; no known client sends
+  it).
 - **NetNewsWire UA quirk** (hex-decoding decimal ids) — **settled
   (2026-10-26): keep.** Landed in phase 1 (`stream/items/contents`,
   `edit-tag`): the `substr(ua, 0, 11) == "NetNewsWire"` prefix check +

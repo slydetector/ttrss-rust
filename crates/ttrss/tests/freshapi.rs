@@ -505,6 +505,87 @@ async fn test_stream_contents_scopes() {
 }
 
 #[tokio::test]
+async fn test_stream_contents_ot() {
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sid) = setup(&url).await;
+            let get = |path: &str| {
+                let (state, sid) = (&state, sid.clone());
+                let path = path.to_string();
+                Box::pin(async move {
+                    let resp = app(state.clone())
+                        .oneshot(auth_req(
+                            Method::GET,
+                            &format!("{BASE}/freshapi/reader/api/0/{path}"),
+                            "",
+                            &sid,
+                        ))
+                        .await
+                        .expect("response");
+                    assert_eq!(resp.status(), StatusCode::OK, "{path}");
+                    json_body(resp).await
+                })
+            };
+
+            // `ot` is the greader protocol's delta knob: "the timestamp of
+            // the oldest item that you're interested in". The filter is on
+            // `date_entered` (crawl time), so backdated items fetched after
+            // `ot` are still returned.
+            // Fixture date_entered: 1: 05-25 10:00, 2: 05-25 09:30,
+            // 3: 05-24 18:00, 4: 05-25 08:00, 5: 05-24 14:00,
+            // 6: 05-24 11:00, 7: 05-25 07:00, 8: 05-24 16:00,
+            // 9: 05-25 06:00, 10: 05-24 12:00, 11: 05-23 15:00 (all 2026 UTC).
+
+            // Baseline: all 8 unread.
+            let v = get("stream/contents/user/-/state/com.google/reading-list").await;
+            assert_eq!(v["items"].as_array().unwrap().len(), 8);
+
+            // ot = 2026-05-24 18:00 UTC (1779645600): eligible entries
+            // 1, 2, 3, 4, 7, 9 (>= boundary, article 3 included); unread
+            // of those: 1, 2, 4, 7, 9.
+            let v = get("stream/contents/user/-/state/com.google/reading-list?ot=1779645600").await;
+            let items = v["items"].as_array().unwrap();
+            assert_eq!(items.len(), 5, "{v}");
+            let ids: Vec<i64> = items
+                .iter()
+                .map(|it| {
+                    let hex = it["id"]
+                        .as_str()
+                        .unwrap()
+                        .strip_prefix("tag:google.com,2005:reader/item/")
+                        .unwrap();
+                    i64::from_str_radix(hex, 16).unwrap()
+                })
+                .collect();
+            assert_eq!(ids.len(), 5);
+            for n in [1, 2, 4, 7, 9] {
+                assert!(ids.contains(&n), "{n} missing: {ids:?}");
+            }
+
+            // ot beyond every fixture: empty stream, no continuation.
+            let v = get("stream/contents/user/-/state/com.google/reading-list?ot=1779761600").await;
+            assert_eq!(v["items"].as_array().unwrap().len(), 0);
+            assert!(v.get("continuation").is_none());
+
+            // Same knob on the starred scope (view_mode marked): starred
+            // 3 (05-24 18:00, boundary), 8 (05-24 16:00), 11 (05-23) →
+            // only 3 survives the filter.
+            let v = get("stream/contents/user/-/state/com.google/starred?ot=1779645600").await;
+            let items = v["items"].as_array().unwrap();
+            assert_eq!(items.len(), 1, "{v}");
+            assert!(items[0]["id"].as_str().unwrap().ends_with("03"));
+
+            // ot=0 (absent-equivalent): unfiltered.
+            let v = get("stream/contents/user/-/state/com.google/reading-list?ot=0").await;
+            assert_eq!(v["items"].as_array().unwrap().len(), 8);
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
 async fn test_stream_items_ids() {
     with_test_db(|url| {
         Box::pin(async move {

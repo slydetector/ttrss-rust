@@ -453,7 +453,17 @@ async fn dispatch(host: &mut HostCtx, route: &RouteCtx, req: &RouteRequest<'_>) 
                         // EasyRSS / FeedMe: bare `/stream/contents`
                         _ => Scope::ReadingList,
                     };
-                    stream_contents(host, route, &authed, scope, count, order, continuation).await
+                    stream_contents(
+                        host,
+                        route,
+                        &authed,
+                        scope,
+                        count,
+                        order,
+                        continuation,
+                        start_time,
+                    )
+                    .await
                 }
                 Some("items") => match (parts.get(6).copied(), p.req.contains_key("s")) {
                     (Some("ids"), true) => {
@@ -1029,6 +1039,7 @@ async fn stream_contents(
     count: i64,
     order: &str,
     continuation: i64,
+    start_time: i64,
 ) -> MethodOutput {
     let locale = user_locale(&route.app, &route.sess, authed).await;
     let (feed_id, is_cat, view_mode, result_id) = match &scope {
@@ -1091,6 +1102,26 @@ async fn stream_contents(
         );
         body.insert("show_content".into(), json!(true));
         body.insert("include_attachments".into(), json!(true));
+        // greader protocol: `ot` is "the timestamp of the oldest item that
+        // you're interested in" (mihaip spec; the 2009 Google spec's
+        // delta-sync pattern). Clients (News Flash) send `ot=<last sync>`
+        // on every page, so the server-side filter is what makes re-syncs
+        // cheap. Filter on `date_entered` (crawl time, per Arowser: "only
+        // items crawled after this time"), not the published date — a
+        // backdated item fetched today must reach the client. The reference
+        // parses `ot` into `$min_date` and drops it (a regression from its
+        // pre-`getHeadlines` rewrite, which filtered on it): deviation.
+        // NOTE(protocol): `nt` (newest-of-interest) is read and dropped,
+        // like the reference — no `end_ts` in the headline query; no known
+        // client sends it.
+        if start_time > 0 {
+            let dt = chrono::DateTime::from_timestamp(start_time, 0)
+                .unwrap_or(chrono::DateTime::UNIX_EPOCH);
+            body.insert(
+                "start_ts".into(),
+                json!(dt.format("%Y-%m-%d %H:%M:%S").to_string()),
+            );
+        }
         let (status, content) = api::get_headlines(&route.app, &route.sess, &body, None).await;
         if status != api::STATUS_OK {
             return internal_error();
