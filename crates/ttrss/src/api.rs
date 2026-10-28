@@ -964,6 +964,10 @@ pub(crate) async fn get_headlines(
     let has_sandbox = param_to_bool(body.get("has_sandbox"));
     sess.with_mut(|d| d.set("hasSandbox", PValue::Bool(has_sandbox)));
     let include_header = param_to_bool(body.get("include_header"));
+    // `start_ts`: the frozen reference's `API::getHeadlines` never reads it
+    // (unknown body params are dropped), but the internal `Feeds::_get_headlines`
+    // supports it and the greader-protocol port (freshapi) needs it for `ot`.
+    let start_ts = clean_str(body.get("start_ts").and_then(Value::as_str).unwrap_or(""));
 
     // `API::getHeadlines`: `search` (threaded to `_search_to_sql`),
     // `check_first_id` (changed-result-set signal for incremental clients),
@@ -996,6 +1000,7 @@ pub(crate) async fn get_headlines(
         skip_first_id_check,
         search,
         check_first_id: check_first_id as i32,
+        start_ts,
         ..Default::default()
     };
 

@@ -15,6 +15,11 @@
 //!
 //! (`filter` is read by the PHP and then dropped — a dead param in the frozen
 //! reference, `_api_get_headlines` never uses it — so it is ignored here.)
+//!
+//! `start_ts` is a deliberate superset: the frozen reference's
+//! `API::getHeadlines` never reads it, but the internal
+//! `Feeds::_get_headlines` supports it and the greader-protocol port
+//! (freshapi `ot`) needs it — pinned below.
 
 use crate::common;
 
@@ -151,6 +156,91 @@ async fn test_search_filters_headlines() {
                 )
                 .await,
                 vec![51],
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
+}
+
+/// Feed 6 (cat 1) + entries 60 (older) / 61 (newer) owned by uid 1.
+async fn add_start_ts_fixtures(pool: &sqlx::PgPool) {
+    sqlx::query(
+        "INSERT INTO ttrss_feeds (id, owner_uid, title, cat_id, feed_url, update_interval, purge_interval, site_url)
+         VALUES (6, 1, 'start_ts feed', 1, 'https://example.com/feed6', 60, 0, 'https://example.com')",
+    )
+    .execute(pool)
+    .await
+    .expect("feed insert");
+    for (id, title, entered) in [
+        (60i32, "Older delta story", "NOW() - INTERVAL '30 minutes'"),
+        (61i32, "Newer delta story", "NOW() - INTERVAL '20 minutes'"),
+    ] {
+        sqlx::query(AssertSqlSafe(format!(
+            "INSERT INTO ttrss_entries
+               (id, title, guid, link, updated, content, content_hash, date_entered, date_updated,
+                tsvector_combined, lang)
+             VALUES ({id}, '{title}', 'tag:example.com,2026:{id}', 'https://example.com/{id}',
+                     {entered}, 'body', 'SHA1:0000000000000000000000000000000000000000',
+                     {entered}, {entered}, to_tsvector('simple', '{title}' || ' body'), 'en')"
+        )))
+        .execute(pool)
+        .await
+        .expect("entry insert");
+        sqlx::query(
+            "INSERT INTO ttrss_user_entries (ref_id, uuid, feed_id, owner_uid, unread, marked, tag_cache, label_cache)
+             VALUES ($1, $2, 6, 1, true, false, '', '')",
+        )
+        .bind(id)
+        .bind(format!("uuid-{id}"))
+        .execute(pool)
+        .await
+        .expect("user entry insert");
+    }
+}
+
+#[tokio::test]
+async fn test_start_ts_filters_headlines() {
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            add_start_ts_fixtures(state.db.pool()).await;
+
+            // No `start_ts` → both articles (newest first).
+            assert_eq!(
+                ids(&state, &sess, &[("feed_id", json!(6))]).await,
+                vec![61, 60]
+            );
+
+            // `start_ts` between the two entries → only the newer one
+            // (`date_entered >=`, the ported `Feeds::_get_headlines` part).
+            let ts = (chrono::Utc::now() - chrono::Duration::minutes(25))
+                .format("%Y-%m-%d %H:%M:%S")
+                .to_string();
+            assert_eq!(
+                ids(
+                    &state,
+                    &sess,
+                    &[("feed_id", json!(6)), ("start_ts", json!(ts))]
+                )
+                .await,
+                vec![61],
+                "start_ts must filter the headline list"
+            );
+
+            // Future `start_ts` → empty.
+            let future = (chrono::Utc::now() + chrono::Duration::minutes(1))
+                .format("%Y-%m-%d %H:%M:%S")
+                .to_string();
+            assert_eq!(
+                ids(
+                    &state,
+                    &sess,
+                    &[("feed_id", json!(6)), ("start_ts", json!(future))]
+                )
+                .await,
+                Vec::<i32>::new()
             );
             Ok(())
         })
