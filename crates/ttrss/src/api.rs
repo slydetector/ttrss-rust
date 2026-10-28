@@ -1150,13 +1150,16 @@ async fn api_headline_row(
     let updated: Option<chrono::NaiveDateTime> = r.get(H_UPDATED);
     let label_cache: String = r.get(H_LABEL_CACHE);
     let tag_cache: String = r.get(H_TAG_CACHE);
-    let site_url: String = r.get(H_SITE_URL);
+    // NULL for archived articles (the feed join misses; PHP: API.php:822
+    // `$line["site_url"] ?? ""` "could be null if archived article").
+    let site_url: Option<String> = r.get(H_SITE_URL);
     let note: Option<String> = r.get(H_NOTE);
     // `e.lang` is nullable; the PHP API treats a missing language as empty.
     let lang: Option<String> = r.get(H_LANG);
     let hide_images: Option<bool> = r.get(H_HIDE_IMAGES);
     let unread: bool = r.get(H_UNREAD);
-    let line_feed_id: i32 = r.get(H_FEED_ID);
+    // NULL for archived articles; PHP (API.php:773): `$line["feed_id"] ? … : 0`.
+    let line_feed_id: i32 = r.get::<Option<i32>, _>(H_FEED_ID).unwrap_or(0);
     let marked: bool = r.get(H_MARKED);
     let published: bool = r.get(H_PUBLISHED);
     let last_read: Option<chrono::NaiveDateTime> = r.get(H_LAST_READ);
@@ -1211,7 +1214,7 @@ async fn api_headline_row(
         m.insert("excerpt".into(), Value::from(excerpt));
     }
     if show_content {
-        let site_opt = site_url.as_str();
+        let site_opt = site_url.as_deref();
         let content_out = if sanitize_content {
             sanitizer::sanitize(
                 &content,
@@ -1219,7 +1222,7 @@ async fn api_headline_row(
                 false,
                 has_sandbox,
                 false,
-                Some(site_opt).filter(|s| !s.is_empty()),
+                site_opt.filter(|s| !s.is_empty()),
                 None,
                 id,
                 Some(pctx),
@@ -1240,8 +1243,14 @@ async fn api_headline_row(
             "id": id,
             "tags": m.get("tags").cloned().unwrap_or(Value::Array(Vec::new())),
         });
-        let (flavor_image, flavor_stream, flavor_kind) =
-            article::get_image(pctx, &enclosures, &content, &site_url, &article).await;
+        let (flavor_image, flavor_stream, flavor_kind) = article::get_image(
+            pctx,
+            &enclosures,
+            &content,
+            site_url.as_deref().unwrap_or(""),
+            &article,
+        )
+        .await;
         m.insert("flavor_image".into(), Value::from(flavor_image));
         m.insert("flavor_stream".into(), Value::from(flavor_stream));
         if flavor_kind != 0 {
@@ -1252,8 +1261,11 @@ async fn api_headline_row(
     let labels = api_labels(&label_cache, pool, uid, id).await;
     m.insert("labels".into(), labels);
 
+    // NULL for archived articles (the feed join misses); PHP (API.php:806):
+    // `$line["feed_title"] ?? $feed_title`.
     let feed_title_out = if has_line_feed_title {
-        r.get::<String, _>(H_FEED_TITLE_VF)
+        r.get::<Option<String>, _>(H_FEED_TITLE_VF)
+            .unwrap_or_else(|| feed_title.to_string())
     } else {
         feed_title.to_string()
     };

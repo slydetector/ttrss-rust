@@ -1565,3 +1565,65 @@ async fn test_readonly_gates() {
     .await
     .unwrap();
 }
+
+/// The `starred` stream with an archived article (feed deleted → the feed
+/// join misses → `site_url`/`feed_id`/`feed_title` NULL in the API row).
+/// The decodes used to panic and 500 the whole stream (PHP: API.php:773
+/// `$line["feed_id"] ? … : 0`, :806 `$line["feed_title"] ?? $feed_title`,
+/// :822 `$line["site_url"] ?? ""` — "could be null if archived article").
+/// The GR item surfaces the coerced row as `origin` (`feed/0`, fallback
+/// title); the `feed_id`/`feed_title` row fields themselves are pinned in
+/// `api_getheadlines_params::test_headline_row_archived_article`.
+#[tokio::test]
+async fn test_stream_starred_archived_article() {
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sid) = setup(&url).await;
+            sqlx::query(
+                "UPDATE ttrss_user_entries SET marked = true, feed_id = NULL
+                 WHERE ref_id = 1 AND owner_uid = 1",
+            )
+            .execute(state.db.pool())
+            .await
+            .unwrap();
+            let resp = app(state.clone())
+                .oneshot(auth_req(
+                    Method::GET,
+                    &format!(
+                        "{BASE}/freshapi/reader/api/0/stream/contents/user/-/state/com.google/starred?output=json"
+                    ),
+                    "",
+                    &sid,
+                ))
+                .await
+                .expect("response");
+            assert_eq!(resp.status(), StatusCode::OK, "archived article in starred stream");
+            let v = json_body(resp).await;
+            let items = v["items"].as_array().unwrap();
+            let archived = items
+                .iter()
+                .find(|i| i["id"].as_str().map(|s| s.ends_with("1")).unwrap_or(false))
+                .expect("article 1 in starred stream");
+            // NULL feed join in the API row: `feed_id` coerces to 0 (PHP
+            // API.php:773) and `feed_title` falls back to the stream
+            // default (API.php:806) — surfaced here as the GR item's
+            // `origin` (a NULL decode used to 500 the whole stream).
+            assert_eq!(archived["origin"]["streamId"], "feed/0");
+            assert!(archived["origin"]["title"].is_string());
+            assert!(
+                archived["summary"]["content"].is_string(),
+                "content must still render (site_url NULL → no site context)"
+            );
+            // A non-archived item in the same stream keeps its feed data.
+            let other = items
+                .iter()
+                .find(|i| i["id"].as_str().map(|s| s.ends_with("08")).unwrap_or(false))
+                .expect("article 8 (Ars, not archived) in starred stream");
+            assert_eq!(other["origin"]["streamId"], "feed/3");
+            assert_eq!(other["origin"]["title"], "Ars Technica");
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
+}

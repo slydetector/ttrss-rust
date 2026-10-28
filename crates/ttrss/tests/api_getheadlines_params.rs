@@ -249,6 +249,56 @@ async fn test_start_ts_filters_headlines() {
     .unwrap();
 }
 
+/// Archived article (its `user_entries.feed_id` is NULL, so the feed join
+/// misses): the row must coerce `feed_id` to 0 (PHP API.php:773
+/// `$line["feed_id"] ? … : 0`) and fall back for `feed_title`
+/// (API.php:806 `$line["feed_title"] ?? $feed_title`) — not error.
+#[tokio::test]
+async fn test_headline_row_archived_article() {
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            sqlx::query("UPDATE ttrss_user_entries SET feed_id = NULL WHERE ref_id = 1")
+                .execute(state.db.pool())
+                .await
+                .unwrap();
+
+            // CAT_ALL scope: the archived article appears (its feed join
+            // simply misses).
+            let (status, content) = api::before_and_dispatch(
+                &state,
+                &sess,
+                "getheadlines",
+                &request(&[("feed_id", json!("-4"))]),
+                None,
+                false,
+            )
+            .await;
+            assert_eq!(status, 0);
+            let rows = content.as_array().expect("array response");
+            let archived = rows
+                .iter()
+                .find(|r| r.get("id").and_then(Value::as_i64) == Some(1))
+                .expect("archived article 1 in CAT_ALL headlines");
+            assert_eq!(archived["feed_id"], 0, "archived feed_id must coerce to 0");
+            assert!(
+                archived["feed_title"].is_string(),
+                "archived feed_title: {:?}",
+                archived["feed_title"]
+            );
+            // A non-archived row keeps its feed data.
+            let normal = rows
+                .iter()
+                .find(|r| r.get("id").and_then(Value::as_i64) == Some(2))
+                .expect("article 2 in CAT_ALL headlines");
+            assert_eq!(normal["feed_id"], 1);
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
+}
+
 #[tokio::test]
 async fn test_check_first_id_changed_result_set() {
     with_test_db(|url| {
