@@ -18,7 +18,7 @@ async fn count(pool: &sqlx::PgPool, table: &str) -> i64 {
 #[sqlx::test(fixtures(
     "../../../tt-rss/sql/pgsql/schema.sql",
     "../fixtures/baseline.sql",
-    "../fixtures/seed.sql",
+    "../../../tt-rss/tests_integration/seed.sql",
 ))]
 async fn fixture_set_matches_php_integration_fixture(pool: sqlx::PgPool) {
     // baseline
@@ -64,7 +64,7 @@ async fn fixture_set_matches_php_integration_fixture(pool: sqlx::PgPool) {
 #[sqlx::test(fixtures(
     "../../../tt-rss/sql/pgsql/schema.sql",
     "../fixtures/baseline.sql",
-    "../fixtures/seed.sql",
+    "../../../tt-rss/tests_integration/seed.sql",
 ))]
 async fn fixture_db_is_fresh_and_writable(pool: sqlx::PgPool) {
     // The per-test database starts from exactly the fixture state (no

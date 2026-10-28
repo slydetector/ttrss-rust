@@ -33,17 +33,31 @@ pub const TEMPLATE_DB: &str = "_ttrss_tpl";
 /// Advisory lock key for template setup (arbitrary fixed integer).
 const ADVISORY_LOCK_KEY: i64 = 42;
 
-/// The three fixture files, concatenated and hashed to detect staleness.
-/// The base schema is the frozen reference's own file (submodule pinned by
-/// the superproject — the same file `core::schema` runs at runtime, so the
+/// The fixture parts, concatenated and hashed to detect staleness. The base
+/// schema and the seed are the frozen reference's own files (submodule pinned
+/// by the superproject — the schema is the same file `core::schema` runs at
+/// runtime; the seed is the one the PHP integration suite runs — so the
 /// tests track the reference pin; a local copy would drift silently when the
 /// pin moves). `baseline.sql` carries what the app bootstrap adds on top of
-/// it (the `ttrss_version` stamp + the `pg_trgm` extension).
+/// the schema (the `ttrss_version` stamp + the `pg_trgm` extension).
 const FIXTURES: &[&str] = &[
     include_str!("../../../tt-rss/sql/pgsql/schema.sql"),
     include_str!("../fixtures/baseline.sql"),
-    include_str!("../fixtures/seed.sql"),
+    include_str!("../../../tt-rss/tests_integration/seed.sql"),
+    SEED_TSVECTOR_BACKFILL,
 ];
+
+/// Rust-test-only delta appended to the reference seed: backfill
+/// `tsvector_combined` on the seeded entries. tt-rss maintains the column in
+/// its import/update paths (RSSUtils.php / Article.php), not via a trigger,
+/// so the reference seed omits it; the search parity tests query it directly
+/// on the seeded rows.
+const SEED_TSVECTOR_BACKFILL: &str = "\
+-- Rust-test-only: backfill the full-text column (tt-rss maintains it in its
+-- import/update paths, not via a trigger, so the reference seed omits it).
+UPDATE ttrss_entries
+SET tsvector_combined = to_tsvector(COALESCE(lang, 'english')::regconfig, title || ' ' || content);
+";
 
 /// Return the master (maintenance) database URL from `DATABASE_URL`.
 pub fn master_url() -> String {

@@ -28,9 +28,11 @@
 //! (`tt-rss/sql/pgsql/schema.sql`, read straight from the pinned submodule so
 //! the tests track the reference, the same file `core::schema` runs at
 //! runtime), `fixtures/baseline.sql` (the `ttrss_version` stamp + the
-//! `pg_trgm` extension the app bootstrap adds on top of it), and
-//! `fixtures/seed.sql` (the PHP integration suite's seed) — are referenced by
-//! **explicit path** from each test file
+//! `pg_trgm` extension the app bootstrap adds on top of it), and the PHP
+//! integration suite's seed (`tt-rss/tests_integration/seed.sql`, also read
+//! straight from the pinned submodule, with the Rust-only
+//! `tsvector_combined` backfill appended in `template.rs`) — are referenced
+//! by **explicit path** from each test file
 //! (`include_str!` is source-file-relative). This intentionally does **not**
 //! depend on the oracle's golden data dump: the parity suites run under the
 //! same conditions as the PHP reference's own integration tests.
