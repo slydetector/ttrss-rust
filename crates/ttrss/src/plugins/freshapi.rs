@@ -210,6 +210,25 @@ fn strip_params(cond: &str) -> String {
     out
 }
 
+/// nginx's `merge_slashes on` (the nginx default) collapsed consecutive
+/// slashes in the request path before PHP ever saw `PATH_INFO`; this
+/// router does not, and News Flash 5.2.5 emits `api/greader.php//reader/…`
+/// (news-flash 3.2.0 `get_instance` appends `/` to the stored
+/// `…/greader.php/` base; greader_api 0.6 joins without normalizing).
+/// Collapse here so dispatch sees the normalized path the reference did.
+fn merge_slashes(s: &str) -> String {
+    let mut prev_slash = false;
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        if c == '/' && prev_slash {
+            continue;
+        }
+        prev_slash = c == '/';
+        out.push(c);
+    }
+    out
+}
+
 /// PHP `urldecode`: `%XX` + `+` → space. Lenient like PHP — valid
 /// sequences decode, invalid ones (`%z`, a trailing `%`) stay literal.
 /// Decoded bytes go through `from_utf8_lossy` (PHP keeps raw bytes; Rust
@@ -319,11 +338,20 @@ async fn dispatch(host: &mut HostCtx, route: &RouteCtx, req: &RouteRequest<'_>) 
         };
     }
 
-    // `urldecode($pathInfo)`; the leading `/api` / `greader.php` are the
-    // route prefixes the router already stripped. The router's `path_info`
-    // has no leading slash; PHP's `PATH_INFO` does (its `explode` yields a
-    // leading empty element — the indices below assume that shape).
-    let path = urldecode(req.path_info);
+    // `urldecode($pathInfo)`, then the reference's
+    // `preg_replace('%^(/api)?(/greader\.php)?%', '')`: clients address
+    // the PHP mount as `…/api/greader.php/…`, so that prefix survives the
+    // router's route-prefix strip and is discarded here. The router's
+    // `path_info` has no leading slash; PHP's `PATH_INFO` does (its
+    // `explode` yields a leading empty element — the indices below assume
+    // that shape).
+    let raw = urldecode(req.path_info);
+    let raw = merge_slashes(&raw);
+    let path = {
+        let p = raw.strip_prefix("api/").unwrap_or(&raw);
+        let p = p.strip_prefix("greader.php").unwrap_or(p);
+        p.strip_prefix('/').unwrap_or(p).to_string()
+    };
     let joined = format!("/{path}");
     let parts: Vec<&str> = joined.split('/').collect();
     let p = parse_request(req.query, req.body);
@@ -555,15 +583,29 @@ async fn dispatch(host: &mut HostCtx, route: &RouteCtx, req: &RouteRequest<'_>) 
                             .map(|v| v.is_empty() || v == "0")
                             .unwrap_or(false)
                     };
+                    // DEV: the reference reads `s`/`t` only from the body, so
+                    // clients that put them in the query string (News Flash
+                    // `subscription_edit`) get a silent no-op there. FreshRSS
+                    // accepts the query form; we do too (body wins when both
+                    // are present).
+                    let query_fallback = |k: &str, body_vals: Vec<String>| -> Vec<String> {
+                        if !body_vals.is_empty() {
+                            body_vals
+                        } else if let Some(q) = p.req.get(k) {
+                            vec![q.clone()]
+                        } else {
+                            Vec::new()
+                        }
+                    };
                     let stream_names = if scalar("s") {
                         vec![String::new()]
                     } else {
-                        multiple_posts(&p.body, "s")
+                        query_fallback("s", multiple_posts(&p.body, "s"))
                     };
                     let titles = if scalar("t") {
                         vec![String::new()]
                     } else {
-                        multiple_posts(&p.body, "t")
+                        query_fallback("t", multiple_posts(&p.body, "t"))
                     };
                     subscription_edit(
                         host,
@@ -638,20 +680,37 @@ struct Authed {
 }
 
 /// `greader.php`'s session resume + `freshapiSessionAllowed`
-/// (freshapi.php:72): the `Authorization: GoogleLogin_auth/<user>/<sid>`
+/// (freshapi.php:72): the `Authorization: GoogleLogin auth=<user>/<sid>`
 /// header names an existing session owned by `<user>`; the session must
 /// validate (password + access level unchanged, account enabled), the
 /// user must allow API access, and freshapi must be in the user's
 /// `_ENABLED_PLUGINS`.
-async fn authorized(host: &HostCtx, route: &RouteCtx) -> Option<Authed> {
-    let (app, sess) = (&route.app, &route.sess);
+/// `headerVariable('Authorization', 'GoogleLogin_auth')` (freshapi.php:4,
+/// 220): the header runs through `parse_str`, which turns spaces in keys
+/// into underscores — so the standard GR form `GoogleLogin
+/// auth=<user>/<sid>` and the literal `GoogleLogin_auth=<user>/<sid>`
+/// both resolve; the slash form (`GoogleLogin_auth/user/sid`) does not.
+fn authorization_value(host: &HostCtx) -> Option<String> {
     let header = host
         .server_env
         .iter()
         .find(|(k, _)| k.eq_ignore_ascii_case("Authorization"))?
         .1
         .as_str();
-    let rest = header.strip_prefix("GoogleLogin_auth/")?;
+    for pair in header.split('&') {
+        let Some((k, v)) = pair.split_once('=') else {
+            continue;
+        };
+        if k.replace([' ', '+'], "_") == "GoogleLogin_auth" {
+            return Some(urldecode(v));
+        }
+    }
+    None
+}
+
+async fn authorized(host: &HostCtx, route: &RouteCtx) -> Option<Authed> {
+    let (app, sess) = (&route.app, &route.sess);
+    let rest = authorization_value(host)?;
     let (user, sid) = rest.split_once('/')?;
     // `greader.php`'s resume guard (`^[a-zA-Z0-9,-]{1,128}$`).
     if !(1..=128).contains(&sid.len())
@@ -1765,8 +1824,7 @@ async fn subscription_export(app: &crate::AppState, sess: &session::Sess) -> Met
 
 /// `subscriptionImport` (freshapi.php:400): validate the body is OPML, run
 /// the port's `opml::import` directly on the bytes (the reference writes a
-/// temp file first — the documented deviation), then the reference's output
-/// post-processing (`&nbsp;`/`<br/>` runs → newlines, "Done!" suffix).
+/// temp file first — the documented deviation).
 async fn subscription_import(
     app: &crate::AppState,
     sess: &session::Sess,
@@ -1776,7 +1834,13 @@ async fn subscription_import(
         return text(400, "Bad Request!");
     }
     let out = opml::import(app, sess, Some(body.as_bytes())).await;
-    text(200, &format!("{}Done!", collapse_nbsp_br(&out)))
+    // DEV: the reference echoes the import log + "Done!", but the
+    // write-endpoint convention (FreshRSS, rssmonster) is a bare `OK`;
+    // the only GR client that parses the body (greader_api) is broken
+    // for every server by its own "Ok:"/"OK:" case bug, so the log
+    // goes to the server log instead.
+    tracing::info!(body = %collapse_nbsp_br(&out), "OPML import");
+    text(200, "OK")
 }
 
 /// `preg_replace('/(&nbsp;|<br\/>)+/', "\n", s)` (freshapi.php:429).

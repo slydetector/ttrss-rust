@@ -197,6 +197,9 @@ decimal-string conversion happens).
   404.
 - Client-compat checklist (smoke, manual): Reeder Classic, NetNewsWire,
   Fiery Feeds — login, sync, mark-read, star, subscribe.
+  **Done for the Linux-capable clients (2026-10-27):** News Flash,
+  RSS Guard, Fluent Reader all log in, sync, mark read/star and manage
+  subscriptions against the port.
 
 ## Phases
 

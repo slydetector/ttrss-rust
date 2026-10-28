@@ -57,7 +57,7 @@ fn auth_req(method: Method, uri: &str, body: &str, sid: &str) -> Request<Body> {
     Request::builder()
         .method(method)
         .uri(uri)
-        .header("Authorization", format!("GoogleLogin_auth/{login}/{sid}"))
+        .header("Authorization", format!("GoogleLogin auth={login}/{sid}"))
         .body(Body::from(body.to_string()))
         .expect("request")
 }
@@ -169,6 +169,21 @@ async fn test_client_login() {
             assert!(sid.len() > 10, "sid: {body:?}");
             assert_eq!(body, format!("SID=admin/{sid}\nLSID=\nAuth=admin/{sid}\n"),);
 
+            // The `api/greader.php` mount prefix (clients address the
+            // PHP path; the dispatch discards it, as the reference's
+            // `preg_replace` does).
+            let resp = app(state.clone())
+                .oneshot(req(
+                    Method::POST,
+                    &format!("{BASE}/freshapi/api/greader.php/accounts/ClientLogin"),
+                    "Email=admin&Passwd=password",
+                ))
+                .await
+                .expect("response");
+            assert_eq!(resp.status(), StatusCode::OK, "mount-prefixed login");
+            let body = text(resp).await;
+            assert!(body.starts_with("SID=admin/"), "{body:?}");
+
             // A bad password: 401 + Google-Bad-Token.
             let resp = app(state.clone())
                 .oneshot(req(
@@ -246,7 +261,7 @@ async fn test_auth_gates() {
                     Request::builder()
                         .method(Method::GET)
                         .uri(format!("{BASE}/freshapi/reader/api/0/user-info"))
-                        .header("Authorization", format!("GoogleLogin_auth/nobody/{sid}"))
+                        .header("Authorization", format!("GoogleLogin auth=nobody/{sid}"))
                         .body(Body::empty())
                         .expect("request"),
                 )
@@ -265,6 +280,23 @@ async fn test_auth_gates() {
                 .await
                 .expect("response");
             assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+
+            // The `parse_str` header form: the reference runs the header
+            // through `parse_str`, which turns the space-form key
+            // "GoogleLogin auth" into "GoogleLogin_auth" — so the literal
+            // `GoogleLogin_auth=<user>/<sid>` form authenticates too.
+            let resp = app(state.clone())
+                .oneshot(
+                    Request::builder()
+                        .method(Method::GET)
+                        .uri(format!("{BASE}/freshapi/reader/api/0/user-info"))
+                        .header("Authorization", format!("GoogleLogin_auth=admin/{sid}"))
+                        .body(Body::empty())
+                        .expect("request"),
+                )
+                .await
+                .expect("response");
+            assert_eq!(resp.status(), StatusCode::OK, "parse_str header form");
 
             // Healthcheck + bad paths.
             let resp = app(state.clone())
@@ -1029,6 +1061,23 @@ async fn test_subscription_edit() {
             );
             assert_eq!(cat_of(4).await, None);
 
+            // DEV: `s`/`a`/`r` in the query string, body carries only the
+            // token (the News Flash `subscription_edit` form). The reference
+            // no-ops this; FreshRSS accepts it, so we do.
+            let resp = app(state.clone())
+                .oneshot(auth_req(
+                    Method::POST,
+                    &format!(
+                        "{BASE}/freshapi/reader/api/0/subscription/edit?ac=edit&s=feed/4&r=user/-/label/News&a=user/-/label/Technology"
+                    ),
+                    "T=sometoken",
+                    &sid,
+                ))
+                .await
+                .expect("response");
+            assert_eq!(resp.status(), StatusCode::OK);
+            assert_eq!(cat_of(4).await, Some(1));
+
             // rename feed 1 (t=)
             assert_eq!(
                 post("s=feed/1&t=HN&ac=edit").await,
@@ -1216,8 +1265,9 @@ async fn test_subscription_export_import() {
                 .await
                 .expect("response");
             assert_eq!(resp.status(), StatusCode::OK);
-            let out = text(resp).await;
-            assert!(out.ends_with("Done!"), "{out}");
+            // DEV: bare `OK` (the FreshRSS/rssmonster write-endpoint
+            // convention), not the reference's log + "Done!".
+            assert_eq!(text(resp).await, "OK");
             let imported: Option<i32> =
                 sqlx::query_scalar("SELECT id FROM ttrss_feeds WHERE feed_url = $1")
                     .bind(mock.url("/feed3.xml"))
@@ -1621,6 +1671,43 @@ async fn test_stream_starred_archived_article() {
                 .expect("article 8 (Ars, not archived) in starred stream");
             assert_eq!(other["origin"]["streamId"], "feed/3");
             assert_eq!(other["origin"]["title"], "Ars Technica");
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
+}
+
+/// News Flash 5.2.5 (news-flash 3.2.0 + greader_api 0.6) appends `/` to
+/// the stored `…/api/greader.php/` base on load, emitting
+/// `api/greader.php//reader/…`. The reference runs behind nginx, whose
+/// default `merge_slashes on` collapses the double slash before
+/// `PATH_INFO` reaches the plugin — the dispatch does the same.
+#[tokio::test]
+async fn test_double_slash_path_news_flash() {
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sid) = setup(&url).await;
+            let resp = app(state.clone())
+                .oneshot(auth_req(
+                    Method::GET,
+                    &format!("{BASE}/freshapi/api/greader.php//reader/api/0/tag/list?output=json"),
+                    "",
+                    &sid,
+                ))
+                .await
+                .expect("response");
+            assert_eq!(
+                resp.status(),
+                StatusCode::OK,
+                "double-slash path must route"
+            );
+            let v = json_body(resp).await;
+            let tags = v["tags"].as_array().unwrap();
+            assert!(
+                tags.iter()
+                    .any(|t| t["id"] == "user/-/state/com.google/starred")
+            );
             Ok(())
         })
     })
