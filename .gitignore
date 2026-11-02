@@ -45,3 +45,4 @@ e2e/.env
 
 # Local scratch files
 TODO.*
+chrome-mcp-profile/
