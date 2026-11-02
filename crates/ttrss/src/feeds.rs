@@ -1212,10 +1212,13 @@ pub async fn subscribe(
     })
     .await;
 
+    // Decode the declared charset on the raw bytes before parsing (the
+    // reference lets libxml2 resolve BOM/declaration; see the encoding module
+    // for the lying-declaration deviation).
     let mut contents = res
         .body
         .as_deref()
-        .map_or(String::new(), |b| String::from_utf8_lossy(b).into_owned());
+        .map_or(String::new(), crate::encoding::decode_feed_bytes);
 
     // HOOK_SUBSCRIBE_FEED (M7.22 item 8): a plugin may transform the fetched
     // content before it's parsed. PHP `Feeds::_subscribe` (Feeds:1003) —

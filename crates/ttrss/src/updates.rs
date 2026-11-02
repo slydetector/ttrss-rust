@@ -873,10 +873,12 @@ pub async fn fetch_one_feed(
         format!("server last modified: {}", res.last_modified),
     );
 
+    // Decode the declared charset on the raw bytes before parsing (see the
+    // encoding module — mirrors the subscribe path).
     let body = res
         .body
         .as_deref()
-        .map_or(String::new(), |b| String::from_utf8_lossy(b).into_owned());
+        .map_or(String::new(), crate::encoding::decode_feed_bytes);
     let mut feed_data = body.trim().to_string();
 
     // Empty body → the error path (304 / 429 / other).
