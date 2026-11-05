@@ -175,6 +175,28 @@ New files: `Dockerfile` (repo root; originally `shadow/Dockerfile`),
 repo-root `.dockerignore`. `.gitignore` gains `shadow/.env` +
 `shadow/feed-icons/`.
 
+## Memory profiling
+
+The app service runs with `cap_add: [SYS_PTRACE]` (default docker caps omit
+it, and the app process drops to uid 1000, so neither root nor same-uid
+outside readers can open `/proc/1/smaps*` without it). With the cap in place:
+
+```sh
+docker exec -u root ttrss-shadow-app-1 sh -c \
+  'grep -E "Rss|Pss|Anon|File" /proc/1/smaps_rollup'
+# per-mapping breakdown (largest regions first):
+docker exec -u root ttrss-shadow-app-1 sh -c \
+  'awk "{if (\$6) print \$6; else print \"anon\"}" /proc/1/maps | sort | uniq -c | sort -rn | head'
+```
+
+Sample `VmRSS`/`Threads` over time from the host (no cap needed for
+`/proc/<hostpid>/status`):
+
+```sh
+P=$(docker inspect ttrss-shadow-app-1 --format '{{.State.Pid}}')
+awk '/VmRSS|VmData|Threads/{print}' /proc/$P/status
+```
+
 ## Decisions (resolved)
 
 1. **Shadow HTTP port** — `9000` (the one port: `make run` / `demo-start` /

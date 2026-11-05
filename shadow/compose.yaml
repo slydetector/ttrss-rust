@@ -35,6 +35,11 @@ services:
       args:
         RUST_IMAGE: rust:1.98-trixie
     image: ttrss-shadow-rust
+    # Profiling: lets `docker exec -u root shadow-app-1 cat /proc/1/smaps_rollup`
+    # etc. work (default caps omit SYS_PTRACE; the app drops to uid 1000, so
+    # same-uid reads are denied too — docs/10-shadow-prod.md "memory profiling").
+    cap_add:
+      - SYS_PTRACE
     depends_on:
       db:
         condition: service_healthy
@@ -46,6 +51,14 @@ services:
       TTRSS_DB_PASS: ${TTRSS_DB_PASS:-shadow}
       TTRSS_SELF_URL_PATH: ${TTRSS_SELF_URL_PATH:-http://127.0.0.1:9000/tt-rss/}
       TTRSS_ENCRYPTION_KEY: ${TTRSS_ENCRYPTION_KEY:-9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08}
+      # Debug the app's own modules without sqlx noise (same value `make run` uses).
+      RUST_LOG: ${RUST_LOG:-info}
+      # Daemon load knobs (image defaults shown); e.g.
+      #   TTRSS_DAEMON_SLEEP_INTERVAL=30 TTRSS_DAEMON_FEED_LIMIT=400 TTRSS_DAEMON_MAX_JOBS=8 make shadow
+      # to soak the updater (full 365-feed sweep every ~3 min).
+      TTRSS_DAEMON_SLEEP_INTERVAL: ${TTRSS_DAEMON_SLEEP_INTERVAL:-120}
+      TTRSS_DAEMON_FEED_LIMIT: ${TTRSS_DAEMON_FEED_LIMIT:-50}
+      TTRSS_DAEMON_MAX_JOBS: ${TTRSS_DAEMON_MAX_JOBS:-2}
     ports:
       - "${SHADOW_PORT:-9000}:9000"
     volumes:
