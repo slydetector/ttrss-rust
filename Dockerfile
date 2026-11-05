@@ -54,7 +54,13 @@ ENV TTRSS_DOCROOT=/var/www/html/tt-rss \
     TTRSS_PLUGINS=auth_internal,tweak_article_header \
     RUST_LOG=info \
     OWNER_UID=1000 \
-    OWNER_GID=1000
+    OWNER_GID=1000 \
+    MALLOC_ARENA_MAX=2
+# MALLOC_ARENA_MAX: cap glibc's per-thread heap arenas (default 8 x ncores).
+# The updater churns transient buffers (per-article DOMs, per-fetch TLS
+# clients) across ~20 threads; uncapped arenas hoard freed heap and RSS
+# creeps for days (measured: shadow soak 88MB and rising vs 52MB flat at 2,
+# CPU unchanged). No effect on non-glibc platforms. docs/10-shadow-prod.md.
 EXPOSE 9000
 # Reference parity (official web-nginx image, identical flags): an HTTP
 # probe of the real login page — 200 means the app serves at the configured
