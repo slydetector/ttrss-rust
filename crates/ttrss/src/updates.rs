@@ -279,13 +279,37 @@ pub async fn process_feed(
 
     // Favicon check (PHP: RSSUtils.php:648-697). After site_url is determined,
     // before the article loop.
+    // Deviation (docs/19): a custom flag whose file is gone (e.g. a migration
+    // that copied the flag but not the cache dir) is incoherent — clear it
+    // so the normal path re-downloads, instead of being stuck with an empty
+    // icon. The reference has the same stuck-state wart (its remove-icon is
+    // a no-op when the file is missing; see feeds.rs `remove_icon`).
+    let mut is_custom = feed.favicon_is_custom;
+    if is_custom && !cfg.feed_icon_dir().join(feed.id.to_string()).exists() {
+        let _ = sqlx::query(
+            "UPDATE ttrss_feeds SET favicon_is_custom = false, \
+             favicon_last_checked = '1970-01-01', favicon_avg_color = NULL \
+             WHERE id = $1",
+        )
+        .bind(feed.id)
+        .execute(pool)
+        .await;
+        dlog(
+            log.as_deref_mut(),
+            DEBUG_LEVEL_VERBOSE,
+            "favicon: custom icon file missing, clearing flag and re-fetching...".into(),
+        );
+        is_custom = false;
+    }
+
     let favicon_due = feed.favicon_needs_check
         || flags.force_refetch
-        || (feed.favicon_is_custom
+        || (is_custom
             && feed
                 .favicon_avg_color
                 .as_deref()
                 .is_none_or(|c| c.is_empty()));
+    let mut re_downloaded = false;
     if favicon_due {
         // Restrict update attempts to once per 12h.
         let _ = sqlx::query("UPDATE ttrss_feeds SET favicon_last_checked = NOW() WHERE id = $1")
@@ -293,7 +317,7 @@ pub async fn process_feed(
             .execute(pool)
             .await;
 
-        if !feed.favicon_is_custom {
+        if !is_custom {
             dlog(
                 log.as_deref_mut(),
                 DEBUG_LEVEL_VERBOSE,
@@ -302,11 +326,14 @@ pub async fn process_feed(
             // The reference logs nothing about the outcome; the debug dialog
             // surfaces it (deliberate extension — docs/19 deviations).
             match crate::favicons::update_favicon(cfg, &site_url, feed.id).await {
-                crate::favicons::FaviconOutcome::Saved { url, mime } => dlog(
-                    log.as_deref_mut(),
-                    DEBUG_LEVEL_VERBOSE,
-                    format!("favicon: downloaded {url} ({mime})"),
-                ),
+                crate::favicons::FaviconOutcome::Saved { url, mime } => {
+                    re_downloaded = true;
+                    dlog(
+                        log.as_deref_mut(),
+                        DEBUG_LEVEL_VERBOSE,
+                        format!("favicon: downloaded {url} ({mime})"),
+                    );
+                }
                 crate::favicons::FaviconOutcome::NoCandidates => dlog(
                     log.as_deref_mut(),
                     DEBUG_LEVEL_VERBOSE,
@@ -337,10 +364,11 @@ pub async fn process_feed(
 
         // Compute avg color if the icon exists and we don't have one yet.
         let icon_path = cfg.feed_icon_dir().join(feed.id.to_string());
-        let needs_color = feed
-            .favicon_avg_color
-            .as_deref()
-            .is_none_or(|c| c.is_empty());
+        let needs_color = re_downloaded
+            || feed
+                .favicon_avg_color
+                .as_deref()
+                .is_none_or(|c| c.is_empty());
         if icon_path.exists() && needs_color {
             dlog(
                 log.as_deref_mut(),

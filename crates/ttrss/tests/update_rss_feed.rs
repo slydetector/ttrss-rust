@@ -195,6 +195,64 @@ async fn test_successful_update_returns_true() {
     .unwrap();
 }
 
+// Deviation (docs/19): a custom flag whose icon file is missing is
+// incoherent — the update clears it so the normal path re-downloads
+// (the reference would be stuck; its remove-icon is a no-op on a missing
+// file). The site URL is unreachable so the re-download deterministically
+// fails; the assertion is on the flag, not the file.
+#[tokio::test]
+async fn test_custom_icon_missing_file_flag_cleared() {
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = common::make_db_from_url(&url).await.expect("test db");
+            let tc = common::test_cfg(); // per-test temp cache dir (dropped at test end)
+            let uid = create_user(&db, 102, 0 /* USER */).await;
+            let feed_id = create_feed(&db, 102, uid, "http://example.com/feed3.xml").await;
+            sqlx::query(
+                "UPDATE ttrss_feeds SET favicon_is_custom = true, \
+                 favicon_last_checked = '1970-01-01', \
+                 site_url = 'http://127.0.0.1:1/site' WHERE id = $1",
+            )
+            .bind(feed_id)
+            .execute(db.pool())
+            .await
+            .expect("flag custom");
+
+            let icon_file = tc.cfg.feed_icon_dir().join(feed_id.to_string());
+            assert!(!icon_file.exists(), "no icon file for this feed");
+
+            update_rss_feed(
+                db.pool(),
+                &tc.cfg,
+                Arc::new(no_plugins()),
+                feed_id,
+                MOCK_FEED,
+                &FeedUpdateFlags::default(),
+                None,
+            )
+            .await
+            .expect("update");
+
+            let row = sqlx::query(
+                "SELECT favicon_is_custom, favicon_last_checked::text FROM ttrss_feeds WHERE id = $1",
+            )
+            .bind(feed_id)
+            .fetch_one(db.pool())
+            .await
+            .expect("row");
+            assert!(!row.get::<bool, _>(0), "custom flag cleared for missing file");
+            assert_ne!(
+                row.get::<Option<String>, _>(1).as_deref(),
+                Some("1970-01-01"),
+                "last_checked stamped by the favicon check"
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
+}
+
 // PHP: testFeedMetadataUpdated
 #[tokio::test]
 async fn test_feed_metadata_updated() {

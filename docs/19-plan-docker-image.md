@@ -265,6 +265,21 @@ no rsync, no sudo, no cron** (the official app image is ~350 MB).
     crates; a huge `viewBox` can't blow up memory the way a rasterizer
     pixmap could). Degenerate SVGs (strokes/filters/patterns only) still
     fall back to gray, matching the reference's behavior.
+  - **`removeIcon` unsticks a missing file** (deviation): the reference
+    (Pref_Feeds.php:446) resets the feed's `favicon_*` columns only when
+    the cached icon file exists AND is removable — a feed whose file is
+    gone (e.g. a migration that copied the flag but not the cache dir) is
+    stuck with `favicon_is_custom = true` and an empty icon, and
+    remove-icon is a no-op. The port resets the columns unconditionally
+    (feed existence is the guard) and treats the file delete as
+    best-effort.
+  - **A missing custom icon self-heals on update** (deviation): a feed with
+    `favicon_is_custom = true` whose cached file is gone (migration, volume
+    loss) is stuck in the reference — every update skips the download
+    (custom) and the icon stays empty. The port clears the flag during the
+    feed update's favicon check and re-downloads (updates.rs, `process_feed`);
+    the debug dialog logs `favicon: custom icon file missing, clearing flag
+    and re-fetching...`.
 
 ## 5. Decision items
 

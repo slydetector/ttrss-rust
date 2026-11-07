@@ -2781,7 +2781,13 @@ pub async fn savefeedorder(state: &AppState, sess: &Sess, extra: &Map<String, Va
 // ============================================================================
 
 /// `Pref_Feeds::removeIcon` — delete the feed's favicon cache and reset its
-/// `favicon_*` columns (only if the cached file exists and is removable).
+/// `favicon_*` columns. Deviation (docs/19): the reference resets the
+/// columns only when the cached file exists AND is removable, so a feed
+/// whose icon file is gone (e.g. a migration that copied the flag but not
+/// the cache dir) is stuck with `favicon_is_custom = true` and an empty
+/// icon — remove-icon never unsticks it. Here the reset is unconditional
+/// (the feed's existence is the guard) and the file delete is
+/// best-effort: a missing file is exactly the state we must clear.
 pub async fn remove_icon(state: &AppState, sess: &Sess, extra: &Map<String, Value>) -> Value {
     let uid = sess.data().uid().unwrap_or(0);
     let feed_id = util::clean_int(extra.get("feed_id"));
@@ -2795,19 +2801,18 @@ pub async fn remove_icon(state: &AppState, sess: &Sess, extra: &Map<String, Valu
             .ok()
             .flatten();
     if let Some(fid) = feed {
-        let cache_file = state.config.feed_icon_dir().join(fid.to_string());
-        if cache_file.exists() && fs::remove_file(&cache_file).is_ok() {
-            sqlx::query(
-                "UPDATE ttrss_feeds SET favicon_avg_color = NULL, \
-                 favicon_last_checked = '1970-01-01', favicon_is_custom = false \
-                 WHERE owner_uid = $1 AND id = $2",
-            )
-            .bind(uid)
-            .bind(fid)
-            .execute(pool)
-            .await
-            .ok();
-        }
+        // Best-effort: NotFound is the state we're clearing.
+        let _ = fs::remove_file(state.config.feed_icon_dir().join(fid.to_string()));
+        sqlx::query(
+            "UPDATE ttrss_feeds SET favicon_avg_color = NULL, \
+             favicon_last_checked = '1970-01-01', favicon_is_custom = false \
+             WHERE owner_uid = $1 AND id = $2",
+        )
+        .bind(uid)
+        .bind(fid)
+        .execute(pool)
+        .await
+        .ok();
     }
     Value::Null
 }

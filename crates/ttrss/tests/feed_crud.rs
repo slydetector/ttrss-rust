@@ -931,6 +931,67 @@ async fn test_remove_icon() {
     })).await.unwrap();
 }
 
+/// Deviation from the reference (docs/19): removing a MISSING icon file
+/// still resets the `favicon_*` columns — a feed with a custom flag but no
+/// cached file (e.g. a migration that copied the flag but not the cache
+/// dir) must not be stuck in the "custom, empty icon" state.
+#[tokio::test]
+async fn test_remove_icon_missing_file() {
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup_from_url(&url).await;
+            let db = &state.db;
+            let icon_dir =
+                std::env::temp_dir().join(format!("ttrss-feedicon-miss-{}", std::process::id()));
+            std::fs::create_dir_all(icon_dir.join("feed-icons")).unwrap();
+            let mut cfg = common::test_config();
+            cfg.cache_dir = icon_dir.clone();
+            let state = AppState::new(cfg, state.db.clone());
+
+            // Custom flag, no cache file.
+            sqlx::query(
+                "UPDATE ttrss_feeds SET favicon_is_custom = true, favicon_avg_color = '#654321', \
+         favicon_last_checked = '2024-01-01 00:00:00' WHERE id = 1",
+            )
+            .execute(db.pool())
+            .await
+            .unwrap();
+            assert!(!icon_dir.join("feed-icons").join("1").exists());
+
+            let _ = ttrss::feeds::remove_icon(&state, &sess, &request(&[("feed_id", json!("1"))]))
+                .await;
+
+            let row = sqlx::query(
+                "SELECT favicon_avg_color, favicon_last_checked::text, favicon_is_custom \
+         FROM ttrss_feeds WHERE id = 1",
+            )
+            .fetch_one(db.pool())
+            .await
+            .unwrap();
+            use sqlx::Row as _;
+            assert_eq!(
+                row.get::<Option<String>, _>(0),
+                None,
+                "avg color reset to NULL"
+            );
+            assert_eq!(
+                row.get::<Option<&str>, _>(1),
+                Some("1970-01-01 00:00:00"),
+                "last_checked reset to epoch"
+            );
+            assert_eq!(
+                row.get::<Option<bool>, _>(2),
+                Some(false),
+                "is_custom reset to false"
+            );
+            let _ = std::fs::remove_dir_all(&icon_dir);
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
+}
+
 #[tokio::test]
 async fn test_upload_icon() {
     with_test_db(|url| {
