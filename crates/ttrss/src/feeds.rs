@@ -3409,7 +3409,7 @@ fn update_interval_label(value: i64) -> String {
 
 /// `Feeds::_get_purge_intervals` — key => label (the exact msgids the
 /// existing `.mo` catalogs translate).
-pub fn purge_intervals() -> [(&'static str, &'static str); 7] {
+pub fn purge_intervals() -> [(&'static str, &'static str); 9] {
     [
         ("0", "Use default"),
         ("-1", "Never purge"),
@@ -3418,6 +3418,8 @@ pub fn purge_intervals() -> [(&'static str, &'static str); 7] {
         ("31", "1 month old"),
         ("60", "2 months old"),
         ("90", "3 months old"),
+        ("180", "6 months old"),
+        ("365", "1 year old"),
     ]
 }
 
@@ -3551,5 +3553,20 @@ mod debugger_tests {
         let out = super::render_debug_log(&log, 0);
         assert!(out.contains("http://x/&lt;img src=1&gt;"));
         assert!(!out.contains("<img"));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::feeds::purge_intervals;
+
+    /// `#482` — the purge intervals gained the 6-month / 1-year options;
+    /// the labels must stay the exact PHP msgids (the `.mo` catalogs).
+    #[test]
+    fn purge_intervals_includes_long_options() {
+        let m: std::collections::HashMap<&str, &str> = purge_intervals().iter().copied().collect();
+        assert_eq!(m.get("180"), Some(&"6 months old"));
+        assert_eq!(m.get("365"), Some(&"1 year old"));
+        assert_eq!(purge_intervals().len(), 9);
     }
 }

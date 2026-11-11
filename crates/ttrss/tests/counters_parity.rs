@@ -1441,3 +1441,48 @@ async fn test_get_all_counters_handler_label_ids_subset() {
     .await
     .unwrap();
 }
+
+/// `#477`: the periodic full counters poll (no feed ids) piggybacks the
+/// runtime info, so the main UI needs no separate `getruntimeinfo` request;
+/// a feed-scoped poll omits it.
+#[tokio::test]
+async fn test_all_counters_piggybacks_runtime_info_on_full_poll_only() {
+    with_test_db(|url| {
+        Box::pin(async move {
+            let db = setup(&url).await;
+            let state = AppState::new(common::test_config(), db);
+            let mut data = Session::new();
+            data.set("uid", PValue::Int(1));
+            data.set(
+                "pwd_hash",
+                PValue::Bytes(common::ADMIN_PWD_HASH.as_bytes().to_vec()),
+            );
+            data.set("access_level", PValue::Int(10));
+            let sess = Sess::new("test-sid".to_string());
+            sess.replace("test-sid".to_string(), data);
+
+            // Full poll (no feed ids) → `runtime-info` present.
+            let full = counters::get_all_counters(&state, &sess, &Map::new()).await;
+            assert!(full.get("counters").is_some());
+            let ri = full
+                .get("runtime-info")
+                .expect("full poll must carry runtime-info");
+            assert!(ri.get("num_feeds").is_some());
+            assert!(ri.get("max_feed_id").is_some());
+
+            // Feed-scoped poll → no `runtime-info`.
+            let mut extra = Map::new();
+            extra.insert("feed_id_count".to_string(), json!(1));
+            extra.insert("feed_ids".to_string(), json!([1]));
+            let scoped = counters::get_all_counters(&state, &sess, &extra).await;
+            assert!(scoped.get("counters").is_some());
+            assert!(
+                scoped.get("runtime-info").is_none(),
+                "feed-scoped poll must omit runtime-info"
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
+}

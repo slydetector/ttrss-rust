@@ -65,7 +65,7 @@ async fn test_get_version() {
                 api::before_and_dispatch(&state, &sess, "getversion", &request(&[]), None, false)
                     .await;
             assert_eq!(status, 0);
-            assert_eq!(content["version"], "26.10-86c8385");
+            assert_eq!(content["version"], "26.11-5b1a6b1");
             Ok(())
         })
     })

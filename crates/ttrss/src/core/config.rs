@@ -21,9 +21,9 @@ pub const SCHEMA_VERSION: i64 = 151;
 
 /// `Config::get_version()` — the tt-rss version string for this checkout (the
 /// pinned `tt-rss/` submodule's `Ym-commit`: `git log --pretty=version-%ct-%h`
-/// on the pinned HEAD → `26.10-86c8385`). The PHP computes it from git/CI at
+/// on the pinned HEAD → `26.11-5b1a6b1`). The PHP computes it from git/CI at
 /// runtime; the port pins the pinned-submodule value.
-pub const VERSION: &str = "26.10-86c8385";
+pub const VERSION: &str = "26.11-5b1a6b1";
 
 /// `Config::PLUGINS` (T_STRING, default "auth_internal"): the built-in
 /// `auth_internal` auth module is the only *system* plugin enabled by default;

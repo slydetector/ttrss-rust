@@ -89,7 +89,17 @@ pub async fn get_all_counters(state: &AppState, sess: &Sess, extra: &Map<String,
         }
     };
 
-    json!({ "counters": counters, "seq": seq })
+    let mut reply = json!({ "counters": counters, "seq": seq });
+
+    // `#477` — the periodic full poll (no feed ids given) piggybacks the
+    // runtime info, so the main UI needs no separate getruntimeinfo request
+    // every minute (partial refreshes after marking articles etc. don't
+    // carry it).
+    if feed_ids.is_none() {
+        reply["runtime-info"] = crate::rpc::make_runtime_info(state, sess).await;
+    }
+
+    reply
 }
 
 /// `Handler::_param_to_int_array`: the id list (or null). `feed_ids[]` /

@@ -1016,9 +1016,10 @@ pub(crate) async fn get_headlines(
                 "SELECT cache_images, \
                    (EXTRACT(EPOCH FROM NOW()))::bigint \
                      - (EXTRACT(EPOCH FROM COALESCE(last_updated, to_timestamp(0))))::bigint > 120 \
-                   FROM ttrss_feeds WHERE id = $1",
+                   FROM ttrss_feeds WHERE id = $1 AND owner_uid = $2",
             )
             .bind(feed_num as i32)
+            .bind(uid)
             .fetch_optional(state.db.pool())
             .await
             .ok()

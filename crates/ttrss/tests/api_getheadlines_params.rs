@@ -392,7 +392,8 @@ async fn add_force_feed(
 /// The feed-5 `last_updated` / `last_update_started` / `last_error`.
 async fn stamps(pool: &sqlx::PgPool) -> (String, String, Option<String>) {
     sqlx::query_as(
-        "SELECT last_updated::text, last_update_started::text, last_error FROM ttrss_feeds WHERE id = 5",
+        "SELECT last_updated::text, COALESCE(last_update_started::text, ''), last_error \
+         FROM ttrss_feeds WHERE id = 5",
     )
     .fetch_one(pool)
     .await
@@ -617,6 +618,53 @@ async fn test_cdm_excerpt_states() {
                      title=\"Collapse article\">remove_circle</i></span>"
                 ),
                 "preview off → close button only"
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
+}
+
+/// GHSA-62wp-j9w3-4vrv: a `force_update` for a feed the session user does
+/// not own is a no-op — the PHP scopes the lookup by `owner_uid`, so no
+/// fetch is attempted and the stamps are not reset.
+#[tokio::test]
+async fn test_force_update_other_users_feed_untouched() {
+    with_test_db(|url| {
+        Box::pin(async move {
+            let (state, sess) = setup(&url).await;
+            let pool = state.db.pool();
+            // A second user, re-owning feed 5 (stale, non-cache-images).
+            sqlx::query(
+                "INSERT INTO ttrss_users (id, login, pwd_hash, access_level)
+             VALUES (2, 'u2', 'SHA1:00', 10)",
+            )
+            .execute(pool)
+            .await
+            .expect("user 2 insert");
+            let mock = feed_mock(500);
+            add_force_feed(pool, &mock.url("/feed"), "2020-01-01 00:00:00", false).await;
+            sqlx::query("UPDATE ttrss_feeds SET owner_uid = 2 WHERE id = 5")
+                .execute(pool)
+                .await
+                .expect("re-owner feed 5");
+
+            ids(
+                &state,
+                &sess,
+                &[("feed_id", json!(5)), ("force_update", json!(true))],
+            )
+            .await;
+
+            let (lu, _lus, err) = stamps(pool).await;
+            assert!(
+                lu.starts_with("2020-01-01"),
+                "stale stamp untouched, got {lu}"
+            );
+            assert!(
+                err.as_deref().unwrap_or("").is_empty(),
+                "no fetch attempted for a non-owned feed: {err:?}"
             );
             Ok(())
         })

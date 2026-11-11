@@ -93,19 +93,3 @@ On demand — the report is a fetch plus a diff, seconds to run. Do it before
 shipping the Docker image, and immediately when an upstream security
 advisory (GHSA) lands — advisories always touch `classes/`, so they surface
 as REVIEW items.
-
-## Backlog at time of writing (2026-10-10: pin `2f7d831` → upstream `270fcc7`)
-
-4 REVIEW commits:
-
-- `bdb1c47` — validate the session in `dbupdate` (**GHSA-9f8c-5cv6-jv5x**,
-  security)
-- `e88133e` — mark session invalid on access-level changes (security)
-- `9a6b861` — filter entries by feed title (#449, feature: a `feed` keyword
-  filter in entry queries)
-- `820aeae` — base-images-bump (#444, `.docker/` — evaluate, not port)
-
-16 AUTO commits (Weblate translations, npm/DevDep bumps, upstream GH
-workflow bumps, plus `5f8cd06` — JS-only switch to idempotent mark/publish
-RPC calls; the port already dispatches the individual mark/unmark/publish
-actions, so no work). No `sql/` changes → no `SCHEMA_VERSION` bump needed.
